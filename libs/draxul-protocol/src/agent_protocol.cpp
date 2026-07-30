@@ -1,5 +1,7 @@
 #include <draxul/agent_protocol.h>
 
+#include "json_extract.h"
+
 #include <nlohmann/json.hpp>
 #include <unordered_set>
 #include <utility>
@@ -142,9 +144,14 @@ bool read_session_ref(
     const auto parsed_kind = parse_agent_session_ref_kind(kind);
     if (!parsed_kind)
         return false;
-    ref.integration_version
-        = value["integration_version"].get<uint32_t>();
-    ref.sequence = value["sequence"].get<uint64_t>();
+    if (!read_bounded_integer(
+            value["integration_version"],
+            ref.integration_version)
+        || !read_bounded_integer(
+            value["sequence"], ref.sequence))
+    {
+        return false;
+    }
     ref.kind = *parsed_kind;
     return validate_agent_session_ref(ref);
 }
@@ -239,20 +246,27 @@ bool read_projection(const nlohmann::json& value,
     projection.identity_high_confidence
         = value["identity_high_confidence"].get<bool>();
     projection.lifecycle = *parsed_lifecycle;
-    projection.generation.value = value["generation"].get<uint64_t>();
+    if (!read_bounded_integer(
+            value["generation"], projection.generation.value)
+        || !read_bounded_integer(
+            value["manifest_version"],
+            projection.manifest_version)
+        || !read_bounded_integer(
+            value["observation_generation"],
+            projection.observation_generation))
+    {
+        return false;
+    }
     projection.status = *parsed_status;
     projection.status_authority = *parsed_authority;
-    projection.manifest_version
-        = value["manifest_version"].get<uint32_t>();
-    projection.observation_generation
-        = value["observation_generation"].get<uint64_t>();
     projection.attention = value["attention"].get<bool>();
     projection.running = value["running"].get<bool>();
     if (const auto exit = value.find("exit_code"); exit != value.end())
     {
-        if (!exit->is_number_integer())
+        int exit_code = 0;
+        if (!read_bounded_integer(*exit, exit_code))
             return false;
-        projection.exit_code = exit->get<int>();
+        projection.exit_code = exit_code;
     }
     if (const auto session = value.find("session_ref");
         session != value.end())
@@ -303,7 +317,12 @@ std::optional<ServerAgentSnapshot> server_agent_snapshot_from_json(
         error = "Server agent snapshot exceeds the row limit.";
         return std::nullopt;
     }
-    snapshot.revision = value["revision"].get<uint64_t>();
+    if (!read_bounded_integer(
+            value["revision"], snapshot.revision))
+    {
+        error = "Invalid server agent snapshot revision.";
+        return std::nullopt;
+    }
     std::unordered_set<std::string> instance_ids;
     for (const auto& encoded : value["agents"])
     {

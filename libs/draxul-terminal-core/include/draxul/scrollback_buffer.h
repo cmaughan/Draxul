@@ -101,6 +101,10 @@ public:
     // Does not reallocate storage — keeps cols() and the ring buffer alive.
     void reset();
 
+    // Drop all allocated storage without allocating. Used as a safe
+    // degradation path if a larger terminal resize cannot complete.
+    void release_storage() noexcept;
+
     // Invoke `fn(const Cell&)` for every cell in every stored scrollback row.
     template <typename Fn>
     void for_each_cell(Fn&& fn) const

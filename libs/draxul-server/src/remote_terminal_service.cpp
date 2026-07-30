@@ -2,8 +2,10 @@
 
 #include <draxul/log.h>
 #include <draxul/remote_terminal_protocol.h>
+#include <draxul/server_protocol.h>
 
 #include <algorithm>
+#include <limits>
 #include <nlohmann/json.hpp>
 
 namespace draxul
@@ -18,12 +20,88 @@ constexpr auto kLoopLatencyWarningThreshold
     = std::chrono::milliseconds(100);
 constexpr size_t kCompletedMutationLimit = 1024;
 
+bool read_int64(const nlohmann::json& value, int64_t& result)
+{
+    if (value.is_number_unsigned())
+    {
+        const uint64_t encoded = value.get<uint64_t>();
+        if (encoded
+            > static_cast<uint64_t>(
+                std::numeric_limits<int64_t>::max()))
+        {
+            return false;
+        }
+        result = static_cast<int64_t>(encoded);
+        return true;
+    }
+    if (!value.is_number_integer())
+        return false;
+    result = value.get<int64_t>();
+    return true;
+}
+
 size_t replace_safe_json_size(const nlohmann::json& value)
 {
     return value
         .dump(-1, ' ', false,
             nlohmann::detail::error_handler_t::replace)
         .size();
+}
+
+bool strip_hyperlinks(RemoteTerminalEvent& event)
+{
+    bool changed = false;
+    if (event.snapshot)
+    {
+        for (auto& cell : event.snapshot->cells)
+        {
+            if (!cell.hyperlink.empty())
+            {
+                cell.hyperlink.clear();
+                changed = true;
+            }
+        }
+    }
+    if (event.delta)
+    {
+        for (auto& dirty : event.delta->cells)
+        {
+            if (!dirty.cell.hyperlink.empty())
+            {
+                dirty.cell.hyperlink.clear();
+                changed = true;
+            }
+        }
+    }
+    return changed;
+}
+
+bool strip_attrs(RemoteTerminalEvent& event)
+{
+    bool changed = false;
+    if (event.snapshot)
+    {
+        for (auto& cell : event.snapshot->cells)
+        {
+            if (cell.attr != HlAttr{})
+            {
+                cell.attr = {};
+                changed = true;
+            }
+        }
+    }
+    if (event.delta)
+    {
+        for (auto& dirty : event.delta->cells)
+        {
+            if (dirty.cell.attr != HlAttr{})
+            {
+                dirty.cell.attr = {};
+                changed = true;
+            }
+        }
+    }
+    return changed;
 }
 
 } // namespace
@@ -78,7 +156,7 @@ bool RemoteTerminalService::read_client_id(
         return false;
     }
     client_id = params["client_id"].get<std::string>();
-    return !client_id.empty() && client_id.size() <= 128;
+    return valid_server_client_id(client_id);
 }
 
 bool RemoteTerminalService::read_version(
@@ -177,6 +255,7 @@ bool RemoteTerminalService::ensure_runtime_started(std::string& error)
     {
         (void)client_id;
         subscriber.events.clear();
+        subscriber.queued_bytes = 0;
         subscriber.needs_resync = true;
     }
     return true;
@@ -246,23 +325,75 @@ RemoteTerminalEvent RemoteTerminalService::make_clipboard_event(
     };
 }
 
+std::shared_ptr<const RemoteTerminalService::EncodedEvent>
+RemoteTerminalService::encode_event(
+    RemoteTerminalEvent event, bool degrade_to_poll_budget)
+{
+    auto encoded = remote_terminal_event_to_json(event);
+    size_t bytes = replace_safe_json_size(encoded);
+    bool degraded = false;
+    if (degrade_to_poll_budget && bytes > kPollPayloadBudget)
+    {
+        degraded = strip_hyperlinks(event);
+        if (degraded)
+        {
+            encoded = remote_terminal_event_to_json(event);
+            bytes = replace_safe_json_size(encoded);
+        }
+    }
+    if (degrade_to_poll_budget && bytes > kPollPayloadBudget)
+    {
+        degraded = strip_attrs(event) || degraded;
+        encoded = remote_terminal_event_to_json(event);
+        bytes = replace_safe_json_size(encoded);
+    }
+    if (degrade_to_poll_budget && bytes > kPollPayloadBudget)
+        return {};
+    if (degraded)
+        ++degraded_frames_;
+    return std::make_shared<const EncodedEvent>(EncodedEvent{
+        .event = std::move(event),
+        .encoded = std::move(encoded),
+        .bytes = bytes,
+    });
+}
+
+void RemoteTerminalService::require_resync(Subscriber& subscriber)
+{
+    subscriber.events.clear();
+    subscriber.queued_bytes = 0;
+    if (!subscriber.needs_resync)
+        ++resyncs_;
+    subscriber.needs_resync = true;
+}
+
 void RemoteTerminalService::broadcast(const RemoteTerminalEvent& event)
 {
+    if (subscribers_.empty())
+        return;
+    const auto encoded = encode_event(event, false);
+    if (!encoded)
+        return;
     for (auto& [client_id, subscriber] : subscribers_)
     {
         (void)client_id;
         if (subscriber.needs_resync)
             continue;
-        if (subscriber.events.size() >= kRemoteTerminalQueueLimit)
+        if (encoded->bytes > kRemoteTerminalSubscriberQueueByteLimit
+            || subscriber.events.size() >= kRemoteTerminalQueueLimit
+            || subscriber.queued_bytes
+                > kRemoteTerminalSubscriberQueueByteLimit - encoded->bytes)
         {
-            subscriber.events.clear();
-            subscriber.needs_resync = true;
-            ++resyncs_;
+            ++oversized_queue_events_;
+            require_resync(subscriber);
             continue;
         }
-        subscriber.events.push_back(event);
+        subscriber.events.push_back(encoded);
+        subscriber.queued_bytes += encoded->bytes;
         max_queue_depth_
             = std::max(max_queue_depth_, subscriber.events.size());
+        max_queue_bytes_
+            = std::max(max_queue_bytes_, subscriber.queued_bytes);
     }
 }
 
@@ -305,7 +436,16 @@ ControlMethodResult RemoteTerminalService::attach(
         preferred_controller_client_id_.clear();
         broadcast(make_controller_event());
         subscribers_[client_id].events.clear();
+        subscribers_[client_id].queued_bytes = 0;
     }
+    const auto state = encode_event(snapshot_event(), true);
+    if (!state)
+    {
+        return ControlMethodResult::error(
+            "frame_too_large",
+            "The terminal snapshot exceeds the transport frame budget.");
+    }
+    snapshot_bytes_ += state->bytes;
     RemoteTerminalAttach result{
         .pane = {
             .pane_id = options_.pane_id,
@@ -314,7 +454,7 @@ ControlMethodResult RemoteTerminalService::attach(
             .execution_domain = "server_terminal",
             .process_id = runtime_.process_id(),
         },
-        .state = snapshot_event(),
+        .state = state->event,
     };
     return ControlMethodResult::success(remote_terminal_attach_to_json(result));
 }
@@ -350,10 +490,17 @@ ControlMethodResult RemoteTerminalService::poll(
     nlohmann::json events = nlohmann::json::array();
     if (requested.generation != generation_ || delivery.needs_resync)
     {
-        auto encoded = remote_terminal_event_to_json(snapshot_event());
-        snapshot_bytes_ += replace_safe_json_size(encoded);
-        events.push_back(std::move(encoded));
+        const auto encoded = encode_event(snapshot_event(), true);
+        if (!encoded)
+        {
+            return ControlMethodResult::error(
+                "frame_too_large",
+                "The terminal snapshot exceeds the transport frame budget.");
+        }
+        snapshot_bytes_ += encoded->bytes;
+        events.push_back(encoded->encoded);
         delivery.events.clear();
+        delivery.queued_bytes = 0;
         delivery.needs_resync = false;
     }
     else
@@ -364,35 +511,33 @@ ControlMethodResult RemoteTerminalService::poll(
                 "stale_sequence", "The client sequence is ahead of the server.");
         }
         while (!delivery.events.empty()
-            && delivery.events.front().version.sequence <= requested.sequence)
+            && delivery.events.front()->event.version.sequence
+                <= requested.sequence)
         {
+            delivery.queued_bytes -= std::min(
+                delivery.queued_bytes,
+                delivery.events.front()->bytes);
             delivery.events.pop_front();
         }
         size_t count = 0;
         size_t payload_bytes = 0;
-        for (const auto& event : delivery.events)
+        for (const auto& encoded : delivery.events)
         {
             if (count++ >= kRemoteTerminalMaxEventsPerPoll)
                 break;
-            auto encoded = remote_terminal_event_to_json(event);
-            const size_t encoded_bytes = replace_safe_json_size(encoded);
-            if (!events.empty()
-                && payload_bytes + encoded_bytes > kPollPayloadBudget)
+            if (encoded->bytes > kPollPayloadBudget - payload_bytes)
             {
                 break;
             }
-            events.push_back(std::move(encoded));
-            payload_bytes += encoded_bytes;
-            if (event.kind == RemoteTerminalEventKind::Snapshot)
-                snapshot_bytes_ += encoded_bytes;
-            else if (event.kind == RemoteTerminalEventKind::Delta)
-                delta_bytes_ += encoded_bytes;
+            events.push_back(encoded->encoded);
+            payload_bytes += encoded->bytes;
+            if (encoded->event.kind == RemoteTerminalEventKind::Snapshot)
+                snapshot_bytes_ += encoded->bytes;
+            else if (encoded->event.kind == RemoteTerminalEventKind::Delta)
+                delta_bytes_ += encoded->bytes;
         }
     }
-    return ControlMethodResult::success({
-        { "events", std::move(events) },
-        { "server_sequence", sequence_ },
-    });
+    return ControlMethodResult::success({ { "events", std::move(events) } });
 }
 
 ControlMethodResult RemoteTerminalService::input(
@@ -479,18 +624,21 @@ ControlMethodResult RemoteTerminalService::resize(
         return ControlMethodResult::error(
             "not_controller", "This client is observing the terminal.");
     }
-    const int cols = params["cols"].get<int>();
-    const int rows = params["rows"].get<int>();
-    if (cols <= 0 || rows <= 0
+    int64_t cols = 0;
+    int64_t rows = 0;
+    if (!read_int64(params["cols"], cols)
+        || !read_int64(params["rows"], rows)
+        || cols <= 0 || rows <= 0
         || cols > kRemoteTerminalMaxColumns
         || rows > kRemoteTerminalMaxRows
-        || static_cast<size_t>(cols) * static_cast<size_t>(rows)
+        || static_cast<uint64_t>(cols) * static_cast<uint64_t>(rows)
             > kRemoteTerminalMaxCells)
     {
         return ControlMethodResult::error(
             "invalid_resize", "Terminal dimensions are out of range.");
     }
-    if (!runtime_.resize(cols, rows))
+    if (!runtime_.resize(
+            static_cast<int>(cols), static_cast<int>(rows)))
     {
         return ControlMethodResult::error(
             "process_resize_failed", "The terminal process rejected the resize.");
@@ -621,6 +769,7 @@ bool RemoteTerminalService::restart_runtime(std::string& error)
     {
         (void)subscriber_id;
         subscriber.events.clear();
+        subscriber.queued_bytes = 0;
         subscriber.needs_resync = true;
     }
     return true;
@@ -667,9 +816,11 @@ ControlMethodResult RemoteTerminalService::read_scrollback(
         = params["offset_from_live"].get<uint64_t>();
     const uint64_t total_rows = runtime_.scrollback_rows();
     const uint64_t offset = std::min(requested_offset, total_rows);
-    const size_t max_rows = std::min(
-        params["max_rows"].get<size_t>(),
-        kRemoteTerminalMaxScrollbackPageRows);
+    const uint64_t requested_max_rows
+        = params["max_rows"].get<uint64_t>();
+    const size_t max_rows = static_cast<size_t>(std::min<uint64_t>(
+        requested_max_rows,
+        kRemoteTerminalMaxScrollbackPageRows));
     RemoteTerminalScrollbackPage page{
         .version = version(),
         .total_rows = total_rows,
@@ -695,8 +846,14 @@ ControlMethodResult RemoteTerminalService::metrics() const
         { "delta_cells", delta_cells_ },
         { "full_frame_cells", full_frame_cells_ },
         { "max_queue_depth", max_queue_depth_ },
+        { "max_queue_bytes", max_queue_bytes_ },
         { "queue_limit", kRemoteTerminalQueueLimit },
+        { "queue_byte_limit",
+            kRemoteTerminalSubscriberQueueByteLimit },
+        { "poll_payload_budget", kPollPayloadBudget },
         { "resyncs", resyncs_ },
+        { "degraded_frames", degraded_frames_ },
+        { "oversized_queue_events", oversized_queue_events_ },
         { "subscribers", subscribers_.size() },
         { "scrollback_requests", scrollback_requests_ },
         { "scrollback_rows_served", scrollback_rows_served_ },

@@ -339,7 +339,8 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
             std::printf(
                 "Draxul server: %s\nPID: %llu\nEpoch: %s\nProtocol: %d.%d\n"
                 "Clients: %zu\nSessions: %zu\nSpaces: %zu\nTerminals: %zu\n"
-                "Agents: %zu\nCheckpoint: %s\nCheckpoint path: %s\n",
+                "Agents: %zu\nScrollback cells: %zu / %zu\n"
+                "Checkpoint: %s\nCheckpoint path: %s\n",
                 result.status->state.c_str(),
                 static_cast<unsigned long long>(result.status->server_pid),
                 result.status->server_epoch.c_str(),
@@ -350,6 +351,8 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
                 result.status->spaces,
                 result.status->terminals,
                 result.status->agents,
+                result.status->scrollback_cells_reserved,
+                result.status->scrollback_cells_limit,
                 result.status->checkpoint_state.c_str(),
                 result.status->checkpoint_path.c_str());
             if (!result.status->checkpoint_error.empty())
@@ -595,6 +598,8 @@ static int draxul_main(std::vector<std::string> args)
     std::optional<draxul::ServerWelcome> server_connection;
     std::filesystem::path connected_server_runtime;
     std::string connected_server_client_id;
+    std::shared_ptr<draxul::ClientRecoveryState>
+        connected_client_recovery;
     const bool shared_server
         = draxul::should_use_shared_server(parsed);
     const bool fake_remote_terminal
@@ -605,11 +610,14 @@ static int draxul_main(std::vector<std::string> args)
     {
         connected_server_runtime = server_runtime_dir(parsed);
         connected_server_client_id = draxul::make_server_client_id();
+        connected_client_recovery
+            = std::make_shared<draxul::ClientRecoveryState>(
+                connected_server_client_id);
         std::string selected_server_shell
             = parsed.server_shell_kind;
         if (selected_server_shell.empty()
             && parsed.host_kind
-            && draxul::is_server_owned_shell_kind(
+            && draxul::is_server_owned_shell_host(
                 *parsed.host_kind)
             && *parsed.host_kind
                 != draxul::HostKind::RemoteTerminal)
@@ -621,6 +629,8 @@ static int draxul_main(std::vector<std::string> args)
             .runtime_directory = connected_server_runtime,
             .executable_path = current_executable,
             .client_id = connected_server_client_id,
+            .registration_nonce
+            = connected_client_recovery->registration_nonce(),
             .timeout = std::chrono::seconds(2),
             .terminal_shell_kind = selected_server_shell,
             .terminal_command = parsed.host_command,
@@ -731,13 +741,12 @@ static int draxul_main(std::vector<std::string> args)
     options.server_client_id = connected_server_client_id;
     if (shared_server)
     {
-        options.client_recovery
-            = std::make_shared<draxul::ClientRecoveryState>(
-                connected_server_client_id);
+        options.client_recovery = connected_client_recovery;
         if (options.server_connection)
         {
-            options.client_recovery->set_server_epoch(
-                options.server_connection->server_epoch);
+            options.client_recovery->set_server_identity(
+                options.server_connection->server_epoch,
+                options.server_connection->connection_token);
         }
     }
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
@@ -932,6 +941,22 @@ static int draxul_main(std::vector<std::string> args)
         app.run();
     }
     app.shutdown();
+    if (shared_server && connected_client_recovery)
+    {
+        const auto identity
+            = connected_client_recovery->server_identity();
+        std::string disconnect_error;
+        if (!draxul::ServerClient::disconnect(
+                connected_server_runtime,
+                connected_server_client_id,
+                disconnect_error,
+                identity.connection_token))
+        {
+            DRAXUL_LOG_WARN(draxul::LogCategory::App,
+                "Failed to release server client identity: %s",
+                disconnect_error.c_str());
+        }
+    }
     draxul::shutdown_logging();
 
     return status;

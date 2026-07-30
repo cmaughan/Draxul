@@ -197,6 +197,7 @@ void Grid::resize(int cols, int rows)
     // that still fit stay intact. When growing, new cells are blanked.
     const auto new_size = static_cast<size_t>(cols) * static_cast<size_t>(rows);
     std::vector<Cell> new_cells(new_size, make_blank_cell());
+    std::vector<uint8_t> new_dirty_marks(new_size, 0);
 
     const int copy_rows = std::min(old_rows, rows);
     const int copy_cols = std::min(old_cols, cols);
@@ -208,9 +209,9 @@ void Grid::resize(int cols, int rows)
     }
 
     cells_ = std::move(new_cells);
+    dirty_marks_ = std::move(new_dirty_marks);
     cols_ = cols;
     rows_ = rows;
-    dirty_marks_.assign(new_size, 0);
     dirty_cells_.clear();
     full_dirty_ = true;
 }

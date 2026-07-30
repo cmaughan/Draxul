@@ -12,6 +12,8 @@ TEST_CASE("server protocol round-trips hello welcome and status", "[server][prot
 {
     const ServerHello hello{
         .client_id = "ui-test",
+        .connection_token = "hello-token",
+        .registration_nonce = "hello-nonce",
         .capabilities = { "status", "graceful-shutdown" },
     };
     std::string error;
@@ -25,11 +27,28 @@ TEST_CASE("server protocol round-trips hello welcome and status", "[server][prot
         .server_pid = 42,
         .server_epoch = "epoch",
         .build_version = "test",
+        .connection_token = "welcome-token",
         .capabilities = { "status" },
     };
     const auto decoded_welcome = server_welcome_from_json(
         server_welcome_to_json(welcome), error);
     REQUIRE(decoded_welcome == welcome);
+
+    auto legacy_hello = server_hello_to_json(hello);
+    legacy_hello.erase("connection_token");
+    legacy_hello.erase("registration_nonce");
+    auto expected_legacy_hello = hello;
+    expected_legacy_hello.connection_token.clear();
+    expected_legacy_hello.registration_nonce.clear();
+    REQUIRE(server_hello_from_json(legacy_hello, error)
+        == expected_legacy_hello);
+
+    auto legacy_welcome = server_welcome_to_json(welcome);
+    legacy_welcome.erase("connection_token");
+    auto expected_legacy_welcome = welcome;
+    expected_legacy_welcome.connection_token.clear();
+    REQUIRE(server_welcome_from_json(legacy_welcome, error)
+        == expected_legacy_welcome);
 
     const ServerStatusSnapshot status{
         .state = "ready",
@@ -40,6 +59,8 @@ TEST_CASE("server protocol round-trips hello welcome and status", "[server][prot
         .build_version = "test",
         .uptime_ms = 123,
         .connected_clients = 2,
+        .scrollback_cells_reserved = 800'000,
+        .scrollback_cells_limit = 24'000'000,
         .checkpoint_path = "sessions/default.toml",
         .checkpoint_state = "ok",
         .last_checkpoint_unix_ms = 456,
@@ -70,6 +91,12 @@ TEST_CASE("server protocol rejects malformed identity and capabilities", "[serve
     });
     REQUIRE_FALSE(server_hello_from_json(hello_json, error));
 
+    hello_json = server_hello_to_json({
+        .client_id = "client",
+        .registration_nonce = "nonce\nforged",
+    });
+    REQUIRE_FALSE(server_hello_from_json(hello_json, error));
+
     auto welcome_json = server_welcome_to_json({
         .protocol_major = 1,
         .server_pid = 1,
@@ -77,6 +104,77 @@ TEST_CASE("server protocol rejects malformed identity and capabilities", "[serve
         .capabilities = { "status", "status" },
     });
     REQUIRE_FALSE(server_welcome_from_json(welcome_json, error));
+
+    hello_json = server_hello_to_json({
+        .client_id = "client",
+        .connection_token
+            = std::string(kServerMaxConnectionTokenBytes + 1, 'x'),
+    });
+    REQUIRE_FALSE(server_hello_from_json(hello_json, error));
+
+    welcome_json = server_welcome_to_json({
+        .protocol_major = kServerProtocolMajor,
+        .server_pid = 1,
+        .server_epoch = "epoch",
+        .connection_token = "token\nforged",
+    });
+    REQUIRE_FALSE(server_welcome_from_json(welcome_json, error));
+}
+
+TEST_CASE("server protocol rejects narrowing overflow and hostile status values",
+    "[server][protocol][validation]")
+{
+    std::string error;
+    auto hello = server_hello_to_json({
+        .client_id = "client",
+    });
+    hello["protocol_major"]
+        = uint64_t{ 4'294'967'297 };
+    CHECK_FALSE(server_hello_from_json(hello, error));
+
+    hello = server_hello_to_json({
+        .client_id = "client\nforged-log-line",
+    });
+    CHECK_FALSE(server_hello_from_json(hello, error));
+    CHECK_FALSE(valid_server_client_id(
+        "client\x1b[31m"));
+
+    ServerStatusSnapshot status{
+        .state = "ready",
+        .protocol_major = kServerProtocolMajor,
+        .protocol_minor = kServerProtocolMinor,
+        .server_pid = 42,
+        .server_epoch = "epoch",
+        .build_version = "test",
+    };
+    auto encoded = server_status_to_json(status);
+    encoded["connected_clients"] = -1;
+    CHECK_FALSE(server_status_from_json(encoded, error));
+
+    encoded = server_status_to_json(status);
+    encoded["state"] = std::string(
+        kServerMaxStatusStateBytes + 1, 'x');
+    CHECK_FALSE(server_status_from_json(encoded, error));
+
+    encoded = server_status_to_json(status);
+    encoded["server_epoch"] = std::string(
+        kServerMaxHandshakeTextBytes + 1, 'x');
+    CHECK_FALSE(server_status_from_json(encoded, error));
+
+    encoded = server_status_to_json(status);
+    encoded["session_statuses"]
+        = nlohmann::json::array();
+    for (size_t index = 0;
+         index <= kServerMaxSessions; ++index)
+    {
+        encoded["session_statuses"].push_back({
+            { "session_id", "session-" + std::to_string(index) },
+            { "spaces", 0 },
+            { "terminals", 0 },
+            { "live_terminals", 0 },
+        });
+    }
+    CHECK_FALSE(server_status_from_json(encoded, error));
 }
 
 TEST_CASE("server probe states have stable diagnostic names", "[server][protocol]")
@@ -326,6 +424,91 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
         topology_command_to_json(reorder), error);
     INFO(error);
     REQUIRE(decoded_reorder == reorder);
+
+    const nlohmann::json minimal_command{
+        { "client_id", "client-a" },
+        { "command_id", "command-minimal" },
+        { "expected_revision", 9 },
+        { "kind", "create_space" },
+    };
+    const TopologyCommand expected_minimal{
+        .client_id = "client-a",
+        .command_id = "command-minimal",
+        .expected_revision = 9,
+    };
+    const auto decoded_minimal
+        = topology_command_from_json(minimal_command, error);
+    INFO(error);
+    REQUIRE(decoded_minimal == expected_minimal);
+    REQUIRE(topology_command_from_json(
+                topology_command_to_json(*decoded_minimal), error)
+        == decoded_minimal);
+
+    for (std::string_view required :
+        { "client_id", "command_id", "expected_revision", "kind" })
+    {
+        auto missing_required = minimal_command;
+        missing_required.erase(std::string(required));
+        CHECK_FALSE(topology_command_from_json(
+            missing_required, error));
+    }
+
+    auto malformed_optional = minimal_command;
+    malformed_optional["space_id"] = 42;
+    CHECK_FALSE(topology_command_from_json(
+        malformed_optional, error));
+    malformed_optional = minimal_command;
+    malformed_optional["direction"] = "diagonal";
+    CHECK_FALSE(topology_command_from_json(
+        malformed_optional, error));
+    malformed_optional = minimal_command;
+    malformed_optional["ratio"] = "half";
+    CHECK_FALSE(topology_command_from_json(
+        malformed_optional, error));
+    malformed_optional = minimal_command;
+    malformed_optional["pane_domain"] = "somewhere";
+    CHECK_FALSE(topology_command_from_json(
+        malformed_optional, error));
+
+    auto oversized_move = topology_command_to_json(reorder);
+    oversized_move["move_delta"]
+        = uint64_t{ 4'294'967'297 };
+    CHECK_FALSE(topology_command_from_json(
+        oversized_move, error));
+
+    auto hostile_client = topology_command_to_json(reorder);
+    hostile_client["client_id"] = "client\rforged";
+    CHECK_FALSE(topology_command_from_json(
+        hostile_client, error));
+
+    TopologyCommandResult command_result{
+        .applied = true,
+        .created_id = "pane-created",
+        .snapshot = snapshot,
+    };
+    const auto decoded_result
+        = topology_command_result_from_json(
+            topology_command_result_to_json(command_result),
+            error);
+    INFO(error);
+    REQUIRE(decoded_result == command_result);
+
+    auto legacy_result
+        = topology_command_result_to_json(command_result);
+    legacy_result.erase("created_id");
+    const auto decoded_legacy_result
+        = topology_command_result_from_json(
+            legacy_result, error);
+    INFO(error);
+    REQUIRE(decoded_legacy_result);
+    CHECK(decoded_legacy_result->created_id.empty());
+
+    auto oversized_result
+        = topology_command_result_to_json(command_result);
+    oversized_result["created_id"]
+        = std::string(kTopologyMaxTextBytes + 1, 'x');
+    CHECK_FALSE(topology_command_result_from_json(
+        oversized_result, error));
 }
 
 TEST_CASE("topology protocol rejects dangling split children",

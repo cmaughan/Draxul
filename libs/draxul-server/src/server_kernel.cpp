@@ -46,11 +46,6 @@ namespace draxul
 namespace
 {
 
-// Leave room for the control response envelope and JSON framing. Resize
-// deltas contain a complete grid and can be several MiB apiece, so an event
-// count alone is not a safe batching limit.
-constexpr size_t kRemoteTerminalPollPayloadBudget
-    = kControlMaxMessageBytes - 64 * 1024;
 constexpr size_t kFatalListenerFailureCount = 8;
 constexpr size_t kCompletedAgentMutationLimit = 1024;
 
@@ -205,6 +200,7 @@ const std::vector<std::string>& server_capabilities()
         "controller-lease",
         "agent-control-v1",
         "agent-projection-v1",
+        std::string(kServerClientTokenCapability),
         "fake-remote-terminal",
         "graceful-shutdown",
         "managed-agent-v1",
@@ -290,6 +286,20 @@ class ServerKernel::Impl
 {
 public:
     struct ServerSession;
+    enum class ClientAccessResult
+    {
+        Accepted,
+        LimitReached,
+        InvalidToken,
+    };
+
+    struct ClientRegistration
+    {
+        std::chrono::steady_clock::time_point last_activity{};
+        std::string connection_token;
+        std::string registration_nonce;
+        bool token_required = false;
+    };
 
     explicit Impl(ServerKernelOptions value)
         : options(std::move(value))
@@ -300,6 +310,21 @@ public:
             options.protocol_minor = kServerProtocolMinor;
         if (options.client_activity_timeout.count() <= 0)
             options.client_activity_timeout = std::chrono::seconds(10);
+        if (options.max_terminals == 0
+            || options.max_terminals > kServerMaxTerminals)
+        {
+            options.max_terminals = kServerMaxTerminals;
+        }
+        if (options.max_scrollback_cells == 0
+            || options.max_scrollback_cells
+                > kServerMaxScrollbackCells)
+        {
+            options.max_scrollback_cells
+                = kServerMaxScrollbackCells;
+        }
+        terminal_resource_budget
+            = std::make_shared<ServerTerminalResourceBudget>(
+                options.max_scrollback_cells);
         if (options.checkpoint_shutdown_budget.count() < 0)
             options.checkpoint_shutdown_budget = std::chrono::milliseconds(0);
         if (!options.checkpoint_save)
@@ -325,12 +350,6 @@ public:
     void request_stop();
     void stop();
     ControlMethodResult handle_request(const ControlRequest& request);
-    ControlMethodResult attach_fake_terminal(const nlohmann::json& params);
-    ControlMethodResult poll_fake_terminal(const nlohmann::json& params);
-    ControlMethodResult input_fake_terminal(const nlohmann::json& params);
-    ControlMethodResult resize_fake_terminal(const nlohmann::json& params);
-    ControlMethodResult take_fake_terminal_control(const nlohmann::json& params);
-    ControlMethodResult disconnect_fake_terminal(const nlohmann::json& params);
     ServerStatusSnapshot status_snapshot() const;
     void publish_starting_marker();
     void remove_starting_marker();
@@ -365,6 +384,7 @@ public:
             runtime_options = std::nullopt,
         bool start_immediately = false,
         std::string preferred_controller_client_id = {});
+    size_t server_terminal_count() const;
     std::optional<std::string>
     create_managed_agent_terminal(
         std::string_view session_id,
@@ -389,7 +409,12 @@ public:
         std::string_view terminal_id, std::string& error);
     void refresh_agents(ServerSession& session,
         std::chrono::steady_clock::time_point now);
-    bool register_or_touch_client(std::string_view client_id);
+    ClientAccessResult register_client_hello(
+        const ServerHello& hello, bool token_capable,
+        std::string& connection_token);
+    ClientAccessResult authenticate_or_touch_client(
+        std::string_view client_id,
+        std::string_view connection_token);
     void disconnect_client(std::string_view client_id);
     void detach_client_from_services(std::string_view client_id);
     void remember_client_session(
@@ -403,6 +428,8 @@ public:
         std::chrono::steady_clock::time_point now);
 
     ServerKernelOptions options;
+    std::shared_ptr<ServerTerminalResourceBudget>
+        terminal_resource_budget;
     AgentDefinitionRegistry agent_definitions;
     ControlServer control;
     std::string epoch_value;
@@ -413,33 +440,14 @@ public:
     std::atomic<bool> stop_requested = false;
     mutable std::mutex mutex;
     std::condition_variable wake;
-    std::unordered_map<std::string, std::chrono::steady_clock::time_point> clients;
+    std::unordered_map<std::string, ClientRegistration> clients;
     std::unordered_map<std::string,
         std::unordered_set<std::string>>
         client_sessions;
     std::filesystem::path starting_marker;
 
-    struct FakeSubscriber
-    {
-        std::deque<RemoteTerminalEvent> events;
-        bool needs_resync = false;
-    };
-
-    bool read_fake_client_id(
-        const nlohmann::json& params, std::string& client_id) const;
-    bool read_fake_version(
-        const nlohmann::json& params, RemoteTerminalVersion& version) const;
-    RemoteTerminalVersion fake_version() const;
-    RemoteTerminalEvent fake_snapshot_event() const;
-    RemoteTerminalEvent make_fake_delta_event();
-    RemoteTerminalEvent make_fake_controller_event();
-    void broadcast_fake_event(const RemoteTerminalEvent& event);
-
     std::unique_ptr<FakeTerminalRuntime> fake_terminal;
-    uint64_t fake_generation = 1;
-    uint64_t fake_sequence = 0;
-    std::string fake_controller_client_id;
-    std::unordered_map<std::string, FakeSubscriber> fake_subscribers;
+    std::unique_ptr<RemoteTerminalService> fake_terminal_service;
     struct ServerTerminalEndpoint
     {
         std::unique_ptr<ServerTerminalRuntime> runtime;
@@ -565,6 +573,17 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
         error = "Server terminal identity is incomplete.";
         return false;
     }
+    if (session.terminals.contains(terminal_id))
+    {
+        error = "Saved Session contains a duplicate server terminal identity.";
+        return false;
+    }
+    if (server_terminal_count() >= options.max_terminals)
+    {
+        error = "Draxul server terminal limit reached ("
+            + std::to_string(options.max_terminals) + ").";
+        return false;
+    }
     if (!runtime_options)
     {
         runtime_options = ServerTerminalRuntimeOptions{
@@ -576,6 +595,8 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
             .scrollback_capacity = options.terminal_scrollback_lines,
         };
     }
+    runtime_options->resource_budget
+        = terminal_resource_budget;
     auto runtime = std::make_unique<ServerTerminalRuntime>(
         std::move(*runtime_options));
     ServerTerminalRuntime* runtime_ptr = runtime.get();
@@ -619,6 +640,14 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
     return true;
 }
 
+size_t ServerKernel::Impl::server_terminal_count() const
+{
+    size_t count = 0;
+    for (const auto& [_, session] : sessions)
+        count += session->terminals.size();
+    return count;
+}
+
 void ServerKernel::Impl::reset_services()
 {
     for (auto& [session_id, session] : sessions)
@@ -629,6 +658,7 @@ void ServerKernel::Impl::reset_services()
         session->terminals.clear();
         session->next_terminal_serial = 2;
     }
+    fake_terminal_service.reset();
     fake_terminal.reset();
 }
 
@@ -1265,6 +1295,15 @@ bool ServerKernel::Impl::initialize_services(std::string& error)
 {
     reset_services();
     fake_terminal = std::make_unique<FakeTerminalRuntime>();
+    fake_terminal_service = std::make_unique<RemoteTerminalService>(
+        RemoteTerminalServiceOptions{
+            .method_prefix = "fake",
+            .server_epoch = epoch_value,
+            .pane_id = std::string(kFakeRemotePaneId),
+            .terminal_id = std::string(kFakeRemoteTerminalId),
+            .name = "Fake Remote",
+        },
+        *fake_terminal);
     std::vector<std::string> session_ids;
     session_ids.reserve(sessions.size());
     for (const auto& [session_id, session] : sessions)
@@ -1284,34 +1323,107 @@ bool ServerKernel::Impl::initialize_services(std::string& error)
     return true;
 }
 
-bool ServerKernel::Impl::register_or_touch_client(
-    std::string_view client_id)
+ServerKernel::Impl::ClientAccessResult
+ServerKernel::Impl::register_client_hello(
+    const ServerHello& hello, bool token_capable,
+    std::string& connection_token)
 {
     const auto now = std::chrono::steady_clock::now();
     prune_inactive_clients(now);
     std::lock_guard guard(mutex);
-    const std::string key(client_id);
-    const auto found = clients.find(key);
+    const auto found = clients.find(hello.client_id);
     if (found == clients.end()
         && clients.size() >= kServerMaxConnectedClients)
     {
-        return false;
+        return ClientAccessResult::LimitReached;
     }
-    clients[key] = now;
-    return true;
+    if (found == clients.end())
+    {
+        if (token_capable && hello.registration_nonce.empty())
+            return ClientAccessResult::InvalidToken;
+        ClientRegistration registration{
+            .last_activity = now,
+            .registration_nonce = hello.registration_nonce,
+            .token_required = token_capable,
+        };
+        if (token_capable)
+            registration.connection_token = random_epoch();
+        connection_token = registration.connection_token;
+        clients.emplace(hello.client_id, std::move(registration));
+        return ClientAccessResult::Accepted;
+    }
+
+    ClientRegistration& registration = found->second;
+    if (registration.token_required
+        && hello.connection_token != registration.connection_token)
+    {
+        if (hello.registration_nonce.empty()
+            || hello.registration_nonce
+                != registration.registration_nonce)
+        {
+            return ClientAccessResult::InvalidToken;
+        }
+    }
+    if (!registration.token_required && token_capable)
+    {
+        if (hello.registration_nonce.empty())
+            return ClientAccessResult::InvalidToken;
+        registration.token_required = true;
+        registration.connection_token = random_epoch();
+        registration.registration_nonce
+            = hello.registration_nonce;
+    }
+    else if (registration.token_required
+        && hello.connection_token == registration.connection_token
+        && !hello.registration_nonce.empty())
+    {
+        registration.registration_nonce
+            = hello.registration_nonce;
+    }
+    registration.last_activity = now;
+    connection_token = registration.connection_token;
+    return ClientAccessResult::Accepted;
+}
+
+ServerKernel::Impl::ClientAccessResult
+ServerKernel::Impl::authenticate_or_touch_client(
+    std::string_view client_id,
+    std::string_view connection_token)
+{
+    const auto now = std::chrono::steady_clock::now();
+    prune_inactive_clients(now);
+    std::lock_guard guard(mutex);
+    const auto found = clients.find(std::string(client_id));
+    if (found == clients.end())
+    {
+        if (!connection_token.empty())
+            return ClientAccessResult::InvalidToken;
+        if (clients.size() >= kServerMaxConnectedClients)
+            return ClientAccessResult::LimitReached;
+        clients.emplace(std::string(client_id),
+            ClientRegistration{
+                .last_activity = now,
+            });
+        return ClientAccessResult::Accepted;
+    }
+
+    ClientRegistration& registration = found->second;
+    if (registration.token_required
+        && connection_token != registration.connection_token)
+    {
+        return ClientAccessResult::InvalidToken;
+    }
+    if (!registration.token_required && !connection_token.empty())
+        return ClientAccessResult::InvalidToken;
+    registration.last_activity = now;
+    return ClientAccessResult::Accepted;
 }
 
 void ServerKernel::Impl::detach_client_from_services(
     std::string_view client_id)
 {
-    const bool was_fake_controller
-        = fake_controller_client_id == client_id;
-    fake_subscribers.erase(std::string(client_id));
-    if (was_fake_controller)
-    {
-        fake_controller_client_id.clear();
-        broadcast_fake_event(make_fake_controller_event());
-    }
+    if (fake_terminal_service)
+        fake_terminal_service->disconnect_client(client_id);
     for (auto& [session_id, session] : sessions)
     {
         (void)session_id;
@@ -1385,7 +1497,8 @@ void ServerKernel::Impl::prune_inactive_clients(
         std::lock_guard guard(mutex);
         for (auto it = clients.begin(); it != clients.end();)
         {
-            if (now - it->second > options.client_activity_timeout)
+            if (now - it->second.last_activity
+                > options.client_activity_timeout)
             {
                 expired.push_back(it->first);
                 client_sessions.erase(it->first);
@@ -1647,11 +1760,24 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                 "Client/server protocol major versions do not match.");
         }
 
-        if (!register_or_touch_client(hello->client_id))
+        const bool token_capable = std::ranges::find(
+            hello->capabilities, kServerClientTokenCapability)
+            != hello->capabilities.end();
+        std::string connection_token;
+        const ClientAccessResult registration
+            = register_client_hello(
+                *hello, token_capable, connection_token);
+        if (registration == ClientAccessResult::LimitReached)
         {
             return ControlMethodResult::error(
                 "client_limit_reached",
                 "The Draxul server client limit has been reached.");
+        }
+        if (registration == ClientAccessResult::InvalidToken)
+        {
+            return ControlMethodResult::error(
+                "invalid_connection_token",
+                "The client identity is already bound to another connection.");
         }
         ServerWelcome welcome{
             .protocol_major = options.protocol_major,
@@ -1660,53 +1786,71 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             .server_pid = pid,
             .server_epoch = epoch_value,
             .build_version = options.build_version,
+            .connection_token = std::move(connection_token),
             .capabilities = negotiate_capabilities(hello->capabilities),
         };
         return ControlMethodResult::success(server_welcome_to_json(welcome));
-    }
-    if (request.method == "server.goodbye")
-    {
-        if (!request.params.is_object()
-            || !request.params.contains("client_id")
-            || !request.params["client_id"].is_string()
-            || request.params["client_id"]
-                   .get_ref<const std::string&>()
-                   .empty()
-            || request.params["client_id"]
-                   .get_ref<const std::string&>()
-                   .size()
-                > kServerMaxClientIdBytes)
-        {
-            return ControlMethodResult::error(
-                "invalid_client",
-                "A valid client_id is required.");
-        }
-        const std::string client_id
-            = request.params["client_id"].get<std::string>();
-        disconnect_client(client_id);
-        return ControlMethodResult::success({
-            { "disconnected", true },
-        });
     }
     std::string request_client_id;
     if (request.params.is_object())
     {
         const auto client_id = request.params.find("client_id");
-        if (client_id != request.params.end()
-            && client_id->is_string()
-            && !client_id->get_ref<const std::string&>().empty()
-            && client_id->get_ref<const std::string&>().size()
-                <= kServerMaxClientIdBytes)
+        if (client_id != request.params.end())
         {
+            if (!client_id->is_string()
+                || !valid_server_client_id(
+                    client_id->get_ref<const std::string&>()))
+            {
+                return ControlMethodResult::error(
+                    "invalid_client",
+                    "A valid client_id is required.");
+            }
             request_client_id
                 = client_id->get<std::string>();
-            if (!register_or_touch_client(request_client_id))
+            std::string connection_token;
+            if (const auto token
+                = request.params.find("connection_token");
+                token != request.params.end())
+            {
+                if (!token->is_string()
+                    || token->get_ref<const std::string&>().size()
+                        > kServerMaxConnectionTokenBytes)
+                {
+                    return ControlMethodResult::error(
+                        "invalid_connection_token",
+                        "A valid connection token is required.");
+                }
+                connection_token = token->get<std::string>();
+            }
+            const ClientAccessResult access
+                = authenticate_or_touch_client(
+                    request_client_id, connection_token);
+            if (access == ClientAccessResult::LimitReached)
             {
                 return ControlMethodResult::error(
                     "client_limit_reached",
                     "The Draxul server client limit has been reached.");
             }
+            if (access == ClientAccessResult::InvalidToken)
+            {
+                return ControlMethodResult::error(
+                    "invalid_connection_token",
+                    "The connection token does not match this client identity.");
+            }
         }
+    }
+    if (request.method == "server.goodbye")
+    {
+        if (request_client_id.empty())
+        {
+            return ControlMethodResult::error(
+                "invalid_client",
+                "A valid client_id is required.");
+        }
+        disconnect_client(request_client_id);
+        return ControlMethodResult::success({
+            { "disconnected", true },
+        });
     }
     if (!request_client_id.empty()
         && is_session_scoped_method(request.method))
@@ -1726,18 +1870,17 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         return delete_session(request.params);
     if (request.method == "server.rename_session")
         return rename_session(request.params);
-    if (request.method == "fake.attach")
-        return attach_fake_terminal(request.params);
-    if (request.method == "fake.poll")
-        return poll_fake_terminal(request.params);
-    if (request.method == "fake.input")
-        return input_fake_terminal(request.params);
-    if (request.method == "fake.resize")
-        return resize_fake_terminal(request.params);
-    if (request.method == "fake.take_control")
-        return take_fake_terminal_control(request.params);
-    if (request.method == "fake.disconnect")
-        return disconnect_fake_terminal(request.params);
+    if (request.method.starts_with("fake."))
+    {
+        if (!fake_terminal_service)
+        {
+            return ControlMethodResult::error(
+                "terminal_unavailable",
+                "The fake remote terminal is unavailable.");
+        }
+        return fake_terminal_service->handle(
+            request.method, request.params);
+    }
     if (request.method.starts_with("terminal."))
     {
         std::string session_id;
@@ -2454,13 +2597,27 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         int max_lines = 50;
         if (request.params.contains("lines"))
         {
-            if (!request.params["lines"].is_number_integer())
+            const auto& lines = request.params["lines"];
+            if (!lines.is_number_integer())
             {
                 return ControlMethodResult::error(
                     "invalid_params",
                     "'lines' must be between 1 and 200.");
             }
-            max_lines = request.params["lines"].get<int>();
+            const bool valid_lines = lines.is_number_unsigned()
+                ? lines.get<uint64_t>() >= 1
+                    && lines.get<uint64_t>() <= 200
+                : lines.get<int64_t>() >= 1
+                    && lines.get<int64_t>() <= 200;
+            if (!valid_lines)
+            {
+                return ControlMethodResult::error(
+                    "invalid_params",
+                    "'lines' must be between 1 and 200.");
+            }
+            max_lines = lines.is_number_unsigned()
+                ? static_cast<int>(lines.get<uint64_t>())
+                : static_cast<int>(lines.get<int64_t>());
         }
         if (max_lines < 1 || max_lines > 200)
         {
@@ -2567,329 +2724,6 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         "unknown_method", "Unknown Draxul server method.");
 }
 
-bool ServerKernel::Impl::read_fake_client_id(
-    const nlohmann::json& params, std::string& client_id) const
-{
-    if (!params.is_object()
-        || !params.contains("client_id")
-        || !params["client_id"].is_string())
-    {
-        return false;
-    }
-    client_id = params["client_id"].get<std::string>();
-    return !client_id.empty() && client_id.size() <= 128;
-}
-
-bool ServerKernel::Impl::read_fake_version(
-    const nlohmann::json& params, RemoteTerminalVersion& version) const
-{
-    if (!params.is_object()
-        || !params.contains("server_epoch")
-        || !params["server_epoch"].is_string()
-        || !params.contains("terminal_id")
-        || !params["terminal_id"].is_string()
-        || !params.contains("generation")
-        || !params["generation"].is_number_unsigned()
-        || !params.contains("after_sequence")
-        || !params["after_sequence"].is_number_unsigned())
-    {
-        return false;
-    }
-    version.server_epoch = params["server_epoch"].get<std::string>();
-    version.terminal_id = params["terminal_id"].get<std::string>();
-    version.generation = params["generation"].get<uint64_t>();
-    version.sequence = params["after_sequence"].get<uint64_t>();
-    return true;
-}
-
-RemoteTerminalVersion ServerKernel::Impl::fake_version() const
-{
-    return {
-        .server_epoch = epoch_value,
-        .terminal_id = std::string(kFakeRemoteTerminalId),
-        .generation = fake_generation,
-        .sequence = fake_sequence,
-    };
-}
-
-RemoteTerminalEvent ServerKernel::Impl::fake_snapshot_event() const
-{
-    return {
-        .kind = RemoteTerminalEventKind::Snapshot,
-        .version = fake_version(),
-        .controller_client_id = fake_controller_client_id,
-        .snapshot = fake_terminal->snapshot(),
-    };
-}
-
-RemoteTerminalEvent ServerKernel::Impl::make_fake_delta_event()
-{
-    ++fake_sequence;
-    return {
-        .kind = RemoteTerminalEventKind::Delta,
-        .version = fake_version(),
-        .controller_client_id = fake_controller_client_id,
-        .delta = fake_terminal->take_delta(),
-    };
-}
-
-RemoteTerminalEvent ServerKernel::Impl::make_fake_controller_event()
-{
-    ++fake_sequence;
-    return {
-        .kind = RemoteTerminalEventKind::Controller,
-        .version = fake_version(),
-        .controller_client_id = fake_controller_client_id,
-    };
-}
-
-void ServerKernel::Impl::broadcast_fake_event(
-    const RemoteTerminalEvent& event)
-{
-    for (auto& [client_id, subscriber] : fake_subscribers)
-    {
-        (void)client_id;
-        if (subscriber.needs_resync)
-            continue;
-        if (subscriber.events.size() >= kRemoteTerminalQueueLimit)
-        {
-            subscriber.events.clear();
-            subscriber.needs_resync = true;
-            continue;
-        }
-        subscriber.events.push_back(event);
-    }
-}
-
-ControlMethodResult ServerKernel::Impl::attach_fake_terminal(
-    const nlohmann::json& params)
-{
-    std::string client_id;
-    if (!read_fake_client_id(params, client_id))
-    {
-        return ControlMethodResult::error(
-            "invalid_client", "A valid client_id is required.");
-    }
-
-    fake_subscribers[client_id] = {};
-    if (fake_controller_client_id.empty())
-    {
-        fake_controller_client_id = client_id;
-        broadcast_fake_event(make_fake_controller_event());
-        fake_subscribers[client_id].events.clear();
-    }
-    RemoteTerminalAttach attach{
-        .pane = {
-            .pane_id = std::string(kFakeRemotePaneId),
-            .terminal_id = std::string(kFakeRemoteTerminalId),
-            .name = "Fake Remote",
-            .execution_domain = "server_terminal",
-        },
-        .state = fake_snapshot_event(),
-    };
-    return ControlMethodResult::success(
-        remote_terminal_attach_to_json(attach));
-}
-
-ControlMethodResult ServerKernel::Impl::poll_fake_terminal(
-    const nlohmann::json& params)
-{
-    std::string client_id;
-    RemoteTerminalVersion requested;
-    if (!read_fake_client_id(params, client_id)
-        || !read_fake_version(params, requested))
-    {
-        return ControlMethodResult::error(
-            "invalid_poll", "A valid client and terminal version are required.");
-    }
-    auto subscriber = fake_subscribers.find(client_id);
-    if (subscriber == fake_subscribers.end())
-    {
-        return ControlMethodResult::error(
-            "not_attached", "Attach to the fake terminal before polling.");
-    }
-    if (requested.server_epoch != epoch_value)
-    {
-        return ControlMethodResult::error(
-            "stale_epoch", "The terminal server epoch has changed.");
-    }
-    if (requested.terminal_id != kFakeRemoteTerminalId)
-    {
-        return ControlMethodResult::error(
-            "stale_terminal", "The terminal identity has changed.");
-    }
-    if (requested.generation != fake_generation)
-    {
-        return ControlMethodResult::error(
-            "stale_generation", "The terminal generation has changed.");
-    }
-    if (requested.sequence > fake_sequence)
-    {
-        return ControlMethodResult::error(
-            "stale_sequence", "The client sequence is ahead of the server.");
-    }
-
-    auto& delivery = subscriber->second;
-    while (!delivery.events.empty()
-        && delivery.events.front().version.sequence <= requested.sequence)
-    {
-        delivery.events.pop_front();
-    }
-
-    nlohmann::json events = nlohmann::json::array();
-    if (delivery.needs_resync)
-    {
-        events.push_back(remote_terminal_event_to_json(fake_snapshot_event()));
-        delivery.events.clear();
-        delivery.needs_resync = false;
-    }
-    else
-    {
-        size_t count = 0;
-        size_t payload_bytes = 0;
-        for (const auto& event : delivery.events)
-        {
-            if (count++ >= kRemoteTerminalMaxEventsPerPoll)
-                break;
-            auto encoded = remote_terminal_event_to_json(event);
-            const size_t encoded_bytes = encoded.dump().size();
-            if (!events.empty()
-                && payload_bytes + encoded_bytes
-                    > kRemoteTerminalPollPayloadBudget)
-            {
-                break;
-            }
-            events.push_back(std::move(encoded));
-            payload_bytes += encoded_bytes;
-        }
-    }
-    return ControlMethodResult::success({
-        { "events", std::move(events) },
-        { "server_sequence", fake_sequence },
-    });
-}
-
-ControlMethodResult ServerKernel::Impl::input_fake_terminal(
-    const nlohmann::json& params)
-{
-    std::string client_id;
-    if (!read_fake_client_id(params, client_id)
-        || !params.contains("text") || !params["text"].is_string())
-    {
-        return ControlMethodResult::error(
-            "invalid_input", "A valid client_id and text are required.");
-    }
-    if (!fake_subscribers.contains(client_id))
-    {
-        return ControlMethodResult::error(
-            "not_attached", "Attach to the fake terminal before sending input.");
-    }
-    if (client_id != fake_controller_client_id)
-    {
-        return ControlMethodResult::error(
-            "not_controller", "This client is observing the terminal.");
-    }
-    const std::string text = params["text"].get<std::string>();
-    if (text.empty() || text.size() > 64 * 1024)
-    {
-        return ControlMethodResult::error(
-            "invalid_input", "Terminal input must be between 1 and 65536 bytes.");
-    }
-    fake_terminal->echo_input(text);
-    const auto event = make_fake_delta_event();
-    broadcast_fake_event(event);
-    return ControlMethodResult::success({
-        { "accepted", true },
-        { "sequence", event.version.sequence },
-    });
-}
-
-ControlMethodResult ServerKernel::Impl::resize_fake_terminal(
-    const nlohmann::json& params)
-{
-    std::string client_id;
-    if (!read_fake_client_id(params, client_id)
-        || !params.contains("cols") || !params["cols"].is_number_integer()
-        || !params.contains("rows") || !params["rows"].is_number_integer())
-    {
-        return ControlMethodResult::error(
-            "invalid_resize", "A valid client_id, cols, and rows are required.");
-    }
-    if (!fake_subscribers.contains(client_id))
-    {
-        return ControlMethodResult::error(
-            "not_attached", "Attach to the fake terminal before resizing.");
-    }
-    if (client_id != fake_controller_client_id)
-    {
-        return ControlMethodResult::error(
-            "not_controller", "This client is observing the terminal.");
-    }
-    const int cols = params["cols"].get<int>();
-    const int rows = params["rows"].get<int>();
-    if (cols <= 0 || rows <= 0
-        || cols > kRemoteTerminalMaxColumns
-        || rows > kRemoteTerminalMaxRows
-        || static_cast<size_t>(cols) * static_cast<size_t>(rows)
-            > kRemoteTerminalMaxCells)
-    {
-        return ControlMethodResult::error(
-            "invalid_resize", "Terminal dimensions are out of range.");
-    }
-    fake_terminal->resize(cols, rows);
-    const auto event = make_fake_delta_event();
-    broadcast_fake_event(event);
-    return ControlMethodResult::success({
-        { "accepted", true },
-        { "sequence", event.version.sequence },
-    });
-}
-
-ControlMethodResult ServerKernel::Impl::take_fake_terminal_control(
-    const nlohmann::json& params)
-{
-    std::string client_id;
-    if (!read_fake_client_id(params, client_id))
-    {
-        return ControlMethodResult::error(
-            "invalid_client", "A valid client_id is required.");
-    }
-    if (!fake_subscribers.contains(client_id))
-    {
-        return ControlMethodResult::error(
-            "not_attached", "Attach to the fake terminal before taking control.");
-    }
-    if (fake_controller_client_id != client_id)
-    {
-        fake_controller_client_id = client_id;
-        const auto event = make_fake_controller_event();
-        broadcast_fake_event(event);
-    }
-    return ControlMethodResult::success({
-        { "controller_client_id", fake_controller_client_id },
-        { "sequence", fake_sequence },
-    });
-}
-
-ControlMethodResult ServerKernel::Impl::disconnect_fake_terminal(
-    const nlohmann::json& params)
-{
-    std::string client_id;
-    if (!read_fake_client_id(params, client_id))
-    {
-        return ControlMethodResult::error(
-            "invalid_client", "A valid client_id is required.");
-    }
-    const bool was_controller = fake_controller_client_id == client_id;
-    fake_subscribers.erase(client_id);
-    if (was_controller)
-    {
-        fake_controller_client_id.clear();
-        broadcast_fake_event(make_fake_controller_event());
-    }
-    return ControlMethodResult::success({ { "disconnected", true } });
-}
-
 ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
 {
     size_t connected_clients = 0;
@@ -2899,7 +2733,7 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
         connected_clients = static_cast<size_t>(
             std::ranges::count_if(
                 clients, [this, now](const auto& item) {
-                    return now - item.second
+                    return now - item.second.last_activity
                         <= options.client_activity_timeout;
                 }));
     }
@@ -2984,6 +2818,16 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
         .spaces = space_count,
         .terminals = terminal_count,
         .agents = agent_count,
+        .scrollback_cells_reserved
+        = terminal_resource_budget
+            ? terminal_resource_budget
+                  ->reserved_scrollback_cells()
+            : 0,
+        .scrollback_cells_limit
+        = terminal_resource_budget
+            ? terminal_resource_budget
+                  ->max_scrollback_cells()
+            : 0,
         .checkpoint_path = std::move(checkpoint_path),
         .checkpoint_state = std::move(checkpoint_state),
         .last_checkpoint_unix_ms

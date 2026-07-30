@@ -89,13 +89,24 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
 - Remote terminal clients receive a complete versioned snapshot followed by ordered
   dirty-cell and controller events. Each client has a bounded server queue; a slow
   client receives a fresh snapshot rather than delaying the terminal or another
-  client. Cell frames use a compact shared-attribute table, and poll responses are
-  bounded by encoded bytes as well as event count so large resize snapshots stay
-  within the control frame. Client input is batched and command work is bounded
+  client. Protocol major 2 cell frames use packed RGBA8 colours plus shared attribute
+  and hyperlink tables. Subscriber queues are capped at 32 events and 2 MiB, and poll
+  responses budget the first event and resync snapshot as well as later events. An
+  otherwise valid oversized snapshot deterministically sheds hyperlinks, then visual
+  attributes, while preserving terminal text and geometry instead of wedging the
+  client. Dirty-cell lists update the client grid incrementally; full rebuilds are
+  reserved for full frames, resizes, and scrollback presentation transitions. Client
+  input is batched and command work is bounded
   between projection polls so sustained typing cannot starve observers. Windows
-  named pipes and Unix-domain sockets both serve four clients concurrently.
+  named pipes and Unix-domain sockets both serve four clients concurrently. Windows
+  pipes reject remote SMB clients, retain the first pipe instance for the server
+  lifetime, and use identification-level client impersonation. Runtime metadata is
+  replaced atomically with owner-only permissions, and the Windows runtime directory
+  has an explicit protected owner-only DACL.
   Client presence, Sessions, terminal dimensions, agent wait filters, and stale
-  delivery queues are bounded. Clean goodbye or lease expiry releases every terminal
+  delivery queues are bounded. Server, topology, and agent parsing range-checks
+  narrowing integers; status values and client identifiers are also bounded and
+  reject control characters. Clean goodbye or lease expiry releases every terminal
   subscription and controller claim; a paused UI reattaches and retries safely.
   Topology and agent projections refresh automatically if a restarted server reports
   an earlier revision. Reconnect restores the current server state. Queued terminal
@@ -106,6 +117,11 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   panes remain responsive placeholders until their first snapshot arrives. Divider
   drags preview locally and send one trailing authoritative update rather than
   blocking the UI on every mouse move.
+- A server process admits at most 256 terminal runtimes across all Sessions (tests can
+  inject a lower bound). Registering a lazy terminal allocates only its small live
+  grid; the configured scrollback ring is allocated after the first successful child
+  process start. Topology command replay caches retain only bounded command outcomes,
+  not thousands of copied topology snapshots.
 - Each server terminal admits input to a bounded per-terminal queue and performs the
   potentially blocking PTY/ConPTY write on that terminal's writer thread. Saturation
   returns backpressure without delaying another terminal or the server request loop.
@@ -127,8 +143,10 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   backoff, while a scrollback failure simply returns that client to live.
 - Hello negotiation explicitly advertises scrollback, sanitized metrics, and the
   current uncompressed frame fallback. `terminal.metrics` reports counts, encoded
-  bytes, delta density, queue pressure/resyncs, and scrollback service volume without
-  terminal text; the client records its attach/reconnect latency.
+  bytes, delta density, queue count/byte limits, pressure/resyncs, oversized events,
+  degraded frames, and scrollback service volume without terminal text; the client
+  records its attach/reconnect latency. Unknown additive terminal event kinds are
+  counted and skipped, while malformed known events still trigger bounded recovery.
 - `topology-v1` is the first Slice 6 checkpoint. The headless server now owns a
   renderer-neutral Session/Space/tab/pane/split snapshot with monotonic revisions.
   Mutations are optimistic and idempotent, and multiple clients can poll to the same

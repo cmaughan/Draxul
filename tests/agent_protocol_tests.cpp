@@ -92,6 +92,23 @@ TEST_CASE("server agent snapshots round-trip sanitized state",
     duplicate["agents"].push_back(duplicate["agents"][0]);
     CHECK_FALSE(server_agent_snapshot_from_json(
         duplicate, error));
+
+    auto oversized_manifest = encoded;
+    oversized_manifest["agents"][0]["manifest_version"]
+        = uint64_t{ 4'294'967'297 };
+    CHECK_FALSE(server_agent_snapshot_from_json(
+        oversized_manifest, error));
+
+    auto oversized_exit = encoded;
+    oversized_exit["agents"][0]["exit_code"]
+        = uint64_t{ 4'294'967'297 };
+    CHECK_FALSE(server_agent_snapshot_from_json(
+        oversized_exit, error));
+
+    auto negative_revision = encoded;
+    negative_revision["revision"] = -1;
+    CHECK_FALSE(server_agent_snapshot_from_json(
+        negative_revision, error));
 }
 
 TEST_CASE("server agent service discovers evaluates and retires a runtime",

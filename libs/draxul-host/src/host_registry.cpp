@@ -70,6 +70,8 @@ HostProviderMetadata default_metadata(HostKind kind)
     case HostKind::Score:
         metadata.display_name = "ScoreView";
         break;
+    case HostKind::Count:
+        break;
     }
     return metadata;
 }

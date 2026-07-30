@@ -1671,8 +1671,22 @@ Hardening completed:
   refresh after a server revision rollback;
 - both Windows named pipes and Unix-domain sockets use four concurrent listeners, so
   one stalled client cannot occupy the only IPC reader;
+- Windows named pipes reject remote SMB clients, retain the first pipe instance for
+  the server lifetime, and use identification-level security quality of service;
+- runtime metadata is written through a secure same-directory temporary file and
+  atomically replaced with owner-only permissions; Windows runtime directories use
+  a protected owner-only DACL;
+- server, topology, and agent parsers use shared range-checked integer extraction;
+  status values and client identifiers are bounded and reject control characters;
 - remote terminal dimensions match the PTY/ConPTY 320x200 bounds rather than allowing
   an inconsistent, potentially oversized million-cell grid;
+- terminal allocation is capped server-wide, scrollback storage is lazy, subscriber
+  queues are byte- as well as count-bounded, and oversized resyncs degrade visual
+  metadata without losing text or wedging the frame;
+- protocol-major-2 terminal cells use packed colours and shared attribute/hyperlink
+  tables; validated dirty lists update client grids incrementally;
+- fake and real endpoints now share one `RemoteTerminalService` state machine, including
+  acknowledgement ordering and generation resync;
 - agent wait filters, client identities, Sessions, event queues, protocol frames, and
   scrollback pages are bounded; and
 - Windows force-stop holds the original process handle across the final PID/epoch
@@ -1727,12 +1741,34 @@ placeholders, republish/ack/coalescing semantics including a same-revision new
 epoch, and an App-level first-apply failure followed by successful retry and
 keyboard routing restoration.
 
+Final post-review hardening completed on 2026-07-30:
+
+- negotiated UI identities receive server-issued connection tokens; retry-safe hello
+  registration reuses a client nonce, server replacement rotates tokens, and concurrent
+  recovery cannot install a stale identity;
+- restored child topology IDs are parent-scoped, command acknowledgements return the exact
+  created Space/tab/pane ID, and delayed divider commits retain durable node identities;
+- GUI and control-plane agent restart use the same durable server mutation and retry contract;
+- each agent mutation reserves one id per logical user action, retries only within that
+  action, fences stale pre-restart projections below the acknowledged generation, and uses
+  one absolute deadline outcome;
+- terminal titles and shell marks are protocol-bounded, unconsumed worker publications are
+  retained, empty restart titles restore the default window title, and fake-terminal restart
+  resets the same state as the real runtime;
+- terminal count, per-subscriber queues, and a shared 24,000,000-cell scrollback reservation
+  bound the practical server footprint; scrollback resize accounts for its old-plus-new peak
+  and safely degrades to no scrollback if a terminal-buffer allocation fails; and
+- the final Windows Release/Ninja gate passed all 22 CTest groups, including smoke, five
+  render comparisons, all core/app shards, and optional product modules. Standalone Debug
+  smoke also passed.
+
 Known boundaries retained for later work:
 
-- individual pathological cell payloads (for example, a hyperlink repeated across a
-  whole maximum-size grid) can still exceed the uncompressed 8 MiB frame even though
-  dimensions and normal poll batches are bounded; compression/table deduplication is
-  intentionally left with Slice 10; and
+- same-user local compatibility still permits an unnegotiated legacy client identity. The
+  Slice 10 bridge must disable that path and require its authenticated/negotiated identity;
+- subscriber queues are byte-bounded individually but do not yet share an aggregate server
+  queue budget. Global client and terminal caps keep the total finite; a future high-scale
+  runtime should add aggregate admission accounting; and
 - Unix/macOS code was reviewed for ownership and compilation consistency but was not
   executed by this Windows validation run.
 

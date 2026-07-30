@@ -85,7 +85,8 @@ the duration (per-op, repeated).
 
 Independent of the P0 cards but should follow them — this is what makes every other failure
 stop *feeling* like a hang, so it should land before the recovery work in
-`kanban/pending/18`/`19` is judged. Overlaps `kanban/pending/27
+`kanban/done/18 server-discovery-recovery-wedges -bug.md` and
+`kanban/done/19 client-recovery-state-machine -refactor.md` are judged. Overlaps `kanban/done/27
 topology-projection-extraction -refactor.md`: if both are scheduled, extract the projection
 first and give it the worker thread as part of the move.
 

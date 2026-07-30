@@ -343,6 +343,8 @@ private:
             if (topology.execute(command, result, error))
             {
                 completion.ok = true;
+                completion.created_id
+                    = std::move(result.created_id);
                 completion.snapshot = std::move(result.snapshot);
                 break;
             }
@@ -473,11 +475,13 @@ private:
             .runtime_directory = options_.runtime_directory,
             .client_id = options_.client_id,
             .session_id = options_.session_id,
+            .recovery = options_.recovery,
         });
         AgentClient agents({
             .runtime_directory = options_.runtime_directory,
             .client_id = options_.client_id,
             .session_id = options_.session_id,
+            .recovery = options_.recovery,
         });
         const auto initial_status = ServerClient::status(
             options_.runtime_directory,

@@ -22,7 +22,8 @@ uint64_t next_jitter(uint64_t& state)
 } // namespace
 
 ClientRecoveryState::ClientRecoveryState(std::string jitter_identity)
-    : jitter_identity_(std::hash<std::string>{}(jitter_identity))
+    : registration_nonce_(make_server_client_id())
+    , jitter_identity_(std::hash<std::string>{}(jitter_identity))
 {
     if (jitter_identity_ == 0)
         jitter_identity_ = 0x9e3779b97f4a7c15ULL;
@@ -86,22 +87,55 @@ ClientRecoverySnapshot ClientRecoveryState::snapshot(
         .phase = state.phase,
         .attempts = state.attempts,
         .retry_delay = state.retry_delay,
-        .server_epoch = server_epoch_,
+        .server_epoch = server_identity_.server_epoch,
     };
+}
+
+ClientServerIdentity ClientRecoveryState::server_identity() const
+{
+    std::lock_guard guard(mutex_);
+    return server_identity_;
 }
 
 std::string ClientRecoveryState::server_epoch() const
 {
     std::lock_guard guard(mutex_);
-    return server_epoch_;
+    return server_identity_.server_epoch;
+}
+
+const std::string&
+ClientRecoveryState::registration_nonce() const noexcept
+{
+    return registration_nonce_;
+}
+
+bool ClientRecoveryState::set_server_identity(
+    std::string epoch, std::string connection_token)
+{
+    std::lock_guard guard(mutex_);
+    if (epoch.empty()
+        || (epoch == server_identity_.server_epoch
+            && connection_token
+                == server_identity_.connection_token))
+    {
+        return false;
+    }
+    server_identity_ = {
+        .server_epoch = std::move(epoch),
+        .connection_token = std::move(connection_token),
+    };
+    return true;
 }
 
 bool ClientRecoveryState::set_server_epoch(std::string epoch)
 {
     std::lock_guard guard(mutex_);
-    if (epoch.empty() || epoch == server_epoch_)
+    if (epoch.empty()
+        || epoch == server_identity_.server_epoch)
         return false;
-    server_epoch_ = std::move(epoch);
+    server_identity_ = {
+        .server_epoch = std::move(epoch),
+    };
     return true;
 }
 
@@ -109,9 +143,12 @@ bool ClientRecoveryState::refresh_server_epoch(
     const std::filesystem::path& runtime_directory,
     std::string_view client_id, std::string& error)
 {
+    const auto existing = server_identity();
     const auto probe = ServerClient::probe({
         .runtime_directory = runtime_directory,
         .client_id = std::string(client_id),
+        .connection_token = existing.connection_token,
+        .registration_nonce = registration_nonce_,
         .timeout = std::chrono::seconds(2),
         .request_timeout = std::chrono::milliseconds(500),
         .launch_if_missing = false,
@@ -123,7 +160,20 @@ bool ClientRecoveryState::refresh_server_epoch(
             : probe.error_message;
         return false;
     }
-    set_server_epoch(probe.welcome->server_epoch);
+    {
+        std::lock_guard guard(mutex_);
+        if (server_identity_ != existing)
+        {
+            // Another channel completed a newer refresh while this request
+            // was in flight. Its identity is authoritative.
+            return true;
+        }
+        server_identity_ = {
+            .server_epoch = probe.welcome->server_epoch,
+            .connection_token
+                = probe.welcome->connection_token,
+        };
+    }
     return true;
 }
 
@@ -156,7 +206,8 @@ bool is_transient_client_error(std::string_view code)
 
 bool is_resynchronizing_client_error(std::string_view code)
 {
-    return code == "invalid_event"
+    return code == "invalid_connection_token"
+        || code == "invalid_event"
         || code == "invalid_poll"
         || code == "invalid_response"
         || code == "stale_sequence"

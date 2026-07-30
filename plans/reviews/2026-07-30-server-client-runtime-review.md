@@ -43,7 +43,7 @@ The current trust boundary is same-user and local. Findings that require a hosti
 buggy *peer* are therefore rated as hardening rather than as live bugs — but they become
 security boundaries the moment Slice 10 (SSH bridge) lands, and they are much cheaper to
 fix now than to retrofit. They are collected in
-`kanban/pending/26 protocol-validation-hardening -bug.md`.
+`kanban/done/26 protocol-validation-hardening -bug.md`.
 
 ## Ship-blockers
 
@@ -272,7 +272,7 @@ attrs. On the client, every published update rebuilds the whole grid
 (`remote_terminal_host.cpp:625-658`), discarding the dirty-cell information the protocol
 worked to deliver.
 
-→ `kanban/pending/25 server-resource-bounds -bug.md`
+→ `kanban/done/25 server-resource-bounds -bug.md`
 
 ## Protocol validation hardening
 
@@ -304,7 +304,7 @@ model — but they are the SSH-boundary list:
 - strict enum and required-field parsing makes additive evolution a de facto major break, so
   the negotiated minor version cannot gate anything.
 
-→ `kanban/pending/26 protocol-validation-hardening -bug.md`
+→ `kanban/done/26 protocol-validation-hardening -bug.md`
 
 ## Structure
 
@@ -325,7 +325,7 @@ machine inside the kernel (`server_kernel.cpp:273-293`, `:1978-2203`) and has al
 from it — generation mismatch is an error on the fake path but a snapshot resync in the
 service, and the ack-pop ordering differs.
 
-→ `kanban/pending/27 topology-projection-extraction -refactor.md`
+→ `kanban/done/27 topology-projection-extraction -refactor.md`
 
 ## Recommended order
 

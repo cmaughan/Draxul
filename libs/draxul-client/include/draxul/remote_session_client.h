@@ -29,6 +29,7 @@ struct RemoteTopologyCommandCompletion
 {
     TopologyCommand command;
     bool ok = false;
+    std::string created_id;
     std::optional<TopologySnapshot> snapshot;
     std::string error_code;
     std::string error_message;

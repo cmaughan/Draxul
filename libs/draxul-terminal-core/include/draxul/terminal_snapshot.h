@@ -21,6 +21,7 @@ struct TerminalStateLimits
     static constexpr size_t kMaxTitleBytes = 4096;
     static constexpr size_t kMaxWorkingDirectoryBytes = 32 * 1024;
     static constexpr size_t kMaxHyperlinkBytes = 32 * 1024;
+    static constexpr size_t kMaxShellMarks = 1024;
     static constexpr size_t kMaxInputBytes = 1024 * 1024;
     static constexpr size_t kMaxFrameBytes = 8 * 1024 * 1024;
     static constexpr size_t kMaxScrollbackRows = 1'000'000;

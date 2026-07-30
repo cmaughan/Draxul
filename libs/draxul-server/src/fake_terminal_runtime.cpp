@@ -12,12 +12,28 @@ FakeTerminalRuntime::FakeTerminalRuntime()
     grid_.resize(80, 24);
     highlights_.set_default_fg(Color(0.8f, 0.84f, 0.93f, 1.0f));
     highlights_.set_default_bg(Color(0.12f, 0.12f, 0.18f, 1.0f));
+    reset_terminal_state();
+}
+
+void FakeTerminalRuntime::reset_terminal_state()
+{
+    grid_.clear();
     core_.reset();
     core_.feed(
         "\x1B]0;Draxul Fake Remote\x07"
         "\x1B[38;2;137;180;250mDraxul remote terminal\x1B[0m\r\n"
         "fake> ");
     grid_.clear_dirty();
+    process_responses_.clear();
+    clipboard_.clear();
+    pending_clipboard_write_.reset();
+    received_input_.clear();
+    published_cursor_ = { 0, 0 };
+    cursor_override_.reset();
+    cursor_shape_ = CursorShape::Block;
+    cursor_blink_ = false;
+    cursor_visible_ = true;
+    dirty_ = false;
 }
 
 TerminalSemanticSnapshot FakeTerminalRuntime::snapshot() const
@@ -39,12 +55,13 @@ bool FakeTerminalRuntime::ensure_started(std::string&)
 
 bool FakeTerminalRuntime::restart(std::string&)
 {
+    reset_terminal_state();
     return true;
 }
 
 bool FakeTerminalRuntime::pump()
 {
-    return false;
+    return std::exchange(dirty_, false);
 }
 
 RemoteTerminalInputResult FakeTerminalRuntime::send_input(
@@ -107,6 +124,7 @@ void FakeTerminalRuntime::echo_input(std::string_view bytes)
             echo.push_back(byte);
     }
     core_.feed(echo);
+    dirty_ = true;
 }
 
 bool FakeTerminalRuntime::resize(int cols, int rows)

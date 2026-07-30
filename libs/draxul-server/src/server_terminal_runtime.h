@@ -12,8 +12,9 @@
 #include <draxul/unix_pty_process.h>
 #endif
 
-#include <optional>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -23,6 +24,22 @@
 namespace draxul
 {
 
+class ServerTerminalResourceBudget
+{
+public:
+    explicit ServerTerminalResourceBudget(size_t max_scrollback_cells);
+
+    bool replace_scrollback_reservation(
+        size_t current_cells, size_t requested_cells);
+    size_t reserved_scrollback_cells() const;
+    size_t max_scrollback_cells() const noexcept;
+
+private:
+    const size_t max_scrollback_cells_;
+    mutable std::mutex mutex_;
+    size_t reserved_scrollback_cells_ = 0;
+};
+
 struct ServerTerminalRuntimeOptions
 {
     std::string shell_kind;
@@ -31,11 +48,12 @@ struct ServerTerminalRuntimeOptions
     std::string working_directory;
     std::vector<std::pair<std::string, std::string>> environment;
     int scrollback_capacity = ScrollbackBuffer::kDefaultCapacity;
+    std::shared_ptr<ServerTerminalResourceBudget> resource_budget;
 };
 
 class ServerTerminalRuntime final
-    : public IRemoteTerminalRuntime
-    , private ITerminalCoreHost
+    : public IRemoteTerminalRuntime,
+      private ITerminalCoreHost
 {
 public:
     explicit ServerTerminalRuntime(
@@ -61,11 +79,16 @@ public:
     std::optional<AgentProcessObservation>
     capture_agent_process_observation() const;
     std::optional<int> exit_code() const;
+    bool scrollback_storage_initialized() const noexcept;
     void set_environment_value(
         std::string key, std::string value);
 
 private:
     bool start_process(std::string& error);
+    void reset_terminal_state();
+    bool replace_scrollback_reservation(
+        int cols, std::string* error = nullptr);
+    void restore_scrollback_reservation(size_t cells);
     void retire_process_async();
     void start_input_writer();
 
@@ -100,6 +123,7 @@ private:
     TerminalCore core_;
     ScrollbackBuffer scrollback_;
     ServerTerminalRuntimeOptions options_;
+    size_t reserved_scrollback_cells_ = 0;
 #ifdef _WIN32
     using Process = ConPtyProcess;
 #else

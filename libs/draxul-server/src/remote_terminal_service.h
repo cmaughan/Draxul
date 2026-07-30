@@ -7,6 +7,7 @@
 #include <chrono>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -45,9 +46,17 @@ public:
     }
 
 private:
+    struct EncodedEvent
+    {
+        RemoteTerminalEvent event;
+        nlohmann::json encoded;
+        size_t bytes = 0;
+    };
+
     struct Subscriber
     {
-        std::deque<RemoteTerminalEvent> events;
+        std::deque<std::shared_ptr<const EncodedEvent>> events;
+        size_t queued_bytes = 0;
         bool needs_resync = false;
     };
 
@@ -66,6 +75,9 @@ private:
     RemoteTerminalEvent make_delta_event();
     RemoteTerminalEvent make_controller_event();
     RemoteTerminalEvent make_clipboard_event(std::string text);
+    std::shared_ptr<const EncodedEvent> encode_event(
+        RemoteTerminalEvent event, bool degrade_to_poll_budget);
+    void require_resync(Subscriber& subscriber);
     void broadcast(const RemoteTerminalEvent& event);
     void publish_runtime_updates(bool terminal_changed);
 
@@ -97,11 +109,14 @@ private:
     uint64_t delta_cells_ = 0;
     uint64_t full_frame_cells_ = 0;
     uint64_t resyncs_ = 0;
+    uint64_t degraded_frames_ = 0;
+    uint64_t oversized_queue_events_ = 0;
     uint64_t scrollback_requests_ = 0;
     uint64_t scrollback_rows_served_ = 0;
     uint64_t loop_latency_warnings_ = 0;
     uint64_t max_loop_interval_ms_ = 0;
     size_t max_queue_depth_ = 0;
+    size_t max_queue_bytes_ = 0;
     std::optional<std::chrono::steady_clock::time_point>
         last_pump_at_;
 };

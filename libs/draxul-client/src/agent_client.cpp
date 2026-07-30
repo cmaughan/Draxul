@@ -1,5 +1,6 @@
 #include <draxul/agent_client.h>
 
+#include <draxul/client_recovery.h>
 #include <draxul/control_plane.h>
 #include <draxul/server_client.h>
 
@@ -89,7 +90,19 @@ bool AgentClient::request(std::string_view method,
         ? "default"
         : options_.session_id;
     if (!options_.client_id.empty())
+    {
         params["client_id"] = options_.client_id;
+        if (options_.recovery)
+        {
+            const auto identity
+                = options_.recovery->server_identity();
+            if (!identity.connection_token.empty())
+            {
+                params["connection_token"]
+                    = identity.connection_token;
+            }
+        }
+    }
     const auto response = ControlClient::request(
         namespaced_control_id(
             kServerControlId, options_.runtime_directory),

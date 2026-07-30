@@ -26,6 +26,7 @@ enum class HostKind
     Markdown,
     Kanban,
     Score,
+    Count,
 };
 
 inline constexpr std::array kAllHostKinds = {
@@ -43,6 +44,9 @@ inline constexpr std::array kAllHostKinds = {
     HostKind::Kanban,
     HostKind::Score,
 };
+static_assert(kAllHostKinds.size()
+    == static_cast<size_t>(HostKind::Count),
+    "Every HostKind must be listed in kAllHostKinds and classified.");
 
 inline const char* to_string(HostKind kind)
 {
@@ -74,8 +78,38 @@ inline const char* to_string(HostKind kind)
         return "kanban";
     case HostKind::Score:
         return "score";
+    case HostKind::Count:
+        break;
     }
     return "nvim";
+}
+
+// Whether this host's runtime belongs in the shared Draxul server. Keep this
+// switch exhaustive: adding a HostKind must force every ownership decision to
+// be reviewed instead of silently falling into a client-local default.
+inline constexpr bool is_server_owned_shell_host(HostKind kind)
+{
+    switch (kind)
+    {
+    case HostKind::PowerShell:
+    case HostKind::Bash:
+    case HostKind::Zsh:
+    case HostKind::Wsl:
+    case HostKind::RemoteTerminal:
+        return true;
+    case HostKind::Nvim:
+    case HostKind::MegaCity:
+    case HostKind::BioView:
+    case HostKind::SatView:
+    case HostKind::NanoVGDemo:
+    case HostKind::Markdown:
+    case HostKind::Kanban:
+    case HostKind::Score:
+        return false;
+    case HostKind::Count:
+        return false;
+    }
+    return false;
 }
 
 inline std::span<const std::string_view> host_kind_aliases(HostKind kind)

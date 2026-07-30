@@ -3,10 +3,13 @@
 #include "support/temp_dir.h"
 #include "../libs/draxul-server/src/fake_terminal_runtime.h"
 #include "../libs/draxul-server/src/remote_terminal_service.h"
+#include "../libs/draxul-server/src/session_topology_bridge.h"
 #include "../libs/draxul-server/src/server_terminal_runtime.h"
+#include "../libs/draxul-server/src/topology_service.h"
 
 #include <draxul/agent_client.h>
 #include <draxul/agent_protocol.h>
+#include <draxul/client_recovery.h>
 #include <draxul/control_plane.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/server_client.h>
@@ -36,6 +39,106 @@
 
 using namespace draxul;
 using draxul::tests::TempDir;
+
+TEST_CASE("server terminal scrollback storage is lazy",
+    "[server][remote-terminal][resource-bounds]")
+{
+    ServerTerminalRuntime runtime({
+        .scrollback_capacity = 1'000'000,
+    });
+    CHECK_FALSE(runtime.scrollback_storage_initialized());
+    CHECK(runtime.scrollback_rows() == 0);
+}
+
+TEST_CASE("server scrollback budget reserves rejects and releases cells",
+    "[server][remote-terminal][resource-bounds]")
+{
+    ServerTerminalResourceBudget budget(100);
+    CHECK(budget.replace_scrollback_reservation(0, 60));
+    CHECK(budget.replace_scrollback_reservation(0, 30));
+    CHECK(budget.reserved_scrollback_cells() == 90);
+    CHECK_FALSE(
+        budget.replace_scrollback_reservation(0, 11));
+    CHECK(budget.reserved_scrollback_cells() == 90);
+
+    CHECK(budget.replace_scrollback_reservation(60, 40));
+    CHECK(budget.replace_scrollback_reservation(30, 60));
+    CHECK(budget.reserved_scrollback_cells() == 100);
+    CHECK(budget.replace_scrollback_reservation(40, 0));
+    CHECK(budget.replace_scrollback_reservation(60, 0));
+    CHECK(budget.reserved_scrollback_cells() == 0);
+    CHECK(budget.max_scrollback_cells() == 100);
+}
+
+TEST_CASE("remote terminal subscriber queues are byte bounded",
+    "[server][remote-terminal][resource-bounds]")
+{
+    FakeTerminalRuntime runtime;
+    RemoteTerminalService service(
+        {
+            .method_prefix = "bytes",
+            .server_epoch = "bytes-epoch",
+            .pane_id = "bytes-pane",
+            .terminal_id = "bytes-terminal",
+            .name = "Bytes",
+        },
+        runtime);
+    REQUIRE(service.handle(
+                "bytes.attach",
+                { { "client_id", "controller" } })
+                .ok);
+    REQUIRE(service.handle(
+                "bytes.attach",
+                { { "client_id", "observer" } })
+                .ok);
+
+    for (int index = 0; index < 4; ++index)
+    {
+        const int cols = index % 2 == 0
+            ? kRemoteTerminalMaxColumns
+            : kRemoteTerminalMaxColumns - 1;
+        REQUIRE(service.handle(
+                    "bytes.resize",
+                    {
+                        { "client_id", "controller" },
+                        { "request_id",
+                            static_cast<uint64_t>(index + 1) },
+                        { "cols", cols },
+                        { "rows", kRemoteTerminalMaxRows },
+                    })
+                    .ok);
+    }
+
+    const auto metrics = service.handle(
+        "bytes.metrics", nlohmann::json::object());
+    REQUIRE(metrics.ok);
+    CHECK(metrics.value["max_queue_bytes"].get<size_t>()
+        <= kRemoteTerminalSubscriberQueueByteLimit);
+    CHECK(metrics.value["queue_byte_limit"].get<size_t>()
+        == kRemoteTerminalSubscriberQueueByteLimit);
+    CHECK(metrics.value["oversized_queue_events"].get<uint64_t>() > 0);
+    CHECK(metrics.value["resyncs"].get<uint64_t>() > 0);
+
+    const auto poll = service.handle(
+        "bytes.poll",
+        {
+            { "client_id", "observer" },
+            { "server_epoch", "bytes-epoch" },
+            { "terminal_id", "bytes-terminal" },
+            { "generation", uint64_t{ 1 } },
+            { "after_sequence", uint64_t{ 0 } },
+        });
+    REQUIRE(poll.ok);
+    REQUIRE(poll.value["events"].size() == 1);
+    CHECK(poll.value["events"][0]["kind"] == "snapshot");
+    CHECK_FALSE(poll.value.contains("server_sequence"));
+
+    const auto invalid_client = service.handle(
+        "bytes.attach",
+        { { "client_id", "bad\x1b" "client" } });
+    CHECK_FALSE(invalid_client.ok);
+    CHECK(invalid_client.error_code == "invalid_client");
+}
 
 TEST_CASE("remote terminal input backpressure is nonfatal and observable",
     "[server][remote-terminal][backpressure]")
@@ -354,13 +457,15 @@ RemoteTerminalClient remote_client(
     const std::filesystem::path& runtime,
     std::string client_id,
     std::string epoch = "fixed-epoch",
-    std::string method_prefix = "fake")
+    std::string method_prefix = "fake",
+    std::shared_ptr<ClientRecoveryState> recovery = {})
 {
     return RemoteTerminalClient({
         .runtime_directory = runtime,
         .client_id = std::move(client_id),
         .expected_server_epoch = std::move(epoch),
         .method_prefix = std::move(method_prefix),
+        .recovery = std::move(recovery),
     });
 }
 
@@ -470,7 +575,373 @@ private:
     std::jthread thread_;
 };
 
+class StaticRemoteTerminalRuntime final : public IRemoteTerminalRuntime
+{
+public:
+    explicit StaticRemoteTerminalRuntime(
+        TerminalSemanticSnapshot snapshot)
+        : snapshot_(std::move(snapshot))
+    {
+    }
+
+    bool ensure_started(std::string&) override
+    {
+        running_ = true;
+        return true;
+    }
+    bool restart(std::string&) override
+    {
+        running_ = true;
+        return true;
+    }
+    bool pump() override
+    {
+        return false;
+    }
+    RemoteTerminalInputResult send_input(std::string_view) override
+    {
+        return RemoteTerminalInputResult::Accepted;
+    }
+    bool resize(int, int) override
+    {
+        return false;
+    }
+    bool is_running() const override
+    {
+        return running_;
+    }
+    uint64_t process_id() const override
+    {
+        return 1;
+    }
+    uint64_t scrollback_rows() const override
+    {
+        return 0;
+    }
+    std::optional<TerminalSemanticSnapshot> scrollback_page(
+        uint64_t, size_t) const override
+    {
+        return std::nullopt;
+    }
+    std::optional<std::string> take_clipboard_write() override
+    {
+        return std::nullopt;
+    }
+    TerminalSemanticSnapshot snapshot() const override
+    {
+        return snapshot_;
+    }
+    TerminalDirtySnapshot take_delta() override
+    {
+        return {};
+    }
+
+private:
+    TerminalSemanticSnapshot snapshot_;
+    bool running_ = false;
+};
+
 } // namespace
+
+TEST_CASE("server-wide terminal allocation cap rejects topology growth",
+    "[server][topology][remote-terminal][resource-bounds]")
+{
+    TempDir temp("draxul-server-terminal-cap");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "terminal-cap-epoch",
+        .max_terminals = 4,
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    TopologyClient client({
+        .runtime_directory = temp.path,
+        .client_id = "terminal-cap-client",
+    });
+    std::string error;
+    REQUIRE(client.refresh(error));
+    const std::string space_id
+        = client.snapshot().spaces.front().space_id;
+    for (int index = 0; index < 3; ++index)
+    {
+        TopologyCommand command{
+            .command_id = "terminal-cap-tab-"
+                + std::to_string(index),
+            .expected_revision = client.snapshot().revision,
+            .kind = TopologyCommandKind::CreateTab,
+            .space_id = space_id,
+            .name = "Bounded shell",
+            .pane_domain = TopologyPaneDomain::ServerTerminal,
+        };
+        TopologyCommandResult result;
+        REQUIRE(client.execute(command, result, error));
+    }
+
+    TopologyCommand rejected{
+        .command_id = "terminal-cap-overflow",
+        .expected_revision = client.snapshot().revision,
+        .kind = TopologyCommandKind::CreateSpace,
+        .name = "Overflow",
+        .root_directory = "D:/overflow",
+        .pane_domain = TopologyPaneDomain::ServerTerminal,
+    };
+    TopologyCommandResult result;
+    CHECK_FALSE(client.execute(rejected, result, error));
+    CHECK(client.last_error_code() == "terminal_start_failed");
+    CHECK(error.find("terminal limit reached (4)")
+        != std::string::npos);
+    CHECK(server.status_snapshot().terminals == 4);
+
+    run_guard.join();
+}
+
+TEST_CASE("server-wide scrollback cell budget rejects allocation before spawn",
+    "[server][remote-terminal][resource-bounds]")
+{
+    TempDir temp("draxul-server-scrollback-budget");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "scrollback-budget-epoch",
+        .terminal_scrollback_lines = 100,
+        .max_scrollback_cells = 7'999,
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+    CHECK(server.status_snapshot().scrollback_cells_reserved
+        == 0);
+    CHECK(server.status_snapshot().scrollback_cells_limit
+        == 7'999);
+
+    auto client = remote_client(
+        temp.path, "budget-client",
+        "scrollback-budget-epoch", "terminal");
+    std::string error;
+    REQUIRE_FALSE(client.attach(error));
+    CHECK(client.last_error_code()
+        == "process_start_failed");
+    CHECK(error.find("scrollback memory budget")
+        != std::string::npos);
+    CHECK(server.status_snapshot().scrollback_cells_reserved
+        == 0);
+
+    run_guard.join();
+}
+
+TEST_CASE("restored child topology identities are scoped by their parents",
+    "[server][topology][persistence][identity]")
+{
+    const auto tab = [](std::string name) {
+        TabSnapshot result{
+            .id = 0,
+            .name = std::move(name),
+        };
+        result.pane_layout.tree.root
+            = std::make_unique<SessionSplitNode>(
+                SessionSplitNode{
+                    .is_leaf = true,
+                    .leaf_id = 0,
+                });
+        result.pane_layout.tree.focused_id = 0;
+        result.pane_layout.tree.next_leaf_id = 1;
+        result.pane_layout.panes.push_back({
+            .leaf_id = 0,
+            .launch = {
+                .kind = HostKind::Nvim,
+            },
+            .pane_name = "Pane",
+            .pane_id = "pane-0",
+        });
+        return result;
+    };
+    SessionSnapshot saved{
+        .session_id = "default",
+        .session_name = "Restored",
+        .active_space_id = 0,
+        .next_space_id = 2,
+    };
+    for (SpaceId space_id = 0; space_id < 2; ++space_id)
+    {
+        SpaceSnapshot space{
+            .id = space_id,
+            .name = "Space " + std::to_string(space_id),
+            .active_tab_id = 0,
+            .next_tab_id = 1,
+        };
+        space.tabs.push_back(
+            tab("Tab " + std::to_string(space_id)));
+        saved.spaces.push_back(std::move(space));
+    }
+
+    std::string error;
+    const auto restored
+        = restore_session_topology(saved, error);
+    INFO(error);
+    REQUIRE(restored);
+    REQUIRE(restored->topology.spaces.size() == 2);
+    const TopologyTab& first
+        = restored->topology.spaces[0].tabs[0];
+    const TopologyTab& second
+        = restored->topology.spaces[1].tabs[0];
+    CHECK(first.tab_id != second.tab_id);
+    CHECK(first.panes[0].pane_id
+        != second.panes[0].pane_id);
+
+    const auto captured
+        = capture_session_topology(
+            restored->topology, error);
+    INFO(error);
+    REQUIRE(captured);
+    const auto rerestored
+        = restore_session_topology(*captured, error);
+    INFO(error);
+    REQUIRE(rerestored);
+    CHECK(rerestored->topology.spaces[0]
+              .tabs[0]
+              .tab_id
+        == first.tab_id);
+    CHECK(rerestored->topology.spaces[0]
+              .tabs[0]
+              .panes[0]
+              .pane_id
+        == first.panes[0].pane_id);
+}
+
+TEST_CASE("oversized truecolour hyperlink snapshots degrade within frame budget",
+    "[server][remote-terminal][resource-bounds][encoding]")
+{
+    TerminalSemanticSnapshot snapshot{
+        .cols = kRemoteTerminalMaxColumns,
+        .rows = kRemoteTerminalMaxRows,
+    };
+    snapshot.cells.reserve(kRemoteTerminalMaxCells);
+    for (size_t index = 0; index < kRemoteTerminalMaxCells; ++index)
+    {
+        const uint32_t rgb = static_cast<uint32_t>(index);
+        HlAttr attr;
+        attr.fg = Color(
+            static_cast<float>((rgb >> 16) & 0xffu) / 255.0f,
+            static_cast<float>((rgb >> 8) & 0xffu) / 255.0f,
+            static_cast<float>(rgb & 0xffu) / 255.0f,
+            1.0f);
+        attr.has_fg = true;
+        snapshot.cells.push_back({
+            .text = "X",
+            .attr = attr,
+            .hyperlink = "https://example.test/cell/"
+                + std::to_string(index),
+        });
+    }
+    StaticRemoteTerminalRuntime runtime(std::move(snapshot));
+    RemoteTerminalService service(
+        {
+            .method_prefix = "large",
+            .server_epoch = "large-epoch",
+            .pane_id = "large-pane",
+            .terminal_id = "large-terminal",
+            .name = "Large",
+        },
+        runtime);
+
+    const auto attached = service.handle(
+        "large.attach", { { "client_id", "large-client" } });
+    REQUIRE(attached.ok);
+    CHECK(attached.value.dump().size() < kControlMaxMessageBytes);
+    std::string error;
+    const auto parsed
+        = remote_terminal_attach_from_json(attached.value, error);
+    INFO(error);
+    REQUIRE(parsed);
+    REQUIRE(parsed->state.snapshot);
+    CHECK(parsed->state.snapshot->cells.size()
+        == kRemoteTerminalMaxCells);
+    CHECK(parsed->state.snapshot->cells.front().text == "X");
+
+    const auto metrics = service.handle(
+        "large.metrics", nlohmann::json::object());
+    REQUIRE(metrics.ok);
+    CHECK(metrics.value["degraded_frames"].get<uint64_t>() >= 1);
+    CHECK(metrics.value["poll_payload_budget"].get<size_t>()
+        < kControlMaxMessageBytes);
+
+    const auto poll = service.handle(
+        "large.poll",
+        {
+            { "client_id", "large-client" },
+            { "server_epoch", "large-epoch" },
+            { "terminal_id", "large-terminal" },
+            { "generation", uint64_t{ 1 } },
+            { "after_sequence",
+                parsed->state.version.sequence },
+        });
+    REQUIRE(poll.ok);
+    CHECK(poll.value["events"].empty());
+}
+
+TEST_CASE("topology ratio storms retain only bounded command outcomes",
+    "[server][topology][resource-bounds]")
+{
+    uint64_t next_terminal = 1;
+    TopologyService service("cache-test", {
+        .create_server_terminal
+        = [&next_terminal](std::string_view, std::string_view,
+              std::string&) -> std::optional<std::string> {
+              return "cache-terminal-"
+                  + std::to_string(next_terminal++);
+          },
+    });
+    const auto& initial_space = service.snapshot().spaces.front();
+    const auto& initial_tab = initial_space.tabs.front();
+    TopologyCommand split{
+        .client_id = "cache-client",
+        .command_id = "cache-split",
+        .expected_revision = service.snapshot().revision,
+        .kind = TopologyCommandKind::SplitPane,
+        .space_id = initial_space.space_id,
+        .tab_id = initial_tab.tab_id,
+        .pane_id = initial_tab.panes.front().pane_id,
+        .name = "Cache split",
+        .direction = TopologySplitDirection::Vertical,
+        .pane_domain = TopologyPaneDomain::ServerTerminal,
+    };
+    REQUIRE(service.handle(
+                "topology.command",
+                topology_command_to_json(split))
+                .ok);
+    const std::string split_node_id
+        = service.snapshot().spaces.front()
+              .tabs.front()
+              .root_node_id;
+
+    for (size_t index = 0;
+         index < kTopologyCompletedCommandLimit + 128; ++index)
+    {
+        TopologyCommand ratio{
+            .client_id = "cache-client",
+            .command_id = "cache-ratio-"
+                + std::to_string(index),
+            .expected_revision = service.snapshot().revision,
+            .kind = TopologyCommandKind::SetSplitRatio,
+            .space_id = service.snapshot().spaces.front().space_id,
+            .tab_id = service.snapshot().spaces.front()
+                          .tabs.front()
+                          .tab_id,
+            .node_id = split_node_id,
+            .ratio = index % 2 == 0 ? 0.4f : 0.6f,
+        };
+        REQUIRE(service.handle(
+                    "topology.command",
+                    topology_command_to_json(ratio))
+                    .ok);
+    }
+    CHECK(service.completed_command_count()
+        == kTopologyCompletedCommandLimit);
+    CHECK(service.completed_command_result_bytes()
+        == kTopologyCompletedCommandLimit
+            * sizeof(std::string));
+}
 
 TEST_CASE("server kernel publishes one identity and stops gracefully", "[server][kernel]")
 {
@@ -508,6 +979,10 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
                 "session-delete-v1")
         != probe.welcome->capabilities.end());
+    REQUIRE(std::ranges::find(probe.welcome->capabilities,
+                kServerClientTokenCapability)
+        != probe.welcome->capabilities.end());
+    REQUIRE_FALSE(probe.welcome->connection_token.empty());
 
     const auto agents = ControlClient::request(
         namespaced_control_id(kServerControlId, temp.path),
@@ -529,7 +1004,14 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     REQUIRE(second_agents.refresh(agent_error));
     CHECK(second_agents.snapshot() == *agent_snapshot);
 
-    auto attached_client = remote_client(temp.path, "unit-client");
+    auto recovery = std::make_shared<ClientRecoveryState>(
+        "unit-client");
+    REQUIRE(recovery->set_server_identity(
+        probe.welcome->server_epoch,
+        probe.welcome->connection_token));
+    auto attached_client = remote_client(
+        temp.path, "unit-client", "fixed-epoch", "fake",
+        recovery);
     REQUIRE(attached_client.attach(agent_error));
     const auto stale_topology = ControlClient::request(
         namespaced_control_id(kServerControlId, temp.path),
@@ -537,6 +1019,8 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
         {
             { "session_id", "default" },
             { "client_id", "unit-client" },
+            { "connection_token",
+                probe.welcome->connection_token },
             { "after_revision",
                 std::numeric_limits<uint64_t>::max() },
         });
@@ -549,6 +1033,8 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
         {
             { "session_id", "default" },
             { "client_id", "unit-client" },
+            { "connection_token",
+                probe.welcome->connection_token },
             { "after_revision",
                 std::numeric_limits<uint64_t>::max() },
         });
@@ -561,14 +1047,16 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     REQUIRE(status.status->terminals == 1);
     std::string disconnect_error;
     REQUIRE(ServerClient::disconnect(
-        temp.path, "unit-client", disconnect_error));
+        temp.path, "unit-client", disconnect_error,
+        probe.welcome->connection_token));
     const auto disconnected_status
         = ServerClient::status(temp.path);
     REQUIRE(disconnected_status.ok);
     CHECK(disconnected_status.status->connected_clients == 1);
     bool changed = false;
     CHECK_FALSE(attached_client.poll(changed, disconnect_error));
-    CHECK(attached_client.last_error_code() == "not_attached");
+    CHECK(attached_client.last_error_code()
+        == "invalid_connection_token");
     REQUIRE(ServerClient::disconnect(
         temp.path, "unit-client", disconnect_error));
     REQUIRE(ServerClient::disconnect(
@@ -590,6 +1078,149 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     run_guard.join();
     REQUIRE_FALSE(server.running());
     REQUIRE_FALSE(std::filesystem::exists(server_metadata_path(temp.path)));
+}
+
+TEST_CASE("server connection tokens bind active client identities",
+    "[server][kernel][clients][security]")
+{
+    TempDir temp("draxul-server-client-token");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "token-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    auto options = probe_options(temp.path);
+    options.client_id = "bound-client";
+    options.registration_nonce = "bound-registration-nonce";
+    const auto probe = ServerClient::probe(options);
+    REQUIRE(probe.ready());
+    const std::string token
+        = probe.welcome->connection_token;
+    REQUIRE_FALSE(token.empty());
+
+    const auto retried_hello = ControlClient::request(
+        namespaced_control_id(
+            kServerControlId, temp.path),
+        temp.path, "server.hello",
+        server_hello_to_json({
+            .client_id = "bound-client",
+            .registration_nonce
+                = options.registration_nonce,
+            .capabilities = {
+                std::string(kServerClientTokenCapability),
+            },
+        }));
+    REQUIRE(retried_hello.ok);
+    std::string welcome_error;
+    const auto retried_welcome
+        = server_welcome_from_json(
+            retried_hello.result, welcome_error);
+    INFO(welcome_error);
+    REQUIRE(retried_welcome);
+    CHECK(retried_welcome->connection_token == token);
+
+    const auto request = [&](std::string_view method,
+                             nlohmann::json params) {
+        return ControlClient::request(
+            namespaced_control_id(
+                kServerControlId, temp.path),
+            temp.path, method, std::move(params));
+    };
+    const auto missing = request(
+        "fake.attach",
+        {
+            { "client_id", "bound-client" },
+        });
+    REQUIRE_FALSE(missing.ok);
+    CHECK(missing.error_code
+        == "invalid_connection_token");
+    const auto wrong = request(
+        "fake.attach",
+        {
+            { "client_id", "bound-client" },
+            { "connection_token", "wrong-token" },
+        });
+    REQUIRE_FALSE(wrong.ok);
+    CHECK(wrong.error_code
+        == "invalid_connection_token");
+    REQUIRE(request(
+                "fake.attach",
+                {
+                    { "client_id", "bound-client" },
+                    { "connection_token", token },
+                })
+                .ok);
+
+    const auto spoofed_input = request(
+        "fake.input",
+        {
+            { "client_id", "bound-client" },
+            { "request_id", uint64_t{ 1 } },
+            { "text", "spoofed" },
+        });
+    REQUIRE_FALSE(spoofed_input.ok);
+    CHECK(spoofed_input.error_code
+        == "invalid_connection_token");
+    REQUIRE(request(
+                "fake.input",
+                {
+                    { "client_id", "bound-client" },
+                    { "connection_token", token },
+                    { "request_id", uint64_t{ 2 } },
+                    { "text", "accepted" },
+                })
+                .ok);
+
+    const auto wrong_hello = request(
+        "server.hello",
+        server_hello_to_json({
+            .client_id = "bound-client",
+            .connection_token = "wrong-token",
+            .registration_nonce = "wrong-nonce",
+            .capabilities = {
+                std::string(kServerClientTokenCapability),
+            },
+        }));
+    REQUIRE_FALSE(wrong_hello.ok);
+    CHECK(wrong_hello.error_code
+        == "invalid_connection_token");
+
+    std::string error;
+    REQUIRE_FALSE(ServerClient::disconnect(
+        temp.path, "bound-client", error, "wrong-token"));
+    const auto connected_status
+        = ServerClient::status(temp.path);
+    REQUIRE(connected_status.ok);
+    REQUIRE(connected_status.status->connected_clients == 1);
+    REQUIRE(ServerClient::disconnect(
+        temp.path, "bound-client", error, token));
+    const auto disconnected_status
+        = ServerClient::status(temp.path);
+    REQUIRE(disconnected_status.ok);
+    REQUIRE(disconnected_status.status->connected_clients == 0);
+
+    run_guard.join();
+
+    ServerKernel replacement({
+        .runtime_directory = temp.path,
+        .epoch_override = "replacement-token-epoch",
+    });
+    REQUIRE(replacement.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard replacement_guard(replacement);
+    options.connection_token = token;
+    const auto replaced = ServerClient::probe(options);
+    REQUIRE(replaced.ready());
+    CHECK(replaced.welcome->server_epoch
+        == "replacement-token-epoch");
+    CHECK(replaced.welcome->connection_token != token);
+    REQUIRE(ServerClient::disconnect(
+        temp.path, "bound-client", error,
+        replaced.welcome->connection_token));
+    replacement_guard.join();
 }
 
 TEST_CASE("server releases expired terminal leases",
@@ -831,7 +1462,7 @@ TEST_CASE("server rejects an incompatible protocol major", "[server][protocol]")
     TempDir temp("draxul-server-incompatible");
     ServerKernel server({
         .runtime_directory = temp.path,
-        .protocol_major = 7,
+        .protocol_major = kServerProtocolMajor - 1,
     });
     REQUIRE(server.start().disposition == ServerStartDisposition::Started);
     ServerRunGuard run_guard(server);
@@ -963,6 +1594,108 @@ TEST_CASE("slow remote observer resyncs without delaying the controller",
         == controller.projection().version());
     REQUIRE(terminal_semantic_digest(observer.projection().snapshot())
         == terminal_semantic_digest(controller.projection().snapshot()));
+
+    run_guard.join();
+}
+
+TEST_CASE("fake endpoint shares service ack and generation resync semantics",
+    "[server][remote-terminal][fake-service]")
+{
+    TempDir temp("draxul-fake-remote-service-parity");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "fake-service-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+    const auto request = [&](std::string_view method,
+                             nlohmann::json params) {
+        return ControlClient::request(
+            namespaced_control_id(kServerControlId, temp.path),
+            temp.path, method, std::move(params));
+    };
+
+    const auto attached = request(
+        "fake.attach", { { "client_id", "fake-client" } });
+    REQUIRE(attached.ok);
+    std::string error;
+    const auto attach
+        = remote_terminal_attach_from_json(attached.result, error);
+    INFO(error);
+    REQUIRE(attach);
+    REQUIRE(attach->state.version.generation == 1);
+    const auto first = request(
+        "fake.input",
+        {
+            { "client_id", "fake-client" },
+            { "request_id", uint64_t{ 1 } },
+            { "text", "A" },
+        });
+    const auto second = request(
+        "fake.input",
+        {
+            { "client_id", "fake-client" },
+            { "request_id", uint64_t{ 2 } },
+            { "text", "B" },
+        });
+    REQUIRE(first.ok);
+    REQUIRE(second.ok);
+    const uint64_t first_sequence
+        = first.result["sequence"].get<uint64_t>();
+    const uint64_t second_sequence
+        = second.result["sequence"].get<uint64_t>();
+    REQUIRE(second_sequence == first_sequence + 1);
+
+    const auto acknowledged = request(
+        "fake.poll",
+        {
+            { "client_id", "fake-client" },
+            { "server_epoch", "fake-service-epoch" },
+            { "terminal_id", kFakeRemoteTerminalId },
+            { "generation", uint64_t{ 1 } },
+            { "after_sequence", first_sequence },
+        });
+    REQUIRE(acknowledged.ok);
+    REQUIRE(acknowledged.result["events"].size() == 1);
+    auto event = remote_terminal_event_from_json(
+        acknowledged.result["events"][0], error);
+    INFO(error);
+    REQUIRE(event);
+    CHECK(event->version.sequence == second_sequence);
+
+    const auto restarted = request(
+        "fake.restart",
+        {
+            { "client_id", "fake-client" },
+            { "request_id", uint64_t{ 3 } },
+        });
+    REQUIRE(restarted.ok);
+    REQUIRE(restarted.result["generation"] == 2);
+    const auto resynced = request(
+        "fake.poll",
+        {
+            { "client_id", "fake-client" },
+            { "server_epoch", "fake-service-epoch" },
+            { "terminal_id", kFakeRemoteTerminalId },
+            { "generation", uint64_t{ 1 } },
+            { "after_sequence", second_sequence },
+        });
+    REQUIRE(resynced.ok);
+    REQUIRE(resynced.result["events"].size() == 1);
+    event = remote_terminal_event_from_json(
+        resynced.result["events"][0], error);
+    INFO(error);
+    REQUIRE(event);
+    CHECK(event->kind == RemoteTerminalEventKind::Snapshot);
+    CHECK(event->version.generation == 2);
+    REQUIRE(event->snapshot);
+    CHECK(snapshot_text(*event->snapshot)
+              .find("Draxul remote terminal")
+        != std::string::npos);
+    CHECK(snapshot_text(*event->snapshot).find("AB")
+        == std::string::npos);
+    CHECK_FALSE(resynced.result.contains("server_sequence"));
 
     run_guard.join();
 }
@@ -1636,6 +2369,11 @@ TEST_CASE("managed agents launch and restart without a UI",
     REQUIRE(restored_agent.ok);
     CHECK(restored_agent.result["running"].get<bool>());
     CHECK(restored_agent.result["runtime_generation"] == 1);
+    const std::string restored_pane_id
+        = restored_agent.result["route"]["pane_id"]
+              .get<std::string>();
+    REQUIRE_FALSE(restored_pane_id.empty());
+    CHECK(restored_pane_id != pane_id);
 
     bool restored_environment = false;
     for (int attempt = 0;
@@ -1645,7 +2383,7 @@ TEST_CASE("managed agents launch and restart without a UI",
         const auto read = restored_request(
             "pane.read",
             {
-                { "pane_id", pane_id },
+                { "pane_id", restored_pane_id },
                 { "lines", 24 },
             });
         if (read.ok)
@@ -1713,11 +2451,13 @@ TEST_CASE("two topology clients converge through idempotent server commands",
     REQUIRE(created.snapshot.spaces.size() == 2);
     const std::string second_space_id
         = created.snapshot.spaces.back().space_id;
+    REQUIRE(created.created_id == second_space_id);
 
     TopologyCommandResult duplicate;
     REQUIRE(first.execute(create, duplicate, error));
     REQUIRE(duplicate.applied);
     REQUIRE(duplicate.duplicate);
+    REQUIRE(duplicate.created_id == second_space_id);
     REQUIRE(duplicate.snapshot.revision == 2);
 
     bool changed = false;
@@ -1739,6 +2479,7 @@ TEST_CASE("two topology clients converge through idempotent server commands",
 
     REQUIRE(first.execute(create, duplicate, error));
     REQUIRE(duplicate.duplicate);
+    REQUIRE(duplicate.created_id == second_space_id);
     REQUIRE(duplicate.snapshot.revision == 3);
     REQUIRE(first.snapshot().spaces.back().name == "Renamed");
 
@@ -1780,6 +2521,8 @@ TEST_CASE("two topology clients converge through idempotent server commands",
     const std::string split_tab_id = split_tab.tab_id;
     const std::string split_target_pane_id
         = split_tab.panes.back().pane_id;
+    REQUIRE(split_result.created_id
+        == split_target_pane_id);
 
     TopologyCommand restart_client_local{
         .command_id = "restart-client-local-pane-1",
@@ -1989,6 +2732,7 @@ TEST_CASE("two topology clients converge through idempotent server commands",
     REQUIRE(first.execute(create_tab, tab_result, error));
     const auto& created_tab
         = tab_result.snapshot.spaces.front().tabs.back();
+    REQUIRE(tab_result.created_id == created_tab.tab_id);
     REQUIRE(created_tab.name == "PowerShell");
     REQUIRE_FALSE(created_tab.name_user_set);
     REQUIRE(created_tab.panes.size() == 1);
@@ -2591,6 +3335,7 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
     const auto checkpoint = server_session_state_path(temp.path);
     std::string dynamic_terminal_id;
     std::string dynamic_pane_id;
+    std::string restored_dynamic_pane_id;
     uint64_t original_process_id = 0;
 
     {
@@ -2726,7 +3471,10 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
             restored_panes, dynamic_terminal_id,
             &TopologyPane::terminal_id);
         REQUIRE(dynamic != restored_panes.end());
-        REQUIRE(dynamic->pane_id == dynamic_pane_id);
+        restored_dynamic_pane_id = dynamic->pane_id;
+        REQUIRE_FALSE(restored_dynamic_pane_id.empty());
+        REQUIRE(restored_dynamic_pane_id
+            != dynamic_pane_id);
         REQUIRE(dynamic->agent);
         REQUIRE(dynamic->agent->instance_id
             == "persisted-agent");
@@ -2763,7 +3511,8 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
                           { "session_id", "default" },
                           { "server_epoch", epoch },
                           { "runtime_generation", generation },
-                          { "pane_id", dynamic_pane_id },
+                          { "pane_id",
+                              restored_dynamic_pane_id },
                           { "agent_instance_id",
                               "persisted-agent" },
                           { "source", "draxul:codex" },
@@ -2804,7 +3553,7 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
                   .tabs.front()
                   .panes;
         const auto updated = std::ranges::find(
-            updated_panes, dynamic_pane_id,
+            updated_panes, restored_dynamic_pane_id,
             &TopologyPane::pane_id);
         REQUIRE(updated != updated_panes.end());
         REQUIRE(updated->agent_session);
@@ -2822,7 +3571,7 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
         = updated->spaces.front().tabs.front()
               .pane_layout.panes;
     const auto updated_dynamic = std::ranges::find(
-        updated_panes, dynamic_pane_id,
+        updated_panes, restored_dynamic_pane_id,
         &SessionPaneSnapshot::pane_id);
     REQUIRE(updated_dynamic != updated_panes.end());
     REQUIRE(updated_dynamic->agent_session);
@@ -3421,6 +4170,150 @@ TEST_CASE("remote terminal projection rejects stale identity and sequence",
     event.version.server_epoch = "epoch";
     event.version.generation = 2;
     REQUIRE_FALSE(projection.apply(event, error));
+}
+
+TEST_CASE("remote terminal compact codec validates coordinates and metadata",
+    "[protocol][remote-terminal][validation]")
+{
+    TerminalDirtySnapshot delta{
+        .cols = 2,
+        .rows = 2,
+        .full = true,
+        .cells = {
+            { .col = 0, .row = 0, .cell = { .text = "A" } },
+            { .col = 1, .row = 0, .cell = { .text = "B" } },
+            { .col = 0, .row = 1, .cell = { .text = "C" } },
+            { .col = 1, .row = 1, .cell = { .text = "D" } },
+        },
+    };
+    auto encoded = terminal_dirty_snapshot_to_json(delta);
+    REQUIRE(encoded["attrs"].is_array());
+    REQUIRE(encoded["links"].is_array());
+
+    std::string error;
+    auto duplicate = encoded;
+    duplicate["cells"][1][0] = 0;
+    REQUIRE_FALSE(terminal_dirty_snapshot_from_json(
+        duplicate, error));
+
+    auto too_many = encoded;
+    too_many["full"] = false;
+    too_many["cells"].push_back(too_many["cells"][0]);
+    REQUIRE_FALSE(terminal_dirty_snapshot_from_json(
+        too_many, error));
+
+    auto bad_cursor = encoded;
+    bad_cursor["metadata"]["cursor"]["col"] = 2;
+    REQUIRE_FALSE(terminal_dirty_snapshot_from_json(
+        bad_cursor, error));
+
+    auto bad_mark = encoded;
+    bad_mark["metadata"]["shell_marks"].push_back({
+        { "kind", static_cast<int>(
+              TerminalShellMarkKind::PromptStart) },
+        { "row", 2 },
+        { "exit_code", 0 },
+    });
+    REQUIRE_FALSE(terminal_dirty_snapshot_from_json(
+        bad_mark, error));
+
+    auto oversized_coordinate = encoded;
+    oversized_coordinate["cells"][0][0]
+        = std::numeric_limits<uint64_t>::max();
+    REQUIRE_FALSE(terminal_dirty_snapshot_from_json(
+        oversized_coordinate, error));
+
+    auto expanded = encoded;
+    expanded.erase("attrs");
+    expanded.erase("links");
+    expanded["cells"] = nlohmann::json::array({
+        {
+            { "col", 0 },
+            { "row", 0 },
+            { "cell", nlohmann::json::object() },
+        },
+    });
+    REQUIRE_FALSE(terminal_dirty_snapshot_from_json(
+        expanded, error));
+
+    RemoteTerminalEvent event{
+        .kind = RemoteTerminalEventKind::Controller,
+        .version = {
+            .server_epoch = "epoch",
+            .terminal_id = "terminal",
+            .generation = 1,
+        },
+        .controller_client_id = "controller",
+    };
+    auto bad_controller = remote_terminal_event_to_json(event);
+    bad_controller["controller_client_id"]
+        = "bad\x1b" "controller";
+    REQUIRE_FALSE(remote_terminal_event_from_json(
+        bad_controller, error));
+}
+
+TEST_CASE("remote terminal codec packs colours and deduplicates hyperlinks",
+    "[protocol][remote-terminal][encoding]")
+{
+    HlAttr attr;
+    attr.fg = Color(1.0f, 128.0f / 255.0f, 0.0f, 1.0f);
+    attr.has_fg = true;
+    TerminalSemanticSnapshot snapshot{
+        .cols = 2,
+        .rows = 1,
+        .cells = {
+            {
+                .text = "A",
+                .attr = attr,
+                .hyperlink = "https://example.test/shared",
+            },
+            {
+                .text = "B",
+                .attr = attr,
+                .hyperlink = "https://example.test/shared",
+            },
+        },
+    };
+    const auto encoded = terminal_semantic_snapshot_to_json(snapshot);
+    REQUIRE(encoded["attrs"].size() == 1);
+    REQUIRE(encoded["attrs"][0]["fg"].is_number_unsigned());
+    REQUIRE(encoded["links"].size() == 1);
+    REQUIRE(encoded["cells"][0][4] == encoded["cells"][1][4]);
+
+    std::string error;
+    const auto decoded
+        = terminal_semantic_snapshot_from_json(encoded, error);
+    REQUIRE(decoded);
+    CHECK(*decoded == snapshot);
+}
+
+TEST_CASE("remote terminal scrollback advertised maximum round-trips",
+    "[protocol][remote-terminal][scrollback]")
+{
+    TerminalSemanticSnapshot snapshot{
+        .cols = 1,
+        .rows = static_cast<int>(
+            kRemoteTerminalMaxScrollbackPageRows),
+        .cells = std::vector<TerminalCellSnapshot>(
+            kRemoteTerminalMaxScrollbackPageRows,
+            TerminalCellSnapshot{ .text = " " }),
+    };
+    RemoteTerminalScrollbackPage page{
+        .version = {
+            .server_epoch = "epoch",
+            .terminal_id = "terminal",
+            .generation = 1,
+        },
+        .total_rows = kRemoteTerminalMaxScrollbackPageRows,
+        .offset_from_live = kRemoteTerminalMaxScrollbackPageRows,
+        .cols = 1,
+        .snapshot = snapshot,
+    };
+    std::string error;
+    const auto decoded = remote_terminal_scrollback_page_from_json(
+        remote_terminal_scrollback_page_to_json(page), error);
+    REQUIRE(decoded);
+    CHECK(*decoded == page);
 }
 
 TEST_CASE("remote terminal forwards OSC 52 clipboard writes without tracing content",

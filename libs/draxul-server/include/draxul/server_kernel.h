@@ -21,6 +21,9 @@ namespace draxul
 
 struct SessionSnapshot;
 
+inline constexpr size_t kServerMaxTerminals = 256;
+inline constexpr size_t kServerMaxScrollbackCells = 24'000'000;
+
 enum class ServerStartDisposition
 {
     Started,
@@ -58,6 +61,8 @@ struct ServerKernelOptions
     std::vector<std::pair<std::string, std::string>>
         terminal_environment;
     int terminal_scrollback_lines = 10000;
+    size_t max_terminals = kServerMaxTerminals;
+    size_t max_scrollback_cells = kServerMaxScrollbackCells;
     std::vector<AgentDefinition> agent_definitions;
     bool agents_resume_on_restore = false;
     std::chrono::milliseconds checkpoint_shutdown_budget{

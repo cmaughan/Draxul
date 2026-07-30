@@ -26,6 +26,14 @@ struct ClientRecoverySnapshot
     std::string server_epoch;
 };
 
+struct ClientServerIdentity
+{
+    std::string server_epoch;
+    std::string connection_token;
+
+    bool operator==(const ClientServerIdentity&) const = default;
+};
+
 // Shared recovery policy for all client-side server projections. A single
 // instance is shared by the Session worker and every terminal host in one UI,
 // so epoch migration and retry pacing cannot drift between subsystems.
@@ -39,7 +47,11 @@ public:
     void note_reconnecting(std::string_view channel);
     ClientRecoverySnapshot snapshot(std::string_view channel) const;
 
+    ClientServerIdentity server_identity() const;
     std::string server_epoch() const;
+    const std::string& registration_nonce() const noexcept;
+    bool set_server_identity(
+        std::string epoch, std::string connection_token);
     bool set_server_epoch(std::string epoch);
     bool refresh_server_epoch(
         const std::filesystem::path& runtime_directory,
@@ -60,7 +72,8 @@ private:
 
     ChannelState& channel_locked(std::string_view channel);
     mutable std::mutex mutex_;
-    std::string server_epoch_;
+    ClientServerIdentity server_identity_;
+    std::string registration_nonce_;
     uint64_t jitter_identity_ = 0;
     std::unordered_map<std::string, ChannelState> channels_;
 };

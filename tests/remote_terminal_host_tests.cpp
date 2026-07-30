@@ -192,6 +192,76 @@ public:
 
 } // namespace
 
+TEST_CASE("remote terminal client skips unknown additive events",
+    "[client][remote-terminal][protocol]")
+{
+    TempDir temp("draxul-remote-unknown-event");
+    ControlServer control;
+    std::string control_error;
+    REQUIRE(control.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &control_error));
+
+    const TerminalSemanticSnapshot snapshot = snapshot_from_rows({ "A" });
+    const RemoteTerminalAttach attach{
+        .pane = {
+            .pane_id = "unknown-pane",
+            .terminal_id = "unknown-terminal",
+            .name = "Unknown event",
+            .execution_domain = "server_terminal",
+        },
+        .state = {
+            .kind = RemoteTerminalEventKind::Snapshot,
+            .version = {
+                .server_epoch = "unknown-epoch",
+                .terminal_id = "unknown-terminal",
+                .generation = 1,
+            },
+            .snapshot = snapshot,
+        },
+    };
+    std::jthread dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            control.process_pending([&](const ControlRequest& request) {
+                if (request.method == "fake.attach")
+                {
+                    return ControlMethodResult::success(
+                        remote_terminal_attach_to_json(attach));
+                }
+                if (request.method == "fake.poll")
+                {
+                    return ControlMethodResult::success({
+                        { "events", nlohmann::json::array({
+                              {
+                                  { "kind", "future-decoration" },
+                                  { "payload", "ignored" },
+                              },
+                          }) },
+                    });
+                }
+                return ControlMethodResult::success(
+                    nlohmann::json::object());
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    RemoteTerminalClient client({
+        .runtime_directory = temp.path,
+        .client_id = "unknown-client",
+        .expected_server_epoch = "unknown-epoch",
+    });
+    std::string error;
+    REQUIRE(client.attach(error));
+    bool changed = true;
+    REQUIRE(client.poll(changed, error));
+    CHECK_FALSE(changed);
+    CHECK(client.skipped_unknown_event_count() == 1);
+
+    dispatcher.request_stop();
+}
+
 TEST_CASE("remote terminal host shutdown is bounded and stops between commands",
     "[host][remote-terminal][shutdown]")
 {
@@ -779,7 +849,7 @@ TEST_CASE("remote terminal host recovers from malformed and unexpected polling",
                     {
                         return ControlMethodResult::success({
                             { "events", nlohmann::json::array(
-                                  { { { "kind", "malformed" } } }) },
+                                  { { { "kind", "delta" } } }) },
                         });
                     }
                     if (call == 2)
@@ -1092,9 +1162,86 @@ TEST_CASE("remote terminal host renders shared state and can take control",
         return renderer.last_handle->total_cell_updates()
             > updates_before;
     }));
+    const size_t incremental_updates
+        = renderer.last_handle->total_cell_updates()
+        - updates_before;
+    CHECK(incremental_updates
+        < static_cast<size_t>(host.grid_cols() * host.grid_rows()));
     REQUIRE(observer.poll(changed, error));
     REQUIRE(changed);
 
+    host.shutdown();
+}
+
+TEST_CASE("remote terminal host preserves updates published before the UI pumps",
+    "[host][remote-terminal][render][recovery]")
+{
+    TempDir temp("draxul-remote-host-published-state");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "published-state-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard server_run(server);
+
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TextService text_service;
+    TextServiceConfig text_config;
+    text_config.font_path = bundled_font_path();
+    REQUIRE(text_service.initialize(
+        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+
+    RecordingHostCallbacks callbacks;
+    RemoteTerminalHost host({
+        .runtime_directory = temp.path,
+        .client_id = "published-state-client",
+        .server_epoch = "published-state-epoch",
+    });
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .launch_options = {
+            .kind = HostKind::RemoteTerminal,
+        },
+        .initial_viewport = {
+            .pixel_size = { 320, 160 },
+            .grid_size = { 20, 5 },
+        },
+        .display_ppi = 96.0f,
+    };
+    REQUIRE(host.initialize(context, callbacks));
+    REQUIRE(pump_until(host, [&] {
+        return host.status_text().find("controller")
+            != std::string::npos;
+    }));
+    REQUIRE(renderer.last_handle != nullptr);
+    renderer.last_handle->reset();
+
+    const auto wait_for_wake_after = [&](int previous) {
+        for (int attempt = 0; attempt < 300; ++attempt)
+        {
+            if (callbacks.wake_window_calls.load() > previous)
+                return true;
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(10));
+        }
+        return false;
+    };
+
+    int wake_count = callbacks.wake_window_calls.load();
+    host.on_text_input({ .text = "A" });
+    REQUIRE(wait_for_wake_after(wake_count));
+    wake_count = callbacks.wake_window_calls.load();
+    host.on_text_input({ .text = "B" });
+    REQUIRE(wait_for_wake_after(wake_count));
+
+    host.pump();
+    CHECK(renderer.last_handle->total_cell_updates()
+        >= static_cast<size_t>(
+            host.grid_cols() * host.grid_rows()));
     host.shutdown();
 }
 
@@ -1370,6 +1517,8 @@ TEST_CASE("remote terminal local navigation copy mode and titles stay client-loc
     std::atomic<bool> same_title_event_sent = false;
     std::atomic<bool> emit_new_title_event = false;
     std::atomic<bool> new_title_event_sent = false;
+    std::atomic<bool> emit_empty_title_event = false;
+    std::atomic<bool> empty_title_event_sent = false;
     std::atomic<int> input_calls = 0;
     std::atomic<int> scrollback_calls = 0;
     std::jthread dispatcher([&](std::stop_token stop) {
@@ -1412,6 +1561,21 @@ TEST_CASE("remote terminal local navigation copy mode and titles stay client-loc
                             .snapshot = std::move(changed_snapshot),
                         }));
                     }
+                    else if (emit_empty_title_event
+                        && !empty_title_event_sent.exchange(true))
+                    {
+                        auto changed_snapshot = live_snapshot;
+                        changed_snapshot.metadata.title.clear();
+                        auto version = initial_version;
+                        version.sequence = 3;
+                        events.push_back(remote_terminal_event_to_json({
+                            .kind = RemoteTerminalEventKind::Snapshot,
+                            .version = version,
+                            .controller_client_id
+                                = "local-navigation-client",
+                            .snapshot = std::move(changed_snapshot),
+                        }));
+                    }
                     return ControlMethodResult::success({
                         { "events", std::move(events) },
                     });
@@ -1424,7 +1588,9 @@ TEST_CASE("remote terminal local navigation copy mode and titles stay client-loc
                             "offset_from_live", uint64_t{ 0 }),
                         12);
                     auto version = initial_version;
-                    version.sequence = new_title_event_sent ? 2 : 0;
+                    version.sequence = empty_title_event_sent
+                        ? 3
+                        : (new_title_event_sent ? 2 : 0);
                     if (call == 1)
                     {
                         return ControlMethodResult::success(
@@ -1509,6 +1675,13 @@ TEST_CASE("remote terminal local navigation copy mode and titles stay client-loc
     }));
     CHECK(callbacks.last_window_title == "Remote Title Two");
 
+    emit_empty_title_event = true;
+    REQUIRE(pump_until(host, [&] {
+        return empty_title_event_sent.load()
+            && callbacks.window_title_calls.load() == 3;
+    }));
+    CHECK(callbacks.last_window_title == "Draxul");
+
     host.on_mouse_button({
         .button = 1,
         .pressed = true,
@@ -1576,7 +1749,7 @@ TEST_CASE("remote terminal local navigation copy mode and titles stay client-loc
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     CHECK(host.status_text().find("[") == std::string::npos);
-    CHECK(callbacks.window_title_calls.load() == 2);
+    CHECK(callbacks.window_title_calls.load() == 3);
     CHECK(input_calls.load() == 0);
     CHECK(host.is_running());
 
@@ -1694,12 +1867,18 @@ TEST_CASE("remote terminal hosts scroll and select server history independently"
     REQUIRE(first.dispatch_action("copy"));
     REQUIRE_FALSE(first_window.clipboard_.empty());
 
+    const size_t updates_before_return_to_live
+        = first_renderer.last_handle->total_cell_updates();
     first.on_text_input({ .text = "\r" });
     REQUIRE(pump_until(first, [&] {
         second.pump();
         return first.status_text().find("[") == std::string::npos;
     }));
     REQUIRE(second.status_text().find("[") == std::string::npos);
+    CHECK(first_renderer.last_handle->total_cell_updates()
+            - updates_before_return_to_live
+        >= static_cast<size_t>(
+            first.grid_cols() * first.grid_rows()));
 
     first.shutdown();
     second.shutdown();

@@ -547,12 +547,46 @@ TEST_CASE("server agent projection focuses locally and acknowledges attention",
     CHECK_FALSE(rows[1].attention);
 
     auto refreshed = rows;
-    refreshed[1].status_explanation
-        .observation_generation = 6;
+    refreshed[1].status_explanation.observation_generation = 6;
     refreshed[1].attention = true;
     agents.set_server_agents(std::move(refreshed));
     rows = agents.query(spaces);
     CHECK(rows[1].attention);
+    const auto stale_before_restart = rows;
+
+    REQUIRE(agents.note_server_agent_restart(
+        "server-agent-worker", { 2 }));
+    rows = agents.query(spaces);
+    REQUIRE(rows.size() == 2);
+    CHECK(rows[1].generation.value == 2);
+    CHECK(rows[1].lifecycle
+        == AgentLifecycle::Starting);
+    CHECK(rows[1].status == AgentStatus::Unknown);
+    CHECK(rows[1].status_authority
+        == AgentStateAuthority::None);
+    CHECK_FALSE(rows[1].attention);
+    CHECK(rows[1].running);
+
+    agents.set_server_agents(stale_before_restart);
+    rows = agents.query(spaces);
+    REQUIRE(rows.size() == 2);
+    CHECK(rows[1].generation.value == 2);
+    CHECK(rows[1].lifecycle
+        == AgentLifecycle::Starting);
+
+    auto caught_up = stale_before_restart;
+    caught_up[1].generation = { 2 };
+    caught_up[1].lifecycle
+        = AgentLifecycle::Running;
+    caught_up[1].status = AgentStatus::Idle;
+    agents.set_server_agents(std::move(caught_up));
+    rows = agents.query(spaces);
+    CHECK(rows[1].generation.value == 2);
+    CHECK(rows[1].lifecycle
+        == AgentLifecycle::Running);
+    CHECK(rows[1].status == AgentStatus::Idle);
+    CHECK_FALSE(agents.note_server_agent_restart(
+        "missing-agent", { 3 }));
 
     spaces.shutdown_all();
 }

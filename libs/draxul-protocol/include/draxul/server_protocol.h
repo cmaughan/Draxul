@@ -11,20 +11,31 @@
 namespace draxul
 {
 
-inline constexpr int kServerProtocolMajor = 1;
+inline constexpr int kServerProtocolMajor = 2;
 inline constexpr int kServerProtocolMinor = 0;
 inline constexpr std::string_view kServerControlId = "__draxul_server_v1__";
 inline constexpr size_t kServerMaxCapabilities = 32;
 inline constexpr size_t kServerMaxClientIdBytes = 128;
+inline constexpr size_t kServerMaxConnectionTokenBytes = 512;
 inline constexpr size_t kServerMaxSessionIdBytes = 512;
 inline constexpr size_t kServerMaxConnectedClients = 128;
 inline constexpr size_t kServerMaxSessions = 128;
+inline constexpr size_t kServerMaxHandshakeTextBytes = 128;
+inline constexpr size_t kServerMaxStatusStateBytes = 128;
+inline constexpr size_t kServerMaxStatusAggregateCount = 1'000'000;
+inline constexpr size_t kServerMaxStatusResourceCells = 1'000'000'000;
+inline constexpr size_t kServerMaxStatusDetailBytes = 4096;
+inline constexpr size_t kServerMaxRestoreWarnings = 64;
+inline constexpr std::string_view kServerClientTokenCapability
+    = "client-token-v1";
 
 struct ServerHello
 {
     int protocol_major = kServerProtocolMajor;
     int protocol_minor = kServerProtocolMinor;
     std::string client_id;
+    std::string connection_token;
+    std::string registration_nonce;
     std::vector<std::string> capabilities;
 
     bool operator==(const ServerHello&) const = default;
@@ -37,6 +48,7 @@ struct ServerWelcome
     uint64_t server_pid = 0;
     std::string server_epoch;
     std::string build_version;
+    std::string connection_token;
     std::vector<std::string> capabilities;
 
     bool operator==(const ServerWelcome&) const = default;
@@ -72,6 +84,8 @@ struct ServerStatusSnapshot
     size_t spaces = 0;
     size_t terminals = 0;
     size_t agents = 0;
+    size_t scrollback_cells_reserved = 0;
+    size_t scrollback_cells_limit = 0;
     std::string checkpoint_path;
     std::string checkpoint_state;
     uint64_t last_checkpoint_unix_ms = 0;
@@ -96,6 +110,7 @@ enum class ServerProbeState
 
 std::string_view to_string(ServerProbeState state);
 std::string server_build_version();
+bool valid_server_client_id(std::string_view value);
 
 nlohmann::json server_hello_to_json(const ServerHello& hello);
 std::optional<ServerHello> server_hello_from_json(

@@ -20,30 +20,6 @@ namespace draxul
 namespace
 {
 
-bool is_terminal_shell_host(HostKind kind)
-{
-    using enum HostKind;
-    switch (kind)
-    {
-    case PowerShell:
-    case Bash:
-    case Zsh:
-    case Wsl:
-    case RemoteTerminal:
-        return true;
-    case Nvim:
-    case MegaCity:
-    case BioView:
-    case SatView:
-    case NanoVGDemo:
-    case Markdown:
-    case Kanban:
-    case Score:
-        return false;
-    }
-    return false;
-}
-
 HostKind platform_default_split_host_kind_impl()
 {
 #ifdef _WIN32
@@ -154,7 +130,7 @@ HostKind PaneManager::platform_default_split_host_kind()
 
 HostKind PaneManager::split_host_kind_for(HostKind primary_kind)
 {
-    if (is_terminal_shell_host(primary_kind))
+    if (is_server_owned_shell_host(primary_kind))
         return primary_kind;
     return platform_default_split_host_kind_impl();
 }
@@ -237,7 +213,7 @@ LeafId PaneManager::split_focused(SplitDirection dir, IHostCallbacks& callbacks)
         launch.working_dir = deps_.default_working_dir.empty()
             ? deps_.options->host_working_dir
             : deps_.default_working_dir;
-        if (is_terminal_shell_host(primary_kind) && launch.kind == primary_kind)
+        if (is_server_owned_shell_host(primary_kind) && launch.kind == primary_kind)
         {
             launch.command = deps_.options->host_command;
             launch.args = deps_.options->host_args;
@@ -603,7 +579,7 @@ bool PaneManager::has_restorable_shell_session() const
     {
         if (!hosts_.contains(id))
             return false;
-        if (!is_terminal_shell_host(launch.kind))
+        if (!is_server_owned_shell_host(launch.kind))
             return false;
     }
 
@@ -618,7 +594,7 @@ bool PaneManager::should_preserve_dead_leaf(LeafId id) const
         return false;
     if (host_it->second->is_running())
         return false;
-    if (is_terminal_shell_host(launch_it->second.kind))
+    if (is_server_owned_shell_host(launch_it->second.kind))
     {
         // Preserve shell panes only if they exited abnormally (non-zero exit
         // code). Clean exits (code 0) and unknown exit codes (race between

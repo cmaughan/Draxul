@@ -6,6 +6,7 @@
 #include <draxul/vt_parser.h>
 #include <draxul/vt_state.h>
 
+#include <deque>
 #include <functional>
 #include <optional>
 #include <string>
@@ -47,21 +48,26 @@ public:
     virtual void terminal_write_clipboard(std::string_view text) = 0;
 
     virtual void terminal_set_cursor_position(
-        int col, int row, TerminalCursorBlinkUpdate blink_update) = 0;
+        int col, int row, TerminalCursorBlinkUpdate blink_update)
+        = 0;
     virtual std::pair<int, int> terminal_published_cursor_position() const = 0;
     virtual void terminal_set_cursor_display_override(
-        std::optional<std::pair<int, int>> position) = 0;
+        std::optional<std::pair<int, int>> position)
+        = 0;
     virtual void terminal_set_cursor_style(
-        CursorShape shape, bool blink, bool visible) = 0;
+        CursorShape shape, bool blink, bool visible)
+        = 0;
     virtual void terminal_begin_cursor_publish_batch() = 0;
     virtual void terminal_end_cursor_publish_batch() = 0;
 
     virtual void terminal_line_scrolled_off(int row) = 0;
     virtual void terminal_mouse_mode_changed(int mode, bool enable) = 0;
     virtual void terminal_collect_extra_attr_ids(
-        std::unordered_map<uint16_t, HlAttr>& active_attrs) = 0;
+        std::unordered_map<uint16_t, HlAttr>& active_attrs)
+        = 0;
     virtual void terminal_remap_extra_highlight_ids(
-        const std::function<uint16_t(uint16_t)>& remap_fn) = 0;
+        const std::function<uint16_t(uint16_t)>& remap_fn)
+        = 0;
 };
 
 class TerminalCore
@@ -214,6 +220,7 @@ private:
     uint16_t attr_id();
     void compact_attr_ids();
     void clear_cell(int col, int row);
+    void scroll_rows(int top, int bottom, int rows);
     void newline(bool carriage_return);
     void write_cluster(const std::string& cluster);
     void erase_line(int mode);
@@ -272,7 +279,7 @@ private:
     bool focus_reporting_mode_ = false;
     TerminalMouseModeSnapshot mouse_modes_;
     uint16_t current_hyperlink_id_ = 0;
-    std::vector<ShellMark> shell_marks_;
+    std::deque<ShellMark> shell_marks_;
     std::string terminal_title_;
     std::string current_cwd_;
 };

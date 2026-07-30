@@ -62,6 +62,9 @@ public:
     void set_server_agents(
         std::vector<AgentProjection> agents);
     void clear_server_agents();
+    bool note_server_agent_restart(
+        std::string_view instance_id,
+        AgentRuntimeGeneration generation);
     const std::vector<AgentProjection>& frame_agents(SpaceController& spaces);
     bool focus(SpaceController& spaces, std::string_view instance_id) const;
     bool focus_by_index(SpaceController& spaces, int one_based_index);
@@ -103,6 +106,8 @@ private:
     std::unordered_map<std::string, CachedDiscoveryState> discovery_state_;
     uint64_t next_discovered_instance_ = 1;
     std::vector<AgentProjection> server_agents_;
+    std::unordered_map<std::string, uint64_t>
+        minimum_server_generations_;
     mutable std::unordered_map<std::string, uint64_t>
         server_attention_acknowledged_;
     bool server_agents_authoritative_ = false;

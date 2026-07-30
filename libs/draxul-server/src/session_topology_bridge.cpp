@@ -161,7 +161,7 @@ struct RestoreTabBuilder
 {
     int next_internal_node = 1;
     std::unordered_set<std::string> used_node_ids;
-    std::unordered_map<LeafId, const SessionPaneSnapshot*> panes;
+    std::unordered_map<LeafId, std::string> panes;
 
     std::string unique_internal_node_id()
     {
@@ -196,7 +196,7 @@ struct RestoreTabBuilder
             tab.nodes.push_back(TopologyNode{
                 .node_id = node_id,
                 .is_leaf = true,
-                .pane_id = pane->second->pane_id,
+                .pane_id = pane->second,
             });
             return node_id;
         }
@@ -229,7 +229,8 @@ struct RestoreTabBuilder
 };
 
 std::optional<TopologyTab> restore_tab(
-    const TabSnapshot& source, std::string& error)
+    const TabSnapshot& source, SpaceId space_id,
+    std::string& error)
 {
     if (!source.pane_layout.tree.root
         || source.pane_layout.panes.empty())
@@ -239,21 +240,31 @@ std::optional<TopologyTab> restore_tab(
     }
 
     TopologyTab tab{
-        .tab_id = "tab-" + std::to_string(source.id),
+        .tab_id = "tab-" + std::to_string(space_id)
+            + "-" + std::to_string(source.id),
         .name = source.name,
         .name_user_set = source.name_user_set,
     };
     RestoreTabBuilder builder;
     for (const auto& pane : source.pane_layout.panes)
     {
-        if (pane.pane_id.empty()
-            || !builder.panes.emplace(pane.leaf_id, &pane).second)
+        if (pane.pane_id.empty())
+        {
+            error = "Session tab contains an invalid pane identity.";
+            return std::nullopt;
+        }
+        const std::string scoped_pane_id
+            = "pane-" + std::to_string(space_id)
+            + "-" + std::to_string(source.id)
+            + "-" + std::to_string(pane.leaf_id);
+        if (!builder.panes.emplace(
+                pane.leaf_id, scoped_pane_id).second)
         {
             error = "Session tab contains an invalid pane identity.";
             return std::nullopt;
         }
         TopologyPane restored{
-            .pane_id = pane.pane_id,
+            .pane_id = scoped_pane_id,
             .name = pane.pane_name,
             .agent = pane.agent,
             .agent_session = pane.agent_session,
@@ -356,7 +367,8 @@ std::optional<SessionTopologyRestore> restore_session_topology(
         for (const auto& source_tab : source_space.tabs)
         {
             std::string tab_error;
-            auto tab = restore_tab(source_tab, tab_error);
+            auto tab = restore_tab(
+                source_tab, source_space.id, tab_error);
             if (!tab)
             {
                 restored.warnings.push_back(

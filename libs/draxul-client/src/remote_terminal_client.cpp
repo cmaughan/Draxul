@@ -9,6 +9,36 @@
 namespace draxul
 {
 
+namespace
+{
+
+TerminalDirtySnapshot full_grid_update(
+    const TerminalSemanticSnapshot& snapshot)
+{
+    TerminalDirtySnapshot update{
+        .cols = snapshot.cols,
+        .rows = snapshot.rows,
+        .full = true,
+        .metadata = snapshot.metadata,
+    };
+    update.cells.reserve(snapshot.cells.size());
+    for (int row = 0; row < snapshot.rows; ++row)
+    {
+        for (int col = 0; col < snapshot.cols; ++col)
+        {
+            update.cells.push_back({
+                .col = col,
+                .row = row,
+                .cell = snapshot.cells[
+                    static_cast<size_t>(row) * snapshot.cols + col],
+            });
+        }
+    }
+    return update;
+}
+
+} // namespace
+
 bool RemoteTerminalProjection::attach(
     const RemoteTerminalAttach& attach, std::string& error)
 {
@@ -32,6 +62,7 @@ bool RemoteTerminalProjection::attach(
     snapshot_ = {};
     controller_client_id_.clear();
     pending_clipboard_write_.reset();
+    pending_grid_update_.reset();
     if (!apply_snapshot(attach.state, false, error))
         return false;
     attached_ = true;
@@ -139,6 +170,12 @@ RemoteTerminalProjection::take_clipboard_write()
     return std::exchange(pending_clipboard_write_, std::nullopt);
 }
 
+std::optional<TerminalDirtySnapshot>
+RemoteTerminalProjection::take_grid_update()
+{
+    return std::exchange(pending_grid_update_, std::nullopt);
+}
+
 bool RemoteTerminalProjection::apply_snapshot(
     const RemoteTerminalEvent& event, bool allow_resync, std::string& error)
 {
@@ -176,6 +213,7 @@ bool RemoteTerminalProjection::apply_snapshot(
         return false;
     }
     snapshot_ = *event.snapshot;
+    pending_grid_update_ = full_grid_update(snapshot_);
     version_ = event.version;
     if (event.process_id != 0)
         pane_.process_id = event.process_id;
@@ -230,6 +268,32 @@ bool RemoteTerminalProjection::apply_delta(
         snapshot_.cells[index] = dirty.cell;
     }
     snapshot_.metadata = delta.metadata;
+    const size_t expected_cells
+        = static_cast<size_t>(snapshot_.cols) * snapshot_.rows;
+    if (delta.full || dimensions_changed)
+    {
+        pending_grid_update_ = delta;
+    }
+    else if (!pending_grid_update_)
+    {
+        pending_grid_update_ = delta;
+    }
+    else if (pending_grid_update_->full
+        || pending_grid_update_->cols != delta.cols
+        || pending_grid_update_->rows != delta.rows
+        || pending_grid_update_->cells.size()
+                + delta.cells.size()
+            > expected_cells)
+    {
+        pending_grid_update_ = full_grid_update(snapshot_);
+    }
+    else
+    {
+        pending_grid_update_->cells.insert(
+            pending_grid_update_->cells.end(),
+            delta.cells.begin(), delta.cells.end());
+        pending_grid_update_->metadata = delta.metadata;
+    }
     return true;
 }
 
@@ -302,6 +366,15 @@ bool RemoteTerminalClient::poll(bool& changed, std::string& error)
     }
     for (const auto& value : result["events"])
     {
+        if (value.is_object()
+            && value.contains("kind")
+            && value["kind"].is_string()
+            && !parse_remote_terminal_event_kind(
+                value["kind"].get_ref<const std::string&>()))
+        {
+            ++skipped_unknown_events_;
+            continue;
+        }
         std::string parse_error;
         auto event = remote_terminal_event_from_json(value, parse_error);
         if (!event)
@@ -427,6 +500,12 @@ RemoteTerminalClient::take_clipboard_write()
     return projection_.take_clipboard_write();
 }
 
+std::optional<TerminalDirtySnapshot>
+RemoteTerminalClient::take_grid_update()
+{
+    return projection_.take_grid_update();
+}
+
 std::chrono::microseconds
 RemoteTerminalClient::last_attach_latency() const
 {
@@ -436,6 +515,11 @@ RemoteTerminalClient::last_attach_latency() const
 const std::string& RemoteTerminalClient::last_error_code() const
 {
     return last_error_code_;
+}
+
+uint64_t RemoteTerminalClient::skipped_unknown_event_count() const noexcept
+{
+    return skipped_unknown_events_;
 }
 
 bool RemoteTerminalClient::request(
@@ -464,6 +548,13 @@ nlohmann::json RemoteTerminalClient::client_params() const
                 ? "default"
                 : options_.session_id },
     };
+    if (options_.recovery)
+    {
+        const auto identity
+            = options_.recovery->server_identity();
+        if (!identity.connection_token.empty())
+            params["connection_token"] = identity.connection_token;
+    }
     if (!options_.terminal_id.empty())
         params["terminal_id"] = options_.terminal_id;
     return params;

@@ -66,50 +66,78 @@ it believes is authoritative, after which non-full deltas patch a wrong baseline
 
 ## Implementation
 
-- [ ] One range-checking extraction helper (`int64_t`/`uint64_t` then bounds-check) applied to
-      every narrowing `get<>` in `draxul-protocol`.
-- [ ] Reject duplicate coordinates in full deltas (seen-bitmap) and bound non-full delta cell
+- [x] Add one range-checking extraction helper (`int64_t`/`uint64_t` then bounds-check) and
+      apply it to server, topology, and agent protocol parsing.
+- [x] Apply the shared range-checking helper to the remaining remote-terminal protocol
+      narrowing conversions.
+- [x] Reject duplicate coordinates in full deltas (seen-bitmap) and bound non-full delta cell
       counts by `cols * rows`.
-- [ ] Add `is_number_unsigned()` checks to status counters; reuse the welcome string caps and
+- [x] Add unsigned/range checks to status counters; reuse named string caps and
       the named `kServerMaxSessions` constant.
-- [ ] Apply the `session_id` control-character filter to `client_id` and
-      `controller_client_id`.
-- [ ] Validate cursor and shell-mark coordinates against grid bounds at parse.
-- [ ] Reconcile the scrollback page row bound with the codec — either lower the constant to 200
+- [x] Apply the `session_id` control-character filter to `client_id` and expose the shared
+      validator for controller identities.
+- [x] Apply the shared identity validator to `controller_client_id` in the remote-terminal
+      protocol.
+- [x] Validate cursor and shell-mark coordinates against grid bounds at parse.
+- [x] Reconcile the scrollback page row bound with the codec — either lower the constant to 200
       or give pages their own bound.
-- [ ] Issue a server-assigned connection token at `server.hello` and require it alongside
-      `client_id` for lease-affecting methods.
-- [ ] Add `PIPE_REJECT_REMOTE_CLIENTS` to both pipe creates, keep a reserved
+- [x] Issue a server-assigned connection token at `server.hello`, bind negotiated client
+      identities to it, and require it on their subsequent requests.
+- [ ] Remove the same-user legacy unnegotiated-client fallback when Slice 10 introduces a
+      remote transport boundary.
+- [x] Add `PIPE_REJECT_REMOTE_CLIENTS` to both pipe creates, keep a reserved
       `FIRST_PIPE_INSTANCE` handle for the process lifetime so instances never drop to zero,
       and pass `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION` on the client open.
-- [ ] Write metadata via temp file + `fchmod`/explicit DACL + rename, with `O_NOFOLLOW`; apply
+- [x] Write metadata via temp file + `fchmod`/explicit DACL + rename, with `O_NOFOLLOW`; apply
       an explicit DACL to the runtime directory on Windows (POSIX already chmods 0700).
-- [ ] Skip unknown event kinds and default absent command fields, so additive evolution is
-      possible within a minor version; count skips in metrics.
-- [ ] Delete the dead expanded cell parse path, and either use or drop `server_sequence`.
+- [x] Default absent optional topology-command fields while strictly validating fields that
+      are present.
+- [x] Skip unknown event kinds so additive evolution is possible within a minor version;
+      count skips in metrics.
+- [x] Delete the dead expanded cell parse path, and either use or drop `server_sequence`.
 
 ## Unit tests
 
-- [ ] A `protocol_major` of `2^32 + 1` is rejected, not truncated to a compatible value.
-- [ ] A full delta with duplicate coordinates is rejected.
-- [ ] Negative status counters, oversized status strings, and control characters in
+- [x] A `protocol_major` of `2^32 + 1` is rejected, not truncated to a compatible value.
+- [x] A full delta with duplicate coordinates is rejected.
+- [x] Negative status counters, oversized status strings, and control characters in
       `client_id` are rejected.
-- [ ] A scrollback request at the advertised maximum round-trips through the client codec.
-- [ ] An unknown event kind is skipped rather than failing the poll.
-- [ ] Metadata written over a pre-existing file has owner-only permissions.
+- [x] A scrollback request at the advertised maximum round-trips through the client codec.
+- [x] An unknown event kind is skipped rather than failing the poll.
+- [x] Metadata written over a pre-existing file has owner-only permissions.
 
 ## Acceptance criteria
 
-- [ ] No peer-supplied integer reaches a narrow type without a range check.
-- [ ] A malformed peer response cannot corrupt client state or wedge a pane.
-- [ ] Additive protocol changes are possible without a major version bump.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] No peer-supplied integer reaches a narrow type without a range check.
+- [x] A malformed peer response cannot corrupt client state or wedge a pane.
+- [x] Additive protocol changes are possible without a major version bump.
+- [x] Windows Release/Ninja build, full `ctest`, smoke, and render snapshots pass.
+- [ ] macOS full build, `ctest`, smoke, and render snapshots pass.
 
 ## Dependencies and ownership
 
 Blocks Slice 10 (SSH bridge) in `plans/server-client-terminal-runtime.md`; the client parser
 becomes a security boundary at that point. The malformed-event handling interacts with
-`kanban/pending/19 client-recovery-state-machine -refactor.md` (reattach rather than die on
+`kanban/done/19 client-recovery-state-machine -refactor.md` (reattach rather than die on
 `invalid_event`) — land `19` first so this card's rejections have a recovery path. The Windows
 pipe and metadata changes touch the same code as
-`kanban/pending/16 posix-server-singleton-race -bug.md`.
+`kanban/done/16 posix-server-singleton-race -bug.md`.
+
+## Remote-terminal validation note
+
+The remote codec is compact-only as of protocol major 2: packed colour values, deduplicated
+hyperlinks, bounded/range-checked coordinates, unique dirty coordinates, and metadata
+coordinates constrained to the advertised grid. Scrollback pages now advertise the same
+200-row maximum the snapshot codec accepts. Unknown event kinds are counted and skipped by
+the client while malformed known events still enter recovery; the unused `server_sequence`
+and expanded object-cell parser were removed. Windows Release/Ninja focused protocol coverage
+passed 27 assertions in seven cases plus the remote-host recovery suite (1,249 assertions in
+eleven cases).
+
+Negotiated clients now receive an opaque connection token and carry it through terminal,
+topology, agent, goodbye, and recovery requests. Handshake retries reuse an immutable
+registration nonce so a lost welcome recovers the same token; server replacement rotates it,
+and stale concurrent refreshes cannot overwrite a newer identity. The Windows integrated
+gate passed all 22 CTest groups plus standalone smoke. The existing unnegotiated same-user
+compatibility path is intentionally called out above as a Slice 10 removal gate, not treated
+as remote authentication.

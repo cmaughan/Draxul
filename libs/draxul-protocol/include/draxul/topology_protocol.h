@@ -137,6 +137,7 @@ struct TopologyCommandResult
 {
     bool applied = false;
     bool duplicate = false;
+    std::string created_id;
     TopologySnapshot snapshot;
 
     bool operator==(const TopologyCommandResult&) const = default;

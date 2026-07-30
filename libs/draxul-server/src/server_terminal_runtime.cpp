@@ -20,7 +20,49 @@ namespace
 
 constexpr size_t kMaxQueuedInputBytes = 256 * 1024;
 
+size_t scrollback_cells(int capacity, int cols)
+{
+    const size_t rows = static_cast<size_t>(
+        capacity > 0 ? capacity : ScrollbackBuffer::kDefaultCapacity);
+    return rows * static_cast<size_t>(std::max(1, cols));
+}
+
 } // namespace
+
+ServerTerminalResourceBudget::ServerTerminalResourceBudget(
+    size_t max_scrollback_cells)
+    : max_scrollback_cells_(max_scrollback_cells)
+{
+}
+
+bool ServerTerminalResourceBudget::replace_scrollback_reservation(
+    size_t current_cells, size_t requested_cells)
+{
+    std::lock_guard guard(mutex_);
+    if (current_cells > reserved_scrollback_cells_)
+        return false;
+    const size_t other_cells
+        = reserved_scrollback_cells_ - current_cells;
+    if (requested_cells > max_scrollback_cells_
+        || other_cells
+            > max_scrollback_cells_ - requested_cells)
+    {
+        return false;
+    }
+    reserved_scrollback_cells_ = other_cells + requested_cells;
+    return true;
+}
+
+size_t ServerTerminalResourceBudget::reserved_scrollback_cells() const
+{
+    std::lock_guard guard(mutex_);
+    return reserved_scrollback_cells_;
+}
+
+size_t ServerTerminalResourceBudget::max_scrollback_cells() const noexcept
+{
+    return max_scrollback_cells_;
+}
 
 struct ServerTerminalRuntime::InputQueueState
 {
@@ -57,16 +99,50 @@ ServerTerminalRuntime::ServerTerminalRuntime(
     , process_(std::make_unique<Process>())
 {
     grid_.resize(80, 24);
-    scrollback_.resize(80);
     highlights_.set_default_fg(Color(0.92f, 0.92f, 0.92f, 1.0f));
     highlights_.set_default_bg(Color(0.08f, 0.09f, 0.10f, 1.0f));
-    core_.reset();
+    reset_terminal_state();
     grid_.clear_dirty();
 }
 
 ServerTerminalRuntime::~ServerTerminalRuntime()
 {
     retire_process_async();
+    restore_scrollback_reservation(0);
+}
+
+bool ServerTerminalRuntime::replace_scrollback_reservation(
+    int cols, std::string* error)
+{
+    if (!options_.resource_budget)
+        return true;
+    const size_t requested
+        = scrollback_cells(options_.scrollback_capacity, cols);
+    if (!options_.resource_budget->replace_scrollback_reservation(
+            reserved_scrollback_cells_, requested))
+    {
+        if (error)
+        {
+            *error = "The Draxul server scrollback memory budget is exhausted.";
+        }
+        return false;
+    }
+    reserved_scrollback_cells_ = requested;
+    return true;
+}
+
+void ServerTerminalRuntime::restore_scrollback_reservation(size_t cells)
+{
+    if (!options_.resource_budget
+        || cells == reserved_scrollback_cells_)
+    {
+        return;
+    }
+    const bool restored
+        = options_.resource_budget->replace_scrollback_reservation(
+            reserved_scrollback_cells_, cells);
+    if (restored)
+        reserved_scrollback_cells_ = cells;
 }
 
 void ServerTerminalRuntime::start_input_writer()
@@ -159,10 +235,26 @@ bool ServerTerminalRuntime::restart(std::string& error)
 {
     retire_process_async();
     process_ = std::make_unique<Process>();
-    scrollback_.reset();
-    core_.reset();
+    reset_terminal_state();
     grid_.clear_dirty();
     return start_process(error);
+}
+
+void ServerTerminalRuntime::reset_terminal_state()
+{
+    grid_.clear();
+    scrollback_.reset();
+    core_.reset();
+    clipboard_.clear();
+    pending_clipboard_write_.reset();
+    published_title_.clear();
+    published_cursor_ = { 0, 0 };
+    cursor_override_.reset();
+    cursor_shape_ = CursorShape::Block;
+    cursor_blink_ = false;
+    cursor_visible_ = true;
+    agent_output_generation_ = 0;
+    agent_last_output_at_.reset();
 }
 
 bool ServerTerminalRuntime::start_process(std::string& error)
@@ -171,6 +263,10 @@ bool ServerTerminalRuntime::start_process(std::string& error)
         = options_.working_directory.empty()
         ? std::filesystem::current_path().string()
         : options_.working_directory;
+    const size_t previous_reservation
+        = reserved_scrollback_cells_;
+    if (!replace_scrollback_reservation(grid_.cols(), &error))
+        return false;
 #ifdef _WIN32
     std::vector<std::pair<std::string, std::vector<std::string>>> candidates;
     if (!options_.command.empty())
@@ -199,16 +295,26 @@ bool ServerTerminalRuntime::start_process(std::string& error)
     }
     else
     {
+        restore_scrollback_reservation(previous_reservation);
         error = "Unsupported Draxul server shell kind: "
             + options_.shell_kind;
         return false;
     }
     for (const auto& [command, args] : candidates)
     {
-        if (process_->spawn(command, args, working_directory,
-                grid_.cols(), grid_.rows(), [] {},
-                options_.environment))
+        if (process_->spawn(command, args, working_directory, grid_.cols(), grid_.rows(), [] {}, options_.environment))
         {
+            try
+            {
+                scrollback_.resize(grid_.cols());
+            }
+            catch (const std::bad_alloc&)
+            {
+                process_->shutdown();
+                restore_scrollback_reservation(previous_reservation);
+                error = "Unable to allocate the server terminal scrollback buffer.";
+                return false;
+            }
             start_input_writer();
             DRAXUL_LOG_INFO(LogCategory::App,
                 "Started server-owned shell pid=%llu command=%s",
@@ -217,6 +323,7 @@ bool ServerTerminalRuntime::start_process(std::string& error)
             return true;
         }
     }
+    restore_scrollback_reservation(previous_reservation);
     error = "Could not start the configured shell in the Draxul server.";
 #else
     std::string command = options_.command;
@@ -241,20 +348,32 @@ bool ServerTerminalRuntime::start_process(std::string& error)
         }
         else if (options_.shell_kind == "wsl")
         {
+            restore_scrollback_reservation(previous_reservation);
             error
                 = "WSL remote shells are supported only by the Windows server.";
             return false;
         }
         else
         {
+            restore_scrollback_reservation(previous_reservation);
             error = "Unsupported Draxul server shell kind: "
                 + options_.shell_kind;
             return false;
         }
     }
-    if (process_->spawn(command, args, working_directory, [] {},
-            grid_.cols(), grid_.rows(), true, options_.environment))
+    if (process_->spawn(command, args, working_directory, [] {}, grid_.cols(), grid_.rows(), true, options_.environment))
     {
+        try
+        {
+            scrollback_.resize(grid_.cols());
+        }
+        catch (const std::bad_alloc&)
+        {
+            process_->shutdown();
+            restore_scrollback_reservation(previous_reservation);
+            error = "Unable to allocate the server terminal scrollback buffer.";
+            return false;
+        }
         start_input_writer();
         DRAXUL_LOG_INFO(LogCategory::App,
             "Started server-owned shell pid=%llu command=%s",
@@ -262,6 +381,7 @@ bool ServerTerminalRuntime::start_process(std::string& error)
             command.c_str());
         return true;
     }
+    restore_scrollback_reservation(previous_reservation);
     error = "Could not start the configured shell in the Draxul server.";
 #endif
     return false;
@@ -299,7 +419,7 @@ RemoteTerminalInputResult ServerTerminalRuntime::send_input(
         return RemoteTerminalInputResult::Failed;
     if (bytes.size() > kMaxQueuedInputBytes
         || queue->queued_bytes
-                > kMaxQueuedInputBytes - bytes.size())
+            > kMaxQueuedInputBytes - bytes.size())
     {
         return RemoteTerminalInputResult::Backpressure;
     }
@@ -311,9 +431,68 @@ RemoteTerminalInputResult ServerTerminalRuntime::send_input(
 
 bool ServerTerminalRuntime::resize(int cols, int rows)
 {
-    if (!process_ || !process_->resize(cols, rows))
+    if (!process_)
         return false;
-    core_.resize(cols, rows);
+    const int previous_cols = grid_.cols();
+    const int previous_rows = grid_.rows();
+    const size_t previous_reservation
+        = reserved_scrollback_cells_;
+    const size_t requested_reservation
+        = scrollback_cells(
+            options_.scrollback_capacity, cols);
+    if (options_.resource_budget
+        && cols != previous_cols)
+    {
+        const size_t maximum
+            = options_.resource_budget
+                  ->max_scrollback_cells();
+        if (previous_reservation > maximum
+            || requested_reservation
+                > maximum - previous_reservation
+            || !options_.resource_budget
+                    ->replace_scrollback_reservation(
+                        previous_reservation,
+                        previous_reservation
+                            + requested_reservation))
+        {
+            return false;
+        }
+        reserved_scrollback_cells_
+            = previous_reservation
+            + requested_reservation;
+    }
+    if (!process_->resize(cols, rows))
+    {
+        restore_scrollback_reservation(previous_reservation);
+        return false;
+    }
+    try
+    {
+        core_.resize(cols, rows);
+    }
+    catch (const std::bad_alloc&)
+    {
+        const bool process_rolled_back
+            = process_->resize(
+                previous_cols, previous_rows);
+        if (!process_rolled_back)
+            retire_process_async();
+        scrollback_.release_storage();
+        restore_scrollback_reservation(0);
+        reset_terminal_state();
+        DRAXUL_LOG_ERROR(LogCategory::App,
+            process_rolled_back
+                ? "Unable to allocate resized server terminal buffers; "
+                  "scrollback was disabled until restart"
+                : "Unable to allocate resized server terminal buffers "
+                  "or restore PTY dimensions; the process was retired");
+        return false;
+    }
+    if (cols != previous_cols)
+    {
+        restore_scrollback_reservation(
+            requested_reservation);
+    }
     return true;
 }
 
@@ -449,6 +628,11 @@ ServerTerminalRuntime::capture_agent_process_observation() const
 std::optional<int> ServerTerminalRuntime::exit_code() const
 {
     return process_ ? process_->exit_code() : std::nullopt;
+}
+
+bool ServerTerminalRuntime::scrollback_storage_initialized() const noexcept
+{
+    return scrollback_.cols() > 0;
 }
 
 void ServerTerminalRuntime::set_environment_value(

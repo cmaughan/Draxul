@@ -39,6 +39,8 @@ public:
     std::string_view received_input() const;
 
 private:
+    void reset_terminal_state();
+
     Grid& terminal_grid() override;
     const Grid& terminal_grid() const override;
     HighlightTable& terminal_highlights() override;
@@ -80,6 +82,7 @@ private:
     RemoteTerminalInputResult input_result_
         = RemoteTerminalInputResult::Accepted;
     std::string received_input_;
+    bool dirty_ = false;
 };
 
 } // namespace draxul

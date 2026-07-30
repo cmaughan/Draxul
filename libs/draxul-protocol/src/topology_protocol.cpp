@@ -1,5 +1,9 @@
 #include <draxul/topology_protocol.h>
 
+#include "json_extract.h"
+
+#include <draxul/server_protocol.h>
+
 #include <cmath>
 #include <nlohmann/json.hpp>
 #include <unordered_set>
@@ -96,9 +100,14 @@ bool read_agent(const nlohmann::json& value, TopologyPane& pane)
     {
         return false;
     }
-    session.integration_version
-        = session_value["integration_version"].get<uint32_t>();
-    session.sequence = session_value["sequence"].get<uint64_t>();
+    if (!read_bounded_integer(
+            session_value["integration_version"],
+            session.integration_version)
+        || !read_bounded_integer(
+            session_value["sequence"], session.sequence))
+    {
+        return false;
+    }
     const auto ref_kind = parse_agent_session_ref_kind(kind);
     if (!ref_kind)
         return false;
@@ -475,7 +484,12 @@ std::optional<TopologySnapshot> topology_snapshot_from_json(
         error = "Invalid topology snapshot.";
         return std::nullopt;
     }
-    snapshot.revision = value["revision"].get<uint64_t>();
+    if (!read_bounded_integer(
+            value["revision"], snapshot.revision))
+    {
+        error = "Invalid topology snapshot revision.";
+        return std::nullopt;
+    }
     std::unordered_set<std::string> space_ids;
     for (const auto& item : value["spaces"])
     {
@@ -520,65 +534,114 @@ std::optional<TopologyCommand> topology_command_from_json(
 {
     TopologyCommand command;
     std::string kind;
-    std::string direction;
-    std::string pane_domain;
     if (!value.is_object()
         || !read_string(value, "client_id", command.client_id)
         || !read_string(value, "command_id", command.command_id)
         || !value.contains("expected_revision")
-        || !value["expected_revision"].is_number_unsigned()
-        || !read_string(value, "kind", kind)
-        || !read_string(value, "space_id", command.space_id, true)
-        || !read_string(value, "tab_id", command.tab_id, true)
-        || !read_string(value, "pane_id", command.pane_id, true)
-        || !read_string(value, "node_id", command.node_id, true)
-        || !read_string(value, "name", command.name, true)
-        || !read_string(value, "root_directory",
-            command.root_directory, true)
-        || !read_string(value, "direction", direction)
-        || !value.contains("ratio") || !value["ratio"].is_number()
-        || !read_string(value, "pane_domain", pane_domain)
-        || !read_string(value, "terminal_id",
-            command.terminal_id, true)
-        || !read_string(value, "client_host_kind",
-            command.client_host_kind, true))
+        || !read_string(value, "kind", kind))
     {
         error = "Invalid topology command.";
         return std::nullopt;
     }
-    if (value.contains("target_pane_id")
-        && !read_string(value, "target_pane_id",
-            command.target_pane_id, true))
+
+    const auto read_optional_string
+        = [&value](std::string_view key, std::string& target) {
+              return !value.contains(key)
+                  || read_string(value, key, target, true);
+          };
+    if (!read_optional_string("space_id", command.space_id)
+        || !read_optional_string("tab_id", command.tab_id)
+        || !read_optional_string("pane_id", command.pane_id)
+        || !read_optional_string(
+            "target_pane_id", command.target_pane_id)
+        || !read_optional_string("node_id", command.node_id)
+        || !read_optional_string("name", command.name)
+        || !read_optional_string(
+            "root_directory", command.root_directory)
+        || !read_optional_string(
+            "terminal_id", command.terminal_id)
+        || !read_optional_string(
+            "client_host_kind", command.client_host_kind))
     {
-        error = "Invalid topology command target pane.";
+        error = "Invalid optional topology command text.";
+        return std::nullopt;
+    }
+    if (!valid_server_client_id(command.client_id))
+    {
+        error = "Invalid topology command client identity.";
         return std::nullopt;
     }
     if (value.contains("move_delta"))
     {
-        if (!value["move_delta"].is_number_integer())
+        if (!read_bounded_integer(
+                value["move_delta"], command.move_delta))
         {
             error = "Invalid topology command move delta.";
             return std::nullopt;
         }
-        command.move_delta = value["move_delta"].get<int>();
     }
     const auto parsed_kind = parse_topology_command_kind(kind);
-    const auto parsed_direction
-        = parse_topology_split_direction(direction);
-    const auto parsed_domain
-        = parse_topology_pane_domain(pane_domain);
-    command.ratio = value["ratio"].get<float>();
-    if (!parsed_kind || !parsed_direction || !parsed_domain
-        || !std::isfinite(command.ratio))
+    if (!parsed_kind)
     {
-        error = "Invalid topology command enum or ratio.";
+        error = "Invalid topology command kind.";
         return std::nullopt;
     }
-    command.expected_revision
-        = value["expected_revision"].get<uint64_t>();
+    if (value.contains("direction"))
+    {
+        std::string direction;
+        if (!read_string(value, "direction", direction))
+        {
+            error = "Invalid topology command direction.";
+            return std::nullopt;
+        }
+        const auto parsed_direction
+            = parse_topology_split_direction(direction);
+        if (!parsed_direction)
+        {
+            error = "Invalid topology command direction.";
+            return std::nullopt;
+        }
+        command.direction = *parsed_direction;
+    }
+    if (value.contains("ratio"))
+    {
+        if (!value["ratio"].is_number())
+        {
+            error = "Invalid topology command ratio.";
+            return std::nullopt;
+        }
+        command.ratio = value["ratio"].get<float>();
+        if (!std::isfinite(command.ratio))
+        {
+            error = "Invalid topology command ratio.";
+            return std::nullopt;
+        }
+    }
+    if (value.contains("pane_domain"))
+    {
+        std::string pane_domain;
+        if (!read_string(value, "pane_domain", pane_domain))
+        {
+            error = "Invalid topology command pane domain.";
+            return std::nullopt;
+        }
+        const auto parsed_domain
+            = parse_topology_pane_domain(pane_domain);
+        if (!parsed_domain)
+        {
+            error = "Invalid topology command pane domain.";
+            return std::nullopt;
+        }
+        command.pane_domain = *parsed_domain;
+    }
+    if (!read_bounded_integer(
+            value["expected_revision"],
+            command.expected_revision))
+    {
+        error = "Invalid topology command revision.";
+        return std::nullopt;
+    }
     command.kind = *parsed_kind;
-    command.direction = *parsed_direction;
-    command.pane_domain = *parsed_domain;
     return command;
 }
 
@@ -588,6 +651,7 @@ nlohmann::json topology_command_result_to_json(
     return {
         { "applied", result.applied },
         { "duplicate", result.duplicate },
+        { "created_id", result.created_id },
         { "snapshot", topology_snapshot_to_json(result.snapshot) },
     };
 }
@@ -605,12 +669,21 @@ topology_command_result_from_json(
         error = "Invalid topology command result.";
         return std::nullopt;
     }
+    std::string created_id;
+    if (value.contains("created_id")
+        && !read_string(
+            value, "created_id", created_id, true))
+    {
+        error = "Invalid topology command result.";
+        return std::nullopt;
+    }
     auto snapshot = topology_snapshot_from_json(value["snapshot"], error);
     if (!snapshot)
         return std::nullopt;
     return TopologyCommandResult{
         .applied = value["applied"].get<bool>(),
         .duplicate = value["duplicate"].get<bool>(),
+        .created_id = std::move(created_id),
         .snapshot = std::move(*snapshot),
     };
 }

@@ -254,7 +254,7 @@ ControlMethodResult parse_request(std::string_view bytes,
             = envelope["timeout_ms"].get<int64_t>();
         constexpr int64_t maximum_timeout_ms
             = std::chrono::duration_cast<std::chrono::milliseconds>(
-                  std::chrono::hours(1))
+                std::chrono::hours(1))
                   .count();
         if (timeout_ms <= 0
             || timeout_ms > maximum_timeout_ms)
@@ -271,6 +271,8 @@ ControlMethodResult parse_request(std::string_view bytes,
 bool write_owner_only_file(
     const std::filesystem::path& path, std::string_view contents, std::string& error)
 {
+    std::filesystem::path temporary = path;
+    temporary += ".tmp-" + random_token();
 #ifdef _WIN32
     PSECURITY_DESCRIPTOR descriptor = nullptr;
     if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
@@ -283,12 +285,14 @@ bool write_owner_only_file(
     SECURITY_ATTRIBUTES attributes{
         sizeof(SECURITY_ATTRIBUTES), descriptor, FALSE
     };
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, &attributes,
-        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0,
+        &attributes, CREATE_NEW,
+        FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_WRITE_THROUGH,
+        nullptr);
     LocalFree(descriptor);
     if (file == INVALID_HANDLE_VALUE)
     {
-        error = "Unable to create control metadata file.";
+        error = "Unable to create temporary control metadata file.";
         return false;
     }
     DWORD written = 0;
@@ -299,13 +303,39 @@ bool write_owner_only_file(
         && FlushFileBuffers(file);
     CloseHandle(file);
     if (!ok)
+    {
+        DeleteFileW(temporary.c_str());
         error = "Unable to write control metadata file.";
-    return ok;
+        return false;
+    }
+    if (!MoveFileExW(temporary.c_str(), path.c_str(),
+            MOVEFILE_REPLACE_EXISTING
+                | MOVEFILE_WRITE_THROUGH))
+    {
+        DeleteFileW(temporary.c_str());
+        error = "Unable to atomically replace control metadata file.";
+        return false;
+    }
+    return true;
 #else
-    const int fd = ::open(path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0600);
+    int flags = O_CREAT | O_EXCL | O_WRONLY;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+#ifdef O_NOFOLLOW
+    flags |= O_NOFOLLOW;
+#endif
+    const int fd = ::open(temporary.c_str(), flags, 0600);
     if (fd < 0)
     {
-        error = "Unable to create control metadata file.";
+        error = "Unable to create temporary control metadata file.";
+        return false;
+    }
+    if (::fchmod(fd, 0600) != 0)
+    {
+        ::close(fd);
+        ::unlink(temporary.c_str());
+        error = "Unable to secure temporary control metadata file.";
         return false;
     }
     size_t offset = 0;
@@ -315,6 +345,7 @@ bool write_owner_only_file(
         if (written <= 0)
         {
             ::close(fd);
+            ::unlink(temporary.c_str());
             error = "Unable to write control metadata file.";
             return false;
         }
@@ -323,10 +354,64 @@ bool write_owner_only_file(
     const bool ok = ::fsync(fd) == 0;
     ::close(fd);
     if (!ok)
+    {
+        ::unlink(temporary.c_str());
         error = "Unable to flush control metadata file.";
-    return ok;
+        return false;
+    }
+    if (::rename(temporary.c_str(), path.c_str()) != 0)
+    {
+        ::unlink(temporary.c_str());
+        error = "Unable to atomically replace control metadata file.";
+        return false;
+    }
+    const auto parent = path.parent_path().empty()
+        ? std::filesystem::path(".")
+        : path.parent_path();
+    int directory_flags = O_RDONLY;
+#ifdef O_DIRECTORY
+    directory_flags |= O_DIRECTORY;
+#endif
+#ifdef O_CLOEXEC
+    directory_flags |= O_CLOEXEC;
+#endif
+    const int directory
+        = ::open(parent.c_str(), directory_flags);
+    if (directory < 0 || ::fsync(directory) != 0)
+    {
+        if (directory >= 0)
+            ::close(directory);
+        error = "Unable to flush the control metadata directory.";
+        return false;
+    }
+    ::close(directory);
+    return true;
 #endif
 }
+
+#ifdef _WIN32
+bool apply_owner_only_security(
+    const std::filesystem::path& path, std::string& error)
+{
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            L"D:P(A;;GA;;;SY)(A;;GA;;;OW)",
+            SDDL_REVISION_1, &descriptor, nullptr))
+    {
+        error = "Unable to create the owner-only security descriptor.";
+        return false;
+    }
+    const bool secured = SetFileSecurityW(path.c_str(),
+                             DACL_SECURITY_INFORMATION
+                                 | PROTECTED_DACL_SECURITY_INFORMATION,
+                             descriptor)
+        != FALSE;
+    LocalFree(descriptor);
+    if (!secured)
+        error = "Unable to secure the control runtime path.";
+    return secured;
+}
+#endif
 
 bool read_metadata(const std::filesystem::path& path,
     std::string& endpoint, std::string& token, std::string& error)
@@ -710,9 +795,7 @@ bool client_read_exact(int fd, void* data, size_t size,
             offset += static_cast<size_t>(read);
             continue;
         }
-        if (read < 0 && (errno == EINTR
-                            || errno == EAGAIN
-                            || errno == EWOULDBLOCK))
+        if (read < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
         {
             continue;
         }
@@ -737,9 +820,7 @@ bool client_write_exact(int fd, const void* data, size_t size,
             offset += static_cast<size_t>(written);
             continue;
         }
-        if (written < 0 && (errno == EINTR
-                               || errno == EAGAIN
-                               || errno == EWOULDBLOCK))
+        if (written < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
         {
             continue;
         }
@@ -987,7 +1068,16 @@ bool ControlServer::Impl::start(std::string new_session_id,
             *error = "Unable to create control runtime directory.";
         return false;
     }
-#ifndef _WIN32
+#ifdef _WIN32
+    std::string directory_security_error;
+    if (!apply_owner_only_security(
+            runtime_directory, directory_security_error))
+    {
+        if (error)
+            *error = std::move(directory_security_error);
+        return false;
+    }
+#else
     ::chmod(runtime_directory.c_str(), 0700);
 #endif
 
@@ -1126,13 +1216,17 @@ ControlMethodResult ControlServer::Impl::dispatch(ControlRequest request)
     auto wait_budget
         = std::chrono::duration_cast<std::chrono::milliseconds>(
             kIoTimeout);
+    bool waiting_to_request_deadline = false;
     if (pending->request.expires_at
         != std::chrono::steady_clock::time_point::max())
     {
-        wait_budget = std::min(wait_budget,
-            std::chrono::duration_cast<std::chrono::milliseconds>(
+        const auto request_budget
+            = std::chrono::duration_cast<std::chrono::milliseconds>(
                 pending->request.expires_at
-                - std::chrono::steady_clock::now()));
+                - std::chrono::steady_clock::now());
+        waiting_to_request_deadline
+            = request_budget <= wait_budget;
+        wait_budget = std::min(wait_budget, request_budget);
     }
     if (wait_budget <= std::chrono::milliseconds::zero()
         || response.wait_for(wait_budget)
@@ -1140,7 +1234,12 @@ ControlMethodResult ControlServer::Impl::dispatch(ControlRequest request)
     {
         pending->cancelled = true;
         auto timeout = ControlMethodResult::error(
-            "main_thread_timeout", "Draxul did not process the request in time.");
+            waiting_to_request_deadline
+                ? "deadline_exceeded"
+                : "main_thread_timeout",
+            waiting_to_request_deadline
+                ? "The control request exceeded its deadline."
+                : "Draxul did not process the request in time.");
         complete_pending(pending, timeout);
         return timeout;
     }
@@ -1169,15 +1268,12 @@ void ControlServer::Impl::process_pending(const Handler& handler)
                 >= item->request.expires_at)
         {
             item->cancelled = true;
-            complete_pending(item, ControlMethodResult::error(
-                "main_thread_timeout",
-                "The timed-out control request was cancelled."));
+            complete_pending(item, ControlMethodResult::error("deadline_exceeded", "The control request exceeded its deadline."));
             continue;
         }
         if (stopping || item->completed)
         {
-            complete_pending(item, ControlMethodResult::error(
-                "server_stopping", "Control server is stopping."));
+            complete_pending(item, ControlMethodResult::error("server_stopping", "Control server is stopping."));
             continue;
         }
         ControlMethodResult result;
@@ -1217,7 +1313,8 @@ void ControlServer::Impl::run(std::stop_token stop_token)
     HANDLE initial_pipe = CreateNamedPipeW(pipe_name.c_str(),
         PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED
             | FILE_FLAG_FIRST_PIPE_INSTANCE,
-        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT
+            | PIPE_REJECT_REMOTE_CLIENTS,
         4, static_cast<DWORD>(kControlMaxMessageBytes),
         static_cast<DWORD>(kControlMaxMessageBytes), 0, &attributes);
     if (initial_pipe == INVALID_HANDLE_VALUE)
@@ -1246,7 +1343,7 @@ void ControlServer::Impl::run(std::stop_token stop_token)
     // client is resizing, polling, or disconnecting.
     auto serve_connections
         = [this, &attributes, &pipe_name](std::stop_token shared_stop,
-              HANDLE first_pipe) {
+              HANDLE first_pipe, bool keep_first_instance) {
               HANDLE pipe = first_pipe;
               while (!shared_stop.stop_requested())
               {
@@ -1254,7 +1351,9 @@ void ControlServer::Impl::run(std::stop_token stop_token)
                   {
                       pipe = CreateNamedPipeW(pipe_name.c_str(),
                           PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                          PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                          PIPE_TYPE_BYTE | PIPE_READMODE_BYTE
+                              | PIPE_WAIT
+                              | PIPE_REJECT_REMOTE_CLIENTS,
                           4, static_cast<DWORD>(kControlMaxMessageBytes),
                           static_cast<DWORD>(kControlMaxMessageBytes),
                           0, &attributes);
@@ -1314,8 +1413,11 @@ void ControlServer::Impl::run(std::stop_token stop_token)
                       DisconnectNamedPipe(pipe);
                   }
                   CancelIoEx(pipe, nullptr);
-                  CloseHandle(pipe);
-                  pipe = INVALID_HANDLE_VALUE;
+                  if (!keep_first_instance)
+                  {
+                      CloseHandle(pipe);
+                      pipe = INVALID_HANDLE_VALUE;
+                  }
               }
               if (pipe != INVALID_HANDLE_VALUE)
               {
@@ -1330,10 +1432,14 @@ void ControlServer::Impl::run(std::stop_token stop_token)
     {
         additional_listeners.emplace_back(
             [serve_connections, stop_token](std::stop_token) {
-                serve_connections(stop_token, INVALID_HANDLE_VALUE);
+                serve_connections(
+                    stop_token, INVALID_HANDLE_VALUE, false);
             });
     }
-    serve_connections(stop_token, initial_pipe);
+    // Reuse the FIRST_PIPE_INSTANCE handle for every connection handled by
+    // this listener. Keeping it open for the worker lifetime prevents a
+    // close/recreate window in which another process could claim the name.
+    serve_connections(stop_token, initial_pipe, true);
     // The listener closures reference the shared security descriptor. Join
     // them before releasing it.
     additional_listeners.clear();
@@ -1569,7 +1675,7 @@ ControlClientResult ControlClient::request(std::string_view session_id,
         { "params", params },
         { "timeout_ms", wire_timeout.count() },
     }
-                                    .dump();
+                                          .dump();
 
     std::string response_bytes;
     bool deadline_hit = false;
@@ -1593,7 +1699,10 @@ ControlClientResult ControlClient::request(std::string_view session_id,
         {
             pipe = CreateFileW(pipe_name.c_str(),
                 GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
-                FILE_FLAG_OVERLAPPED, nullptr);
+                FILE_FLAG_OVERLAPPED
+                    | SECURITY_SQOS_PRESENT
+                    | SECURITY_IDENTIFICATION,
+                nullptr);
             if (pipe != INVALID_HANDLE_VALUE)
                 break;
         }

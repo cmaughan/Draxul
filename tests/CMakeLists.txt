@@ -57,6 +57,7 @@ set(DRAXUL_APP_TEST_SOURCES
     startup_rollback_tests.cpp
     tab_keybinding_roundtrip_tests.cpp
     toast_host_tests.cpp
+    topology_mutation_route_tests.cpp
 )
 file(GLOB DRAXUL_MARKDOWN_KANBAN_TEST_SOURCES CONFIGURE_DEPENDS
     RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}

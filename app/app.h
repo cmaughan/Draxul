@@ -11,6 +11,7 @@
 #include "session_state.h"
 #include "space_controller.h"
 #include "toast_host.h"
+#include "topology_mutation_route.h"
 #include <chrono>
 #include <draxul/app_config.h>
 #include <draxul/app_options.h>
@@ -21,6 +22,7 @@
 #include <draxul/result.h>
 #include <draxul/system_resource_monitor.h>
 #include <draxul/topology_protocol.h>
+#include <draxul/topology_projection.h>
 
 #include "weather_service.h"
 #include <draxul/text_service.h>
@@ -28,6 +30,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -181,6 +184,8 @@ private:
     void open_launch_agent_prompt();
     void open_attach_agent_picker();
     void open_focus_agent_picker();
+    Result<void, Error> restart_agent_runtime(
+        const AgentProjection& agent);
     void rebuild_agent_definitions();
     bool close_dead_panes();
     void rebuild_render_tree();
@@ -209,7 +214,7 @@ private:
         std::string_view error);
     void apply_remote_command_activation(
         const TopologyCommand& command,
-        const TopologySnapshot& previous_snapshot);
+        std::string_view created_id);
     void handle_remote_status_completion(
         struct RemoteStatusCompletion completion);
     bool apply_remote_agents(
@@ -221,18 +226,17 @@ private:
         const TopologySnapshot& snapshot, std::string* error);
     bool project_remote_tab(const TopologyTab& remote,
         SpaceId local_space_id, int local_tab_id, std::string* error);
+    void initialize_topology_mutation_route();
+    TopologyMutationResult mutate_topology(
+        TopologyMutation mutation);
+    TopologyMutationResult apply_local_topology_mutation(
+        const TopologyMutation& mutation);
+    std::optional<TopologyPaneDomain>
+        projected_pane_domain(
+            SpaceId local_space_id, int local_tab_id,
+            LeafId local_leaf) const;
     bool execute_remote_topology_command(
         TopologyCommand command, std::string& error);
-    bool split_remote_focused(TopologySplitDirection direction,
-        std::optional<HostKind> host_kind, std::string& error);
-    bool close_remote_focused_pane(std::string& error);
-    bool swap_remote_focused_pane(std::string& error);
-    bool restart_remote_focused_pane(std::string& error);
-    std::optional<bool>
-        remote_focused_pane_is_server_terminal() const;
-    bool set_remote_split_ratio(
-        DividerId divider_id, float ratio, std::string& error);
-    bool equalize_remote_splits(std::string& error);
     void queue_remote_split_ratio(DividerId divider_id, float ratio);
     void flush_pending_remote_split_ratio();
     std::optional<std::string> remote_space_id(SpaceId local_id) const;
@@ -323,17 +327,10 @@ private:
     std::unique_ptr<ControlServer> control_server_;
     std::unique_ptr<ControlEventJournal> control_events_;
     std::unique_ptr<RemoteSessionClient> remote_session_client_;
+    std::unique_ptr<ITopologyMutationRoute>
+        topology_mutation_route_;
     TopologySnapshot remote_topology_snapshot_;
-    std::unordered_map<std::string, SpaceId> topology_space_to_local_;
-    std::unordered_map<SpaceId, std::string> local_space_to_topology_;
-    std::unordered_map<std::string, std::pair<SpaceId, int>>
-        topology_tab_to_local_;
-    std::unordered_map<std::string, LeafId> topology_pane_to_leaf_;
-    std::unordered_map<std::string, std::string>
-        topology_tab_layout_signatures_;
-    std::unordered_map<std::string,
-        std::unordered_map<DividerId, std::string>>
-        topology_tab_divider_nodes_;
+    TopologyProjection topology_projection_;
     struct PendingTopologyRatio
     {
         std::string space_id;
@@ -343,21 +340,10 @@ private:
         std::chrono::steady_clock::time_point commit_after;
     };
     std::optional<PendingTopologyRatio> pending_topology_ratio_;
-    LeafId next_topology_leaf_id_ = 0;
-    uint64_t next_topology_command_serial_ = 1;
     bool topology_poll_error_announced_ = false;
     bool agent_poll_error_announced_ = false;
     bool topology_command_error_announced_ = false;
-    std::string topology_apply_error_announced_;
     bool accept_next_remote_topology_revision_ = false;
-    struct PendingRemoteCommandActivation
-    {
-        TopologyCommand command;
-        TopologySnapshot previous_snapshot;
-        uint64_t required_revision = 0;
-    };
-    std::vector<PendingRemoteCommandActivation>
-        pending_remote_command_activations_;
     uint64_t next_server_agent_mutation_id_ = 1;
     enum class PendingServerStatusAction
     {

@@ -62,6 +62,12 @@ bool is_transient_remote_error(std::string_view code)
     return is_transient_client_error(code);
 }
 
+bool needs_identity_refresh(std::string_view code)
+{
+    return code == "stale_epoch"
+        || code == "invalid_connection_token";
+}
+
 bool is_selection_copy_shortcut(const KeyEvent& event)
 {
     if (!event.pressed || event.keycode != SDLK_C)
@@ -102,6 +108,7 @@ struct RemoteHostCommand
 struct RemotePublishedState
 {
     TerminalSemanticSnapshot snapshot;
+    std::optional<TerminalDirtySnapshot> grid_update;
     std::optional<RemoteTerminalScrollbackPage> scrollback_page;
     uint64_t scroll_offset = 0;
     uint64_t scrollback_total = 0;
@@ -140,6 +147,31 @@ TerminalSemanticSnapshot compose_scrollback_view(
     }
     result.metadata.cursor.visible = false;
     return result;
+}
+
+TerminalDirtySnapshot full_grid_update(
+    const TerminalSemanticSnapshot& snapshot)
+{
+    TerminalDirtySnapshot update{
+        .cols = snapshot.cols,
+        .rows = snapshot.rows,
+        .full = true,
+        .metadata = snapshot.metadata,
+    };
+    update.cells.reserve(snapshot.cells.size());
+    for (int row = 0; row < snapshot.rows; ++row)
+    {
+        for (int col = 0; col < snapshot.cols; ++col)
+        {
+            update.cells.push_back({
+                .col = col,
+                .row = row,
+                .cell = snapshot.cells[
+                    static_cast<size_t>(row) * snapshot.cols + col],
+            });
+        }
+    }
+    return update;
 }
 
 } // namespace
@@ -444,8 +476,6 @@ private:
             return false;
         options_.terminal_id
             = client_->projection().version().terminal_id;
-        options_.recovery->set_server_epoch(
-            client_->projection().version().server_epoch);
         options_.recovery->note_connected(recovery_channel());
         scroll_offset_ = 0;
         scrollback_total_ = 0;
@@ -526,7 +556,7 @@ private:
                         terminal_removed = true;
                         break;
                     }
-                    if (error_code == "stale_epoch")
+                    if (needs_identity_refresh(error_code))
                     {
                         std::string refresh_error;
                         if (refresh_epoch(refresh_error))
@@ -612,7 +642,7 @@ private:
                         publish_error_once(error_code, error);
                         continue;
                     }
-                    if (error_code == "stale_epoch")
+                    if (needs_identity_refresh(error_code))
                     {
                         std::string refresh_error;
                         if (!refresh_epoch(refresh_error))
@@ -654,7 +684,7 @@ private:
                 if (stopping_)
                     break;
                 std::string error_code = client_->last_error_code();
-                if (error_code == "stale_epoch")
+                if (needs_identity_refresh(error_code))
                 {
                     std::string refresh_error;
                     if (refresh_epoch(refresh_error))
@@ -793,6 +823,7 @@ private:
         }
         RemotePublishedState state{
             .snapshot = live,
+            .grid_update = client_->take_grid_update(),
             .scrollback_page = scrollback_page_,
             .scroll_offset = scroll_offset_,
             .scrollback_total = scrollback_total_,
@@ -803,6 +834,22 @@ private:
         };
         {
             std::lock_guard guard(mutex_);
+            if (published_state_)
+            {
+                // The protocol projection has already advanced past the
+                // pending state's sequence. Preserve every unconsumed grid
+                // mutation by publishing the latest projection as a full
+                // update; otherwise the next poll can ACK cells the UI never
+                // observed.
+                if (published_state_->grid_update)
+                    state.grid_update = full_grid_update(state.snapshot);
+                if (!state.clipboard_write
+                    && published_state_->clipboard_write)
+                {
+                    state.clipboard_write
+                        = std::move(published_state_->clipboard_write);
+                }
+            }
             published_state_ = std::move(state);
         }
         std::lock_guard owner_guard(owner_callback_mutex_);
@@ -990,52 +1037,90 @@ void RemoteTerminalHost::pump()
         scrollback_total_ = state->scrollback_total;
         attach_latency_ = state->attach_latency;
 
-        if (display_snapshot.cols != grid_cols()
-            || display_snapshot.rows != grid_rows())
-        {
+        const bool dimensions_changed
+            = display_snapshot.cols != grid_cols()
+            || display_snapshot.rows != grid_rows();
+        if (dimensions_changed)
             apply_grid_size(display_snapshot.cols, display_snapshot.rows);
-        }
-        highlights().clear();
-        highlights().set_default_fg(
-            launch_options().terminal_fg.value_or(
-                Color(0.92f, 0.92f, 0.92f, 1.0f)));
-        highlights().set_default_bg(
-            launch_options().terminal_bg.value_or(
-                Color(0.08f, 0.09f, 0.10f, 1.0f)));
 
-        grid().clear();
-        std::unordered_map<HlAttr, uint16_t, HlAttrHash> attr_ids;
-        uint16_t next_attr_id = 1;
-        for (int row = 0; row < display_snapshot.rows; ++row)
+        bool rebuild_grid = dimensions_changed
+            || viewport_changed
+            || state->scroll_offset > 0
+            || (state->grid_update && state->grid_update->full);
+        if (!rebuild_grid && state->grid_update)
         {
-            for (int col = 0; col < display_snapshot.cols; ++col)
+            std::unordered_map<HlAttr, bool, HlAttrHash> missing;
+            for (const auto& dirty : state->grid_update->cells)
             {
-                const auto& cell = display_snapshot.cells[
-                    static_cast<size_t>(row) * display_snapshot.cols + col];
-                if (cell.double_width_continuation)
-                    continue;
-
-                uint16_t attr_id = 0;
-                if (cell.attr != HlAttr{})
+                if (dirty.cell.attr != HlAttr{}
+                    && !remote_attr_ids_.contains(dirty.cell.attr))
                 {
-                    const auto [it, inserted]
-                        = attr_ids.try_emplace(cell.attr, next_attr_id);
-                    if (inserted)
-                    {
-                        highlights().set(next_attr_id, cell.attr);
-                        ++next_attr_id;
-                    }
-                    attr_id = it->second;
-                }
-                grid().set_cell(
-                    col, row, cell.text, attr_id, cell.double_width);
-                if (!cell.hyperlink.empty())
-                {
-                    const uint16_t link_id
-                        = grid().link_id_for_uri(cell.hyperlink);
-                    grid().set_cell_hyperlink_id(col, row, link_id);
+                    missing.emplace(dirty.cell.attr, true);
                 }
             }
+            rebuild_grid
+                = next_remote_attr_id_ + missing.size()
+                > std::numeric_limits<uint16_t>::max();
+        }
+
+        const auto reset_highlights = [this] {
+            highlights().clear();
+            highlights().set_default_fg(
+                launch_options().terminal_fg.value_or(
+                    Color(0.92f, 0.92f, 0.92f, 1.0f)));
+            highlights().set_default_bg(
+                launch_options().terminal_bg.value_or(
+                    Color(0.08f, 0.09f, 0.10f, 1.0f)));
+            remote_attr_ids_.clear();
+            next_remote_attr_id_ = 1;
+        };
+        const auto apply_cell = [this](
+                                    int col, int row,
+                                    const TerminalCellSnapshot& cell) {
+            if (cell.double_width_continuation)
+                return;
+            uint16_t attr_id = 0;
+            if (cell.attr != HlAttr{})
+            {
+                auto [it, inserted] = remote_attr_ids_.try_emplace(
+                    cell.attr,
+                    static_cast<uint16_t>(next_remote_attr_id_));
+                if (inserted)
+                {
+                    highlights().set(it->second, cell.attr);
+                    ++next_remote_attr_id_;
+                }
+                attr_id = it->second;
+            }
+            grid().set_cell(
+                col, row, cell.text, attr_id, cell.double_width);
+            if (!cell.hyperlink.empty())
+            {
+                const uint16_t link_id
+                    = grid().link_id_for_uri(cell.hyperlink);
+                grid().set_cell_hyperlink_id(col, row, link_id);
+            }
+        };
+
+        if (rebuild_grid)
+        {
+            reset_highlights();
+            grid().clear();
+            for (int row = 0; row < display_snapshot.rows; ++row)
+            {
+                for (int col = 0; col < display_snapshot.cols; ++col)
+                {
+                    apply_cell(col, row, display_snapshot.cells[
+                        static_cast<size_t>(row)
+                            * display_snapshot.cols
+                        + col]);
+                }
+            }
+        }
+        else if (state->grid_update)
+        {
+            for (const auto& dirty : state->grid_update->cells)
+                apply_cell(dirty.col, dirty.row, dirty.cell);
         }
 
         const auto& metadata = display_snapshot.metadata;
@@ -1049,10 +1134,13 @@ void RemoteTerminalHost::pump()
         if (metadata.cursor.blink)
             timing = { 530, 530, 530 };
         set_cursor_style(style, timing, !metadata.cursor.visible);
-        if (!metadata.title.empty()
-            && metadata.title != published_window_title_)
+        if (metadata.title
+            != published_window_title_)
         {
-            callbacks().set_window_title(metadata.title);
+            callbacks().set_window_title(
+                metadata.title.empty()
+                    ? "Draxul"
+                    : metadata.title);
             published_window_title_ = metadata.title;
         }
         const bool became_controller

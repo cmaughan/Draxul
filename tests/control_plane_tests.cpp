@@ -31,6 +31,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <aclapi.h>
 #include <process.h>
 #else
 #include <unistd.h>
@@ -127,6 +128,63 @@ ControlClientResult request_while_pumping(App& app,
     return future.get();
 }
 
+#ifdef _WIN32
+bool owner_only_windows_dacl(
+    const std::filesystem::path& path)
+{
+    PACL dacl = nullptr;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    const DWORD result = GetNamedSecurityInfoW(
+        const_cast<wchar_t*>(path.c_str()),
+        SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, &dacl, nullptr, &descriptor);
+    if (result != ERROR_SUCCESS
+        || descriptor == nullptr || dacl == nullptr)
+    {
+        if (descriptor)
+            LocalFree(descriptor);
+        return false;
+    }
+    SECURITY_DESCRIPTOR_CONTROL control = 0;
+    DWORD revision = 0;
+    bool secure = GetSecurityDescriptorControl(
+                      descriptor, &control, &revision)
+        && (control & SE_DACL_PROTECTED) != 0;
+    ACL_SIZE_INFORMATION information{};
+    secure = secure && GetAclInformation(dacl, &information,
+        sizeof(information), AclSizeInformation);
+    for (DWORD index = 0;
+         secure && index < information.AceCount; ++index)
+    {
+        void* encoded = nullptr;
+        if (!GetAce(dacl, index, &encoded))
+        {
+            secure = false;
+            break;
+        }
+        auto* header = static_cast<ACE_HEADER*>(encoded);
+        PSID sid = nullptr;
+        if (header->AceType == ACCESS_ALLOWED_ACE_TYPE)
+        {
+            sid = &reinterpret_cast<ACCESS_ALLOWED_ACE*>(
+                       encoded)
+                       ->SidStart;
+        }
+        if (sid
+            && (IsWellKnownSid(sid, WinWorldSid)
+                || IsWellKnownSid(
+                    sid, WinAuthenticatedUserSid)
+                || IsWellKnownSid(
+                    sid, WinBuiltinUsersSid)))
+        {
+            secure = false;
+        }
+    }
+    LocalFree(descriptor);
+    return secure;
+}
+#endif
+
 } // namespace
 
 TEST_CASE("control CLI recognizes read-only Space and pane commands", "[control][cli]")
@@ -184,6 +242,43 @@ TEST_CASE("control CLI keeps agent argv structured and parses wait policy", "[co
     CHECK(report.command->runtime_generation == 3);
     CHECK(report.command->server_runtime_directory
         == "D:/runtime");
+}
+
+TEST_CASE("control metadata atomically replaces a pre-existing file with owner-only permissions",
+    "[control][security]")
+{
+    const auto runtime = unique_runtime_directory();
+    REQUIRE(std::filesystem::create_directories(runtime));
+    const auto metadata = control_metadata_path(
+        runtime, "owner-only-metadata");
+    {
+        std::ofstream previous(metadata, std::ios::binary);
+        previous << "stale and permissive";
+    }
+#ifndef _WIN32
+    REQUIRE(::chmod(metadata.c_str(), 0666) == 0);
+#endif
+
+    ControlServer server;
+    std::string error;
+    REQUIRE(server.start("owner-only-metadata",
+        runtime, [] {}, &error));
+    INFO(error);
+    REQUIRE(std::filesystem::exists(metadata));
+#ifdef _WIN32
+    CHECK(owner_only_windows_dacl(runtime));
+    CHECK(owner_only_windows_dacl(metadata));
+#else
+    struct stat metadata_stat{};
+    REQUIRE(::stat(metadata.c_str(), &metadata_stat) == 0);
+    CHECK((metadata_stat.st_mode & 0777) == 0600);
+#endif
+    CHECK(std::filesystem::directory_iterator(runtime)
+        != std::filesystem::directory_iterator());
+
+    server.stop();
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
 }
 
 TEST_CASE("Codex integration install is idempotent and preserves unrelated hooks",

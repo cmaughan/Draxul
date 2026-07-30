@@ -13,6 +13,8 @@
 namespace draxul
 {
 
+inline constexpr size_t kTopologyCompletedCommandLimit = 2048;
+
 struct ManagedAgentTopologyLaunch
 {
     AgentIdentity identity;
@@ -73,24 +75,38 @@ public:
     {
         return snapshot_;
     }
+    size_t completed_command_count() const noexcept
+    {
+        return completed_.size();
+    }
+    size_t completed_command_result_bytes() const noexcept
+    {
+        size_t bytes = 0;
+        for (const auto& [key, created_id] : completed_)
+        {
+            (void)key;
+            bytes += sizeof(std::string) + created_id.size();
+        }
+        return bytes;
+    }
 
 private:
     ControlMethodResult read_snapshot(
         const nlohmann::json& params) const;
     ControlMethodResult poll(const nlohmann::json& params) const;
     ControlMethodResult command(const nlohmann::json& params);
-    bool apply(const TopologyCommand& command, std::string& error_code,
-        std::string& error);
+    bool apply(const TopologyCommand& command, std::string& created_id,
+        std::string& error_code, std::string& error);
 
     std::string next_id(std::string_view prefix);
     TopologyTab make_client_local_tab(std::string name);
     TopologyTab make_initial_server_tab();
-    void remember(std::string key, TopologyCommandResult result);
+    void remember(std::string key, std::string created_id);
 
     TopologySnapshot snapshot_;
     TopologyServiceCallbacks callbacks_;
     uint64_t next_serial_ = 1;
-    std::unordered_map<std::string, TopologyCommandResult> completed_;
+    std::unordered_map<std::string, std::string> completed_;
     std::deque<std::string> completed_order_;
 };
 

@@ -66,7 +66,7 @@ sync with the server until an unrelated revision bump. `AgentClient` has the sam
 ## Dependencies and ownership
 
 Touches `app/app.cpp` projection code and `libs/draxul-client`. Overlaps
-`kanban/pending/27 topology-projection-extraction -refactor.md` — if `27` is scheduled first,
+`kanban/done/27 topology-projection-extraction -refactor.md` — if `27` is scheduled first,
 implement this behaviour inside the extracted projection rather than in `App`.
 
 ## Completion notes

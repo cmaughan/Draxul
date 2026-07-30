@@ -1,11 +1,12 @@
 #include <draxul/terminal_core.h>
 
+#include <algorithm>
+#include <charconv>
 #include <draxul/base64.h>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/terminal_sgr.h>
-#include <algorithm>
-#include <charconv>
+#include <draxul/unicode.h>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -85,7 +86,9 @@ void TerminalCore::handle_esc(char ch)
             {
                 on_line_scrolled_off(vt_.scroll_top);
             }
-            grid().scroll(vt_.scroll_top, vt_.scroll_bottom + 1, 0, grid_cols(), 1);
+            scroll_rows(
+                vt_.scroll_top,
+                vt_.scroll_bottom + 1, 1);
         }
         else if (vt_.row < grid_rows() - 1)
         {
@@ -98,7 +101,9 @@ void TerminalCore::handle_esc(char ch)
         vt_.pending_wrap = false;
         if (vt_.row == vt_.scroll_top)
         {
-            grid().scroll(vt_.scroll_top, vt_.scroll_bottom + 1, 0, grid_cols(), -1);
+            scroll_rows(
+                vt_.scroll_top,
+                vt_.scroll_bottom + 1, -1);
         }
         else if (vt_.row > 0)
         {
@@ -376,7 +381,9 @@ void TerminalCore::csi_scroll(char final_char, bool private_mode, const std::vec
                 for (int i = 0; i < capture; ++i)
                     on_line_scrolled_off(vt_.scroll_top + i);
             }
-            grid().scroll(vt_.scroll_top, vt_.scroll_bottom + 1, 0, grid_cols(), n);
+            scroll_rows(
+                vt_.scroll_top,
+                vt_.scroll_bottom + 1, n);
         }
         break;
     }
@@ -384,7 +391,9 @@ void TerminalCore::csi_scroll(char final_char, bool private_mode, const std::vec
     {
         const int n = param_or(params, 0, 1);
         if (!private_mode)
-            grid().scroll(vt_.scroll_top, vt_.scroll_bottom + 1, 0, grid_cols(), -n);
+            scroll_rows(
+                vt_.scroll_top,
+                vt_.scroll_bottom + 1, -n);
         break;
     }
     default:
@@ -402,7 +411,9 @@ void TerminalCore::csi_insert_delete(char final_char, const std::vector<int>& pa
     {
         const int n = param_or(params, 0, 1);
         if (vt_.row >= vt_.scroll_top && vt_.row <= vt_.scroll_bottom)
-            grid().scroll(vt_.row, vt_.scroll_bottom + 1, 0, grid_cols(), -n);
+            scroll_rows(
+                vt_.row,
+                vt_.scroll_bottom + 1, -n);
         vt_.pending_wrap = false;
         break;
     }
@@ -420,7 +431,9 @@ void TerminalCore::csi_insert_delete(char final_char, const std::vector<int>& pa
                 for (int i = 0; i < capture; ++i)
                     on_line_scrolled_off(i);
             }
-            grid().scroll(vt_.row, vt_.scroll_bottom + 1, 0, grid_cols(), n);
+            scroll_rows(
+                vt_.row,
+                vt_.scroll_bottom + 1, n);
         }
         vt_.pending_wrap = false;
         break;
@@ -690,8 +703,10 @@ void TerminalCore::handle_osc(std::string_view body)
 
     if (code == "0" || code == "2")
     {
-        terminal_title_ = std::string(payload);
-        host_.terminal_set_title(payload);
+        const size_t title_bytes = utf8_validated_prefix_length(
+            payload, TerminalStateLimits::kMaxTitleBytes);
+        terminal_title_.assign(payload.substr(0, title_bytes));
+        host_.terminal_set_title(terminal_title_);
     }
     else if (code == "8")
     {
@@ -824,6 +839,8 @@ void TerminalCore::handle_osc133(std::string_view payload)
         return;
     }
 
+    if (shell_marks_.size() >= TerminalStateLimits::kMaxShellMarks)
+        shell_marks_.pop_front();
     shell_marks_.push_back(mark);
 }
 

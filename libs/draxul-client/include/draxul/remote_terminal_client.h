@@ -36,6 +36,7 @@ public:
     const std::string& controller_client_id() const;
     bool is_controller(std::string_view client_id) const;
     std::optional<std::string> take_clipboard_write();
+    std::optional<TerminalDirtySnapshot> take_grid_update();
 
 private:
     bool apply_snapshot(
@@ -49,6 +50,7 @@ private:
     TerminalSemanticSnapshot snapshot_;
     std::string controller_client_id_;
     std::optional<std::string> pending_clipboard_write_;
+    std::optional<TerminalDirtySnapshot> pending_grid_update_;
 };
 
 class RemoteTerminalClient
@@ -71,8 +73,10 @@ public:
     const RemoteTerminalClientOptions& options() const;
     const RemoteTerminalProjection& projection() const;
     std::optional<std::string> take_clipboard_write();
+    std::optional<TerminalDirtySnapshot> take_grid_update();
     std::chrono::microseconds last_attach_latency() const;
     const std::string& last_error_code() const;
+    uint64_t skipped_unknown_event_count() const noexcept;
 
 private:
     bool request(std::string_view method, nlohmann::json params,
@@ -83,6 +87,7 @@ private:
     RemoteTerminalClientOptions options_;
     RemoteTerminalProjection projection_;
     std::string last_error_code_;
+    uint64_t skipped_unknown_events_ = 0;
     std::chrono::microseconds last_attach_latency_{ 0 };
 };
 

@@ -144,6 +144,8 @@ void TerminalCore::reset()
     mouse_modes_ = {};
     current_hyperlink_id_ = 0;
     shell_marks_.clear();
+    terminal_title_.clear();
+    current_cwd_.clear();
     output_cursor_batch_active_ = false;
     output_cursor_batch_saw_hide_ = false;
     output_cursor_batch_saw_show_ = false;
@@ -170,6 +172,10 @@ void TerminalCore::resize(int cols, int rows)
     rows = std::max(1, rows);
     if (cols == grid_cols() && rows == grid_rows())
         return;
+
+    std::erase_if(shell_marks_, [rows](const ShellMark& mark) {
+        return mark.row < 0 || mark.row >= rows;
+    });
 
     const int previous_cols = grid_cols();
     const int previous_rows = grid_rows();
@@ -508,6 +514,27 @@ void TerminalCore::clear_cell(int col, int row)
     grid().set_cell(col, row, " ", attr_id(), false);
 }
 
+void TerminalCore::scroll_rows(
+    int top, int bottom, int rows)
+{
+    if (!alt_screen_.in_alt_screen() && rows != 0)
+    {
+        std::erase_if(shell_marks_,
+            [top, bottom, rows](ShellMark& mark) {
+                if (mark.row < top
+                    || mark.row >= bottom)
+                {
+                    return false;
+                }
+                mark.row -= rows;
+                return mark.row < top
+                    || mark.row >= bottom;
+            });
+    }
+    grid().scroll(
+        top, bottom, 0, grid_cols(), rows);
+}
+
 void TerminalCore::newline(bool carriage_return)
 {
     PERF_MEASURE();
@@ -524,7 +551,8 @@ void TerminalCore::newline(bool carriage_return)
         {
             on_line_scrolled_off(vt_.scroll_top);
         }
-        grid().scroll(vt_.scroll_top, vt_.scroll_bottom + 1, 0, grid_cols(), 1);
+        scroll_rows(
+            vt_.scroll_top, vt_.scroll_bottom + 1, 1);
     }
     else if (vt_.row < grid_rows() - 1)
     {
@@ -632,12 +660,19 @@ void TerminalCore::erase_display(int mode)
                     on_line_scrolled_off(r);
             }
         }
+        shell_marks_.clear();
         grid().clear();
         return;
     }
 
     if (mode == 0)
     {
+        std::erase_if(shell_marks_,
+            [this](const ShellMark& mark) {
+                return mark.row > vt_.row
+                    || (vt_.col == 0
+                        && mark.row == vt_.row);
+            });
         erase_line(0);
         for (int row = vt_.row + 1; row < grid_rows(); ++row)
             for (int col = 0; col < grid_cols(); ++col)
@@ -645,6 +680,13 @@ void TerminalCore::erase_display(int mode)
     }
     else if (mode == 1)
     {
+        std::erase_if(shell_marks_,
+            [this](const ShellMark& mark) {
+                return mark.row < vt_.row
+                    || (vt_.col
+                            == grid_cols() - 1
+                        && mark.row == vt_.row);
+            });
         erase_line(1);
         for (int row = 0; row < vt_.row; ++row)
             for (int col = 0; col < grid_cols(); ++col)
@@ -699,9 +741,16 @@ TerminalSnapshotMetadata TerminalCore::snapshot_metadata() const
     };
     metadata.title = terminal_title_;
     metadata.working_directory = current_cwd_;
-    metadata.shell_marks.reserve(shell_marks_.size());
+    metadata.shell_marks.reserve(std::min(
+        shell_marks_.size(), TerminalStateLimits::kMaxShellMarks));
     for (const ShellMark& source : shell_marks_)
     {
+        if (metadata.shell_marks.size()
+                >= TerminalStateLimits::kMaxShellMarks
+            || source.row < 0 || source.row >= grid_rows())
+        {
+            continue;
+        }
         TerminalShellMarkKind kind = TerminalShellMarkKind::PromptStart;
         switch (source.type)
         {

@@ -20,8 +20,7 @@ namespace
 std::optional<int> parse_int(std::string_view text)
 {
     int result = 0;
-    const auto parsed =
-        std::from_chars(text.data(), text.data() + text.size(), result);
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), result);
     if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size())
         return std::nullopt;
     return result;
@@ -30,8 +29,7 @@ std::optional<int> parse_int(std::string_view text)
 std::optional<uint64_t> parse_uint64(std::string_view text)
 {
     uint64_t result = 0;
-    const auto parsed =
-        std::from_chars(text.data(), text.data() + text.size(), result);
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), result);
     if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size())
         return std::nullopt;
     return result;
@@ -174,8 +172,7 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         return parsed;
     }
 
-    const bool needs_value =
-        command.method == "space.get" || command.method == "space.focus"
+    const bool needs_value = command.method == "space.get" || command.method == "space.focus"
         || command.method == "agent.get" || command.method == "agent.start"
         || command.method == "agent.focus" || command.method == "agent.restart"
         || command.method == "agent.send_text"
@@ -451,9 +448,8 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
             || (command.reference_kind != "id"
                 && command.reference_kind != "path")))
     {
-        parsed.error =
-            "pane report-agent-session requires --agent-instance, --source, "
-            "--agent, --integration-version, --sequence, and --session-ref.";
+        parsed.error = "pane report-agent-session requires --agent-instance, --source, "
+                       "--agent, --integration-version, --sequence, and --session-ref.";
         return parsed;
     }
     parsed.command = std::move(command);
@@ -517,18 +513,21 @@ int run_control_cli(const ControlCliCommand& command)
                 = command.runtime_generation;
         }
     }
-    if (command.method == "agent.start"
+    const bool mutating_agent_request
+        = command.method == "agent.start"
         || command.method == "agent.restart"
         || command.method == "agent.send_text"
-        || command.method == "agent.send_keys")
+        || command.method == "agent.send_keys";
+    if (mutating_agent_request)
     {
-        // The same params object is retained across endpoint fallback, so a
-        // server can safely deduplicate a mutation whose response was lost.
+        // This key deduplicates retries made against one endpoint. The App
+        // endpoint and the headless server have separate idempotency domains,
+        // so an ambiguous mutation must never fall through from one to the
+        // other.
         params["request_id"] = make_server_client_id();
     }
 
-    const auto runtime =
-        control_runtime_directory(ConfigDocument::default_path().parent_path());
+    const auto runtime = control_runtime_directory(ConfigDocument::default_path().parent_path());
     const auto server_runtime
         = command.server_runtime_directory.empty()
         ? server_runtime_directory(
@@ -561,7 +560,9 @@ int run_control_cli(const ControlCliCommand& command)
                       || !supports_headless_server
                       || (local.error_code
                               != "endpoint_unavailable"
-                          && local.error_code != "io_error"))
+                          && (mutating_agent_request
+                              || local.error_code
+                                  != "io_error")))
                   {
                       return local;
                   }
@@ -588,8 +589,7 @@ int run_control_cli(const ControlCliCommand& command)
             : std::chrono::steady_clock::time_point::max();
         if (result.result.contains("agent"))
         {
-            params["runtime_generation"] =
-                result.result["agent"].value("runtime_generation", 0ull);
+            params["runtime_generation"] = result.result["agent"].value("runtime_generation", 0ull);
         }
         while (result.ok && !result.result.value("complete", false)
             && std::chrono::steady_clock::now() < deadline)

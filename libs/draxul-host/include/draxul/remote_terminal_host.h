@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 
 namespace draxul
 {
@@ -110,6 +111,9 @@ private:
     int desired_cols_ = 0;
     int desired_rows_ = 0;
     std::string published_window_title_;
+    std::unordered_map<HlAttr, uint16_t, HlAttrHash>
+        remote_attr_ids_;
+    uint32_t next_remote_attr_id_ = 1;
 };
 
 } // namespace draxul

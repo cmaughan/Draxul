@@ -77,7 +77,6 @@ struct ParseArgsResult
 ParseArgsResult parse_args(const std::vector<std::string>& args);
 bool should_use_shared_server(const ParsedArgs& args);
 bool should_bootstrap_experimental_server(const ParsedArgs& args);
-bool is_server_owned_shell_kind(HostKind kind);
 std::optional<std::string> validate_host_provider_availability(
     const ParsedArgs& args, const HostProviderRegistry& registry);
 

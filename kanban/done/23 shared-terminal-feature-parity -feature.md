@@ -88,7 +88,7 @@ should be read alongside it.
 
 ## Dependencies and ownership
 
-Read with `kanban/pending/11 remote-terminal-parity-scrollback -feature.md`. Strongly related
-to `kanban/pending/27 topology-projection-extraction -refactor.md`: these gaps exist because
+Read with `kanban/done/11 remote-terminal-parity-scrollback -feature.md`. Strongly related
+to `kanban/done/27 topology-projection-extraction -refactor.md`: these gaps exist because
 `App` now has two mutation paths, so `27` is the structural fix that stops this class of
 regression recurring. Related ice-box: `20 searchable-scrollback -feature.md`.

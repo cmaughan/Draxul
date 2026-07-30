@@ -27,26 +27,20 @@ void ScrollbackBuffer::set_capacity(int capacity)
     }
 
     const int keep = std::min(count_, new_capacity);
-    std::vector<Cell> retained(static_cast<size_t>(keep) * cols_);
+    std::vector<Cell> new_storage(
+        static_cast<size_t>(new_capacity) * cols_);
     const int first = count_ - keep;
     for (int i = 0; i < keep; ++i)
     {
         const auto src = row(first + i);
-        auto* dst = &retained[static_cast<size_t>(i) * cols_];
+        auto* dst
+            = &new_storage[static_cast<size_t>(i) * cols_];
         for (int col = 0; col < cols_; ++col)
             dst[col] = src[col];
     }
 
+    storage_ = std::move(new_storage);
     capacity_ = new_capacity;
-    storage_.assign(static_cast<size_t>(capacity_) * cols_, Cell{});
-    for (int i = 0; i < keep; ++i)
-    {
-        const auto* src = &retained[static_cast<size_t>(i) * cols_];
-        auto* dst = &storage_[static_cast<size_t>(i) * cols_];
-        for (int col = 0; col < cols_; ++col)
-            dst[col] = src[col];
-    }
-
     write_head_ = keep % capacity_;
     count_ = keep;
     offset_ = std::min(offset_, count_);
@@ -61,58 +55,60 @@ void ScrollbackBuffer::resize(int cols)
     const int old_cols = cols_;
     const int old_count = count_;
 
+    std::vector<Cell> new_storage(
+        static_cast<size_t>(capacity_) * cols);
     if (old_count > 0 && old_cols > 0)
     {
         // Preserve existing scrollback rows across the resize.
-        // Copy rows oldest-first into a temporary buffer, clamping/extending columns.
+        // Build the replacement oldest-first, clamping/extending columns.
+        // Nothing observable changes until every allocation and copy succeeds.
         const int copy_cols = std::min(old_cols, cols);
-        std::vector<Cell> tmp((size_t)old_count * cols);
         for (int i = 0; i < old_count; ++i)
         {
             const auto src = row(i);
-            auto* dst = &tmp[(size_t)i * cols];
+            auto* dst
+                = &new_storage[static_cast<size_t>(i) * cols];
             for (int c = 0; c < copy_cols; ++c)
                 dst[c] = src[c];
-            // Extra columns (if cols > old_cols) are already default-constructed.
-        }
-
-        // Reallocate storage and copy rows back.
-        cols_ = cols;
-        storage_.assign((size_t)capacity_ * cols, Cell{});
-        for (int i = 0; i < old_count; ++i)
-        {
-            const auto* src = &tmp[(size_t)i * cols];
-            auto* dst = &storage_[(size_t)i * cols];
-            for (int c = 0; c < cols; ++c)
-                dst[c] = src[c];
-        }
-        write_head_ = old_count % capacity_;
-        count_ = old_count;
-        // Reset scroll offset since row layout has changed.
-        offset_ = 0;
-
-        // Resize the live snapshot columns if one is active.
-        if (!live_snapshot_.empty() && live_snapshot_cols_ > 0 && live_snapshot_rows_ > 0)
-        {
-            const int snap_copy_cols = std::min(live_snapshot_cols_, cols);
-            std::vector<Cell> new_snap((size_t)live_snapshot_rows_ * cols);
-            for (int r = 0; r < live_snapshot_rows_; ++r)
-            {
-                for (int c = 0; c < snap_copy_cols; ++c)
-                    new_snap[(size_t)r * cols + c] = live_snapshot_[(size_t)r * live_snapshot_cols_ + c];
-            }
-            live_snapshot_ = std::move(new_snap);
-            live_snapshot_cols_ = cols;
+            // Extra columns are already default-constructed.
         }
     }
-    else
+
+    std::vector<Cell> new_snapshot;
+    const bool resize_snapshot
+        = !live_snapshot_.empty()
+        && live_snapshot_cols_ > 0
+        && live_snapshot_rows_ > 0;
+    if (resize_snapshot)
     {
-        // No existing scrollback — just allocate fresh storage.
-        cols_ = cols;
-        storage_.assign((size_t)capacity_ * cols, Cell{});
-        write_head_ = 0;
-        count_ = 0;
-        offset_ = 0;
+        const int copy_cols
+            = std::min(live_snapshot_cols_, cols);
+        new_snapshot.resize(
+            static_cast<size_t>(live_snapshot_rows_) * cols);
+        for (int row = 0; row < live_snapshot_rows_; ++row)
+        {
+            for (int col = 0; col < copy_cols; ++col)
+            {
+                new_snapshot[static_cast<size_t>(row) * cols + col]
+                    = live_snapshot_[static_cast<size_t>(row)
+                            * live_snapshot_cols_
+                        + col];
+            }
+        }
+    }
+
+    storage_ = std::move(new_storage);
+    cols_ = cols;
+    write_head_ = old_count % capacity_;
+    count_ = old_count;
+    offset_ = 0;
+    if (resize_snapshot)
+    {
+        live_snapshot_ = std::move(new_snapshot);
+        live_snapshot_cols_ = cols;
+    }
+    else if (old_count == 0)
+    {
         live_snapshot_.clear();
         live_snapshot_cols_ = 0;
         live_snapshot_rows_ = 0;
@@ -226,6 +222,20 @@ void ScrollbackBuffer::reset()
     count_ = 0;
     offset_ = 0;
     live_snapshot_.clear();
+    live_snapshot_cols_ = 0;
+    live_snapshot_rows_ = 0;
+}
+
+void ScrollbackBuffer::release_storage() noexcept
+{
+    std::vector<Cell> empty_storage;
+    storage_.swap(empty_storage);
+    std::vector<Cell> empty_snapshot;
+    live_snapshot_.swap(empty_snapshot);
+    cols_ = 0;
+    write_head_ = 0;
+    count_ = 0;
+    offset_ = 0;
     live_snapshot_cols_ = 0;
     live_snapshot_rows_ = 0;
 }

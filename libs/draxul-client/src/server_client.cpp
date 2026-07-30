@@ -180,11 +180,17 @@ RuntimeEvidence inspect_runtime(const std::filesystem::path& runtime_directory)
     evidence.metadata_exists = std::filesystem::exists(metadata_path);
     if (const auto metadata = read_bounded_json(metadata_path))
     {
-        evidence.metadata_version_mismatch
-            = metadata->contains("version")
-            && (*metadata)["version"].is_number_integer()
-            && (*metadata)["version"].get<int>()
-                != kControlProtocolVersion;
+        if (metadata->contains("version")
+            && (*metadata)["version"].is_number_integer())
+        {
+            const auto& version = (*metadata)["version"];
+            const bool compatible = version.is_number_unsigned()
+                ? version.get<uint64_t>()
+                    == static_cast<uint64_t>(kControlProtocolVersion)
+                : version.get<int64_t>()
+                    == static_cast<int64_t>(kControlProtocolVersion);
+            evidence.metadata_version_mismatch = !compatible;
+        }
         evidence.metadata_valid = metadata->contains("server_pid")
             && (*metadata)["server_pid"].is_number_unsigned()
             && metadata->contains("server_process_start_token")
@@ -402,9 +408,14 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
         .client_id = options.client_id.empty()
             ? make_server_client_id()
             : options.client_id,
+        .connection_token = options.connection_token,
+        .registration_nonce = options.registration_nonce.empty()
+            ? make_server_client_id()
+            : options.registration_nonce,
         .capabilities = {
             "agent-control-v1",
             "agent-projection-v1",
+            std::string(kServerClientTokenCapability),
             "client-registration",
             "controller-lease",
             "fake-remote-terminal",
@@ -475,7 +486,10 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
 
 ServerProbeResult ServerClient::ensure(const ServerEnsureOptions& options)
 {
-    ServerProbeResult current = probe(options);
+    ServerEnsureOptions effective = options;
+    if (effective.registration_nonce.empty())
+        effective.registration_nonce = make_server_client_id();
+    ServerProbeResult current = probe(effective);
     if (current.ready()
         || current.state == ServerProbeState::Incompatible
         || !options.launch_if_missing)
@@ -489,7 +503,7 @@ ServerProbeResult ServerClient::ensure(const ServerEnsureOptions& options)
         || current.state == ServerProbeState::Stale)
     {
         std::string launch_error;
-        if (!launch_detached(options, launch_error))
+        if (!launch_detached(effective, launch_error))
         {
             return {
                 .state = ServerProbeState::LaunchFailed,
@@ -500,11 +514,12 @@ ServerProbeResult ServerClient::ensure(const ServerEnsureOptions& options)
         launched = true;
     }
 
-    const auto deadline = std::chrono::steady_clock::now() + options.timeout;
+    const auto deadline
+        = std::chrono::steady_clock::now() + effective.timeout;
     do
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
-        current = probe(options);
+        current = probe(effective);
         if (current.ready()
             || current.state == ServerProbeState::Incompatible)
         {
@@ -516,7 +531,7 @@ ServerProbeResult ServerClient::ensure(const ServerEnsureOptions& options)
                 || current.state == ServerProbeState::Stale))
         {
             std::string launch_error;
-            if (!launch_detached(options, launch_error))
+            if (!launch_detached(effective, launch_error))
             {
                 return {
                     .state = ServerProbeState::LaunchFailed,
@@ -662,17 +677,23 @@ bool ServerClient::shutdown(
 
 bool ServerClient::disconnect(
     const std::filesystem::path& runtime_directory,
-    std::string_view client_id, std::string& error)
+    std::string_view client_id, std::string& error,
+    std::string_view connection_token)
 {
     if (client_id.empty() || client_id.size() > kServerMaxClientIdBytes)
     {
         error = "A valid client identity is required.";
         return false;
     }
+    nlohmann::json params{
+        { "client_id", client_id },
+    };
+    if (!connection_token.empty())
+        params["connection_token"] = connection_token;
     const auto response = ControlClient::request(
         namespaced_control_id(kServerControlId, runtime_directory),
         runtime_directory, "server.goodbye",
-        { { "client_id", client_id } });
+        std::move(params));
     if (!response.ok)
     {
         error = response.error_message;

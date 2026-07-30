@@ -1,6 +1,12 @@
 #include <draxul/remote_terminal_protocol.h>
+#include <draxul/server_protocol.h>
 
+#include "json_extract.h"
+
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <unordered_map>
 #include <vector>
@@ -13,22 +19,29 @@ namespace
 
 nlohmann::json color_to_json(const Color& color)
 {
-    return nlohmann::json::array({ color.r, color.g, color.b, color.a });
+    const auto channel = [](float value) {
+        return static_cast<uint32_t>(std::lround(
+            std::clamp(value, 0.0f, 1.0f) * 255.0f));
+    };
+    return (channel(color.r) << 24)
+        | (channel(color.g) << 16)
+        | (channel(color.b) << 8)
+        | channel(color.a);
 }
 
 bool read_color(const nlohmann::json& value, Color& color)
 {
-    if (!value.is_array() || value.size() != 4)
+    if (!value.is_number_unsigned())
         return false;
-    for (const auto& component : value)
-    {
-        if (!component.is_number())
-            return false;
-    }
-    color = Color(value[0].get<float>(), value[1].get<float>(),
-        value[2].get<float>(), value[3].get<float>());
-    return std::isfinite(color.r) && std::isfinite(color.g)
-        && std::isfinite(color.b) && std::isfinite(color.a);
+    const uint64_t encoded = value.get<uint64_t>();
+    if (encoded > std::numeric_limits<uint32_t>::max())
+        return false;
+    const auto channel = [encoded](int shift) {
+        return static_cast<float>((encoded >> shift) & 0xffu) / 255.0f;
+    };
+    color = Color(
+        channel(24), channel(16), channel(8), channel(0));
+    return true;
 }
 
 nlohmann::json attr_to_json(const HlAttr& attr)
@@ -74,35 +87,6 @@ bool read_attr(const nlohmann::json& value, HlAttr& attr)
         && read_bool(value, "reverse", attr.reverse);
 }
 
-nlohmann::json cell_to_json(const TerminalCellSnapshot& cell)
-{
-    return {
-        { "text", cell.text },
-        { "attr", attr_to_json(cell.attr) },
-        { "double_width", cell.double_width },
-        { "double_width_continuation", cell.double_width_continuation },
-        { "hyperlink", cell.hyperlink },
-    };
-}
-
-bool read_cell(const nlohmann::json& value, TerminalCellSnapshot& cell)
-{
-    if (!value.is_object()
-        || !value.contains("text") || !value["text"].is_string()
-        || !value.contains("attr") || !read_attr(value["attr"], cell.attr)
-        || !read_bool(value, "double_width", cell.double_width)
-        || !read_bool(value, "double_width_continuation",
-            cell.double_width_continuation)
-        || !value.contains("hyperlink") || !value["hyperlink"].is_string())
-    {
-        return false;
-    }
-    cell.text = value["text"].get<std::string>();
-    cell.hyperlink = value["hyperlink"].get<std::string>();
-    return cell.text.size() <= TerminalStateLimits::kMaxCellTextBytes
-        && cell.hyperlink.size() <= TerminalStateLimits::kMaxHyperlinkBytes;
-}
-
 class CompactCellEncoder
 {
 public:
@@ -112,12 +96,16 @@ public:
             cell.attr, attr_ids_.size());
         if (inserted)
             attrs_.push_back(attr_to_json(cell.attr));
+        auto [link, link_inserted] = link_ids_.try_emplace(
+            cell.hyperlink, link_ids_.size());
+        if (link_inserted)
+            links_.push_back(cell.hyperlink);
         return nlohmann::json::array({
             cell.text,
             it->second,
             cell.double_width,
             cell.double_width_continuation,
-            cell.hyperlink,
+            link->second,
         });
     }
 
@@ -126,9 +114,16 @@ public:
         return std::move(attrs_);
     }
 
+    nlohmann::json take_links()
+    {
+        return std::move(links_);
+    }
+
 private:
     std::unordered_map<HlAttr, size_t, HlAttrHash> attr_ids_;
+    std::unordered_map<std::string, size_t> link_ids_;
     nlohmann::json attrs_ = nlohmann::json::array();
+    nlohmann::json links_ = nlohmann::json::array();
 };
 
 bool read_attr_table(const nlohmann::json& value,
@@ -150,28 +145,58 @@ bool read_attr_table(const nlohmann::json& value,
     return true;
 }
 
+bool read_link_table(const nlohmann::json& value,
+    std::vector<std::string>& links)
+{
+    if (!value.is_array()
+        || value.size() > kRemoteTerminalMaxCells)
+    {
+        return false;
+    }
+    links.reserve(value.size());
+    for (const auto& item : value)
+    {
+        if (!item.is_string())
+            return false;
+        auto link = item.get<std::string>();
+        if (link.size() > TerminalStateLimits::kMaxHyperlinkBytes)
+            return false;
+        links.push_back(std::move(link));
+    }
+    return true;
+}
+
 bool read_compact_cell(const nlohmann::json& value, size_t offset,
-    const std::vector<HlAttr>& attrs, TerminalCellSnapshot& cell)
+    const std::vector<HlAttr>& attrs,
+    const std::vector<std::string>& links,
+    TerminalCellSnapshot& cell)
 {
     if (!value.is_array() || value.size() != offset + 5
         || !value[offset].is_string()
         || !value[offset + 1].is_number_integer()
         || !value[offset + 2].is_boolean()
         || !value[offset + 3].is_boolean()
-        || !value[offset + 4].is_string())
+        || !value[offset + 4].is_number_integer())
     {
         return false;
     }
-    const int64_t attr_id = value[offset + 1].get<int64_t>();
+    int64_t attr_id = 0;
+    int64_t link_id = 0;
+    if (!read_bounded_integer(value[offset + 1], attr_id)
+        || !read_bounded_integer(value[offset + 4], link_id))
+    {
+        return false;
+    }
     if (attr_id < 0 || static_cast<size_t>(attr_id) >= attrs.size())
+        return false;
+    if (link_id < 0 || static_cast<size_t>(link_id) >= links.size())
         return false;
     cell.text = value[offset].get<std::string>();
     cell.attr = attrs[static_cast<size_t>(attr_id)];
     cell.double_width = value[offset + 2].get<bool>();
     cell.double_width_continuation = value[offset + 3].get<bool>();
-    cell.hyperlink = value[offset + 4].get<std::string>();
-    return cell.text.size() <= TerminalStateLimits::kMaxCellTextBytes
-        && cell.hyperlink.size() <= TerminalStateLimits::kMaxHyperlinkBytes;
+    cell.hyperlink = links[static_cast<size_t>(link_id)];
+    return cell.text.size() <= TerminalStateLimits::kMaxCellTextBytes;
 }
 
 nlohmann::json metadata_to_json(const TerminalSnapshotMetadata& metadata)
@@ -214,7 +239,7 @@ nlohmann::json metadata_to_json(const TerminalSnapshotMetadata& metadata)
     };
 }
 
-bool read_metadata(const nlohmann::json& value,
+bool read_metadata(const nlohmann::json& value, int cols, int rows,
     TerminalSnapshotMetadata& metadata)
 {
     if (!value.is_object()
@@ -259,9 +284,19 @@ bool read_metadata(const nlohmann::json& value,
         return false;
     }
 
-    metadata.cursor.col = cursor["col"].get<int>();
-    metadata.cursor.row = cursor["row"].get<int>();
-    const int shape = cursor["shape"].get<int>();
+    if (!read_bounded_integer(cursor["col"], metadata.cursor.col)
+        || !read_bounded_integer(cursor["row"], metadata.cursor.row))
+    {
+        return false;
+    }
+    if (metadata.cursor.col < 0 || metadata.cursor.col >= cols
+        || metadata.cursor.row < 0 || metadata.cursor.row >= rows)
+    {
+        return false;
+    }
+    int shape = 0;
+    if (!read_bounded_integer(cursor["shape"], shape))
+        return false;
     if (shape < static_cast<int>(CursorShape::Block)
         || shape > static_cast<int>(CursorShape::Vertical))
     {
@@ -275,7 +310,7 @@ bool read_metadata(const nlohmann::json& value,
         || metadata.working_directory.size()
             > TerminalStateLimits::kMaxWorkingDirectoryBytes
         || value["shell_marks"].size()
-            > TerminalStateLimits::kMaxScrollbackRows)
+            > TerminalStateLimits::kMaxShellMarks)
     {
         return false;
     }
@@ -289,16 +324,26 @@ bool read_metadata(const nlohmann::json& value,
         {
             return false;
         }
-        const int kind = item["kind"].get<int>();
+        int kind = 0;
+        int row = 0;
+        int exit_code = 0;
+        if (!read_bounded_integer(item["kind"], kind)
+            || !read_bounded_integer(item["row"], row)
+            || !read_bounded_integer(item["exit_code"], exit_code))
+        {
+            return false;
+        }
         if (kind < static_cast<int>(TerminalShellMarkKind::PromptStart)
             || kind > static_cast<int>(TerminalShellMarkKind::OutputEnd))
         {
             return false;
         }
+        if (row < 0 || row >= rows)
+            return false;
         metadata.shell_marks.push_back({
             .kind = static_cast<TerminalShellMarkKind>(kind),
-            .row = item["row"].get<int>(),
-            .exit_code = item["exit_code"].get<int>(),
+            .row = row,
+            .exit_code = exit_code,
         });
     }
     return true;
@@ -394,6 +439,7 @@ nlohmann::json terminal_semantic_snapshot_to_json(
         { "cols", snapshot.cols },
         { "rows", snapshot.rows },
         { "attrs", encoder.take_attrs() },
+        { "links", encoder.take_links() },
         { "cells", std::move(cells) },
         { "metadata", metadata_to_json(snapshot.metadata) },
     };
@@ -406,6 +452,8 @@ terminal_semantic_snapshot_from_json(
     if (!value.is_object()
         || !value.contains("cols") || !value["cols"].is_number_integer()
         || !value.contains("rows") || !value["rows"].is_number_integer()
+        || !value.contains("attrs")
+        || !value.contains("links")
         || !value.contains("cells") || !value["cells"].is_array()
         || !value.contains("metadata"))
     {
@@ -413,15 +461,21 @@ terminal_semantic_snapshot_from_json(
         return std::nullopt;
     }
     TerminalSemanticSnapshot snapshot;
-    snapshot.cols = value["cols"].get<int>();
-    snapshot.rows = value["rows"].get<int>();
+    if (!read_bounded_integer(value["cols"], snapshot.cols)
+        || !read_bounded_integer(value["rows"], snapshot.rows))
+    {
+        error = "Terminal snapshot dimensions are out of range.";
+        return std::nullopt;
+    }
     std::vector<HlAttr> attrs;
-    const bool compact = value.contains("attrs");
+    std::vector<std::string> links;
     if (!valid_dimensions(snapshot.cols, snapshot.rows)
         || value["cells"].size()
             != static_cast<size_t>(snapshot.cols) * snapshot.rows
-        || (compact && !read_attr_table(value["attrs"], attrs))
-        || !read_metadata(value["metadata"], snapshot.metadata))
+        || !read_attr_table(value["attrs"], attrs)
+        || !read_link_table(value["links"], links)
+        || !read_metadata(value["metadata"], snapshot.cols,
+            snapshot.rows, snapshot.metadata))
     {
         error = "Terminal snapshot values are out of range.";
         return std::nullopt;
@@ -430,9 +484,7 @@ terminal_semantic_snapshot_from_json(
     for (const auto& item : value["cells"])
     {
         TerminalCellSnapshot cell;
-        if (!(compact
-                ? read_compact_cell(item, 0, attrs, cell)
-                : read_cell(item, cell)))
+        if (!read_compact_cell(item, 0, attrs, links, cell))
         {
             error = "Terminal snapshot contains an invalid cell.";
             return std::nullopt;
@@ -459,6 +511,7 @@ nlohmann::json terminal_dirty_snapshot_to_json(
         { "rows", snapshot.rows },
         { "full", snapshot.full },
         { "attrs", encoder.take_attrs() },
+        { "links", encoder.take_links() },
         { "cells", std::move(cells) },
         { "metadata", metadata_to_json(snapshot.metadata) },
     };
@@ -471,6 +524,8 @@ std::optional<TerminalDirtySnapshot> terminal_dirty_snapshot_from_json(
         || !value.contains("cols") || !value["cols"].is_number_integer()
         || !value.contains("rows") || !value["rows"].is_number_integer()
         || !value.contains("full") || !value["full"].is_boolean()
+        || !value.contains("attrs")
+        || !value.contains("links")
         || !value.contains("cells") || !value["cells"].is_array()
         || !value.contains("metadata"))
     {
@@ -478,64 +533,68 @@ std::optional<TerminalDirtySnapshot> terminal_dirty_snapshot_from_json(
         return std::nullopt;
     }
     TerminalDirtySnapshot snapshot;
-    snapshot.cols = value["cols"].get<int>();
-    snapshot.rows = value["rows"].get<int>();
+    if (!read_bounded_integer(value["cols"], snapshot.cols)
+        || !read_bounded_integer(value["rows"], snapshot.rows))
+    {
+        error = "Terminal delta dimensions are out of range.";
+        return std::nullopt;
+    }
     snapshot.full = value["full"].get<bool>();
     std::vector<HlAttr> attrs;
-    const bool compact = value.contains("attrs");
-    if (!valid_dimensions(snapshot.cols, snapshot.rows)
-        || value["cells"].size() > kRemoteTerminalMaxCells
-        || (compact && !read_attr_table(value["attrs"], attrs))
-        || !read_metadata(value["metadata"], snapshot.metadata))
+    std::vector<std::string> links;
+    if (!valid_dimensions(snapshot.cols, snapshot.rows))
+    {
+        error = "Terminal delta values are out of range.";
+        return std::nullopt;
+    }
+    const size_t expected_cells
+        = static_cast<size_t>(snapshot.cols) * snapshot.rows;
+    if (value["cells"].size() > expected_cells
+        || !read_attr_table(value["attrs"], attrs)
+        || !read_link_table(value["links"], links)
+        || !read_metadata(value["metadata"], snapshot.cols,
+            snapshot.rows, snapshot.metadata))
     {
         error = "Terminal delta values are out of range.";
         return std::nullopt;
     }
     snapshot.cells.reserve(value["cells"].size());
+    std::vector<bool> seen(expected_cells, false);
     for (const auto& item : value["cells"])
     {
         TerminalDirtyCellSnapshot dirty;
-        if (compact)
+        if (!item.is_array() || item.size() != 7
+            || !item[0].is_number_integer()
+            || !item[1].is_number_integer())
         {
-            if (!item.is_array() || item.size() != 7
-                || !item[0].is_number_integer()
-                || !item[1].is_number_integer())
-            {
-                error = "Terminal delta contains an invalid cell.";
-                return std::nullopt;
-            }
-            dirty.col = item[0].get<int>();
-            dirty.row = item[1].get<int>();
+            error = "Terminal delta contains an invalid cell.";
+            return std::nullopt;
         }
-        else
+        if (!read_bounded_integer(item[0], dirty.col)
+            || !read_bounded_integer(item[1], dirty.row))
         {
-            if (!item.is_object()
-                || !item.contains("col")
-                || !item["col"].is_number_integer()
-                || !item.contains("row")
-                || !item["row"].is_number_integer()
-                || !item.contains("cell"))
-            {
-                error = "Terminal delta contains an invalid cell.";
-                return std::nullopt;
-            }
-            dirty.col = item["col"].get<int>();
-            dirty.row = item["row"].get<int>();
+            error = "Terminal delta cell coordinate is out of range.";
+            return std::nullopt;
         }
         if (dirty.col < 0 || dirty.col >= snapshot.cols
             || dirty.row < 0 || dirty.row >= snapshot.rows
-            || !(compact
-                    ? read_compact_cell(item, 2, attrs, dirty.cell)
-                    : read_cell(item["cell"], dirty.cell)))
+            || !read_compact_cell(item, 2, attrs, links, dirty.cell))
         {
             error = "Terminal delta cell is out of range.";
             return std::nullopt;
         }
+        const size_t index = static_cast<size_t>(dirty.row) * snapshot.cols
+            + static_cast<size_t>(dirty.col);
+        if (seen[index])
+        {
+            error = "Terminal delta contains duplicate cell coordinates.";
+            return std::nullopt;
+        }
+        seen[index] = true;
         snapshot.cells.push_back(std::move(dirty));
     }
     if (snapshot.full
-        && snapshot.cells.size()
-            != static_cast<size_t>(snapshot.cols) * snapshot.rows)
+        && snapshot.cells.size() != expected_cells)
     {
         error = "Full terminal delta does not contain every cell.";
         return std::nullopt;
@@ -594,7 +653,8 @@ std::optional<RemoteTerminalEvent> remote_terminal_event_from_json(
     }
     event.controller_client_id
         = value["controller_client_id"].get<std::string>();
-    if (event.controller_client_id.size() > 128)
+    if (!event.controller_client_id.empty()
+        && !valid_server_client_id(event.controller_client_id))
     {
         error = "Remote terminal controller id is invalid.";
         return std::nullopt;
@@ -749,7 +809,11 @@ remote_terminal_scrollback_page_from_json(
     }
     page.total_rows = value["total_rows"].get<uint64_t>();
     page.offset_from_live = value["offset_from_live"].get<uint64_t>();
-    page.cols = value["cols"].get<int>();
+    if (!read_bounded_integer(value["cols"], page.cols))
+    {
+        error = "Remote terminal scrollback columns are out of range.";
+        return std::nullopt;
+    }
     if (page.total_rows > TerminalStateLimits::kMaxScrollbackRows
         || page.offset_from_live > page.total_rows
         || page.cols <= 0

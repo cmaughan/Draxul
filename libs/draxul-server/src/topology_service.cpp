@@ -13,8 +13,6 @@ namespace draxul
 namespace
 {
 
-constexpr size_t kCompletedCommandLimit = 2048;
-
 TopologySpace* find_space(
     TopologySnapshot& snapshot, std::string_view space_id)
 {
@@ -403,9 +401,11 @@ ControlMethodResult TopologyService::close_exited_terminal(
                 }
             }
 
+            std::string created_id;
             std::string error_code;
             std::string error;
-            if (!apply(command, error_code, error))
+            if (!apply(command, created_id,
+                    error_code, error))
             {
                 return ControlMethodResult::error(
                     std::move(error_code), std::move(error));
@@ -476,9 +476,12 @@ ControlMethodResult TopologyService::command(
     if (const auto completed = completed_.find(key);
         completed != completed_.end())
     {
-        TopologyCommandResult duplicate = completed->second;
-        duplicate.duplicate = true;
-        duplicate.snapshot = snapshot_;
+        TopologyCommandResult duplicate{
+            .applied = true,
+            .duplicate = true,
+            .created_id = completed->second,
+            .snapshot = snapshot_,
+        };
         return ControlMethodResult::success(
             topology_command_result_to_json(duplicate));
     }
@@ -489,24 +492,27 @@ ControlMethodResult TopologyService::command(
             "Topology revision changed; refresh and retry.");
     }
 
+    std::string created_id;
     std::string error_code;
     std::string error;
-    if (!apply(*parsed, error_code, error))
+    if (!apply(*parsed, created_id, error_code, error))
         return ControlMethodResult::error(
             std::move(error_code), std::move(error));
 
     ++snapshot_.revision;
     TopologyCommandResult result{
         .applied = true,
+        .created_id = std::move(created_id),
         .snapshot = snapshot_,
     };
-    remember(key, result);
+    remember(key, result.created_id);
     return ControlMethodResult::success(
         topology_command_result_to_json(result));
 }
 
 bool TopologyService::apply(const TopologyCommand& command,
-    std::string& error_code, std::string& error)
+    std::string& created_id, std::string& error_code,
+    std::string& error)
 {
     auto reject = [&](std::string code, std::string message) {
         error_code = std::move(code);
@@ -553,6 +559,7 @@ bool TopologyService::apply(const TopologyCommand& command,
         {
             pane.client_host_kind = command.client_host_kind;
         }
+        created_id = space.space_id;
         snapshot_.spaces.push_back(std::move(space));
         return true;
     }
@@ -619,6 +626,7 @@ bool TopologyService::apply(const TopologyCommand& command,
         }
         else if (!command.client_host_kind.empty())
             tab.panes.front().client_host_kind = command.client_host_kind;
+        created_id = tab.tab_id;
         space->tabs.push_back(std::move(tab));
         return true;
     }
@@ -812,6 +820,7 @@ bool TopologyService::apply(const TopologyCommand& command,
             .is_leaf = true,
             .pane_id = pane.pane_id,
         });
+        created_id = pane_id;
         tab->panes.push_back(std::move(pane));
         return true;
     }
@@ -917,15 +926,16 @@ TopologyTab TopologyService::make_initial_server_tab()
 }
 
 void TopologyService::remember(
-    std::string key, TopologyCommandResult result)
+    std::string key, std::string created_id)
 {
-    if (completed_order_.size() >= kCompletedCommandLimit)
+    if (completed_order_.size() >= kTopologyCompletedCommandLimit)
     {
         completed_.erase(completed_order_.front());
         completed_order_.pop_front();
     }
     completed_order_.push_back(key);
-    completed_.emplace(std::move(key), std::move(result));
+    completed_.emplace(
+        std::move(key), std::move(created_id));
 }
 
 } // namespace draxul

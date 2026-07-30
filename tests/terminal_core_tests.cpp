@@ -196,3 +196,131 @@ TEST_CASE("terminal core replaces invalid UTF-8 before snapshots reach the wire"
     };
     CHECK_NOTHROW(remote_terminal_event_to_json(event).dump());
 }
+
+TEST_CASE("terminal core bounds wire-visible titles on a UTF-8 boundary",
+    "[terminal-core][metadata][resource-bounds]")
+{
+    CoreHarness harness(12, 2);
+    std::string title(
+        TerminalStateLimits::kMaxTitleBytes - 1, 'x');
+    title += "\xC3\xA9";
+    harness.core.feed(
+        std::string("\x1B]0;") + title + "\x07");
+
+    const auto snapshot = harness.core.semantic_snapshot();
+    CHECK(snapshot.metadata.title.size()
+        == TerminalStateLimits::kMaxTitleBytes - 1);
+    CHECK(snapshot.metadata.title
+        == std::string(
+            TerminalStateLimits::kMaxTitleBytes - 1, 'x'));
+    CHECK(harness.published_title
+        == snapshot.metadata.title);
+}
+
+TEST_CASE("terminal core bounds shell marks and prunes rows on resize",
+    "[terminal-core][metadata][resource-bounds]")
+{
+    CoreHarness harness(8, 4);
+    for (size_t index = 0;
+         index < TerminalStateLimits::kMaxShellMarks + 32;
+         ++index)
+    {
+        harness.core.feed("\x1B]133;A\x07");
+    }
+    CHECK(harness.core.semantic_snapshot()
+              .metadata.shell_marks.size()
+        == TerminalStateLimits::kMaxShellMarks);
+
+    CoreHarness resized(8, 4);
+    resized.core.feed("\x1B[4;1H\x1B]133;A\x07");
+    REQUIRE(resized.core.semantic_snapshot()
+                .metadata.shell_marks.size()
+        == 1);
+    resized.core.resize(8, 2);
+    CHECK(resized.core.semantic_snapshot()
+              .metadata.shell_marks.empty());
+}
+
+TEST_CASE("terminal core reset clears process metadata",
+    "[terminal-core][metadata][restart]")
+{
+    CoreHarness harness(8, 3);
+    harness.core.feed(
+        "\x1B]0;old title\x07"
+        "\x1B]7;file:///old/path\x07"
+        "\x1B]133;A\x07");
+    REQUIRE_FALSE(
+        harness.core.semantic_snapshot()
+            .metadata.title.empty());
+    REQUIRE_FALSE(
+        harness.core.semantic_snapshot()
+            .metadata.working_directory.empty());
+
+    harness.core.reset();
+    const auto snapshot
+        = harness.core.semantic_snapshot();
+    CHECK(snapshot.metadata.title.empty());
+    CHECK(snapshot.metadata.working_directory.empty());
+    CHECK(snapshot.metadata.shell_marks.empty());
+}
+
+TEST_CASE("terminal core shifts and prunes shell marks with live rows",
+    "[terminal-core][metadata][scroll]")
+{
+    CoreHarness harness(8, 3);
+    harness.core.feed(
+        "\x1B[2;1H\x1B]133;A\x07"
+        "\x1B[3;1H\n");
+    auto marks = harness.core.semantic_snapshot()
+                     .metadata.shell_marks;
+    REQUIRE(marks.size() == 1);
+    CHECK(marks[0].row == 0);
+
+    harness.core.feed("\x1B[3;1H\n");
+    CHECK(harness.core.semantic_snapshot()
+              .metadata.shell_marks.empty());
+
+    CoreHarness inserted(8, 3);
+    inserted.core.feed(
+        "\x1B[2;1H\x1B]133;A\x07"
+        "\x1B[2;1H\x1B[1L");
+    marks = inserted.core.semantic_snapshot()
+                .metadata.shell_marks;
+    REQUIRE(marks.size() == 1);
+    CHECK(marks[0].row == 2);
+}
+
+TEST_CASE("terminal core prunes shell marks erased from the display",
+    "[terminal-core][metadata][erase]")
+{
+    const auto populate_marks = [](CoreHarness& harness) {
+        harness.core.feed(
+            "\x1B[1;1H\x1B]133;A\x07"
+            "\x1B[2;2H\x1B]133;B\x07"
+            "\x1B[3;1H\x1B]133;C\x07");
+    };
+
+    CoreHarness below(8, 3);
+    populate_marks(below);
+    below.core.feed("\x1B[2;2H\x1B[0J");
+    auto marks = below.core.semantic_snapshot()
+                     .metadata.shell_marks;
+    REQUIRE(marks.size() == 2);
+    CHECK(marks[0].row == 0);
+    CHECK(marks[1].row == 1);
+
+    CoreHarness above(8, 3);
+    populate_marks(above);
+    above.core.feed("\x1B[2;2H\x1B[1J");
+    marks = above.core.semantic_snapshot()
+                .metadata.shell_marks;
+    REQUIRE(marks.size() == 2);
+    CHECK(marks[0].row == 1);
+    CHECK(marks[1].row == 2);
+
+    CoreHarness all(8, 3);
+    populate_marks(all);
+    all.core.feed("\x1B[2J");
+    CHECK(all.core.semantic_snapshot()
+              .metadata.shell_marks.empty());
+}

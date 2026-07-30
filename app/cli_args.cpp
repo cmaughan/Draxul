@@ -381,29 +381,6 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
     return result;
 }
 
-bool is_server_owned_shell_kind(HostKind kind)
-{
-    switch (kind)
-    {
-    case HostKind::PowerShell:
-    case HostKind::Bash:
-    case HostKind::Zsh:
-    case HostKind::Wsl:
-    case HostKind::RemoteTerminal:
-        return true;
-    case HostKind::Nvim:
-    case HostKind::MegaCity:
-    case HostKind::BioView:
-    case HostKind::SatView:
-    case HostKind::NanoVGDemo:
-    case HostKind::Markdown:
-    case HostKind::Kanban:
-    case HostKind::Score:
-        return false;
-    }
-    return false;
-}
-
 bool should_use_shared_server(const ParsedArgs& args)
 {
     if (args.help || args.no_server
@@ -429,7 +406,7 @@ bool should_use_shared_server(const ParsedArgs& args)
         return true;
     }
     return !args.host_kind
-        || is_server_owned_shell_kind(*args.host_kind);
+        || is_server_owned_shell_host(*args.host_kind);
 }
 
 bool should_bootstrap_experimental_server(const ParsedArgs& args)

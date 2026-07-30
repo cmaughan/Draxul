@@ -307,6 +307,7 @@ add_library(draxul-app
     app/space_controller.cpp
     app/split_tree.cpp
     app/tab_controller.cpp
+    app/topology_mutation_route.cpp
     ${DRAXUL_APP_PLATFORM_SOURCES}
 )
 

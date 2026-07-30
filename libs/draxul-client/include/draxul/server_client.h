@@ -37,6 +37,8 @@ struct ServerEnsureOptions
     std::filesystem::path runtime_directory;
     std::filesystem::path executable_path;
     std::string client_id;
+    std::string connection_token;
+    std::string registration_nonce;
     int protocol_major = kServerProtocolMajor;
     int protocol_minor = kServerProtocolMinor;
     std::chrono::milliseconds timeout = std::chrono::seconds(10);
@@ -93,7 +95,8 @@ public:
     static bool shutdown(const std::filesystem::path& runtime_directory,
         const ServerShutdownOptions& options, std::string& error);
     static bool disconnect(const std::filesystem::path& runtime_directory,
-        std::string_view client_id, std::string& error);
+        std::string_view client_id, std::string& error,
+        std::string_view connection_token = {});
     // Emergency recovery path. This bypasses checkpointing and therefore
     // requires an explicit confirmation from the caller.
     static bool force_stop(const std::filesystem::path& runtime_directory,

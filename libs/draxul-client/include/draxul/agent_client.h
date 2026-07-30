@@ -3,16 +3,20 @@
 #include <draxul/agent_protocol.h>
 
 #include <filesystem>
+#include <memory>
 #include <string>
 
 namespace draxul
 {
+
+class ClientRecoveryState;
 
 struct AgentClientOptions
 {
     std::filesystem::path runtime_directory;
     std::string client_id;
     std::string session_id = "default";
+    std::shared_ptr<ClientRecoveryState> recovery;
 };
 
 class AgentClient
