@@ -49,6 +49,7 @@ struct RemoteSessionPublishedState
     std::optional<std::string> topology_error;
     std::optional<std::string> agent_error;
     std::optional<ClientRecoverySnapshot> recovery;
+    std::vector<std::string> persistence_warnings;
     // Allows the UI projection to accept a lower topology revision after a
     // real server restart.
     bool server_epoch_changed = false;

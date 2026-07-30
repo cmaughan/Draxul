@@ -3065,6 +3065,13 @@ void App::consume_remote_session_state()
     if (!published)
         return;
 
+    for (const auto& warning
+        : published->persistence_warnings)
+    {
+        push_toast(1,
+            "Session persistence: " + warning);
+    }
+
     if (published->server_epoch_changed)
     {
         accept_next_remote_topology_revision_ = true;

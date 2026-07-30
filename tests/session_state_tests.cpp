@@ -673,6 +673,95 @@ TEST_CASE("session state: failed temporary write preserves the last good snapsho
     CHECK(decoded->session_name == "Original");
 }
 
+TEST_CASE("session state: legacy import is byte preserving and runs once",
+    "[session_state][filesystem][migration]")
+{
+    TempDir temp_dir("session-state-legacy-import");
+    const auto source = temp_dir.path / "legacy" / "sessions";
+    const auto destination = temp_dir.path / "runtime" / "sessions";
+    REQUIRE(std::filesystem::create_directories(source));
+
+    SessionSnapshot snapshot = make_single_pane_session_snapshot();
+    snapshot.session_id = "legacy-work";
+    snapshot.session_name = "Legacy Work";
+    std::string error;
+    auto encoded = encode_session_state(snapshot, &error);
+    REQUIRE(encoded);
+    const std::string original
+        = *encoded + "\n# byte-preserved legacy comment\n";
+    const auto source_file = source / "legacy-work.toml";
+    {
+        std::ofstream output(source_file, std::ios::binary);
+        output << original;
+    }
+    const auto source_time
+        = std::filesystem::last_write_time(source_file);
+    {
+        std::ofstream invalid(
+            source / "broken.toml", std::ios::binary);
+        invalid << "{broken";
+    }
+
+    SessionStoreImportResult imported;
+    REQUIRE(import_legacy_session_store(
+        source, destination, imported, &error));
+    CHECK(error.empty());
+    CHECK(imported.imported == 1);
+    CHECK_FALSE(imported.warnings.empty());
+    const auto imported_file = destination
+        / session_state_file_name("legacy-work");
+    REQUIRE(std::filesystem::exists(imported_file));
+    std::ifstream copied(imported_file, std::ios::binary);
+    const std::string copied_text{
+        std::istreambuf_iterator<char>(copied),
+        std::istreambuf_iterator<char>()
+    };
+    CHECK(copied_text == original);
+    CHECK(std::filesystem::last_write_time(source_file)
+        == source_time);
+    CHECK(std::filesystem::exists(source_file));
+    CHECK(std::filesystem::exists(
+        destination / ".legacy-import-v1.complete"));
+
+    snapshot.session_id = "added-after-import";
+    snapshot.session_name = "Added Later";
+    REQUIRE(save_session_state_to_path(snapshot,
+        source / "added-after-import.toml", &error));
+    SessionStoreImportResult second;
+    REQUIRE(import_legacy_session_store(
+        source, destination, second, &error));
+    CHECK(second.already_completed);
+    CHECK(second.imported == 0);
+    CHECK_FALSE(std::filesystem::exists(destination
+        / session_state_file_name("added-after-import")));
+}
+
+TEST_CASE("session state: legacy single default imports without a Sessions directory",
+    "[session_state][filesystem][migration]")
+{
+    TempDir temp_dir("session-state-legacy-single-import");
+    const auto source = temp_dir.path / "legacy" / "sessions";
+    const auto destination = temp_dir.path / "runtime" / "sessions";
+    REQUIRE(std::filesystem::create_directories(
+        source.parent_path()));
+    SessionSnapshot snapshot = make_single_pane_session_snapshot();
+    snapshot.session_id = "default";
+    snapshot.session_name = "Legacy Default";
+    std::string error;
+    REQUIRE(save_session_state_to_path(snapshot,
+        source.parent_path() / "session-state.toml",
+        &error));
+
+    SessionStoreImportResult imported;
+    REQUIRE(import_legacy_session_store(
+        source, destination, imported, &error));
+    CHECK(imported.imported == 1);
+    auto restored = load_session_state_from_path(
+        destination / "default.toml", &error);
+    REQUIRE(restored);
+    CHECK(restored->session_name == "Legacy Default");
+}
+
 TEST_CASE("session state: delete removes saved session state", "[session_state]")
 {
     TempDir temp_dir("session-state-delete");

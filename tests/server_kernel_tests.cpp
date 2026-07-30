@@ -2263,6 +2263,42 @@ TEST_CASE("server deletes a detached Session and its checkpoint",
         }
         REQUIRE(std::filesystem::exists(alpha_checkpoint));
 
+        REQUIRE(ServerClient::rename_session(
+            temp.path, "alpha", "Renamed Alpha", error));
+        const auto renamed_status
+            = ServerClient::status(temp.path);
+        REQUIRE(renamed_status.ok);
+        const auto renamed_session = std::ranges::find(
+            renamed_status.status->session_statuses,
+            std::string("alpha"),
+            &ServerSessionStatusSnapshot::session_id);
+        REQUIRE(renamed_session
+            != renamed_status.status->session_statuses.end());
+        CHECK(renamed_session->session_name
+            == "Renamed Alpha");
+        for (int attempt = 0; attempt < 100; ++attempt)
+        {
+            const auto current
+                = ServerClient::status(temp.path);
+            REQUIRE(current.ok);
+            const auto alpha_status = std::ranges::find(
+                current.status->session_statuses,
+                std::string("alpha"),
+                &ServerSessionStatusSnapshot::session_id);
+            REQUIRE(alpha_status
+                != current.status->session_statuses.end());
+            if (alpha_status->checkpoint_state == "ok")
+                break;
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(10));
+        }
+        auto renamed_checkpoint = load_session_state_from_path(
+            alpha_checkpoint, &error);
+        INFO(error);
+        REQUIRE(renamed_checkpoint);
+        CHECK(renamed_checkpoint->session_name
+            == "Renamed Alpha");
+
         REQUIRE_FALSE(ServerClient::delete_session(
             temp.path, "alpha",
             { .confirm_live_terminals = true }, error));
@@ -2314,6 +2350,134 @@ TEST_CASE("server deletes a detached Session and its checkpoint",
         CHECK(status.status->session_statuses.front()
                   .session_id
             == "default");
+        run_guard.join();
+    }
+}
+
+TEST_CASE("server imports the legacy Session store once without modifying it",
+    "[server][topology][persistence][migration]")
+{
+    TempDir temp("draxul-server-legacy-import");
+    const auto seed_runtime = temp.path / "seed-runtime";
+    {
+        ServerKernel seed({
+            .runtime_directory = seed_runtime,
+            .epoch_override = "legacy-seed",
+        });
+        REQUIRE(seed.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard seed_guard(seed);
+        seed_guard.join();
+    }
+    std::string error;
+    auto legacy_snapshot = load_session_state_from_path(
+        server_session_state_path(seed_runtime), &error);
+    INFO(error);
+    REQUIRE(legacy_snapshot);
+    legacy_snapshot->session_name = "Imported Default";
+    legacy_snapshot->spaces.front().name
+        = "Imported Space";
+
+    const auto legacy_directory
+        = temp.path / "config" / "sessions";
+    REQUIRE(std::filesystem::create_directories(
+        legacy_directory));
+    const auto legacy_file
+        = legacy_directory / "legacy-default.toml";
+    REQUIRE(save_session_state_to_path(
+        *legacy_snapshot, legacy_file, &error));
+    {
+        std::ofstream invalid(
+            legacy_directory / "broken.toml",
+            std::ios::binary);
+        invalid << "{broken";
+    }
+    std::ifstream source_before_file(
+        legacy_file, std::ios::binary);
+    const std::string source_before{
+        std::istreambuf_iterator<char>(source_before_file),
+        std::istreambuf_iterator<char>()
+    };
+    source_before_file.close();
+    const auto source_time
+        = std::filesystem::last_write_time(legacy_file);
+
+    const auto runtime = temp.path / "server-runtime";
+    {
+        ServerKernel server({
+            .runtime_directory = runtime,
+            .legacy_session_directory
+            = legacy_directory,
+            .session_checkpoint_interval
+            = std::chrono::milliseconds(0),
+            .epoch_override = "legacy-import-first",
+        });
+        REQUIRE(server.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard run_guard(server);
+        TopologyClient client({
+            .runtime_directory = runtime,
+            .client_id = "legacy-import-reader",
+        });
+        REQUIRE(client.refresh(error));
+        REQUIRE(client.snapshot().spaces.front().name
+            == "Imported Space");
+        const auto status = ServerClient::status(runtime);
+        REQUIRE(status.ok);
+        REQUIRE(std::ranges::any_of(
+            status.status->restore_warnings,
+            [](const std::string& warning) {
+                return warning.find("Imported 1 legacy Session")
+                    != std::string::npos;
+            }));
+        REQUIRE(std::ranges::any_of(
+            status.status->restore_warnings,
+            [](const std::string& warning) {
+                return warning.find("broken.toml")
+                    != std::string::npos;
+            }));
+        run_guard.join();
+    }
+
+    std::ifstream source_after_file(
+        legacy_file, std::ios::binary);
+    const std::string source_after{
+        std::istreambuf_iterator<char>(source_after_file),
+        std::istreambuf_iterator<char>()
+    };
+    CHECK(source_after == source_before);
+    CHECK(std::filesystem::last_write_time(legacy_file)
+        == source_time);
+    CHECK(std::filesystem::exists(
+        runtime / "sessions"
+        / ".legacy-import-v1.complete"));
+
+    legacy_snapshot->session_id = "late-session";
+    legacy_snapshot->session_name = "Late Session";
+    REQUIRE(save_session_state_to_path(
+        *legacy_snapshot,
+        legacy_directory / "late-session.toml",
+        &error));
+    {
+        ServerKernel server({
+            .runtime_directory = runtime,
+            .legacy_session_directory
+            = legacy_directory,
+            .session_checkpoint_interval
+            = std::chrono::milliseconds(0),
+            .epoch_override = "legacy-import-second",
+        });
+        REQUIRE(server.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard run_guard(server);
+        const auto status = ServerClient::status(runtime);
+        REQUIRE(status.ok);
+        CHECK(std::ranges::none_of(
+            status.status->session_statuses,
+            [](const auto& session) {
+                return session.session_id
+                    == "late-session";
+            }));
         run_guard.join();
     }
 }
@@ -2615,6 +2779,168 @@ TEST_CASE("server periodically checkpoints topology without a UI",
     run_guard.join();
 }
 
+TEST_CASE("server checkpoint writer does not block requests and shutdown captures the final revision",
+    "[server][topology][persistence][concurrency]")
+{
+    TempDir temp("draxul-server-checkpoint-concurrency");
+    struct Gate
+    {
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool first_started = false;
+        bool release_first = false;
+        size_t calls = 0;
+    };
+    auto gate = std::make_shared<Gate>();
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .session_checkpoint_interval
+        = std::chrono::milliseconds(5),
+        .epoch_override = "checkpoint-concurrency",
+        .checkpoint_shutdown_budget
+        = std::chrono::seconds(2),
+        .checkpoint_save
+        = [gate](const SessionSnapshot& snapshot,
+              const std::filesystem::path& path,
+              std::string* error) {
+              {
+                  std::unique_lock lock(gate->mutex);
+                  ++gate->calls;
+                  if (gate->calls == 1)
+                  {
+                      gate->first_started = true;
+                      gate->changed.notify_all();
+                      gate->changed.wait(lock, [&] {
+                          return gate->release_first;
+                      });
+                  }
+              }
+              return save_session_state_to_path(
+                  snapshot, path, error);
+          },
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+    {
+        std::unique_lock lock(gate->mutex);
+        REQUIRE(gate->changed.wait_for(lock,
+            std::chrono::seconds(2), [&] {
+                return gate->first_started;
+            }));
+    }
+
+    const auto status_started
+        = std::chrono::steady_clock::now();
+    const auto status = ServerClient::status(
+        temp.path, std::chrono::milliseconds(500));
+    CHECK(std::chrono::steady_clock::now() - status_started
+        < std::chrono::milliseconds(250));
+    REQUIRE(status.ok);
+
+    TopologyClient client({
+        .runtime_directory = temp.path,
+        .client_id = "checkpoint-concurrency-ui",
+    });
+    std::string error;
+    REQUIRE(client.refresh(error));
+    TopologyCommand rename{
+        .command_id = "checkpoint-final-revision",
+        .expected_revision = client.snapshot().revision,
+        .kind = TopologyCommandKind::RenameSpace,
+        .space_id = client.snapshot().spaces.front().space_id,
+        .name = "Final Revision",
+    };
+    TopologyCommandResult renamed;
+    REQUIRE(client.execute(rename, renamed, error));
+    server.request_stop();
+    {
+        std::lock_guard lock(gate->mutex);
+        gate->release_first = true;
+    }
+    gate->changed.notify_all();
+    run_guard.join();
+
+    CHECK(gate->calls >= 2);
+    auto saved = load_session_state_from_path(
+        server_session_state_path(temp.path), &error);
+    INFO(error);
+    REQUIRE(saved);
+    CHECK(saved->spaces.front().name
+        == "Final Revision");
+}
+
+TEST_CASE("server shutdown bounds a stalled checkpoint and the detached task remains safe",
+    "[server][topology][persistence][concurrency]")
+{
+    TempDir temp("draxul-server-checkpoint-shutdown-budget");
+    struct Gate
+    {
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool started = false;
+        bool release = false;
+        bool finished = false;
+    };
+    auto gate = std::make_shared<Gate>();
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .session_checkpoint_interval
+        = std::chrono::milliseconds(5),
+        .epoch_override = "checkpoint-budget",
+        .checkpoint_shutdown_budget
+        = std::chrono::milliseconds(25),
+        .checkpoint_save
+        = [gate](const SessionSnapshot& snapshot,
+              const std::filesystem::path& path,
+              std::string* error) {
+              {
+                  std::unique_lock lock(gate->mutex);
+                  gate->started = true;
+                  gate->changed.notify_all();
+                  gate->changed.wait(lock,
+                      [&] { return gate->release; });
+              }
+              const bool saved = save_session_state_to_path(
+                  snapshot, path, error);
+              {
+                  std::lock_guard lock(gate->mutex);
+                  gate->finished = true;
+              }
+              gate->changed.notify_all();
+              return saved;
+          },
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+    {
+        std::unique_lock lock(gate->mutex);
+        REQUIRE(gate->changed.wait_for(lock,
+            std::chrono::seconds(2),
+            [&] { return gate->started; }));
+    }
+    const auto stop_started
+        = std::chrono::steady_clock::now();
+    run_guard.join();
+    CHECK(std::chrono::steady_clock::now() - stop_started
+        < std::chrono::milliseconds(250));
+
+    {
+        std::lock_guard lock(gate->mutex);
+        gate->release = true;
+    }
+    gate->changed.notify_all();
+    {
+        std::unique_lock lock(gate->mutex);
+        REQUIRE(gate->changed.wait_for(lock,
+            std::chrono::seconds(2),
+            [&] { return gate->finished; }));
+    }
+    CHECK(std::filesystem::exists(
+        server_session_state_path(temp.path)));
+}
+
 TEST_CASE("server reports checkpoint failure and preserves the last good file",
     "[server][topology][persistence]")
 {
@@ -2691,7 +3017,7 @@ TEST_CASE("server reports checkpoint failure and preserves the last good file",
     REQUIRE(preserved == original);
 }
 
-TEST_CASE("server retains an unreadable checkpoint and reports restore warnings",
+TEST_CASE("server archives an unreadable checkpoint and resumes saving",
     "[server][topology][persistence]")
 {
     TempDir temp("draxul-server-invalid-persistence");
@@ -2713,9 +3039,20 @@ TEST_CASE("server retains an unreadable checkpoint and reports restore warnings"
 
     const auto status = ServerClient::status(temp.path);
     REQUIRE(status.ok);
-    REQUIRE(status.status->checkpoint_state == "disabled");
-    REQUIRE_FALSE(status.status->checkpoint_error.empty());
+    REQUIRE(status.status->checkpoint_state != "disabled");
     REQUIRE_FALSE(status.status->restore_warnings.empty());
+    std::vector<std::filesystem::path> archived;
+    for (const auto& entry
+        : std::filesystem::directory_iterator(
+            checkpoint.parent_path()))
+    {
+        if (entry.path().filename().string().starts_with(
+                "default.toml.corrupt-"))
+        {
+            archived.push_back(entry.path());
+        }
+    }
+    REQUIRE(archived.size() == 1);
 
     TopologyClient client({
         .runtime_directory = temp.path,
@@ -2724,18 +3061,35 @@ TEST_CASE("server retains an unreadable checkpoint and reports restore warnings"
     std::string error;
     REQUIRE(client.refresh(error));
     REQUIRE(client.snapshot().spaces.size() == 1);
+    std::optional<ServerStatusSnapshot> saved_status;
+    for (int attempt = 0; attempt < 100; ++attempt)
+    {
+        const auto current = ServerClient::status(temp.path);
+        REQUIRE(current.ok);
+        if (current.status->checkpoint_state == "ok")
+        {
+            saved_status = current.status;
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(10));
+    }
+    REQUIRE(saved_status);
     run_guard.join();
 
-    std::ifstream retained(checkpoint, std::ios::binary);
+    std::ifstream retained(archived.front(), std::ios::binary);
     REQUIRE(retained.is_open());
-    const std::string retained_text{
+    const std::string archived_text{
         std::istreambuf_iterator<char>(retained),
         std::istreambuf_iterator<char>()
     };
-    REQUIRE(retained_text == "{broken");
+    REQUIRE(archived_text == "{broken");
+    auto fresh = load_session_state_from_path(checkpoint, &error);
+    INFO(error);
+    REQUIRE(fresh);
 }
 
-TEST_CASE("server restores usable Spaces while retaining a partially unusable checkpoint",
+TEST_CASE("server restores usable Spaces and checkpoints after partial restore",
     "[server][topology][persistence]")
 {
     TempDir temp("draxul-server-partial-persistence");
@@ -2765,12 +3119,6 @@ TEST_CASE("server restores usable Spaces while retaining a partially unusable ch
     saved->spaces.push_back(std::move(broken));
     REQUIRE(save_session_state_to_path(
         *saved, checkpoint, &error));
-    std::ifstream original_file(checkpoint, std::ios::binary);
-    const std::string original{
-        std::istreambuf_iterator<char>(original_file),
-        std::istreambuf_iterator<char>()
-    };
-
     ServerKernel server({
         .runtime_directory = temp.path,
         .session_checkpoint_interval = std::chrono::milliseconds(20),
@@ -2781,7 +3129,8 @@ TEST_CASE("server restores usable Spaces while retaining a partially unusable ch
     ServerRunGuard run_guard(server);
     const auto status = ServerClient::status(temp.path);
     REQUIRE(status.ok);
-    REQUIRE(status.status->checkpoint_state == "disabled");
+    REQUIRE(status.status->checkpoint_state
+        == "restored_with_warnings");
     REQUIRE_FALSE(status.status->restore_warnings.empty());
 
     TopologyClient client({
@@ -2791,14 +3140,38 @@ TEST_CASE("server restores usable Spaces while retaining a partially unusable ch
     REQUIRE(client.refresh(error));
     REQUIRE(client.snapshot().spaces.size() == 1);
     REQUIRE(client.snapshot().spaces.front().name == "Space 1");
+    TopologyCommand rename{
+        .command_id = "partial-restore-rename",
+        .expected_revision = client.snapshot().revision,
+        .kind = TopologyCommandKind::RenameSpace,
+        .space_id = client.snapshot().spaces.front().space_id,
+        .name = "Recovered Space",
+    };
+    TopologyCommandResult renamed;
+    REQUIRE(client.execute(rename, renamed, error));
+    bool checkpointed_after_warning = false;
+    for (int attempt = 0; attempt < 100; ++attempt)
+    {
+        const auto current = ServerClient::status(temp.path);
+        REQUIRE(current.ok);
+        if (current.status->checkpoint_state == "ok")
+        {
+            checkpointed_after_warning = true;
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(10));
+    }
+    REQUIRE(checkpointed_after_warning);
     run_guard.join();
 
-    std::ifstream retained_file(checkpoint, std::ios::binary);
-    const std::string retained{
-        std::istreambuf_iterator<char>(retained_file),
-        std::istreambuf_iterator<char>()
-    };
-    REQUIRE(retained == original);
+    auto recovered = load_session_state_from_path(
+        checkpoint, &error);
+    INFO(error);
+    REQUIRE(recovered);
+    REQUIRE(recovered->spaces.size() == 1);
+    REQUIRE(recovered->spaces.front().name
+        == "Recovered Space");
 }
 
 TEST_CASE("remote alternate screen preserves Unicode and resize semantics",

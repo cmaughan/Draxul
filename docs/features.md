@@ -72,13 +72,20 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   `--server-working-dir <path>`, and `--server-scrollback-lines <count>` define
   server-owned process/history settings. Stop an already-running isolated server
   before changing them; client fonts, palette, selection, and rendering remain local.
-- The server owns the durable default Session checkpoint at
-  `<server-runtime-dir>/sessions/default.toml`. It restores every usable Space before
-  processing client requests, checkpoints changed topology every 30 seconds without
-  a UI, and checkpoints again on graceful shutdown. It preserves stable pane and
-  terminal descriptors but launches honest new shell processes after a cold server
-  restart. `--server-status` (or `--server-status --json`) reports the checkpoint
-  path, state, last-success timestamp, bounded error, and restore warnings.
+- The server owns durable checkpoints for every Session under
+  `<server-runtime-dir>/sessions/`. It restores every usable Space before processing
+  client requests, checkpoints changed topology every 30 seconds without a UI, and
+  checkpoints again on graceful shutdown. Writes flush a temporary file before an
+  atomic replace and run off the kernel request loop. A corrupt checkpoint is archived
+  as `.corrupt-<timestamp>` before saving resumes; partial restores remain writable.
+  Restore/checkpoint warnings are shown once in an attaching UI as well as by
+  `--server-status`.
+- On the first ordinary shared-server launch, Draxul validates and copies the existing
+  `<config>/sessions/` snapshots (plus the older `<config>/session-state.toml` default)
+  byte-for-byte into the server store. A durable import marker makes this a one-time
+  operation; the legacy files remain untouched so `--no-server` is still a safe
+  confidence-period fallback. Custom `--server-runtime-dir` servers do not infer or
+  import a legacy store.
 - Remote terminal clients receive a complete versioned snapshot followed by ordered
   dirty-cell and controller events. Each client has a bounded server queue; a slow
   client receives a fresh snapshot rather than delaying the terminal or another
@@ -250,7 +257,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **When a saved session is kept vs discarded**: closing the window (titlebar, or the OS quit path) **saves** the topology, so the next launch restores it. Ending the last shell from inside — typing `exit` in the final pane of the final tab of the final Space — **deletes** the saved session, on the basis that you finished the work rather than parked it. Both paths are deliberate; they are simply not symmetric, so it is worth knowing which one you are using.
 - **Session saving is shell-only, and says so**: a saved layout covers shell panes only, so a single Neovim, Markdown, Kanban, ScoreView, or MegaCity pane anywhere in any Space disables every checkpoint *and* the shutdown save. That gate is intentional; Draxul now reports the transition once (log plus a toast) instead of silently dropping the layout, and reports again when persistence resumes.
 - **One session, one process**: a Session is single-owner. Launching a second Draxul on a session id that is already open refuses with a message pointing at `--session <id>` and `--new-session`, rather than restoring the same topology twice and letting the two instances overwrite each other's checkpoint. Distinct session ids run concurrently as normal.
-- **Session-scoped shell restore CLI/UI**: `--session <id>` selects which saved shell session Draxul should restore, `--new-session` starts a fresh saved shell session (generating a unique id when `--session` is omitted), `--session-name <name>` sets its display name, and `--rename-session --session-name <name>` renames a saved session. `--list-sessions` queries the running shared server and prints its live Session registry with Space, terminal, live-terminal, and checkpoint status; `--json` returns only those server Session rows. `--delete-session --session <id>` asks that server to stop and forget a detached Session and remove its checkpoint. It refuses while a UI is attached and requires `--yes` before stopping live terminals. In the running app, `save_session_as` saves the current topology under a prompted name and switches to the generated session id; `load_session` shows a fuzzy list of saved sessions and restores the selection in the current window.
+- **Session-scoped shell restore CLI/UI**: `--session <id>` selects which saved shell session Draxul should restore, `--new-session` starts a fresh saved shell session (generating a unique id when `--session` is omitted), and `--session-name <name>` sets its display name. `--list-sessions`, `--rename-session --session-name <name>`, and `--delete-session --session <id>` all act on the running shared server's Session store and say so in human-readable output. The list includes each display name plus Space, terminal, live-terminal, and checkpoint status; `--json` returns only those server Session rows. Delete refuses while a UI is attached and requires `--yes` before stopping live terminals. In the running app, `save_session_as` saves the current topology under a prompted name and switches to the generated session id; `load_session` shows a fuzzy list of saved sessions and restores the selection in the current window.
 - **Abnormally exited shell panes stay inspectable**: If a shell pane dies unexpectedly, Draxul keeps the pane and its last rendered output visible instead of immediately tearing it down. The pane status pill shows `[exited]`, a toast points you at `restart_host`, and the existing restart action respawns the host in place. Clean shell exits still close the pane normally.
 - **Session startup messaging**: Shell sessions surface a toast when Draxul starts a brand-new session or restores saved topology, so the user can tell which path was taken.
 - **Restart host**: Kills the current host in the focused pane and relaunches with the same arguments
@@ -518,8 +525,8 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 | `--session <id>` | Select which saved shell session to restore |
 | `--new-session` | Start a fresh saved shell session; if `--session` is omitted Draxul generates a unique session id. If the requested session cannot be prepared (for example an explicit `--session` id that already exists) Draxul reports the error and exits rather than silently falling back to `default` |
 | `--session-name <name>` | Set the saved display name for the launched or restored shell session |
-| `--rename-session` | Rename the selected saved shell session using `--session-name <name>` |
-| `--list-sessions` | Query the running shared server and print its Session status rows |
+| `--rename-session` | Rename the selected Session in the running shared-server store using `--session-name <name>` |
+| `--list-sessions` | Query the running shared-server store and print its Session names and status rows |
 | `--delete-session --session <id>` | Delete a detached server Session and its checkpoint; add `--yes` if it owns live terminals |
 | `--continuous-refresh` | Let animation/3D hosts request frames continuously; use `--no-vblank` separately when unsynced presentation is desired |
 | `--log-file <path>` | Write logs to file |

@@ -167,11 +167,13 @@ const char* help_text()
         "  draxul --no-server [local options]\n"
         "  draxul --server | --server-status [--json]\n"
         "  draxul --list-sessions [--json]\n"
+        "  draxul --rename-session --session <id> --session-name <name>\n"
         "  draxul --delete-session --session <id> [--yes]\n"
         "  draxul --shutdown-server [--yes]\n"
         "  draxul --force-stop-server --yes\n\n"
         "Normal shell launches attach to the per-user Draxul server. "
         "Use --no-server for the legacy local terminal runtime.\n"
+        "List, rename, and delete operate on the shared server Session store.\n"
         "Explicit Neovim and product hosts remain client-local.\n\n"
         "Server options:\n"
         "  --server-runtime-dir <path>   Isolate or select a server runtime\n"
@@ -228,6 +230,15 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
         }
         draxul::ServerKernel kernel({
             .runtime_directory = runtime_dir,
+            .legacy_session_directory
+            = runtime_dir.lexically_normal()
+                == draxul::server_runtime_directory(
+                       draxul::ConfigDocument::default_path()
+                           .parent_path())
+                       .lexically_normal()
+            ? draxul::ConfigDocument::default_path().parent_path()
+                / "sessions"
+            : std::filesystem::path{},
             .protocol_major = draxul::kServerProtocolMajor,
             .protocol_minor = draxul::kServerProtocolMinor,
             .build_version = draxul::server_build_version(),
@@ -311,6 +322,7 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
             }
             else
             {
+                std::printf("Shared server Session store:\n");
                 std::printf("%s",
                     draxul::format_server_session_listing_table(
                         result.status->session_statuses)
@@ -379,6 +391,23 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
     }
 
     std::string error;
+    if (parsed.rename_session)
+    {
+        if (!draxul::ServerClient::rename_session(
+                runtime_dir, parsed.session_id,
+                parsed.session_name, error))
+        {
+            std::fprintf(stderr,
+                "Could not rename shared server Session '%s': %s\n",
+                parsed.session_id.c_str(), error.c_str());
+            return 1;
+        }
+        std::printf(
+            "Renamed shared server Session '%s' to '%s'.\n",
+            parsed.session_id.c_str(),
+            parsed.session_name.c_str());
+        return 0;
+    }
     if (parsed.delete_session)
     {
         if (!draxul::ServerClient::delete_session(
@@ -394,7 +423,7 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
                 parsed.session_id.c_str(), error.c_str());
             return 1;
         }
-        std::printf("Deleted server Session '%s'.\n",
+        std::printf("Deleted shared server Session '%s'.\n",
             parsed.session_id.c_str());
         return 0;
     }
@@ -455,6 +484,7 @@ static int draxul_main(std::vector<std::string> args)
     const auto current_executable = executable_path(args);
     if (parsed.server || parsed.server_status
         || parsed.list_sessions
+        || parsed.rename_session
         || parsed.delete_session
         || parsed.shutdown_server
         || parsed.force_stop_server)

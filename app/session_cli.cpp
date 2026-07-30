@@ -82,10 +82,10 @@ SessionCliResult SessionCli::run(const SessionCliRequest& request) const
         std::string rename_error;
         if (services_.rename_saved_session(request.session_id, request.session_name, &rename_error))
         {
-            return handled("Renamed saved session '" + request.session_id + "' to '"
+            return handled("Renamed legacy local saved Session '" + request.session_id + "' to '"
                 + request.session_name + "'.\n");
         }
-        return failed("Failed to rename saved session '" + request.session_id + "': "
+        return failed("Failed to rename legacy local saved Session '" + request.session_id + "': "
             + (rename_error.empty() ? "unknown error" : rename_error) + "\n");
     }
     }

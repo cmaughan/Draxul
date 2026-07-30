@@ -203,8 +203,8 @@ for reading the current snapshot path at first migration; it is not implemented.
 CLI straddles both stores: `--list-sessions` queries the server (`app/main.cpp:288`) while
 `--rename-session` and `--delete-session` still operate on the legacy files.
 
-→ `kanban/pending/21 checkpoint-durability -bug.md`,
-`kanban/pending/22 legacy-session-store-migration -bug.md`
+→ `kanban/done/21 checkpoint-durability -bug.md`,
+`kanban/done/22 legacy-session-store-migration -bug.md`
 
 ## Regressions from making the shared server the default
 

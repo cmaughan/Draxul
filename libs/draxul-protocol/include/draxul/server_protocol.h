@@ -45,6 +45,7 @@ struct ServerWelcome
 struct ServerSessionStatusSnapshot
 {
     std::string session_id;
+    std::string session_name;
     size_t spaces = 0;
     size_t terminals = 0;
     size_t live_terminals = 0;

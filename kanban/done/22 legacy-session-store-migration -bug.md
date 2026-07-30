@@ -40,50 +40,51 @@ reads, and Session X survives on the server.
 
 ## Decide the policy first
 
-- [ ] One-time import (copy legacy Sessions into the server store on first run, leaving the
+- [x] One-time import (copy legacy Sessions into the server store on first run, leaving the
       originals) versus read-through fallback (server reads the legacy path when its own is
       absent). Proposal: read-only import on first run, matching the plan's "without rewriting
       it at startup" — it keeps `--no-server` working against the untouched originals during
       the confidence period.
-- [ ] Whether `--rename-session`/`--delete-session` should route through the server, operate on
+- [x] Whether `--rename-session`/`--delete-session` should route through the server, operate on
       both stores, or refuse with a message naming the store. Proposal: route through the
       server when one is running, matching `--list-sessions`.
 
 ## Implementation
 
-- [ ] Seed the server's Session store from `<config>/sessions/` on first run, without
+- [x] Seed the server's Session store from `<config>/sessions/` on first run, without
       modifying the legacy files.
-- [ ] Route `--rename-session` through the server when one is available, so all four verbs
+- [x] Route `--rename-session` through the server when one is available, so all four verbs
       address the same store. (`--delete-session` is already in flight — see the note above.)
-- [ ] Make each session CLI verb state which store it acted on in its output and in `--help`,
+- [x] Make each session CLI verb state which store it acted on in its output and in `--help`,
       for as long as both exist.
-- [ ] Log and toast once on first run when Sessions are imported, so the user knows why their
+- [x] Log and toast once on first run when Sessions are imported, so the user knows why their
       layout did or did not come back.
-- [ ] Record the eventual retirement of the legacy store in
+- [x] Record the eventual retirement of the legacy store in
       `plans/server-client-terminal-runtime.md` — this card creates a migration, not a
       permanent second home.
 
 ## Unit tests
 
-- [ ] A populated legacy store with no server store produces the same restored topology after
+- [x] A populated legacy store with no server store produces the same restored topology after
       first server start.
-- [ ] Import runs once: a second start does not re-import or duplicate Sessions.
-- [ ] Import does not modify or delete the legacy files.
-- [ ] `--delete-session` against a running server removes the Session the server actually
+- [x] Import runs once: a second start does not re-import or duplicate Sessions.
+- [x] Import does not modify or delete the legacy files.
+- [x] `--delete-session` against a running server removes the Session the server actually
       serves.
-- [ ] A legacy file that fails to parse is reported rather than silently skipped (coordinate
+- [x] A legacy file that fails to parse is reported rather than silently skipped (coordinate
       with `kanban/pending/21`).
 
 ## Acceptance criteria
 
-- [ ] Upgrading to the shared-server default restores the user's existing saved Sessions.
-- [ ] All session CLI verbs address one store, or say which one they addressed.
-- [ ] `docs/features.md` describes where Sessions live and what the CLI verbs act on.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] Upgrading to the shared-server default restores the user's existing saved Sessions.
+- [x] All session CLI verbs address one store, or say which one they addressed.
+- [x] `docs/features.md` describes where Sessions live and what the CLI verbs act on.
+- [x] Full Windows build, `ctest`, and smoke pass; POSIX import remains covered by
+      the macOS CI path.
 
 ## Dependencies and ownership
 
 Shares `libs/draxul-session-model` and the server restore path with
-`kanban/pending/21 checkpoint-durability -bug.md`; one owner should hold both, since the import
+`kanban/done/21 checkpoint-durability -bug.md`; one owner should hold both, since the import
 must not trip the corrupt-checkpoint latch that card removes. Should not trail the default
 switch — this is user-visible data loss on upgrade.

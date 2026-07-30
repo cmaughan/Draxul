@@ -633,6 +633,32 @@ TEST_CASE("remote Session client publishes topology and command results",
         if (request.method == "agent.snapshot")
             return ControlMethodResult::success(
                 server_agent_snapshot_to_json(agents));
+        if (request.method == "server.status")
+        {
+            return ControlMethodResult::success(
+                server_status_to_json({
+                    .state = "ready",
+                    .protocol_major = kServerProtocolMajor,
+                    .protocol_minor = kServerProtocolMinor,
+                    .server_pid = 1,
+                    .server_epoch = "warning-epoch",
+                    .build_version = "test",
+                    .sessions = 1,
+                    .checkpoint_state = "recovered",
+                    .restore_warnings
+                    = { "Imported one legacy Session." },
+                    .session_statuses = {
+                        {
+                            .session_id = "default",
+                            .session_name = "default",
+                            .checkpoint_state
+                            = "restored_with_warnings",
+                            .restore_warnings
+                            = { "One pane was skipped." },
+                        },
+                    },
+                }));
+        }
         if (request.method == "topology.poll")
         {
             return ControlMethodResult::success({
@@ -679,10 +705,12 @@ TEST_CASE("remote Session client publishes topology and command results",
     REQUIRE(client.start());
     bool saw_topology = false;
     bool saw_agents = false;
+    bool saw_persistence_warning = false;
     const auto initial_deadline
         = std::chrono::steady_clock::now()
         + std::chrono::seconds(2);
-    while ((!saw_topology || !saw_agents)
+    while ((!saw_topology || !saw_agents
+               || !saw_persistence_warning)
         && std::chrono::steady_clock::now() < initial_deadline)
     {
         server.process_pending(dispatch);
@@ -691,12 +719,16 @@ TEST_CASE("remote Session client publishes topology and command results",
             saw_topology
                 = saw_topology || state->topology.has_value();
             saw_agents = saw_agents || state->agents.has_value();
+            saw_persistence_warning
+                = saw_persistence_warning
+                || !state->persistence_warnings.empty();
         }
         std::this_thread::sleep_for(
             std::chrono::milliseconds(1));
     }
     REQUIRE(saw_topology);
     REQUIRE(saw_agents);
+    REQUIRE(saw_persistence_warning);
 
     REQUIRE(client.enqueue({
         .command_id = "rename-1",

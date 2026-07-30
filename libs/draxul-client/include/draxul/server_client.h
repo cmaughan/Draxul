@@ -85,6 +85,11 @@ public:
         std::string_view session_id,
         const ServerDeleteSessionOptions& options,
         std::string& error);
+    static bool rename_session(
+        const std::filesystem::path& runtime_directory,
+        std::string_view session_id,
+        std::string_view session_name,
+        std::string& error);
     static bool shutdown(const std::filesystem::path& runtime_directory,
         const ServerShutdownOptions& options, std::string& error);
     static bool disconnect(const std::filesystem::path& runtime_directory,

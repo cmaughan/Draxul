@@ -54,6 +54,7 @@ TEST_CASE("server status surface formats live Session rows",
     const std::vector<ServerSessionStatusSnapshot> sessions{
         {
             .session_id = "default",
+            .session_name = "Daily",
             .spaces = 2,
             .terminals = 3,
             .live_terminals = 2,
@@ -61,6 +62,7 @@ TEST_CASE("server status surface formats live Session rows",
         },
         {
             .session_id = "long-work-session",
+            .session_name = "Long Work",
             .spaces = 1,
             .terminals = 12,
             .live_terminals = 0,
@@ -71,9 +73,9 @@ TEST_CASE("server status surface formats live Session rows",
     const std::string table
         = format_server_session_listing_table(sessions);
     const std::string expected
-        = "SESSION ID         SPACES  TERMINALS  LIVE  CHECKPOINT\n"
-          "-----------------  ------  ---------  ----  ----------\n"
-          "default                 2          3     2  saved\n"
-          "long-work-session       1         12     0  restored\n";
+        = "SESSION ID         NAME       SPACES  TERMINALS  LIVE  CHECKPOINT\n"
+          "-----------------  ---------  ------  ---------  ----  ----------\n"
+          "default            Daily           2          3     2  saved\n"
+          "long-work-session  Long Work       1         12     0  restored\n";
     CHECK(table == expected);
 }

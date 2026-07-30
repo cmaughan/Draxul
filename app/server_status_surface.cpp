@@ -179,6 +179,7 @@ std::string format_server_session_listing_table(
     const std::vector<ServerSessionStatusSnapshot>& sessions)
 {
     size_t id_width = std::string_view("SESSION ID").size();
+    size_t name_width = std::string_view("NAME").size();
     const size_t space_width
         = std::string_view("SPACES").size();
     const size_t terminal_width
@@ -188,12 +189,22 @@ std::string format_server_session_listing_table(
         = std::string_view("CHECKPOINT").size();
 
     for (const auto& session : sessions)
+    {
         id_width = std::max(id_width, session.session_id.size());
+        name_width = std::max(name_width,
+            (session.session_name.empty()
+                    ? session.session_id
+                    : session.session_name)
+                .size());
+    }
 
     std::ostringstream out;
     out << std::left
         << std::setw(static_cast<int>(id_width))
         << "SESSION ID"
+        << "  " << std::left
+        << std::setw(static_cast<int>(name_width))
+        << "NAME"
         << "  " << std::left
         << std::setw(static_cast<int>(space_width))
         << "SPACES"
@@ -206,6 +217,7 @@ std::string format_server_session_listing_table(
         << "  CHECKPOINT\n";
 
     out << std::string(id_width, '-')
+        << "  " << std::string(name_width, '-')
         << "  " << std::string(space_width, '-')
         << "  " << std::string(terminal_width, '-')
         << "  " << std::string(live_width, '-')
@@ -217,6 +229,11 @@ std::string format_server_session_listing_table(
         out << std::left
             << std::setw(static_cast<int>(id_width))
             << session.session_id
+            << "  " << std::left
+            << std::setw(static_cast<int>(name_width))
+            << (session.session_name.empty()
+                    ? session.session_id
+                    : session.session_name)
             << "  " << std::right
             << std::setw(static_cast<int>(space_width))
             << session.spaces

@@ -23,6 +23,7 @@
 #include <optional>
 #include <random>
 #include <sstream>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -213,6 +214,7 @@ const std::vector<std::string>& server_capabilities()
         "real-remote-terminal",
         "session-delete-v1",
         "session-persistence-v1",
+        "session-rename-v1",
         "status",
         "terminal-metrics-v1",
         "terminal-scrollback-v1",
@@ -234,6 +236,36 @@ std::vector<std::string> negotiate_capabilities(
             result.push_back(capability);
     }
     return result;
+}
+
+std::optional<std::filesystem::path> archive_corrupt_checkpoint(
+    const std::filesystem::path& path, std::string& error)
+{
+    const std::string stamp
+        = std::to_string(current_unix_time_ms());
+    for (size_t suffix = 0; suffix < 1000; ++suffix)
+    {
+        std::filesystem::path archived = path;
+        archived += ".corrupt-" + stamp;
+        if (suffix > 0)
+            archived += "-" + std::to_string(suffix);
+        std::error_code exists_error;
+        if (std::filesystem::exists(archived, exists_error))
+            continue;
+        if (exists_error)
+        {
+            error = exists_error.message();
+            return std::nullopt;
+        }
+        std::error_code rename_error;
+        std::filesystem::rename(path, archived, rename_error);
+        if (!rename_error)
+            return archived;
+        error = rename_error.message();
+        return std::nullopt;
+    }
+    error = "Unable to choose a unique corrupt-checkpoint archive name.";
+    return std::nullopt;
 }
 
 } // namespace
@@ -268,6 +300,10 @@ public:
             options.protocol_minor = kServerProtocolMinor;
         if (options.client_activity_timeout.count() <= 0)
             options.client_activity_timeout = std::chrono::seconds(10);
+        if (options.checkpoint_shutdown_budget.count() < 0)
+            options.checkpoint_shutdown_budget = std::chrono::milliseconds(0);
+        if (!options.checkpoint_save)
+            options.checkpoint_save = save_session_state_to_path;
         if (options.build_version.empty())
             options.build_version = server_build_version();
         for (const AgentDefinition& definition
@@ -307,9 +343,14 @@ public:
         std::string_view session_id, std::string& error);
     ControlMethodResult delete_session(
         const nlohmann::json& params);
+    ControlMethodResult rename_session(
+        const nlohmann::json& params);
     void reset_services();
     bool checkpoint_session(
         std::string_view session_id, std::string& error);
+    void collect_checkpoint_results();
+    void wait_for_checkpoint_tasks(
+        std::chrono::steady_clock::time_point deadline);
     bool read_session_id(const nlohmann::json& params,
         std::string& session_id, std::string& error) const;
     std::optional<std::string> create_server_terminal(
@@ -409,7 +450,18 @@ public:
     };
     struct ServerSession
     {
+        struct CheckpointTask
+        {
+            std::mutex mutex;
+            std::condition_variable ready;
+            bool finished = false;
+            bool success = false;
+            std::string error;
+            uint64_t revision = 0;
+            uint64_t saved_unix_ms = 0;
+        };
         std::string session_id;
+        std::string session_name;
         std::unique_ptr<TopologyService> topology_service;
         std::unique_ptr<ServerAgentService> agent_service;
         std::unordered_map<std::string, ServerTerminalEndpoint>
@@ -417,7 +469,6 @@ public:
         uint64_t next_terminal_serial = 2;
         uint64_t next_agent_serial = 1;
         std::filesystem::path persistence_path;
-        bool checkpoint_enabled = true;
         std::vector<std::string> restore_warnings;
         std::optional<TopologySnapshot> restored_topology;
         std::string checkpoint_state = "pending";
@@ -425,6 +476,8 @@ public:
         uint64_t last_checkpoint_unix_ms = 0;
         uint64_t last_checkpoint_revision = 0;
         bool checkpoint_file_present = false;
+        bool corrupt_checkpoint_archive_required = false;
+        std::shared_ptr<CheckpointTask> checkpoint_task;
         std::chrono::steady_clock::time_point next_checkpoint_at{};
         std::chrono::steady_clock::time_point next_agent_refresh_at{};
         std::unordered_map<std::string, ControlMethodResult>
@@ -584,6 +637,37 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
     sessions.clear();
     unassigned_restore_warnings.clear();
 
+    if (!options.legacy_session_directory.empty())
+    {
+        SessionStoreImportResult import_result;
+        std::string import_error;
+        if (!import_legacy_session_store(
+                options.legacy_session_directory,
+                options.runtime_directory / "sessions",
+                import_result, &import_error))
+        {
+            unassigned_restore_warnings.push_back(
+                "Legacy Session import failed: "
+                + import_error);
+        }
+        else
+        {
+            unassigned_restore_warnings.insert(
+                unassigned_restore_warnings.end(),
+                import_result.warnings.begin(),
+                import_result.warnings.end());
+            if (import_result.imported > 0)
+            {
+                unassigned_restore_warnings.push_back(
+                    "Imported "
+                    + std::to_string(import_result.imported)
+                    + " legacy Session"
+                    + (import_result.imported == 1 ? "" : "s")
+                    + " into the shared server store.");
+            }
+        }
+    }
+
     auto prepare = [this](std::filesystem::path path,
                        std::optional<std::string> expected_session_id) {
         auto prepared = std::make_unique<ServerSession>();
@@ -607,6 +691,25 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
         else if (saved)
             prepared->session_id = saved->session_id;
 
+        if (prepared->checkpoint_file_present && !saved
+            && !expected_session_id)
+        {
+            std::string archive_error;
+            const auto archived = archive_corrupt_checkpoint(
+                prepared->persistence_path, archive_error);
+            unassigned_restore_warnings.push_back(
+                archived
+                    ? "Archived unreadable Session checkpoint as '"
+                        + archived->filename().string() + "': "
+                        + (load_error.empty()
+                                  ? "the checkpoint is invalid."
+                                  : load_error)
+                    : "Could not archive unreadable Session checkpoint '"
+                        + prepared->persistence_path.filename().string()
+                        + "': " + archive_error);
+            return;
+        }
+
         if (!valid_server_session_id(prepared->session_id))
         {
             unassigned_restore_warnings.push_back(
@@ -624,13 +727,35 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
 
         if (prepared->checkpoint_file_present && !saved)
         {
-            prepared->checkpoint_enabled = false;
-            prepared->checkpoint_state = "disabled";
-            prepared->checkpoint_error = load_error.empty()
+            const std::string restore_error = load_error.empty()
                 ? "Saved Session could not be restored."
                 : load_error;
             prepared->restore_warnings.push_back(
-                prepared->checkpoint_error);
+                restore_error);
+            std::string archive_error;
+            const auto archived = archive_corrupt_checkpoint(
+                prepared->persistence_path, archive_error);
+            if (archived)
+            {
+                prepared->checkpoint_file_present = false;
+                prepared->checkpoint_state = "recovered";
+                prepared->restore_warnings.push_back(
+                    "Archived the unreadable checkpoint as '"
+                    + archived->filename().string()
+                    + "'; future checkpoints will continue.");
+            }
+            else
+            {
+                prepared->checkpoint_state = "recovery_pending";
+                prepared->checkpoint_error
+                    = "Unable to archive the unreadable checkpoint: "
+                    + archive_error;
+                prepared->corrupt_checkpoint_archive_required
+                    = true;
+                prepared->restore_warnings.push_back(
+                    prepared->checkpoint_error
+                    + ". Draxul will retry before saving.");
+            }
         }
         else if (saved)
         {
@@ -638,13 +763,36 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
                 = restore_session_topology(*saved, load_error);
             if (!restored)
             {
-                prepared->checkpoint_enabled = false;
-                prepared->checkpoint_state = "disabled";
-                prepared->checkpoint_error = load_error.empty()
+                const std::string restore_error = load_error.empty()
                     ? "Saved Session could not be restored."
                     : load_error;
                 prepared->restore_warnings.push_back(
-                    prepared->checkpoint_error);
+                    restore_error);
+                std::string archive_error;
+                const auto archived = archive_corrupt_checkpoint(
+                    prepared->persistence_path, archive_error);
+                if (archived)
+                {
+                    prepared->checkpoint_file_present = false;
+                    prepared->checkpoint_state = "recovered";
+                    prepared->restore_warnings.push_back(
+                        "Archived the unusable checkpoint as '"
+                        + archived->filename().string()
+                        + "'; future checkpoints will continue.");
+                }
+                else
+                {
+                    prepared->checkpoint_state
+                        = "recovery_pending";
+                    prepared->checkpoint_error
+                        = "Unable to archive the unusable checkpoint: "
+                        + archive_error;
+                    prepared->corrupt_checkpoint_archive_required
+                        = true;
+                    prepared->restore_warnings.push_back(
+                        prepared->checkpoint_error
+                        + ". Draxul will retry before saving.");
+                }
             }
             else
             {
@@ -652,10 +800,8 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
                     = std::move(restored->warnings);
                 if (!prepared->restore_warnings.empty())
                 {
-                    prepared->checkpoint_enabled = false;
-                    prepared->checkpoint_state = "disabled";
-                    prepared->checkpoint_error
-                        = "Checkpoint disabled after partial restore.";
+                    prepared->checkpoint_state
+                        = "restored_with_warnings";
                 }
                 else
                 {
@@ -665,6 +811,10 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
                     = std::move(restored->topology);
             }
         }
+        if (saved)
+            prepared->session_name = saved->session_name;
+        if (prepared->session_name.empty())
+            prepared->session_name = prepared->session_id;
 
         const std::string session_id = prepared->session_id;
         if (!sessions.emplace(session_id, std::move(prepared)).second)
@@ -937,6 +1087,7 @@ ServerKernel::Impl::ensure_session(
 
     auto session = std::make_unique<ServerSession>();
     session->session_id = std::string(session_id);
+    session->session_name = session->session_id;
     session->persistence_path = server_session_state_path(
         options.runtime_directory, session_id);
     const std::string key = session->session_id;
@@ -983,6 +1134,12 @@ ControlMethodResult ServerKernel::Impl::delete_session(
         return ControlMethodResult::error(
             "session_not_found",
             "The requested server Session does not exist.");
+    }
+    if (found->second->checkpoint_task)
+    {
+        return ControlMethodResult::error(
+            "checkpoint_busy",
+            "The Session checkpoint is still being written. Retry shortly.");
     }
 
     const size_t attached_clients
@@ -1042,6 +1199,65 @@ ControlMethodResult ServerKernel::Impl::delete_session(
         { "session_id", session_id },
         { "stopped_live_terminals", live_terminals },
         { "checkpoint_removed", checkpoint_removed },
+    });
+}
+
+ControlMethodResult ServerKernel::Impl::rename_session(
+    const nlohmann::json& params)
+{
+    if (!params.is_object()
+        || !params.contains("session_id")
+        || !params["session_id"].is_string()
+        || !params.contains("session_name")
+        || !params["session_name"].is_string())
+    {
+        return ControlMethodResult::error(
+            "invalid_session",
+            "Session renaming requires string session_id and session_name values.");
+    }
+    const std::string session_id
+        = params["session_id"].get<std::string>();
+    const std::string session_name
+        = params["session_name"].get<std::string>();
+    if (!valid_server_session_id(session_id)
+        || session_name.empty()
+        || session_name.size() > kServerMaxSessionIdBytes
+        || std::ranges::any_of(session_name,
+            [](unsigned char ch) {
+                return ch < 0x20 || ch == 0x7f;
+            }))
+    {
+        return ControlMethodResult::error(
+            "invalid_session",
+            "The requested server Session identity or name is invalid.");
+    }
+    const auto found = sessions.find(session_id);
+    if (found == sessions.end())
+    {
+        return ControlMethodResult::error(
+            "session_not_found",
+            "The requested server Session does not exist.");
+    }
+    if (found->second->checkpoint_task)
+    {
+        return ControlMethodResult::error(
+            "checkpoint_busy",
+            "The Session checkpoint is still being written. Retry shortly.");
+    }
+    found->second->session_name = session_name;
+    std::string checkpoint_error;
+    if (!checkpoint_session(session_id, checkpoint_error))
+    {
+        return ControlMethodResult::error(
+            "checkpoint_failed",
+            checkpoint_error.empty()
+                ? "Unable to schedule the renamed Session checkpoint."
+                : checkpoint_error);
+    }
+    return ControlMethodResult::success({
+        { "renamed", true },
+        { "session_id", session_id },
+        { "session_name", session_name },
     });
 }
 
@@ -1195,9 +1411,8 @@ bool ServerKernel::Impl::checkpoint_session(
         return false;
     }
     ServerSession& server_session = *found->second;
-    auto fail = [&](std::string message,
-                    std::string state = "failed") {
-        server_session.checkpoint_state = std::move(state);
+    auto fail = [&](std::string message) {
+        server_session.checkpoint_state = "failed";
         server_session.checkpoint_error = message.size() > 4096
             ? message.substr(0, 4096)
             : message;
@@ -1206,32 +1421,128 @@ bool ServerKernel::Impl::checkpoint_session(
     };
     if (!server_session.topology_service)
         return fail("Server topology is unavailable.");
-    if (!server_session.checkpoint_enabled)
+    if (server_session.checkpoint_task)
     {
-        return fail(
-            "Checkpoint disabled to preserve the previous Session file after restore warnings.",
-            "disabled");
+        error = "The Session checkpoint is already being written.";
+        return false;
+    }
+    if (server_session.corrupt_checkpoint_archive_required)
+    {
+        std::string archive_error;
+        const auto archived = archive_corrupt_checkpoint(
+            server_session.persistence_path, archive_error);
+        if (!archived)
+        {
+            return fail(
+                "Unable to archive the unreadable checkpoint: "
+                + archive_error);
+        }
+        server_session.corrupt_checkpoint_archive_required
+            = false;
+        server_session.checkpoint_file_present = false;
+        server_session.restore_warnings.push_back(
+            "Archived the unreadable checkpoint as '"
+            + archived->filename().string()
+            + "'; checkpointing resumed.");
     }
     auto captured = capture_session_topology(
         server_session.topology_service->snapshot(), error);
     if (!captured)
         return fail(error);
-    if (!save_session_state_to_path(*captured,
-            server_session.persistence_path, &error))
-    {
-        return fail(error.empty()
-                ? "Unable to save Session checkpoint."
-                : error);
-    }
-    server_session.checkpoint_state = "ok";
-    server_session.checkpoint_error.clear();
-    server_session.last_checkpoint_unix_ms
-        = current_unix_time_ms();
-    server_session.last_checkpoint_revision
+    captured->session_name = server_session.session_name;
+    const uint64_t revision
         = server_session.topology_service->snapshot().revision;
-    server_session.checkpoint_file_present = true;
+    auto task
+        = std::make_shared<ServerSession::CheckpointTask>();
+    task->revision = revision;
+    server_session.checkpoint_task = task;
+    server_session.checkpoint_state = "writing";
+    server_session.checkpoint_error.clear();
+    const auto destination = server_session.persistence_path;
+    auto save = options.checkpoint_save;
+    std::thread([task, captured = std::move(*captured),
+                    destination, save = std::move(save)]() mutable {
+        std::string save_error;
+        bool saved = false;
+        try
+        {
+            saved = save(
+                captured, destination, &save_error);
+        }
+        catch (const std::exception& ex)
+        {
+            save_error
+                = "Session checkpoint writer threw an exception: "
+                + std::string(ex.what());
+        }
+        catch (...)
+        {
+            save_error
+                = "Session checkpoint writer threw an unknown exception.";
+        }
+        {
+            std::lock_guard guard(task->mutex);
+            task->success = saved;
+            task->error = saved
+                ? std::string{}
+                : (save_error.empty()
+                          ? "Unable to save Session checkpoint."
+                          : std::move(save_error));
+            task->saved_unix_ms = current_unix_time_ms();
+            task->finished = true;
+        }
+        task->ready.notify_all();
+    }).detach();
     error.clear();
     return true;
+}
+
+void ServerKernel::Impl::collect_checkpoint_results()
+{
+    for (auto& [session_id, session] : sessions)
+    {
+        (void)session_id;
+        const auto task = session->checkpoint_task;
+        if (!task)
+            continue;
+        std::lock_guard guard(task->mutex);
+        if (!task->finished)
+            continue;
+        if (task->success)
+        {
+            session->checkpoint_state = "ok";
+            session->checkpoint_error.clear();
+            session->last_checkpoint_unix_ms
+                = task->saved_unix_ms;
+            session->last_checkpoint_revision
+                = task->revision;
+            session->checkpoint_file_present = true;
+        }
+        else
+        {
+            session->checkpoint_state = "failed";
+            session->checkpoint_error = task->error.size() > 4096
+                ? task->error.substr(0, 4096)
+                : task->error;
+        }
+        session->checkpoint_task.reset();
+    }
+}
+
+void ServerKernel::Impl::wait_for_checkpoint_tasks(
+    std::chrono::steady_clock::time_point deadline)
+{
+    for (auto& [session_id, session] : sessions)
+    {
+        (void)session_id;
+        const auto task = session->checkpoint_task;
+        if (!task)
+            continue;
+        std::unique_lock lock(task->mutex);
+        task->ready.wait_until(
+            lock, deadline, [&] { return task->finished; });
+    }
+    collect_checkpoint_results();
 }
 
 bool ServerKernel::Impl::read_session_id(
@@ -1413,6 +1724,8 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         return ControlMethodResult::success(server_status_to_json(status_snapshot()));
     if (request.method == "server.delete_session")
         return delete_session(request.params);
+    if (request.method == "server.rename_session")
+        return rename_session(request.params);
     if (request.method == "fake.attach")
         return attach_fake_terminal(request.params);
     if (request.method == "fake.poll")
@@ -2624,6 +2937,7 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
         }
         session_statuses.push_back({
             .session_id = session_id,
+            .session_name = session->session_name,
             .spaces = spaces,
             .terminals = session->terminals.size(),
             .live_terminals = live_terminals,
@@ -3070,6 +3384,7 @@ int ServerKernel::Impl::run_until_stopped()
         {
             recent_listener_failures = 0;
         }
+        collect_checkpoint_results();
         control.process_pending(
             [this](const ControlRequest& request) {
                 return handle_request(request);
@@ -3104,12 +3419,12 @@ int ServerKernel::Impl::run_until_stopped()
         {
             for (auto& [session_id, session] : sessions)
             {
-                if (!session->checkpoint_enabled
-                    || now < session->next_checkpoint_at)
+                if (now < session->next_checkpoint_at)
                 {
                     continue;
                 }
-                if (session->topology_service
+                if (!session->checkpoint_task
+                    && session->topology_service
                     && (!session->checkpoint_file_present
                         || session->topology_service
                                 ->snapshot()
@@ -3138,9 +3453,14 @@ int ServerKernel::Impl::run_until_stopped()
         [this](const ControlRequest& request) {
             return handle_request(request);
         });
+    const auto checkpoint_deadline
+        = std::chrono::steady_clock::now()
+        + options.checkpoint_shutdown_budget;
+    collect_checkpoint_results();
     for (const auto& [session_id, session] : sessions)
     {
-        (void)session;
+        if (session->checkpoint_task)
+            continue;
         std::string checkpoint_error;
         if (!checkpoint_session(session_id, checkpoint_error))
         {
@@ -3148,6 +3468,42 @@ int ServerKernel::Impl::run_until_stopped()
                 "Draxul server Session '%s' checkpoint was not written: %s",
                 session_id.c_str(),
                 checkpoint_error.c_str());
+        }
+    }
+    wait_for_checkpoint_tasks(checkpoint_deadline);
+    // A periodic write may have captured revision N while a final request
+    // advanced the topology to N+1. Once that write completes, use the
+    // remaining shared shutdown budget for the truly final snapshot.
+    if (std::chrono::steady_clock::now() < checkpoint_deadline)
+    {
+        for (const auto& [session_id, session] : sessions)
+        {
+            if (session->checkpoint_task
+                || !session->topology_service
+                || (session->checkpoint_file_present
+                    && session->topology_service->snapshot().revision
+                        == session->last_checkpoint_revision))
+            {
+                continue;
+            }
+            std::string checkpoint_error;
+            if (!checkpoint_session(session_id, checkpoint_error))
+            {
+                DRAXUL_LOG_WARN(LogCategory::App,
+                    "Draxul server Session '%s' final checkpoint was not scheduled: %s",
+                    session_id.c_str(),
+                    checkpoint_error.c_str());
+            }
+        }
+        wait_for_checkpoint_tasks(checkpoint_deadline);
+    }
+    for (const auto& [session_id, session] : sessions)
+    {
+        if (session->checkpoint_task)
+        {
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "Draxul server Session '%s' checkpoint exceeded the shutdown budget; the previous completed checkpoint remains authoritative",
+                session_id.c_str());
         }
     }
     reset_services();

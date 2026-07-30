@@ -19,6 +19,8 @@
 namespace draxul
 {
 
+struct SessionSnapshot;
+
 enum class ServerStartDisposition
 {
     Started,
@@ -36,6 +38,9 @@ struct ServerKernelOptions
 {
     std::filesystem::path runtime_directory;
     std::filesystem::path session_state_file;
+    // Empty disables legacy import. Production startup explicitly supplies
+    // the configured legacy Sessions directory.
+    std::filesystem::path legacy_session_directory;
     std::chrono::milliseconds session_checkpoint_interval{
         std::chrono::seconds(30)
     };
@@ -55,6 +60,12 @@ struct ServerKernelOptions
     int terminal_scrollback_lines = 10000;
     std::vector<AgentDefinition> agent_definitions;
     bool agents_resume_on_restore = false;
+    std::chrono::milliseconds checkpoint_shutdown_budget{
+        std::chrono::seconds(2)
+    };
+    std::function<bool(const SessionSnapshot&,
+        const std::filesystem::path&, std::string*)>
+        checkpoint_save;
     // Optional transport-health source used by deterministic tests. Production
     // kernels read listener failures directly from ControlServer.
     std::function<uint32_t()> listener_error_source;

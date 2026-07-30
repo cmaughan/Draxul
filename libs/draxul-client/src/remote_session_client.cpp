@@ -344,6 +344,53 @@ private:
             .client_id = options_.client_id,
             .session_id = options_.session_id,
         });
+        const auto initial_status = ServerClient::status(
+            options_.runtime_directory,
+            std::chrono::milliseconds(500));
+        if (initial_status.ok && initial_status.status)
+        {
+            std::vector<std::string> warnings
+                = initial_status.status->restore_warnings;
+            const std::string selected_session
+                = options_.session_id.empty()
+                ? "default"
+                : options_.session_id;
+            const auto selected = std::ranges::find(
+                initial_status.status->session_statuses,
+                selected_session,
+                &ServerSessionStatusSnapshot::session_id);
+            if (selected
+                != initial_status.status->session_statuses.end())
+            {
+                warnings.insert(warnings.end(),
+                    selected->restore_warnings.begin(),
+                    selected->restore_warnings.end());
+                if (!selected->checkpoint_error.empty())
+                    warnings.push_back(selected->checkpoint_error);
+                else if (!selected->checkpoint_state.empty()
+                    && selected->checkpoint_state != "ok"
+                    && selected->checkpoint_state != "pending"
+                    && selected->checkpoint_state != "restored"
+                    && selected->checkpoint_state != "writing")
+                {
+                    warnings.push_back(
+                        "Session checkpoint state is '"
+                        + selected->checkpoint_state + "'.");
+                }
+            }
+            std::ranges::sort(warnings);
+            warnings.erase(std::unique(
+                               warnings.begin(), warnings.end()),
+                warnings.end());
+            if (!warnings.empty())
+            {
+                publish([warnings = std::move(warnings)](
+                            RemoteSessionPublishedState& state) mutable {
+                    state.persistence_warnings
+                        = std::move(warnings);
+                });
+            }
+        }
         initialize_clients(topology, agents);
         auto next_poll
             = std::chrono::steady_clock::now() + kPollInterval;

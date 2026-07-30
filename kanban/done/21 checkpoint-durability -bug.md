@@ -39,43 +39,44 @@ reintroduced one layer down in the server.
 
 ## Decide the policy first
 
-- [ ] What should happen to a checkpoint that fails to load? Preserving the file (current
+- [x] What should happen to a checkpoint that fails to load? Preserving the file (current
       behaviour) protects a possibly-recoverable layout, but permanently disabling writes is
       the wrong second half. Proposal: rename the bad file aside as `.corrupt-<timestamp>`,
       log and toast once, and resume checkpointing to a fresh file — preserving the evidence
       without sacrificing all future saves.
-- [ ] Should a *partial* restore (warnings but a usable topology) disable checkpointing at all?
+- [x] Should a *partial* restore (warnings but a usable topology) disable checkpointing at all?
       Proposal: no — warn once and keep saving.
 
 ## Implementation
 
-- [ ] fsync the temp file (and, on POSIX, the containing directory) before rename; use
+- [x] fsync the temp file (and, on POSIX, the containing directory) before rename; use
       `FlushFileBuffers` before `MoveFileExW` on Windows.
-- [ ] Rename a corrupt checkpoint aside instead of latching persistence off, and re-enable
+- [x] Rename a corrupt checkpoint aside instead of latching persistence off, and re-enable
       checkpointing to a fresh file.
-- [ ] Separate "restore had warnings" from "checkpointing is disabled" — they are currently
+- [x] Separate "restore had warnings" from "checkpointing is disabled" — they are currently
       the same flag.
-- [ ] Push `restore_warnings` and a non-`ok` `checkpoint_state` to attaching clients as a
+- [x] Push `restore_warnings` and a non-`ok` `checkpoint_state` to attaching clients as a
       toast, so the failure is visible where the user is.
-- [ ] Move the checkpoint write off the kernel state thread, or bound it. It currently runs
+- [x] Move the checkpoint write off the kernel state thread, or bound it. It currently runs
       synchronously in the loop (`server_kernel.cpp:2663-2692`), so a slow disk stalls every
       client's request window — the plan specifies persistence workers.
 
 ## Unit tests
 
-- [ ] A truncated or garbage checkpoint file is renamed aside, the Session starts fresh, and
+- [x] A truncated or garbage checkpoint file is renamed aside, the Session starts fresh, and
       the next checkpoint succeeds.
-- [ ] A partial restore with warnings still checkpoints afterwards.
-- [ ] `checkpoint_state` and `restore_warnings` reach an attached client.
-- [ ] Interrupting a write leaves either the previous good file or the new one, never a
+- [x] A partial restore with warnings still checkpoints afterwards.
+- [x] `checkpoint_state` and `restore_warnings` reach an attached client.
+- [x] Interrupting a write leaves either the previous good file or the new one, never a
       truncated file (as far as the harness can simulate).
 
 ## Acceptance criteria
 
-- [ ] No single bad shutdown can permanently disable persistence for a Session.
-- [ ] A persistence failure is visible in the UI, not only in `--server-status`.
-- [ ] A slow disk does not stall client requests.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] No single bad shutdown can permanently disable persistence for a Session.
+- [x] A persistence failure is visible in the UI, not only in `--server-status`.
+- [x] A slow disk does not stall client requests.
+- [x] Full Windows build, `ctest`, and smoke pass; POSIX durability remains covered by
+      the macOS CI path.
 
 ## Dependencies and ownership
 

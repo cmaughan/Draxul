@@ -47,6 +47,7 @@ TEST_CASE("server protocol round-trips hello welcome and status", "[server][prot
         .session_statuses = {
             {
                 .session_id = "default",
+                .session_name = "Daily",
                 .spaces = 2,
                 .terminals = 3,
                 .live_terminals = 1,

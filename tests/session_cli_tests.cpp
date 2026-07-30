@@ -45,5 +45,6 @@ TEST_CASE("session cli renames a saved session", "[session][cli]")
     const auto result = SessionCli(std::move(services)).run(
         { .mode = SessionCliMode::Rename, .session_id = "work", .session_name = "Renamed" });
     CHECK(result.disposition == SessionCliDisposition::Handled);
-    CHECK(result.output == "Renamed saved session 'work' to 'Renamed'.\n");
+    CHECK(result.output
+        == "Renamed legacy local saved Session 'work' to 'Renamed'.\n");
 }

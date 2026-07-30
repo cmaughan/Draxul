@@ -43,6 +43,7 @@ nlohmann::json session_status_to_json(
 {
     return {
         { "session_id", status.session_id },
+        { "session_name", status.session_name },
         { "spaces", status.spaces },
         { "terminals", status.terminals },
         { "live_terminals", status.live_terminals },
@@ -62,6 +63,8 @@ std::optional<ServerSessionStatusSnapshot> session_status_from_json(
         return std::nullopt;
     ServerSessionStatusSnapshot status;
     status.session_id = value.at("session_id").get<std::string>();
+    status.session_name
+        = value.value("session_name", status.session_id);
     status.spaces = value.at("spaces").get<size_t>();
     status.terminals = value.at("terminals").get<size_t>();
     status.live_terminals = value.at("live_terminals").get<size_t>();
@@ -78,6 +81,11 @@ std::optional<ServerSessionStatusSnapshot> session_status_from_json(
     if (status.session_id.empty()
         || status.session_id.size() > kServerMaxSessionIdBytes
         || std::ranges::any_of(status.session_id,
+            [](unsigned char ch) {
+                return ch < 0x20 || ch == 0x7f;
+            })
+        || status.session_name.size() > kServerMaxSessionIdBytes
+        || std::ranges::any_of(status.session_name,
             [](unsigned char ch) {
                 return ch < 0x20 || ch == 0x7f;
             })

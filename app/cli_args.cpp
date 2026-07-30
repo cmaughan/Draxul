@@ -305,24 +305,24 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             = "error: --delete-session requires --session <id>";
         return result;
     }
-    const int session_mode_count = (parsed.new_session ? 1 : 0)
-        + (parsed.rename_session ? 1 : 0);
-    if (session_mode_count > 1)
+    if (parsed.new_session && parsed.rename_session)
     {
         result.error
             = "error: choose only one of --new-session or --rename-session";
         return result;
     }
+    const int session_mode_count = parsed.new_session ? 1 : 0;
     const int server_mode_count = (parsed.server ? 1 : 0)
         + (parsed.server_status ? 1 : 0)
         + (parsed.list_sessions ? 1 : 0)
+        + (parsed.rename_session ? 1 : 0)
         + (parsed.delete_session ? 1 : 0)
         + (parsed.shutdown_server ? 1 : 0)
         + (parsed.force_stop_server ? 1 : 0);
     if (server_mode_count > 1)
     {
         result.error
-            = "error: choose only one of --server, --server-status, --list-sessions, --delete-session, --shutdown-server, or --force-stop-server";
+            = "error: choose only one of --server, --server-status, --list-sessions, --rename-session, --delete-session, --shutdown-server, or --force-stop-server";
         return result;
     }
     if (server_mode_count > 0 && session_mode_count > 0)

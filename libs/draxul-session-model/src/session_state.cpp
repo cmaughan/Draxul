@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cerrno>
 #include <filesystem>
 #include <exception>
 #include <fstream>
@@ -19,6 +21,9 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 namespace draxul
@@ -38,6 +43,8 @@ constexpr size_t kMaxTreeDepth = 64;
 constexpr size_t kMaxShortTextBytes = 512;
 constexpr size_t kMaxCommandTextBytes = 8192;
 constexpr size_t kMaxStringListEntries = 256;
+constexpr std::string_view kLegacyImportMarker
+    = ".legacy-import-v1.complete";
 
 struct LegacySessionSnapshotV1
 {
@@ -1118,6 +1125,109 @@ bool has_saved_session_state(std::string_view session_id, std::string* error)
     return exists;
 }
 
+static bool flush_session_state_file(
+    const std::filesystem::path& path, std::string* error)
+{
+#ifdef _WIN32
+    HANDLE file = CreateFileW(path.c_str(),
+        GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+    {
+        if (error)
+        {
+            *error = "Unable to open session state for durable flush: "
+                + std::system_category().message(
+                    static_cast<int>(GetLastError()));
+        }
+        return false;
+    }
+    const bool flushed = FlushFileBuffers(file) != FALSE;
+    const DWORD flush_error = flushed ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(file);
+    if (!flushed && error)
+    {
+        *error = "Unable to flush session state: "
+            + std::system_category().message(
+                static_cast<int>(flush_error));
+    }
+    return flushed;
+#else
+    int flags = O_RDONLY;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+    const int file = ::open(path.c_str(), flags);
+    if (file < 0)
+    {
+        if (error)
+        {
+            *error = "Unable to open session state for durable flush: "
+                + std::system_category().message(errno);
+        }
+        return false;
+    }
+    int result = 0;
+    do
+    {
+        result = ::fsync(file);
+    } while (result != 0 && errno == EINTR);
+    const int flush_error = errno;
+    ::close(file);
+    if (result != 0 && error)
+    {
+        *error = "Unable to flush session state: "
+            + std::system_category().message(flush_error);
+    }
+    return result == 0;
+#endif
+}
+
+static bool flush_session_state_directory(
+    const std::filesystem::path& destination, std::string* error)
+{
+#ifdef _WIN32
+    (void)destination;
+    (void)error;
+    return true;
+#else
+    const std::filesystem::path directory
+        = destination.parent_path().empty()
+        ? std::filesystem::path(".")
+        : destination.parent_path();
+    int flags = O_RDONLY;
+#ifdef O_DIRECTORY
+    flags |= O_DIRECTORY;
+#endif
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+    const int file = ::open(directory.c_str(), flags);
+    if (file < 0)
+    {
+        if (error)
+        {
+            *error = "Unable to open session state directory for durable flush: "
+                + std::system_category().message(errno);
+        }
+        return false;
+    }
+    int result = 0;
+    do
+    {
+        result = ::fsync(file);
+    } while (result != 0 && errno == EINTR);
+    const int flush_error = errno;
+    ::close(file);
+    if (result != 0 && error)
+    {
+        *error = "Unable to flush session state directory: "
+            + std::system_category().message(flush_error);
+    }
+    return result == 0;
+#endif
+}
+
 static bool replace_session_state_file(const std::filesystem::path& temporary,
     const std::filesystem::path& destination, std::string* error)
 {
@@ -1145,16 +1255,12 @@ static bool replace_session_state_file(const std::filesystem::path& temporary,
 #endif
 }
 
-bool save_session_state_to_path(const SessionSnapshot& state,
-    const std::filesystem::path& path, std::string* error)
+static bool write_durable_session_state_file(
+    std::string_view content, const std::filesystem::path& path,
+    std::string* error)
 {
-    PERF_MEASURE();
     try
     {
-        auto encoded = encode_session_state(state, error);
-        if (!encoded)
-            return false;
-
         if (!path.parent_path().empty())
             std::filesystem::create_directories(path.parent_path());
         std::filesystem::path temporary = path;
@@ -1166,7 +1272,8 @@ bool save_session_state_to_path(const SessionSnapshot& state,
                 *error = "Unable to open temporary session state for writing.";
             return false;
         }
-        out << *encoded;
+        out.write(content.data(),
+            static_cast<std::streamsize>(content.size()));
         out.flush();
         if (!out)
         {
@@ -1178,12 +1285,20 @@ bool save_session_state_to_path(const SessionSnapshot& state,
             return false;
         }
         out.close();
+        if (!flush_session_state_file(temporary, error))
+        {
+            std::error_code cleanup_error;
+            std::filesystem::remove(temporary, cleanup_error);
+            return false;
+        }
         if (!replace_session_state_file(temporary, path, error))
         {
             std::error_code cleanup_error;
             std::filesystem::remove(temporary, cleanup_error);
             return false;
         }
+        if (!flush_session_state_directory(path, error))
+            return false;
         if (error)
             error->clear();
         return true;
@@ -1192,6 +1307,189 @@ bool save_session_state_to_path(const SessionSnapshot& state,
     {
         if (error)
             *error = "Unable to save session state.";
+        return false;
+    }
+}
+
+bool save_session_state_to_path(const SessionSnapshot& state,
+    const std::filesystem::path& path, std::string* error)
+{
+    PERF_MEASURE();
+    auto encoded = encode_session_state(state, error);
+    return encoded
+        && write_durable_session_state_file(*encoded, path, error);
+}
+
+bool import_legacy_session_store(
+    const std::filesystem::path& source_directory,
+    const std::filesystem::path& destination_directory,
+    SessionStoreImportResult& result, std::string* error)
+{
+    PERF_MEASURE();
+    result = {};
+    const std::filesystem::path marker
+        = destination_directory / kLegacyImportMarker;
+    std::error_code exists_error;
+    if (std::filesystem::exists(marker, exists_error))
+    {
+        result.already_completed = true;
+        if (error)
+            error->clear();
+        return true;
+    }
+    if (exists_error)
+    {
+        if (error)
+            *error = "Unable to inspect the legacy Session import marker: "
+                + exists_error.message();
+        return false;
+    }
+
+    try
+    {
+        std::filesystem::create_directories(destination_directory);
+        std::error_code source_error;
+        std::vector<std::filesystem::path> sources;
+        if (std::filesystem::exists(source_directory, source_error))
+        {
+            for (std::filesystem::directory_iterator it(
+                     source_directory, source_error);
+                 !source_error
+                 && it != std::filesystem::directory_iterator();
+                 it.increment(source_error))
+            {
+                const std::string filename
+                    = it->path().filename().string();
+                if (it->is_regular_file()
+                    && it->path().extension() == ".toml"
+                    && !filename.ends_with(".meta.toml"))
+                {
+                    sources.push_back(it->path());
+                }
+            }
+            if (source_error)
+            {
+                if (error)
+                {
+                    *error = "Unable to scan the legacy Session store: "
+                        + source_error.message();
+                }
+                return false;
+            }
+        }
+        else if (source_error)
+        {
+            if (error)
+                *error = "Unable to inspect the legacy Session store: "
+                    + source_error.message();
+            return false;
+        }
+        std::ranges::sort(sources);
+        const std::filesystem::path legacy_default
+            = source_directory.parent_path()
+            / "session-state.toml";
+        std::error_code legacy_default_error;
+        if (std::filesystem::is_regular_file(
+                legacy_default, legacy_default_error))
+        {
+            // The pre-directory default snapshot is older than the
+            // Sessions store, so process it last and never overwrite a
+            // destination produced by the newer store.
+            sources.push_back(legacy_default);
+        }
+        for (const auto& source : sources)
+        {
+            std::string load_error;
+            auto snapshot
+                = load_session_state_from_path(source, &load_error);
+            if (!snapshot)
+            {
+                result.warnings.push_back(
+                    "Could not import legacy Session file '"
+                    + source.filename().string() + "': "
+                    + (load_error.empty()
+                              ? "the file is invalid."
+                              : load_error));
+                continue;
+            }
+            const std::filesystem::path destination
+                = destination_directory
+                / (snapshot->session_id == "default"
+                          ? std::string("default.toml")
+                          : session_state_file_name(
+                                snapshot->session_id));
+            std::error_code destination_error;
+            if (std::filesystem::exists(
+                    destination, destination_error))
+            {
+                continue;
+            }
+            if (destination_error)
+            {
+                result.warnings.push_back(
+                    "Could not inspect imported Session destination '"
+                    + destination.filename().string() + "': "
+                    + destination_error.message());
+                continue;
+            }
+            std::error_code size_error;
+            const uintmax_t source_size
+                = std::filesystem::file_size(
+                    source, size_error);
+            if (size_error
+                || source_size > kMaxSessionStateBytes)
+            {
+                result.warnings.push_back(
+                    "Could not copy legacy Session file '"
+                    + source.filename().string()
+                    + "': the file is too large or unreadable.");
+                continue;
+            }
+            std::ifstream input(source, std::ios::binary);
+            std::string original(
+                static_cast<size_t>(source_size), '\0');
+            input.read(original.data(),
+                static_cast<std::streamsize>(
+                    original.size()));
+            if (!input
+                && static_cast<size_t>(input.gcount())
+                    != original.size())
+            {
+                result.warnings.push_back(
+                    "Could not copy legacy Session file '"
+                    + source.filename().string()
+                    + "': reading the source failed.");
+                continue;
+            }
+            std::string save_error;
+            if (!write_durable_session_state_file(
+                    original, destination, &save_error))
+            {
+                result.warnings.push_back(
+                    "Could not copy legacy Session file '"
+                    + source.filename().string() + "': "
+                    + save_error);
+                continue;
+            }
+            ++result.imported;
+        }
+
+        const std::string marker_contents
+            = "legacy-session-import-v1\n";
+        if (!write_durable_session_state_file(
+                marker_contents, marker, error))
+        {
+            return false;
+        }
+        if (error)
+            error->clear();
+        return true;
+    }
+    catch (const std::exception& ex)
+    {
+        if (error)
+            *error = "Unable to import the legacy Session store: "
+                + std::string(ex.what());
         return false;
     }
 }

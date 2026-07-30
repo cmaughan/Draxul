@@ -1589,9 +1589,31 @@ Implementation status (2026-07-29):
 - `--delete-session --session <id>` is server-owned: it refuses attached UIs,
   requires `--yes` before stopping live terminals, removes the in-memory Session,
   and deletes its checkpoint so it stays gone after restart;
+- `--rename-session` is also server-owned, so list/rename/delete now address the
+  same live Session registry and report the shared-server store in their output;
+- ordinary first startup performs a one-time, read-only import from
+  `<config>/sessions/` (and the older single default snapshot) into the server
+  store. It validates each source, copies its original bytes without rewriting,
+  leaves the legacy store untouched, and records a durable marker. Bad sources
+  are warnings, not a reason to repeat or abandon the migration;
+- checkpoint writes are durable and asynchronous. Corrupt files are archived,
+  partial restores keep checkpointing, attaching UIs see one-time warnings, and
+  graceful shutdown uses a bounded persistence budget while still capturing a
+  revision that advanced behind an in-flight write;
 - focused app/core tests and an isolated executable gate cover ordinary auto-launch,
   detach with a live terminal, status, refusal of unconfirmed shutdown, confirmed
   shutdown, and server exit.
+
+Legacy-store retirement:
+
+- The legacy store is intentionally a confidence-period fallback for
+  `--no-server`, not a permanent read-through second home. The shared server only
+  imports it once and never writes it.
+- Retire the importer and legacy local store only after the shared-server default
+  has shipped with migration telemetry/manual recovery confidence and
+  `--no-server` no longer needs to preserve old layouts. Until then, schema
+  compatibility remains one-way: validate and byte-copy old snapshots, then let
+  normal server checkpoints evolve the imported copies.
 
 Repeatable Windows acceptance (`build-ninja-release`):
 
