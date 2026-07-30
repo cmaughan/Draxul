@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -41,6 +42,17 @@ struct ControlClientResult
     nlohmann::json result;
     std::string error_code;
     std::string error_message;
+};
+
+struct ControlRequestOptions
+{
+    // Bounds the complete connect/write/read exchange. This is deliberately
+    // an absolute request budget rather than a timeout that restarts after
+    // every partial I/O operation.
+    std::chrono::milliseconds timeout = std::chrono::seconds(5);
+    // Internal recovery path for a server that restarted while its metadata
+    // was cached. Normal callers leave this false.
+    bool refresh_metadata = false;
 };
 
 std::filesystem::path control_runtime_directory(
@@ -95,7 +107,8 @@ public:
     static ControlClientResult request(std::string_view session_id,
         const std::filesystem::path& runtime_directory,
         std::string_view method,
-        nlohmann::json params = nlohmann::json::object());
+        nlohmann::json params = nlohmann::json::object(),
+        ControlRequestOptions options = {});
 };
 
 } // namespace draxul

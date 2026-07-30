@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <draxul/agent_model.h>
 #include <functional>
@@ -51,9 +52,9 @@ private:
     std::thread reader_thread_;
     std::atomic<bool> reader_running_{ false };
     std::mutex output_mutex_;
+    std::condition_variable output_space_;
     std::vector<std::string> output_chunks_;
     size_t output_bytes_ = 0;
-    bool output_overflowed_ = false;
     std::function<void()> on_output_available_;
     mutable std::optional<int> last_exit_code_;
 };

@@ -1119,6 +1119,11 @@ void PaneManager::update_divider_from_pixel(DividerId id, int px, int py, int ce
             if (const auto ratio
                 = tree_.divider_ratio_from_pixel(id, px, py, snap))
             {
+                // Projected layouts are still optimistic while the pointer
+                // is moving. App trails this with one authoritative command;
+                // a later server snapshot confirms or corrects the preview.
+                tree_.set_divider_ratio(id, *ratio);
+                update_all_viewports();
                 deps_.request_projected_divider_ratio(id, *ratio);
             }
         }

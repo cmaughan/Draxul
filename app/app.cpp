@@ -20,7 +20,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <draxul/atlas_upload.h>
-#include <draxul/agent_client.h>
 #include <draxul/control_plane.h>
 #include <draxul/grid_host_base.h>
 #include <draxul/log.h>
@@ -28,9 +27,9 @@
 #include <draxul/perf_timing.h>
 #include <draxul/pixel_scale.h>
 #include <draxul/render_test_driver.h>
+#include <draxul/remote_session_client.h>
 #include <draxul/sdl_window.h>
 #include <draxul/server_client.h>
-#include <draxul/topology_client.h>
 #include <filesystem>
 #include <imgui.h>
 #include <sstream>
@@ -732,7 +731,7 @@ bool App::initialize_chrome_host()
         return std::make_pair(state.text, state.alpha);
     };
     chrome_deps.set_tab_name = [this](int tab_id, std::string name) {
-        if (topology_client_)
+        if (remote_session_client_)
         {
             const auto space_id = remote_space_id(
                 space_controller_.active_space_id());
@@ -769,7 +768,7 @@ bool App::initialize_chrome_host()
     chrome_deps.set_pane_name = [this](LeafId leaf, std::string name) {
         // Apply to whichever tab currently owns the leaf — pane edits
         // are always against the active tab.
-        if (topology_client_)
+        if (remote_session_client_)
         {
             const auto space_id = remote_space_id(
                 space_controller_.active_space_id());
@@ -903,7 +902,9 @@ bool App::initialize_chrome_host()
     refresh_app_shell_layout();
 
     const float font_size = imgui_font_size_from_metrics(text_service_.metrics());
-    active_pane_manager().host()->set_imgui_font(text_service_.primary_font_path(), font_size);
+    if (IHost* host = active_pane_manager().host())
+        host->set_imgui_font(
+            text_service_.primary_font_path(), font_size);
 
     const std::string session_label = session_name_.empty() ? options_.session_id : session_name_;
     if (restored_session)
@@ -927,7 +928,7 @@ void App::wire_gui_actions()
     gui_deps.on_font_changed = [this]() { apply_font_metrics(); };
     gui_deps.on_open_file_dialog = [this]() { window_->show_open_file_dialog(); };
     gui_deps.on_split_vertical = [this](std::optional<HostKind> kind) {
-        if (topology_client_)
+        if (remote_session_client_)
         {
             std::string error;
             if (!split_remote_focused(
@@ -953,7 +954,7 @@ void App::wire_gui_actions()
         }
     };
     gui_deps.on_split_horizontal = [this](std::optional<HostKind> kind) {
-        if (topology_client_)
+        if (remote_session_client_)
         {
             std::string error;
             if (!split_remote_focused(
@@ -996,18 +997,22 @@ void App::wire_gui_actions()
                 "This window is using the local terminal runtime.");
             return;
         }
-        const auto status = ServerClient::status(
-            options_.server_runtime_directory);
-        if (!status.ok || !status.status)
+        if (!remote_session_client_)
         {
             push_toast(2,
-                status.error_message.empty()
-                    ? "Draxul server status is unavailable."
-                    : status.error_message);
+                "Draxul server status worker is unavailable.");
             return;
         }
-        push_toast(0,
-            format_server_status_summary(*status.status));
+        const auto request_id
+            = remote_session_client_->request_status();
+        if (!request_id)
+        {
+            push_toast(1,
+                "A Draxul server status request is already pending.");
+            return;
+        }
+        pending_server_status_actions_[*request_id]
+            = PendingServerStatusAction::ShowStatus;
     };
     gui_deps.on_open_server_log = [this]() {
         if (options_.server_runtime_directory.empty())
@@ -1112,7 +1117,7 @@ void App::wire_gui_actions()
         push_toast(0, message);
     };
     gui_deps.on_edit_config = [this]() {
-        if (topology_client_)
+        if (remote_session_client_)
         {
             push_toast(1,
                 "Edit-config launch arguments are not in shared topology yet.");
@@ -1149,7 +1154,7 @@ void App::wire_gui_actions()
         request_frame();
     };
     gui_deps.on_close_pane = [this]() {
-        if (topology_client_)
+        if (remote_session_client_)
         {
             if (active_pane_manager().host_count() > 1)
             {
@@ -1231,7 +1236,7 @@ void App::wire_gui_actions()
         request_frame();
     };
     gui_deps.on_restart_host = [this]() {
-        if (topology_client_)
+        if (remote_session_client_)
         {
             const auto server_terminal
                 = remote_focused_pane_is_server_terminal();
@@ -1262,7 +1267,7 @@ void App::wire_gui_actions()
         }
     };
     gui_deps.on_swap_pane = [this]() {
-        if (topology_client_)
+        if (remote_session_client_)
         {
             std::string error;
             if (!swap_remote_focused_pane(error))
@@ -1299,7 +1304,7 @@ void App::wire_gui_actions()
         const float step = 0.05f;
         const float delta
             = (dir == FocusDirection::Right || dir == FocusDirection::Down) ? step : -step;
-        if (topology_client_)
+        if (remote_session_client_)
         {
             const auto current = hm.divider_ratio(id);
             if (!current)
@@ -1378,7 +1383,7 @@ void App::wire_gui_actions()
         request_frame();
     };
     gui_deps.on_duplicate_pane = [this]() {
-        if (topology_client_)
+        if (remote_session_client_)
         {
             std::string error;
             if (!split_remote_focused(
@@ -1405,7 +1410,7 @@ void App::wire_gui_actions()
         }
     };
     gui_deps.on_equalize_panes = [this]() {
-        if (topology_client_)
+        if (remote_session_client_)
         {
             std::string error;
             if (!equalize_remote_splits(error))
@@ -1618,19 +1623,30 @@ void App::open_stop_server_prompt()
             "This window is not attached to the shared server.");
         return;
     }
-    const auto status = ServerClient::status(
-        options_.server_runtime_directory);
-    if (!status.ok || !status.status)
+    if (!remote_session_client_)
     {
         push_toast(2,
-            status.error_message.empty()
-                ? "Draxul server status is unavailable."
-                : status.error_message);
+            "Draxul server status worker is unavailable.");
         return;
     }
+    const auto request_id
+        = remote_session_client_->request_status();
+    if (!request_id)
+    {
+        push_toast(1,
+            "A Draxul server status request is already pending.");
+        return;
+    }
+    pending_server_status_actions_[*request_id]
+        = PendingServerStatusAction::ConfirmStop;
+}
+
+void App::show_stop_server_prompt(
+    const ServerStatusSnapshot& status)
+{
     size_t live_terminals = 0;
     for (const auto& session
-        : status.status->session_statuses)
+        : status.session_statuses)
     {
         live_terminals += session.live_terminals;
     }
@@ -1659,7 +1675,12 @@ void App::open_stop_server_prompt()
         std::string error;
         if (!ServerClient::shutdown(
                 options_.server_runtime_directory,
-                { .confirm_live_terminals = true }, error))
+                {
+                    .confirm_live_terminals = true,
+                    .request_timeout
+                    = std::chrono::milliseconds(100),
+                },
+                error))
         {
             push_toast(2, error);
             return;
@@ -1668,6 +1689,37 @@ void App::open_stop_server_prompt()
     };
     if (!palette_host_->open_choices(std::move(request)))
         push_toast(2, "Unable to open server shutdown confirmation.");
+}
+
+void App::handle_remote_status_completion(
+    RemoteStatusCompletion completion)
+{
+    const auto pending
+        = pending_server_status_actions_.find(
+            completion.request_id);
+    if (pending == pending_server_status_actions_.end())
+        return;
+    const PendingServerStatusAction action = pending->second;
+    pending_server_status_actions_.erase(pending);
+
+    if (!completion.result.ok
+        || !completion.result.status)
+    {
+        push_toast(2,
+            completion.result.error_message.empty()
+                ? "Draxul server status is unavailable."
+                : completion.result.error_message);
+        return;
+    }
+    if (action == PendingServerStatusAction::ShowStatus)
+    {
+        push_toast(0, format_server_status_summary(
+                          *completion.result.status));
+    }
+    else
+    {
+        show_stop_server_prompt(*completion.result.status);
+    }
 }
 
 void App::open_launch_agent_prompt()
@@ -2152,7 +2204,8 @@ bool App::close_dead_panes()
     }
     if (!dead.empty())
         mark_session_dirty();
-    return active_pane_manager().host() != nullptr;
+    return remote_session_client_
+        || active_pane_manager().host() != nullptr;
 }
 
 void App::rebuild_render_tree()
@@ -2263,8 +2316,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         agent_controller_.begin_frame();
         process_control_requests();
         flush_pending_remote_split_ratio();
-        poll_remote_topology();
-        poll_remote_agents();
+        consume_remote_session_state();
 
         // Safety net: detect window size changes that SDL may not deliver as
         // events (e.g. during a Windows modal resize drag).
@@ -2517,7 +2569,7 @@ bool App::dispatch_to_nvim_host(std::string_view action, bool keep_focus)
     }
 
     // No existing NvimHost — create a vertical split with one.
-    if (topology_client_)
+    if (remote_session_client_)
     {
         std::string error;
         if (!split_remote_focused(
@@ -2970,139 +3022,97 @@ bool App::initialize_remote_topology()
             = "Remote topology requires a server runtime and client identity.";
         return false;
     }
-    topology_client_ = std::make_unique<TopologyClient>(
-        TopologyClientOptions{
+    if (find_active_tab() == nullptr)
+    {
+        TabController& tabs = active_tab_controller();
+        const int placeholder
+            = tabs.add_projected_tab(
+                make_pane_manager_deps());
+        if (placeholder < 0
+            || !tabs.activate_tab(placeholder))
+        {
+            last_init_error_
+                = "Failed to create the shared Session placeholder.";
+            return false;
+        }
+    }
+    remote_session_client_
+        = std::make_unique<RemoteSessionClient>(
+            RemoteSessionClientOptions{
             .runtime_directory = options_.server_runtime_directory,
             .client_id = options_.server_client_id,
             .session_id = options_.session_id,
+            .wake_consumer = [this] { wake_window(); },
         });
-    std::string error;
-    bool topology_applied = false;
-    uint64_t failed_revision = 0;
-    constexpr int kMaximumProjectionAttempts = 4;
-    for (int attempt = 0;
-         attempt < kMaximumProjectionAttempts;
-         ++attempt)
+    if (!remote_session_client_->start())
     {
-        if (!topology_client_->refresh(error))
-            break;
-        const uint64_t revision
-            = topology_client_->snapshot().revision;
-        if (attempt > 0 && revision <= failed_revision)
-        {
-            error = "Server topology still references a terminal "
-                    "which no longer exists.";
-            break;
-        }
-        if (apply_remote_topology_spaces(
-                topology_client_->snapshot(), &error))
-        {
-            topology_applied = true;
-            break;
-        }
-        if (remote_topology_projection_error_code_
-            != "terminal_not_found")
-        {
-            break;
-        }
-        failed_revision = revision;
-    }
-    if (!topology_applied)
-    {
-        last_init_error_ = error.empty()
-            ? "Failed to initialize shared server topology."
-            : "Failed to initialize shared server topology: " + error;
-        topology_client_.reset();
+        last_init_error_
+            = "Failed to start the shared Session client worker.";
+        remote_session_client_.reset();
         return false;
     }
-    agent_client_ = std::make_unique<AgentClient>(
-        AgentClientOptions{
-            .runtime_directory
-            = options_.server_runtime_directory,
-            .client_id = options_.server_client_id,
-            .session_id = options_.session_id,
-        });
-    if (!agent_client_->refresh(error)
-        || !apply_remote_agents(
-            agent_client_->snapshot(), &error))
-    {
-        last_init_error_ = error.empty()
-            ? "Failed to initialize shared server agents."
-            : "Failed to initialize shared server agents: "
-                + error;
-        agent_client_.reset();
-        agent_controller_.clear_server_agents();
-        topology_client_.reset();
-        return false;
-    }
-    next_topology_poll_
-        = std::chrono::steady_clock::now()
-        + std::chrono::milliseconds(100);
-    next_agent_poll_
-        = std::chrono::steady_clock::now()
-        + std::chrono::milliseconds(100);
+    push_toast(0, "Connecting to shared Session...");
     return true;
 }
 
-void App::poll_remote_topology()
+void App::consume_remote_session_state()
 {
-    if (!topology_client_)
+    if (!remote_session_client_)
         return;
-    const auto now = std::chrono::steady_clock::now();
-    if (now < next_topology_poll_)
+    auto published
+        = remote_session_client_->take_published_state();
+    if (!published)
         return;
-    next_topology_poll_ = now + std::chrono::milliseconds(100);
 
-    bool changed = false;
-    std::string error;
-    if (!topology_client_->poll(changed, error))
+    if (published->topology_error)
     {
         if (!topology_poll_error_announced_)
         {
             topology_poll_error_announced_ = true;
-            push_toast(1, "Shared topology unavailable: " + error);
+            push_toast(1, "Shared topology unavailable: "
+                    + *published->topology_error);
         }
-        return;
     }
-    topology_poll_error_announced_ = false;
-    if (changed
-        && !apply_remote_topology_spaces(
-            topology_client_->snapshot(), &error))
+    else if (published->topology)
     {
-        push_toast(2, "Could not apply shared topology: " + error);
+        topology_poll_error_announced_ = false;
     }
-}
-
-void App::poll_remote_agents()
-{
-    if (!agent_client_)
-        return;
-    const auto now = std::chrono::steady_clock::now();
-    if (now < next_agent_poll_)
-        return;
-    next_agent_poll_
-        = now + std::chrono::milliseconds(100);
-
-    bool changed = false;
-    std::string error;
-    if (!agent_client_->poll(changed, error))
+    if (published->agent_error)
     {
         if (!agent_poll_error_announced_)
         {
             agent_poll_error_announced_ = true;
-            push_toast(
-                1, "Shared agents unavailable: " + error);
+            push_toast(1, "Shared agents unavailable: "
+                    + *published->agent_error);
         }
-        return;
     }
-    agent_poll_error_announced_ = false;
-    if (changed
-        && !apply_remote_agents(
-            agent_client_->snapshot(), &error))
+    else if (published->agents)
     {
-        push_toast(
-            2, "Could not apply shared agents: " + error);
+        agent_poll_error_announced_ = false;
     }
+
+    for (auto& completion : published->commands)
+        apply_remote_command_completion(
+            std::move(completion));
+
+    std::string error;
+    if (published->topology
+        && published->topology->revision
+            > remote_topology_snapshot_.revision
+        && !apply_remote_topology_spaces(
+            *published->topology, &error))
+    {
+        push_toast(2,
+            "Could not apply shared topology: " + error);
+    }
+    error.clear();
+    if (published->agents
+        && !apply_remote_agents(*published->agents, &error))
+        push_toast(2, "Could not apply shared agents: " + error);
+
+    for (auto& completion : published->statuses)
+        handle_remote_status_completion(
+            std::move(completion));
 }
 
 bool App::apply_remote_agents(
@@ -3255,23 +3265,13 @@ bool App::apply_remote_topology_spaces(
 
     if (!apply_remote_topology_tabs(snapshot, error))
         return false;
+    remote_topology_snapshot_ = snapshot;
 
     if (structure_changed)
     {
         refresh_app_shell_layout();
         input_dispatcher_.set_host(
             active_pane_manager().focused_host());
-    }
-    if (agent_client_)
-    {
-        std::string agent_error;
-        if (!apply_remote_agents(
-                agent_client_->snapshot(), &agent_error)
-            && error)
-        {
-            *error = std::move(agent_error);
-            return false;
-        }
     }
     request_frame();
     return true;
@@ -3668,7 +3668,7 @@ bool App::project_remote_tab(const TopologyTab& remote,
 bool App::execute_remote_topology_command(
     TopologyCommand command, std::string& error)
 {
-    if (!topology_client_)
+    if (!remote_session_client_)
     {
         error = "Shared topology is not connected.";
         return false;
@@ -3678,27 +3678,140 @@ bool App::execute_remote_topology_command(
         command.command_id = options_.server_client_id + "-"
             + std::to_string(next_topology_command_serial_++);
     }
-    for (int attempt = 0; attempt < 2; ++attempt)
+    if (!remote_session_client_->enqueue(std::move(command)))
     {
-        command.expected_revision
-            = topology_client_->snapshot().revision;
-        TopologyCommandResult result;
-        if (topology_client_->execute(command, result, error))
-            return apply_remote_topology_spaces(result.snapshot, &error);
-        if (topology_client_->last_error_code()
-            != "revision_conflict")
+        error = "Shared topology command queue is full.";
+        return false;
+    }
+    error.clear();
+    return true;
+}
+
+void App::apply_remote_command_completion(
+    RemoteTopologyCommandCompletion completion)
+{
+    if (!completion.ok || !completion.snapshot)
+    {
+        if (!topology_command_error_announced_)
         {
-            return false;
+            topology_command_error_announced_ = true;
+            push_toast(2,
+                completion.error_message.empty()
+                    ? "Shared topology command failed."
+                    : completion.error_message);
         }
-        if (!topology_client_->refresh(error)
-            || !apply_remote_topology_spaces(
-                topology_client_->snapshot(), &error))
+        return;
+    }
+    topology_command_error_announced_ = false;
+
+    std::unordered_set<std::string> previous_spaces;
+    std::unordered_set<std::string> previous_tabs;
+    std::unordered_set<std::string> previous_panes;
+    for (const TopologySpace& space
+        : remote_topology_snapshot_.spaces)
+    {
+        previous_spaces.insert(space.space_id);
+        if (space.space_id != completion.command.space_id)
+            continue;
+        for (const TopologyTab& tab : space.tabs)
         {
-            return false;
+            previous_tabs.insert(tab.tab_id);
+            if (tab.tab_id != completion.command.tab_id)
+                continue;
+            for (const TopologyPane& pane : tab.panes)
+                previous_panes.insert(pane.pane_id);
         }
     }
-    error = "Shared topology changed repeatedly; retry the action.";
-    return false;
+
+    std::string error;
+    if (!apply_remote_topology_spaces(
+            *completion.snapshot, &error))
+    {
+        if (!topology_command_error_announced_)
+        {
+            topology_command_error_announced_ = true;
+            push_toast(2,
+                error.empty()
+                    ? "Could not apply shared topology."
+                    : error);
+        }
+        return;
+    }
+
+    if (completion.command.kind
+        == TopologyCommandKind::CreateSpace)
+    {
+        for (const TopologySpace& space
+            : completion.snapshot->spaces)
+        {
+            if (previous_spaces.contains(space.space_id))
+                continue;
+            const auto mapped
+                = topology_space_to_local_.find(space.space_id);
+            if (mapped != topology_space_to_local_.end())
+                activate_space(mapped->second);
+            break;
+        }
+    }
+    else if (completion.command.kind
+        == TopologyCommandKind::CreateTab)
+    {
+        for (const TopologySpace& space
+            : completion.snapshot->spaces)
+        {
+            if (space.space_id != completion.command.space_id)
+                continue;
+            for (const TopologyTab& tab : space.tabs)
+            {
+                if (previous_tabs.contains(tab.tab_id))
+                    continue;
+                const auto mapped
+                    = topology_tab_to_local_.find(tab.tab_id);
+                if (mapped != topology_tab_to_local_.end())
+                {
+                    activate_space(mapped->second.first);
+                    activate_tab(mapped->second.second);
+                }
+                break;
+            }
+            break;
+        }
+    }
+    else if (completion.command.kind
+        == TopologyCommandKind::SplitPane)
+    {
+        for (const TopologySpace& space
+            : completion.snapshot->spaces)
+        {
+            if (space.space_id != completion.command.space_id)
+                continue;
+            for (const TopologyTab& tab : space.tabs)
+            {
+                if (tab.tab_id != completion.command.tab_id)
+                    continue;
+                for (const TopologyPane& pane : tab.panes)
+                {
+                    if (previous_panes.contains(pane.pane_id))
+                        continue;
+                    const auto leaf
+                        = topology_pane_to_leaf_.find(
+                            pane.pane_id);
+                    if (leaf != topology_pane_to_leaf_.end())
+                    {
+                        active_pane_manager().set_focused(
+                            leaf->second);
+                        input_dispatcher_.set_host(
+                            active_pane_manager()
+                                .focused_host());
+                        request_frame();
+                    }
+                    break;
+                }
+                break;
+            }
+            break;
+        }
+    }
 }
 
 bool App::split_remote_focused(
@@ -3724,22 +3837,7 @@ bool App::split_remote_focused(
     const bool server_terminal
         = !host_kind || is_remote_server_shell_kind(kind);
 
-    std::unordered_set<std::string> previous_panes;
-    for (const TopologySpace& space
-        : topology_client_->snapshot().spaces)
-    {
-        if (space.space_id != *space_id)
-            continue;
-        for (const TopologyTab& tab : space.tabs)
-        {
-            if (tab.tab_id != *tab_id)
-                continue;
-            for (const TopologyPane& pane : tab.panes)
-                previous_panes.insert(pane.pane_id);
-        }
-    }
-
-    if (!execute_remote_topology_command({
+    return execute_remote_topology_command({
             .kind = TopologyCommandKind::SplitPane,
             .space_id = *space_id,
             .tab_id = *tab_id,
@@ -3752,37 +3850,7 @@ bool App::split_remote_focused(
                 ? std::string{}
                 : std::string(to_string(kind)),
         },
-            error))
-    {
-        return false;
-    }
-
-    for (const TopologySpace& space
-        : topology_client_->snapshot().spaces)
-    {
-        if (space.space_id != *space_id)
-            continue;
-        for (const TopologyTab& tab : space.tabs)
-        {
-            if (tab.tab_id != *tab_id)
-                continue;
-            for (const TopologyPane& pane : tab.panes)
-            {
-                if (previous_panes.contains(pane.pane_id))
-                    continue;
-                const auto leaf
-                    = topology_pane_to_leaf_.find(pane.pane_id);
-                if (leaf != topology_pane_to_leaf_.end())
-                    active_pane_manager().set_focused(leaf->second);
-                input_dispatcher_.set_host(
-                    active_pane_manager().focused_host());
-                request_frame();
-                return true;
-            }
-        }
-    }
-    error = "Created shared pane was not projected.";
-    return false;
+        error);
 }
 
 bool App::close_remote_focused_pane(std::string& error)
@@ -3862,7 +3930,7 @@ bool App::restart_remote_focused_pane(std::string& error)
 std::optional<bool>
 App::remote_focused_pane_is_server_terminal() const
 {
-    if (!topology_client_)
+    if (!remote_session_client_)
         return std::nullopt;
     const SpaceId local_space_id
         = space_controller_.active_space_id();
@@ -3874,7 +3942,7 @@ App::remote_focused_pane_is_server_terminal() const
     if (!space_id || !tab_id || pane_id.empty())
         return std::nullopt;
     for (const TopologySpace& space
-        : topology_client_->snapshot().spaces)
+        : remote_topology_snapshot_.spaces)
     {
         if (space.space_id != *space_id)
             continue;
@@ -3954,11 +4022,7 @@ bool App::equalize_remote_splits(std::string& error)
 void App::queue_remote_split_ratio(
     DividerId divider_id, float ratio)
 {
-    if (!topology_client_)
-        return;
-    const auto current
-        = active_pane_manager().divider_ratio(divider_id);
-    if (current && std::abs(*current - ratio) < 0.0001f)
+    if (!remote_session_client_)
         return;
     const SpaceId local_space_id
         = space_controller_.active_space_id();
@@ -3979,6 +4043,8 @@ void App::queue_remote_split_ratio(
         .tab_id = *tab_id,
         .node_id = node->second,
         .ratio = std::clamp(ratio, 0.1f, 0.9f),
+        .commit_after = std::chrono::steady_clock::now()
+            + std::chrono::milliseconds(75),
     };
 }
 
@@ -3986,6 +4052,11 @@ void App::flush_pending_remote_split_ratio()
 {
     if (!pending_topology_ratio_)
         return;
+    if (std::chrono::steady_clock::now()
+        < pending_topology_ratio_->commit_after)
+    {
+        return;
+    }
     PendingTopologyRatio pending
         = std::move(*pending_topology_ratio_);
     pending_topology_ratio_.reset();
@@ -4053,14 +4124,8 @@ Result<SpaceId, Error> App::create_space(
             root_directory = options_.host_working_dir;
     }
 
-    if (topology_client_)
+    if (remote_session_client_)
     {
-        std::unordered_set<std::string> previous;
-        for (const auto& remote
-            : topology_client_->snapshot().spaces)
-        {
-            previous.insert(remote.space_id);
-        }
         TopologyCommand command{
             .kind = TopologyCommandKind::CreateSpace,
             .name = name,
@@ -4074,26 +4139,10 @@ Result<SpaceId, Error> App::create_space(
             return Result<SpaceId, Error>::err(
                 Error::invalid_argument(error));
         }
-        for (const auto& remote
-            : topology_client_->snapshot().spaces)
-        {
-            if (previous.contains(remote.space_id))
-                continue;
-            const auto mapped
-                = topology_space_to_local_.find(remote.space_id);
-            if (mapped != topology_space_to_local_.end())
-            {
-                if (auto activated = activate_space(mapped->second);
-                    !activated)
-                {
-                    return Result<SpaceId, Error>::err(
-                        activated.error());
-                }
-                return mapped->second;
-            }
-        }
-        return Result<SpaceId, Error>::err(
-            Error::init("Created server Space was not projected."));
+        // The completion activates the newly projected Space. Return the
+        // current stable id so synchronous callers can treat enqueue as
+        // success without waiting on the server.
+        return space_controller_.active_space_id();
     }
 
     const SpaceId id = space_controller_.create_space(name, std::move(root_directory));
@@ -4151,7 +4200,7 @@ Result<void, Error> App::rename_space(SpaceId id, std::string_view raw_name)
     const std::string name = trim_session_name(raw_name);
     if (name.empty())
         return Result<void, Error>::err(Error::invalid_argument("Enter a Space name."));
-    if (topology_client_)
+    if (remote_session_client_)
     {
         const auto remote_id = remote_space_id(id);
         if (!remote_id)
@@ -4185,7 +4234,7 @@ Result<void, Error> App::close_space(SpaceId id)
     if (space_controller_.count() <= 1)
         return Result<void, Error>::err(Error::invalid_argument("The final Space cannot be closed."));
 
-    if (topology_client_)
+    if (remote_session_client_)
     {
         const auto remote_id = remote_space_id(id);
         if (!remote_id)
@@ -4250,7 +4299,7 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
     if (!window_ || !chrome_host_ || !diagnostics_host_)
         return Result<std::string, Error>::err(
             Error::init("Draxul is not ready to launch an agent."));
-    if (topology_client_)
+    if (remote_session_client_)
     {
         const SpaceId local_space_id
             = space_controller_.active_space_id();
@@ -4266,7 +4315,7 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
         if (space_id && tab_id)
         {
             for (const TopologySpace& space
-                : topology_client_->snapshot().spaces)
+                : remote_topology_snapshot_.spaces)
             {
                 if (space.space_id != *space_id)
                     continue;
@@ -4326,7 +4375,10 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
                 kServerControlId,
                 options_.server_runtime_directory),
             options_.server_runtime_directory,
-            "agent.start", std::move(params));
+            "agent.start", std::move(params),
+            {
+                .timeout = std::chrono::milliseconds(100),
+            });
         if (!started.ok)
         {
             return Result<std::string, Error>::err(
@@ -4335,23 +4387,8 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
                         ? "Server failed to launch the agent."
                         : started.error_message));
         }
-        std::string refresh_error;
-        if (!topology_client_->refresh(refresh_error)
-            || !apply_remote_topology_spaces(
-                topology_client_->snapshot(),
-                &refresh_error)
-            || !agent_client_
-            || !agent_client_->refresh(refresh_error)
-            || !apply_remote_agents(
-                agent_client_->snapshot(),
-                &refresh_error))
-        {
-            return Result<std::string, Error>::err(
-                Error::init(
-                    refresh_error.empty()
-                        ? "Agent started, but the shared view did not refresh."
-                        : refresh_error));
-        }
+        // The shared Session worker observes and applies the new topology and
+        // agent projection without blocking this GUI action.
         if (started.result.contains("route")
             && started.result["route"].is_object())
         {
@@ -4701,7 +4738,7 @@ bool App::create_initial_tab(int pixel_w, int pixel_h)
 
 int App::add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
 {
-    if (topology_client_)
+    if (remote_session_client_)
     {
         const SpaceId local_space_id
             = space_controller_.active_space_id();
@@ -4715,16 +4752,6 @@ int App::add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
             PaneManager::platform_default_split_host_kind());
         const bool server_terminal
             = !host_kind || is_remote_server_shell_kind(kind);
-
-        std::unordered_set<std::string> previous_tabs;
-        for (const TopologySpace& space
-            : topology_client_->snapshot().spaces)
-        {
-            if (space.space_id != *space_id)
-                continue;
-            for (const TopologyTab& tab : space.tabs)
-                previous_tabs.insert(tab.tab_id);
-        }
 
         std::string error;
         if (!execute_remote_topology_command({
@@ -4743,28 +4770,8 @@ int App::add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
             last_init_error_ = std::move(error);
             return -1;
         }
-        for (const TopologySpace& space
-            : topology_client_->snapshot().spaces)
-        {
-            if (space.space_id != *space_id)
-                continue;
-            for (const TopologyTab& tab : space.tabs)
-            {
-                if (previous_tabs.contains(tab.tab_id))
-                    continue;
-                const auto mapped
-                    = topology_tab_to_local_.find(tab.tab_id);
-                if (mapped == topology_tab_to_local_.end())
-                    continue;
-                space_controller_.find_space(local_space_id)
-                    ->tab_controller.activate_tab(
-                        mapped->second.second);
-                return mapped->second.second;
-            }
-        }
-        last_init_error_
-            = "Created shared tab was not projected.";
-        return -1;
+        // The completion activates the newly projected tab.
+        return active_tab_id();
     }
 
     const int id = active_tab_controller().add_tab(
@@ -4778,7 +4785,7 @@ int App::add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
 
 bool App::close_tab(int tab_id)
 {
-    if (topology_client_)
+    if (remote_session_client_)
     {
         const SpaceId local_space_id
             = space_controller_.active_space_id();
@@ -4839,7 +4846,7 @@ void App::prev_tab()
 
 void App::move_tab(int direction)
 {
-    if (topology_client_)
+    if (remote_session_client_)
     {
         const SpaceId local_space_id
             = space_controller_.active_space_id();
@@ -5335,6 +5342,11 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
 void App::shutdown()
 {
     PERF_MEASURE();
+    if (remote_session_client_)
+    {
+        remote_session_client_->stop();
+        remote_session_client_.reset();
+    }
     if (control_server_)
     {
         control_server_->stop();
@@ -5356,24 +5368,6 @@ void App::shutdown()
         persist_session_state();
 
     space_controller_.shutdown_all();
-    if (!server_disconnect_sent_
-        && options_.enable_remote_topology
-        && !options_.server_runtime_directory.empty()
-        && !options_.server_client_id.empty())
-    {
-        server_disconnect_sent_ = true;
-        std::string disconnect_error;
-        if (!ServerClient::disconnect(
-                options_.server_runtime_directory,
-                options_.server_client_id,
-                disconnect_error))
-        {
-            DRAXUL_LOG_DEBUG(LogCategory::App,
-                "Could not unregister Draxul UI client %s: %s",
-                options_.server_client_id.c_str(),
-                disconnect_error.c_str());
-        }
-    }
     render_root_ = RenderNode{};
 
     if (chrome_host_)

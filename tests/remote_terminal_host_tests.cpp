@@ -7,8 +7,11 @@
 
 #include <draxul/remote_terminal_client.h>
 #include <draxul/remote_terminal_host.h>
+#include <draxul/control_plane.h>
+#include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_client.h>
 #include <draxul/server_kernel.h>
+#include <draxul/server_protocol.h>
 #include <draxul/text_service.h>
 #include <draxul/topology_client.h>
 
@@ -116,6 +119,170 @@ bool snapshot_contains(
 }
 
 } // namespace
+
+TEST_CASE("remote terminal host shutdown is bounded and stops between commands",
+    "[host][remote-terminal][shutdown]")
+{
+    TempDir temp("draxul-remote-host-bounded-shutdown");
+    ControlServer control;
+    std::string control_error;
+    REQUIRE(control.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &control_error));
+
+    std::mutex input_mutex;
+    std::condition_variable input_changed;
+    bool release_first_input = false;
+    std::atomic<int> input_calls = 0;
+    std::atomic<bool> first_input_started = false;
+    std::atomic<bool> first_input_fully_framed = false;
+    TerminalSemanticSnapshot snapshot{
+        .cols = 80,
+        .rows = 12,
+        .cells = std::vector<TerminalCellSnapshot>(
+            80 * 12, TerminalCellSnapshot{ .text = " " }),
+        .metadata = {
+            .modes = { .bracketed_paste = true },
+        },
+    };
+    RemoteTerminalAttach attach{
+        .pane = {
+            .pane_id = std::string(kFakeRemotePaneId),
+            .terminal_id = std::string(kFakeRemoteTerminalId),
+            .name = "Shutdown Test",
+            .execution_domain = "server_terminal",
+        },
+        .state = {
+            .kind = RemoteTerminalEventKind::Snapshot,
+            .version = {
+                .server_epoch = "bounded-shutdown-epoch",
+                .terminal_id = std::string(kFakeRemoteTerminalId),
+                .generation = 1,
+            },
+            .controller_client_id = "bounded-shutdown-client",
+            .snapshot = snapshot,
+        },
+    };
+    std::jthread dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            control.process_pending([&](const ControlRequest& request) {
+                if (request.method == "fake.attach")
+                {
+                    return ControlMethodResult::success(
+                        remote_terminal_attach_to_json(attach));
+                }
+                if (request.method == "fake.poll")
+                {
+                    return ControlMethodResult::success({
+                        { "events", nlohmann::json::array() },
+                    });
+                }
+                if (request.method == "fake.input")
+                {
+                    const int call = ++input_calls;
+                    if (call == 1)
+                    {
+                        const std::string text
+                            = request.params.value("text", "");
+                        first_input_fully_framed
+                            = text.size() <= 48 * 1024
+                            && text.starts_with("\x1B[200~")
+                            && text.ends_with("\x1B[201~");
+                        {
+                            std::lock_guard lock(input_mutex);
+                            first_input_started = true;
+                        }
+                        input_changed.notify_all();
+                        std::unique_lock lock(input_mutex);
+                        input_changed.wait(lock,
+                            [&] {
+                                return release_first_input
+                                    || stop.stop_requested();
+                            });
+                    }
+                    return ControlMethodResult::success(
+                        nlohmann::json::object());
+                }
+                return ControlMethodResult::success(
+                    nlohmann::json::object());
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TextService text_service;
+    TextServiceConfig text_config;
+    text_config.font_path = bundled_font_path();
+    REQUIRE(text_service.initialize(
+        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    TestHostCallbacks callbacks;
+    RemoteTerminalHost host({
+        .runtime_directory = temp.path,
+        .client_id = "bounded-shutdown-client",
+        .server_epoch = "bounded-shutdown-epoch",
+    });
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .launch_options = {
+            .kind = HostKind::RemoteTerminal,
+        },
+        .initial_viewport = {
+            .pixel_size = { 640, 240 },
+            .grid_size = { 80, 12 },
+        },
+        .display_ppi = 96.0f,
+    };
+    const bool initialized = host.initialize(context, callbacks);
+    INFO(host.init_error_code() << ": " << host.init_error());
+    REQUIRE(initialized);
+    REQUIRE(pump_until(host, [&] {
+        return host.status_text().find("remote controller")
+            != std::string::npos;
+    }));
+
+    window.clipboard_ = std::string(10 * 48 * 1024, 'x');
+    REQUIRE(host.dispatch_action("paste"));
+    {
+        std::unique_lock lock(input_mutex);
+        REQUIRE(input_changed.wait_for(lock, std::chrono::seconds(2),
+            [&] { return first_input_started.load(); }));
+    }
+
+    const auto started_at = std::chrono::steady_clock::now();
+    host.shutdown();
+    const auto elapsed = std::chrono::steady_clock::now() - started_at;
+    CHECK(elapsed < std::chrono::seconds(1));
+    const auto repeated_started_at = std::chrono::steady_clock::now();
+    host.shutdown();
+    CHECK(std::chrono::steady_clock::now() - repeated_started_at
+        < std::chrono::milliseconds(50));
+
+    {
+        std::lock_guard lock(input_mutex);
+        release_first_input = true;
+    }
+    input_changed.notify_all();
+    const auto worker_deadline
+        = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (host.is_running()
+        && std::chrono::steady_clock::now() < worker_deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK_FALSE(host.is_running());
+    CHECK(input_calls == 1);
+    CHECK(first_input_fully_framed);
+
+    dispatcher.request_stop();
+    input_changed.notify_all();
+    dispatcher.join();
+    control.stop();
+}
 
 TEST_CASE("remote terminal host chunks a large paste without stopping",
     "[host][remote-terminal][paste][backpressure]")
@@ -388,8 +555,10 @@ TEST_CASE("remote terminal host attaches to its projected terminal identity",
     HostContext missing_context = context;
     missing_context.launch_options.remote_terminal_id
         = projected.terminal_id;
-    CHECK_FALSE(missing.initialize(
-        missing_context, callbacks));
+    REQUIRE(missing.initialize(missing_context, callbacks));
+    REQUIRE(pump_until(missing, [&] {
+        return !missing.is_running();
+    }));
     CHECK(missing.init_error_code() == "terminal_not_found");
 }
 
@@ -448,6 +617,10 @@ TEST_CASE("two rendered remote terminal hosts survive repeated control transfer"
     second_context.initial_viewport.grid_size = { 30, 6 };
 
     REQUIRE(first.initialize(first_context, first_callbacks));
+    REQUIRE(pump_until(first, [&] {
+        return first.status_text().find("controller")
+            != std::string::npos;
+    }));
     REQUIRE(second.initialize(second_context, second_callbacks));
     REQUIRE(pump_until(first, [&] {
         second.pump();
@@ -564,6 +737,10 @@ TEST_CASE("remote terminal hosts scroll and select server history independently"
     second_context.grid_renderer = &second_renderer;
 
     REQUIRE(first.initialize(first_context, first_callbacks));
+    REQUIRE(pump_until(first, [&] {
+        return first.status_text().find("controller")
+            != std::string::npos;
+    }));
     REQUIRE(second.initialize(second_context, second_callbacks));
     REQUIRE(pump_until(first, [&] {
         second.pump();

@@ -20,6 +20,7 @@
 #include <draxul/renderer.h>
 #include <draxul/result.h>
 #include <draxul/system_resource_monitor.h>
+#include <draxul/topology_protocol.h>
 
 #include "weather_service.h"
 #include <draxul/text_service.h>
@@ -36,8 +37,7 @@ namespace draxul
 class MacOsMenu;
 class ControlServer;
 class ControlEventJournal;
-class AgentClient;
-class TopologyClient;
+class RemoteSessionClient;
 struct ServerAgentSnapshot;
 struct TopologyCommand;
 struct TopologySnapshot;
@@ -176,6 +176,8 @@ private:
     void open_switch_space_picker();
     void open_rename_space_prompt();
     void open_stop_server_prompt();
+    void show_stop_server_prompt(
+        const struct ServerStatusSnapshot& status);
     void open_launch_agent_prompt();
     void open_attach_agent_picker();
     void open_focus_agent_picker();
@@ -202,8 +204,11 @@ private:
     void process_control_requests();
     ControlMethodResult handle_control_request(const ControlRequest& request);
     bool initialize_remote_topology();
-    void poll_remote_topology();
-    void poll_remote_agents();
+    void consume_remote_session_state();
+    void apply_remote_command_completion(
+        struct RemoteTopologyCommandCompletion completion);
+    void handle_remote_status_completion(
+        struct RemoteStatusCompletion completion);
     bool apply_remote_agents(
         const ServerAgentSnapshot& snapshot,
         std::string* error = nullptr);
@@ -314,8 +319,8 @@ private:
     AgentDefinitionRegistry agent_definitions_;
     std::unique_ptr<ControlServer> control_server_;
     std::unique_ptr<ControlEventJournal> control_events_;
-    std::unique_ptr<AgentClient> agent_client_;
-    std::unique_ptr<TopologyClient> topology_client_;
+    std::unique_ptr<RemoteSessionClient> remote_session_client_;
+    TopologySnapshot remote_topology_snapshot_;
     std::unordered_map<std::string, SpaceId> topology_space_to_local_;
     std::unordered_map<SpaceId, std::string> local_space_to_topology_;
     std::unordered_map<std::string, std::pair<SpaceId, int>>
@@ -332,14 +337,21 @@ private:
         std::string tab_id;
         std::string node_id;
         float ratio = 0.5f;
+        std::chrono::steady_clock::time_point commit_after;
     };
     std::optional<PendingTopologyRatio> pending_topology_ratio_;
     LeafId next_topology_leaf_id_ = 0;
     uint64_t next_topology_command_serial_ = 1;
-    std::chrono::steady_clock::time_point next_topology_poll_{};
-    std::chrono::steady_clock::time_point next_agent_poll_{};
     bool topology_poll_error_announced_ = false;
     bool agent_poll_error_announced_ = false;
+    bool topology_command_error_announced_ = false;
+    enum class PendingServerStatusAction
+    {
+        ShowStatus,
+        ConfirmStop,
+    };
+    std::unordered_map<uint64_t, PendingServerStatusAction>
+        pending_server_status_actions_;
     std::string remote_topology_projection_error_code_;
     uint64_t next_agent_instance_serial_ = 1;
     RenderNode render_root_;
@@ -347,7 +359,6 @@ private:
     DiagnosticsCollector diagnostics_collector_;
     std::string session_name_;
     bool discard_session_state_on_shutdown_ = false;
-    bool server_disconnect_sent_ = false;
     bool session_dirty_ = false;
     uint64_t session_dirty_generation_ = 0;
     std::chrono::steady_clock::time_point last_session_mutation_time_{};

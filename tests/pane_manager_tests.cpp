@@ -846,7 +846,7 @@ TEST_CASE("pane manager: identifies only server-owned remote terminals",
                         local_harness.manager.focused_leaf()));
 }
 
-TEST_CASE("pane manager: projected divider drag reports without local mutation",
+TEST_CASE("pane manager: projected divider drag previews and reports locally",
     "[pane_manager][topology]")
 {
     std::optional<std::pair<DividerId, float>> requested;
@@ -885,7 +885,7 @@ TEST_CASE("pane manager: projected divider drag reports without local mutation",
     CHECK(requested->first == 0);
     CHECK(requested->second > 0.7f);
     CHECK(harness.manager.divider_ratio(0)
-        == Catch::Approx(0.5f));
+        == Catch::Approx(requested->second));
 }
 
 TEST_CASE("pane manager: only terminal shell layouts are checkpoint-restorable",

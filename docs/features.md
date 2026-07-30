@@ -89,7 +89,11 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   delivery queues are bounded. Clean goodbye or lease expiry releases every terminal
   subscription and controller claim; a paused UI reattaches and retries safely.
   Topology and agent projections refresh automatically if a restarted server reports
-  an earlier revision. Reconnect restores the current server state.
+  an earlier revision. Reconnect restores the current server state. Topology, agent,
+  status, and terminal attachment work runs away from the render thread; projected
+  panes remain responsive placeholders until their first snapshot arrives. Divider
+  drags preview locally and send one trailing authoritative update rather than
+  blocking the UI on every mouse move.
 - The real endpoint retains bounded semantic scrollback and serves versioned pages.
   Each window owns its scroll offset, selection, clipboard copy, and cursor
   presentation, so scrolling one client does not disturb another. Keyboard, focus,

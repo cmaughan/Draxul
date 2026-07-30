@@ -14,6 +14,8 @@
 #include "support/temp_dir.h"
 
 #include <draxul/control_plane.h>
+#include <draxul/remote_session_client.h>
+#include <draxul/server_client.h>
 
 #include <atomic>
 #include <chrono>
@@ -475,6 +477,274 @@ TEST_CASE("control transport authenticates and dispatches on the caller thread",
     const auto metadata = server.metadata_path();
     server.stop();
     CHECK_FALSE(std::filesystem::exists(metadata));
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
+TEST_CASE("control requests obey one absolute deadline",
+    "[control][deadline]")
+{
+    const auto runtime = unique_runtime_directory();
+    ControlServer server;
+    std::atomic<bool> request_queued = false;
+    std::string start_error;
+    REQUIRE(server.start("deadline-test", runtime,
+        [&] { request_queued = true; }, &start_error));
+
+    const auto started_at = std::chrono::steady_clock::now();
+    auto client = std::async(std::launch::async, [&] {
+        return ControlClient::request("deadline-test", runtime,
+            "test.stalled", nlohmann::json::object(),
+            { .timeout = std::chrono::milliseconds(75) });
+    });
+    const auto queue_deadline
+        = std::chrono::steady_clock::now()
+        + std::chrono::seconds(1);
+    while (!request_queued
+        && std::chrono::steady_clock::now() < queue_deadline)
+    {
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(1));
+    }
+    REQUIRE(request_queued);
+    REQUIRE(client.wait_for(std::chrono::milliseconds(500))
+        == std::future_status::ready);
+    const auto response = client.get();
+    CHECK_FALSE(response.ok);
+    CHECK(response.error_code == "deadline_exceeded");
+    CHECK(std::chrono::steady_clock::now() - started_at
+        < std::chrono::milliseconds(500));
+
+    server.stop();
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
+TEST_CASE("control clients reuse recently read endpoint metadata",
+    "[control][metadata]")
+{
+    const auto runtime = unique_runtime_directory();
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(
+        "metadata-cache-test", runtime, [] {}, &start_error));
+
+    auto request = [&] {
+        auto client = std::async(std::launch::async, [&] {
+            return ControlClient::request("metadata-cache-test",
+                runtime, "test.cached");
+        });
+        const auto deadline
+            = std::chrono::steady_clock::now()
+            + std::chrono::seconds(2);
+        while (client.wait_for(std::chrono::milliseconds(0))
+                != std::future_status::ready
+            && std::chrono::steady_clock::now() < deadline)
+        {
+            server.process_pending([](const ControlRequest&) {
+                return ControlMethodResult::success(true);
+            });
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(1));
+        }
+        REQUIRE(client.wait_for(std::chrono::milliseconds(0))
+            == std::future_status::ready);
+        return client.get();
+    };
+
+    REQUIRE(request().ok);
+    std::error_code remove_error;
+    REQUIRE(std::filesystem::remove(
+        server.metadata_path(), remove_error));
+    REQUIRE_FALSE(remove_error);
+    CHECK(request().ok);
+
+    server.stop();
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
+TEST_CASE("remote Session client publishes topology and command results",
+    "[control][client-worker]")
+{
+    const auto runtime = unique_runtime_directory();
+    const std::string control_id
+        = namespaced_control_id(kServerControlId, runtime);
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(control_id, runtime, [] {}, &start_error));
+
+    TopologySnapshot topology{
+        .revision = 1,
+        .session_id = "default",
+        .spaces = {
+            {
+                .space_id = "space-1",
+                .name = "Work",
+                .tabs = {
+                    {
+                        .tab_id = "tab-1",
+                        .name = "Tab",
+                        .root_node_id = "node-1",
+                        .nodes = {
+                            {
+                                .node_id = "node-1",
+                                .is_leaf = true,
+                                .pane_id = "pane-1",
+                            },
+                        },
+                        .panes = {
+                            {
+                                .pane_id = "pane-1",
+                                .name = "Shell",
+                                .domain
+                                = TopologyPaneDomain::ClientLocal,
+                                .client_host_kind
+                                = "platform_default",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    };
+    ServerAgentSnapshot agents{
+        .revision = 1,
+        .session_id = "default",
+    };
+    std::atomic<int> command_count = 0;
+    auto dispatch = [&](const ControlRequest& request) {
+        if (request.method == "topology.snapshot")
+            return ControlMethodResult::success(
+                topology_snapshot_to_json(topology));
+        if (request.method == "agent.snapshot")
+            return ControlMethodResult::success(
+                server_agent_snapshot_to_json(agents));
+        if (request.method == "topology.poll")
+        {
+            return ControlMethodResult::success({
+                { "changed", false },
+                { "revision", topology.revision },
+            });
+        }
+        if (request.method == "agent.poll")
+        {
+            return ControlMethodResult::success({
+                { "changed", false },
+                { "revision", agents.revision },
+            });
+        }
+        if (request.method == "topology.command")
+        {
+            ++command_count;
+            topology.spaces.front().name
+                = request.params.value("name", "Renamed");
+            ++topology.revision;
+            return ControlMethodResult::success(
+                topology_command_result_to_json({
+                    .applied = true,
+                    .snapshot = topology,
+                }));
+        }
+        return ControlMethodResult::error(
+            "unknown_method", "Unexpected test method.");
+    };
+
+    RemoteSessionClient client({
+        .runtime_directory = runtime,
+        .client_id = "ui-test",
+        .session_id = "default",
+    });
+    REQUIRE(client.start());
+    bool saw_topology = false;
+    bool saw_agents = false;
+    const auto initial_deadline
+        = std::chrono::steady_clock::now()
+        + std::chrono::seconds(2);
+    while ((!saw_topology || !saw_agents)
+        && std::chrono::steady_clock::now() < initial_deadline)
+    {
+        server.process_pending(dispatch);
+        if (auto state = client.take_published_state())
+        {
+            saw_topology
+                = saw_topology || state->topology.has_value();
+            saw_agents = saw_agents || state->agents.has_value();
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(1));
+    }
+    REQUIRE(saw_topology);
+    REQUIRE(saw_agents);
+
+    REQUIRE(client.enqueue({
+        .command_id = "rename-1",
+        .kind = TopologyCommandKind::RenameSpace,
+        .space_id = "space-1",
+        .name = "Renamed",
+    }));
+    bool completed = false;
+    const auto command_deadline
+        = std::chrono::steady_clock::now()
+        + std::chrono::seconds(2);
+    while (!completed
+        && std::chrono::steady_clock::now() < command_deadline)
+    {
+        server.process_pending(dispatch);
+        if (auto state = client.take_published_state())
+        {
+            for (const auto& completion : state->commands)
+            {
+                completed = completion.ok
+                    && completion.snapshot
+                    && completion.snapshot->revision == 2;
+            }
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(1));
+    }
+    CHECK(completed);
+    CHECK(command_count == 1);
+
+    client.stop();
+    server.stop();
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
+TEST_CASE("control server stop fails queued dispatch before listener join",
+    "[control][shutdown]")
+{
+    const auto runtime = unique_runtime_directory();
+    ControlServer server;
+    std::atomic<bool> request_queued = false;
+    std::string start_error;
+    REQUIRE(server.start("stop-pending-test", runtime,
+        [&] { request_queued = true; }, &start_error));
+
+    auto client = std::async(std::launch::async, [&] {
+        return ControlClient::request("stop-pending-test", runtime,
+            "test.never_processed", nlohmann::json::object());
+    });
+    const auto queue_deadline
+        = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!request_queued
+        && std::chrono::steady_clock::now() < queue_deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE(request_queued);
+
+    const auto started_at = std::chrono::steady_clock::now();
+    server.stop();
+    const auto elapsed = std::chrono::steady_clock::now() - started_at;
+    CHECK(elapsed < std::chrono::seconds(2));
+    REQUIRE(client.wait_for(std::chrono::milliseconds(0))
+        == std::future_status::ready);
+    const auto response = client.get();
+    CHECK_FALSE(response.ok);
+    CHECK(response.error_code == "server_stopping");
+
     std::error_code ignored;
     std::filesystem::remove_all(runtime, ignored);
 }

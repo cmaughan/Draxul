@@ -47,28 +47,28 @@ the duration (per-op, repeated).
 
 ## Implementation
 
-- [ ] Move topology and agent polling onto the worker-thread + published-state pattern
+- [x] Move topology and agent polling onto the worker-thread + published-state pattern
       `RemoteTerminalHost::Impl` already implements. The main thread should only consume a
       snapshot the worker prepared.
-- [ ] Make divider drags optimistic-local with a single trailing authoritative commit, instead
+- [x] Make divider drags optimistic-local with a single trailing authoritative commit, instead
       of a round trip per frame.
-- [ ] Make pane attach asynchronous, with a placeholder pane until the first snapshot arrives,
+- [x] Make pane attach asynchronous, with a placeholder pane until the first snapshot arrives,
       so projecting N panes does not serialize N synchronous attaches on the render thread.
-- [ ] Make `ServerClient::status` calls from GUI actions asynchronous, or give main-thread
+- [x] Make `ServerClient::status` calls from GUI actions asynchronous, or give main-thread
       requests a short deadline (~100 ms) distinct from the transport's 5 s.
-- [ ] Give `ControlClient::request` an absolute per-request deadline in addition to the
+- [x] Give `ControlClient::request` an absolute per-request deadline in addition to the
       per-operation timeouts, so a trickling peer cannot extend a call indefinitely.
-- [ ] Cache the endpoint metadata read rather than hitting the filesystem on every request.
-- [ ] Show the window before `ensure()` completes, with a "connecting to server" surface, or
+- [x] Cache the endpoint metadata read rather than hitting the filesystem on every request.
+- [x] Show the window before `ensure()` completes, with a "connecting to server" surface, or
       drop the pre-window timeout to ~2 s and handle the remainder in-window.
-- [ ] Latch apply-failure and drag-failure toasts the way `topology_poll_error_announced_`
+- [x] Latch apply-failure and drag-failure toasts the way `topology_poll_error_announced_`
       already latches poll failures, so a persistent failure does not strobe the toast stack.
 
 ## Unit tests
 
 - [ ] With a deliberately stalled server, frame pumping continues and the window keeps
       rendering; no main-thread call exceeds the short deadline.
-- [ ] Topology and agent state still converge through the worker path (port the existing
+- [x] Topology and agent state still converge through the worker path (port the existing
       convergence assertions).
 - [ ] A drag produces one committed `SetSplitRatio`, not one per frame.
 - [ ] Repeated apply failures produce one toast, not one per poll.
@@ -78,7 +78,7 @@ the duration (per-op, repeated).
 - [ ] A wedged-but-alive server leaves the UI responsive: input, rendering, and pane switching
       all continue.
 - [ ] Cold start shows a window within ~1 s even when the server takes seconds to come up.
-- [ ] No `ControlClient::request` call remains on the render thread without a short deadline.
+- [x] No `ControlClient::request` call remains on the render thread without a short deadline.
 - [ ] Full build, `ctest`, and smoke pass on both platforms.
 
 ## Dependencies and ownership
@@ -88,3 +88,7 @@ stop *feeling* like a hang, so it should land before the recovery work in
 `kanban/pending/18`/`19` is judged. Overlaps `kanban/pending/27
 topology-projection-extraction -refactor.md`: if both are scheduled, extract the projection
 first and give it the worker thread as part of the move.
+
+Windows validation completed with the Release build, all core/app CTest shards, focused
+deadline/cache/worker tests, and the repository smoke test. The remaining unchecked items
+are manual stress or second-platform coverage.

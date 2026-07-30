@@ -323,7 +323,7 @@ TEST_CASE("app smoke: initialize succeeds with all fakes", "[app_smoke]")
     app.shutdown();
 }
 
-TEST_CASE("app smoke: remote topology does not create a legacy placeholder host",
+TEST_CASE("app smoke: remote topology starts with a host-free placeholder",
     "[app_smoke][topology]")
 {
     TempDir temp("draxul-app-remote-placeholder");
@@ -341,9 +341,10 @@ TEST_CASE("app smoke: remote topology does not create a legacy placeholder host"
     };
 
     App app(std::move(opts));
-    CHECK_FALSE(app.initialize());
+    REQUIRE(app.initialize());
     CHECK(host_creations == 0);
-    CHECK_FALSE(app.init_error().empty());
+    CHECK(app.init_error().empty());
+    app.shutdown();
 }
 
 TEST_CASE("app smoke: Space lifecycle creates rooted hosts and switches in memory",

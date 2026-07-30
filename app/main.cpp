@@ -590,6 +590,7 @@ static int draxul_main(std::vector<std::string> args)
             .runtime_directory = connected_server_runtime,
             .executable_path = current_executable,
             .client_id = connected_server_client_id,
+            .timeout = std::chrono::seconds(2),
             .terminal_shell_kind = selected_server_shell,
             .terminal_command = parsed.host_command,
             .terminal_working_directory

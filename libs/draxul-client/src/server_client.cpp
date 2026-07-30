@@ -256,7 +256,8 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
     const auto response = ControlClient::request(
         namespaced_control_id(kServerControlId, options.runtime_directory),
         options.runtime_directory,
-        "server.hello", server_hello_to_json(hello));
+        "server.hello", server_hello_to_json(hello),
+        { .timeout = options.request_timeout });
     if (!response.ok)
     {
         if (response.error_code == "incompatible_protocol")
@@ -425,7 +426,8 @@ bool ServerClient::shutdown(
         namespaced_control_id(kServerControlId, runtime_directory),
         runtime_directory, "server.shutdown",
         { { "confirm_live_terminals",
-            options.confirm_live_terminals } });
+            options.confirm_live_terminals } },
+        { .timeout = options.request_timeout });
     if (!response.ok)
     {
         error = response.error_message;

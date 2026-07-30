@@ -131,10 +131,19 @@ void ServerTerminalRuntime::retire_process_async()
     std::thread(
         [process = std::move(process),
             writer = std::move(writer)]() mutable {
+#ifdef _WIN32
+            if (writer.joinable())
+            {
+                process->cancel_pending_write(
+                    static_cast<HANDLE>(writer.native_handle()));
+                writer.join();
+            }
+#else
             process->request_close();
-            process->shutdown();
             if (writer.joinable())
                 writer.join();
+#endif
+            process->shutdown();
         })
         .detach();
 }
@@ -262,9 +271,8 @@ bool ServerTerminalRuntime::pump()
 {
     if (!process_)
         return false;
-    bool overflowed = false;
-    auto chunks = process_->drain_output(&overflowed);
-    if (chunks.empty() && !overflowed)
+    auto chunks = process_->drain_output();
+    if (chunks.empty())
         return false;
     ++agent_output_generation_;
     agent_last_output_at_
@@ -274,13 +282,6 @@ bool ServerTerminalRuntime::pump()
         core_.feed(chunk);
     core_.end_output_cursor_batch();
     core_.reconcile_provisional_cursor_after_pump(true);
-    if (overflowed)
-    {
-        grid_.mark_all_dirty();
-        DRAXUL_LOG_WARN(LogCategory::App,
-            "Server terminal output exceeded the %zu-byte reader queue; dropped stale output and forced a full-grid resync",
-            Process::kMaxQueuedOutputBytes);
-    }
     // Keep dirty state server-side until DEC synchronized output ends. This
     // preserves the same atomic presentation guarantee as a local terminal:
     // clients see the completed frame, never its intermediate mutations.

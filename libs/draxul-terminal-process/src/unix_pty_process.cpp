@@ -342,6 +342,9 @@ bool UnixPtyProcess::spawn(const std::string& command, const std::vector<std::st
 
     // Parent process.
     close(slave_fd);
+    const int master_flags = fcntl(master_fd_, F_GETFL, 0);
+    if (master_flags >= 0)
+        (void)fcntl(master_fd_, F_SETFL, master_flags | O_NONBLOCK);
     on_output_available_ = std::move(on_output_available);
     reader_running_ = true;
     reader_thread_ = std::thread([this]() { reader_main(); });
@@ -352,6 +355,7 @@ void UnixPtyProcess::shutdown()
 {
     PERF_MEASURE();
     reader_running_ = false;
+    output_space_.notify_all();
 
     // Signal the reader thread to wake up immediately via the shutdown pipe.
     if (shutdown_pipe_[1] >= 0)
@@ -448,7 +452,6 @@ void UnixPtyProcess::shutdown()
     std::scoped_lock lock(output_mutex_);
     output_chunks_.clear();
     output_bytes_ = 0;
-    output_overflowed_ = false;
 }
 
 void UnixPtyProcess::request_close()
@@ -619,13 +622,22 @@ bool UnixPtyProcess::write(std::string_view text) const
         return false;
     const char* ptr = text.data();
     size_t remaining = text.size();
-    while (remaining > 0)
+    while (remaining > 0 && reader_running_)
     {
         const ssize_t written = ::write(master_fd_, ptr, remaining);
         if (written < 0)
         {
             if (errno == EINTR)
                 continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                pollfd descriptor{ master_fd_, POLLOUT, 0 };
+                const int ready = ::poll(&descriptor, 1, 50);
+                if (ready >= 0)
+                    continue;
+                if (errno == EINTR)
+                    continue;
+            }
             return false; // real write error
         }
         if (written == 0)
@@ -633,7 +645,7 @@ bool UnixPtyProcess::write(std::string_view text) const
         ptr += written;
         remaining -= static_cast<size_t>(written);
     }
-    return true;
+    return remaining == 0;
 }
 
 std::vector<std::string> UnixPtyProcess::drain_output(
@@ -645,7 +657,8 @@ std::vector<std::string> UnixPtyProcess::drain_output(
     drained.swap(output_chunks_);
     output_bytes_ = 0;
     if (overflowed)
-        *overflowed = std::exchange(output_overflowed_, false);
+        *overflowed = false;
+    output_space_.notify_all();
     return drained;
 }
 
@@ -684,16 +697,18 @@ void UnixPtyProcess::reader_main()
                 break;
 
             {
-                std::scoped_lock lock(output_mutex_);
-                if (output_bytes_ + static_cast<size_t>(bytes_read)
-                    > kMaxQueuedOutputBytes)
-                {
-                    output_chunks_.clear();
-                    output_bytes_ = 0;
-                    output_overflowed_ = true;
-                }
+                std::unique_lock lock(output_mutex_);
+                const size_t chunk_bytes
+                    = static_cast<size_t>(bytes_read);
+                output_space_.wait(lock, [this, chunk_bytes] {
+                    return !reader_running_
+                        || output_bytes_
+                            <= kMaxQueuedOutputBytes - chunk_bytes;
+                });
+                if (!reader_running_)
+                    break;
                 output_chunks_.emplace_back(buffer.data(), buffer.data() + bytes_read);
-                output_bytes_ += static_cast<size_t>(bytes_read);
+                output_bytes_ += chunk_bytes;
             }
 
             if (on_output_available_)

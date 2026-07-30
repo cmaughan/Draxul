@@ -33,36 +33,40 @@ The same `ControlServer` is embedded in the UI's `App`, so this hits both proces
 
 ## Implementation
 
-- [ ] Check `stopping_` between commands in the host worker loop so a stop takes effect at the
+- [x] Check `stopping_` between commands in the host worker loop so a stop takes effect at the
       next command boundary rather than after the whole batch.
-- [ ] Skip the worker-side `disconnect` when stopping, and issue `server.goodbye` best-effort
+- [x] Skip the worker-side `disconnect` when stopping, and issue `server.goodbye` best-effort
       with a short (~250 ms) deadline or from a detached thread.
-- [ ] Time-box or detach the worker join so one unresponsive pane cannot hold exit.
-- [ ] In `ControlServer::Impl::stop()`, set a stopping flag and drain/fail the queue **before**
+- [x] Time-box or detach the worker join so one unresponsive pane cannot hold exit.
+- [x] In `ControlServer::Impl::stop()`, set a stopping flag and drain/fail the queue **before**
       `request_stop()`/`join()`, and have `dispatch()` return immediately once that flag is set.
-- [ ] Audit the remaining synchronous calls on teardown paths (`App::shutdown`,
+- [x] Audit the remaining synchronous calls on teardown paths (`App::shutdown`,
       `request_close`, destructors) and give each an explicit bounded deadline.
 
 ## Unit tests
 
-- [ ] Closing a pane whose server never responds completes within a bounded time.
+- [x] Closing a pane whose server never responds completes within a bounded time.
 - [ ] `App::shutdown` with N remote panes against a hung server completes within a bounded
       time that does not scale with N × timeout.
-- [ ] `ControlServer::stop()` fails pending promises promptly rather than after the join.
-- [ ] A stop requested mid-batch is honoured at the next command boundary.
+- [x] `ControlServer::stop()` fails pending promises promptly rather than after the join.
+- [x] A stop requested mid-batch is honoured at the next command boundary.
 
 ## Acceptance criteria
 
 - [ ] Quitting Draxul with several remote panes against a hung server takes seconds, not
       minutes.
-- [ ] `ServerKernel::stop()` does not block on listener threads waiting for a dead main loop.
-- [ ] No teardown path makes an unbounded synchronous request.
+- [x] `ServerKernel::stop()` does not block on listener threads waiting for a dead main loop.
+- [x] No teardown path makes an unbounded synchronous request.
 - [ ] Full build, `ctest`, and smoke pass on both platforms.
 
 ## Dependencies and ownership
 
 Shares `remote_terminal_host.cpp` with `kanban/pending/15` and `kanban/pending/19`, and
-`control_plane.cpp` with `kanban/pending/17 sync-ipc-on-ui-thread -bug.md` (the absolute
+`control_plane.cpp` with `kanban/done/17 sync-ipc-on-ui-thread -bug.md` (the absolute
 per-request deadline added there is the same mechanism this card needs on teardown). Schedule
 after or alongside `17`. Related existing card:
 `kanban/ice-box/69 concurrent-host-shutdown -test.md`.
+
+Windows validation completed with focused host/control shutdown tests, all core/app CTest
+shards, and the repository smoke test. The remaining unchecked items are multi-pane manual
+stress or second-platform coverage.

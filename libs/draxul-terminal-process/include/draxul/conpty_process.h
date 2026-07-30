@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <draxul/agent_model.h>
 #include <functional>
@@ -51,6 +52,10 @@ public:
     std::optional<AgentProcessObservation> foreground_process_observation() const;
     bool resize(int cols, int rows);
     bool write(std::string_view text);
+    // Prevent a writer thread from entering another synchronous pipe write,
+    // cancelling an already-blocked write if necessary. The caller must join
+    // that writer before shutdown mutates the process handles.
+    void cancel_pending_write(HANDLE writer_thread);
     std::vector<std::string> drain_output(
         bool* overflowed = nullptr);
 
@@ -67,10 +72,12 @@ private:
     std::vector<unsigned char> attribute_storage_;
     std::thread reader_thread_;
     std::atomic<bool> reader_running_{ false };
+    std::atomic<bool> writes_stopping_{ false };
+    std::mutex input_mutex_;
     std::mutex output_mutex_;
+    std::condition_variable output_space_;
     std::vector<std::string> output_chunks_;
     size_t output_bytes_ = 0;
-    bool output_overflowed_ = false;
     std::function<void()> on_output_available_;
     mutable std::optional<int> last_exit_code_;
 };

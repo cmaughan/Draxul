@@ -3,6 +3,7 @@
 #include "support/temp_dir.h"
 #include "../libs/draxul-server/src/fake_terminal_runtime.h"
 #include "../libs/draxul-server/src/remote_terminal_service.h"
+#include "../libs/draxul-server/src/server_terminal_runtime.h"
 
 #include <draxul/agent_client.h>
 #include <draxul/agent_protocol.h>
@@ -29,6 +30,7 @@
 
 #include <tlhelp32.h>
 #else
+#include <csignal>
 #include <unistd.h>
 #endif
 
@@ -87,6 +89,80 @@ TEST_CASE("remote terminal input backpressure is nonfatal and observable",
         >= 100);
     CHECK(metrics.value["loop_latency_warnings"].get<uint64_t>()
         >= 1);
+}
+
+TEST_CASE("server terminal teardown stays off the kernel thread under input backpressure",
+    "[server][remote-terminal][backpressure][shutdown]")
+{
+    ServerTerminalRuntimeOptions options;
+#ifdef _WIN32
+    options.command = "powershell.exe";
+    options.args = {
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "Start-Sleep -Seconds 30",
+    };
+#else
+    options.command = "/bin/sh";
+    options.args = { "-c", "sleep 30" };
+#endif
+    auto runtime
+        = std::make_unique<ServerTerminalRuntime>(std::move(options));
+    std::string error;
+    REQUIRE(runtime->ensure_started(error));
+    const uint64_t process_id = runtime->process_id();
+    REQUIRE(process_id != 0);
+
+    const std::string input(64 * 1024, 'x');
+    bool saw_backpressure = false;
+    for (int attempt = 0; attempt < 32; ++attempt)
+    {
+        if (runtime->send_input(input)
+            == RemoteTerminalInputResult::Backpressure)
+        {
+            saw_backpressure = true;
+            break;
+        }
+    }
+    REQUIRE(saw_backpressure);
+
+    const auto started = std::chrono::steady_clock::now();
+    runtime.reset();
+    const auto elapsed
+        = std::chrono::steady_clock::now() - started;
+    CHECK(elapsed < std::chrono::milliseconds(100));
+
+    const auto exit_deadline
+        = std::chrono::steady_clock::now()
+        + std::chrono::seconds(3);
+    bool process_alive = true;
+    do
+    {
+#ifdef _WIN32
+        HANDLE process = OpenProcess(
+            SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+            FALSE, static_cast<DWORD>(process_id));
+        if (!process)
+        {
+            process_alive = false;
+        }
+        else
+        {
+            DWORD exit_code = STILL_ACTIVE;
+            process_alive = GetExitCodeProcess(process, &exit_code)
+                && exit_code == STILL_ACTIVE;
+            CloseHandle(process);
+        }
+#else
+        process_alive = ::kill(static_cast<pid_t>(process_id), 0) == 0;
+#endif
+        if (process_alive)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    } while (process_alive
+        && std::chrono::steady_clock::now() < exit_deadline);
+    CHECK_FALSE(process_alive);
 }
 
 namespace

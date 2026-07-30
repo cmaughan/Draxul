@@ -40,6 +40,8 @@ struct ServerEnsureOptions
     int protocol_major = kServerProtocolMajor;
     int protocol_minor = kServerProtocolMinor;
     std::chrono::milliseconds timeout = std::chrono::seconds(10);
+    std::chrono::milliseconds request_timeout
+        = std::chrono::milliseconds(500);
     bool launch_if_missing = true;
     std::string terminal_shell_kind;
     std::string terminal_command;
@@ -52,6 +54,8 @@ struct ServerShutdownOptions
     // A server with live terminal processes refuses shutdown unless this is
     // explicit. Callers must obtain confirmation from the user first.
     bool confirm_live_terminals = false;
+    std::chrono::milliseconds request_timeout
+        = std::chrono::seconds(5);
 };
 
 struct ServerDeleteSessionOptions

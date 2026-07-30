@@ -15,6 +15,7 @@
 #include <thread>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace draxul
 {
@@ -27,6 +28,7 @@ constexpr size_t kRemoteCommandsPerPoll = 8;
 constexpr size_t kRemoteInputBatchBytes = 48 * 1024;
 constexpr auto kRemotePollInterval = std::chrono::milliseconds(25);
 constexpr auto kRemoteTransientFailureGrace = std::chrono::seconds(5);
+constexpr auto kRemoteShutdownJoinBudget = std::chrono::milliseconds(250);
 
 bool is_expected_command_error(std::string_view code)
 {
@@ -45,6 +47,7 @@ bool is_transient_remote_error(std::string_view code)
 {
     return code == "endpoint_unavailable"
         || code == "io_error"
+        || code == "deadline_exceeded"
         || code == "main_thread_timeout"
         || code == "server_stopping";
 }
@@ -113,6 +116,7 @@ TerminalSemanticSnapshot compose_scrollback_view(
 } // namespace
 
 class RemoteTerminalHost::Impl
+    : public std::enable_shared_from_this<RemoteTerminalHost::Impl>
 {
 public:
     Impl(RemoteTerminalHost& owner, RemoteTerminalHostOptions options)
@@ -123,10 +127,11 @@ public:
 
     ~Impl()
     {
-        stop();
+        request_stop();
+        join_worker();
     }
 
-    bool start(std::string& error)
+    bool start(std::string&)
     {
         client_ = std::make_unique<RemoteTerminalClient>(
             RemoteTerminalClientOptions{
@@ -137,22 +142,60 @@ public:
                 .method_prefix = options_.method_prefix,
                 .terminal_id = options_.terminal_id,
             });
-        if (!client_->attach(error))
-            return false;
-
-        publish_projection();
         running_ = true;
+        {
+            std::lock_guard lock(worker_exit_mutex_);
+            worker_exited_ = false;
+        }
         worker_ = std::jthread([this] { worker_main(); });
         return true;
     }
 
     void stop()
     {
+        request_stop();
+        if (reaper_started_)
+        {
+            running_ = false;
+            return;
+        }
+        bool worker_exited = false;
+        {
+            std::unique_lock lock(worker_exit_mutex_);
+            if (!worker_exited_)
+            {
+                worker_exited_changed_.wait_for(
+                    lock, kRemoteShutdownJoinBudget,
+                    [this] { return worker_exited_; });
+            }
+            worker_exited = worker_exited_;
+        }
+        if (worker_exited)
+        {
+            join_worker();
+            running_ = false;
+            return;
+        }
+
+        bool expected = false;
+        if (reaper_started_.compare_exchange_strong(expected, true))
+        {
+            std::thread([self = shared_from_this()] {
+                self->join_worker();
+            }).detach();
+        }
+        running_ = false;
+    }
+
+    void request_stop()
+    {
         stopping_ = true;
         command_wake_.notify_all();
-        if (worker_.joinable())
-            worker_.join();
-        running_ = false;
+        // Wait for any callback already in progress. Once this lock has been
+        // acquired after setting stopping_, the worker can no longer touch
+        // the owning host even if its transport call needs to be reaped in
+        // the background.
+        std::lock_guard owner_guard(owner_callback_mutex_);
     }
 
     bool enqueue(RemoteHostCommand command)
@@ -256,6 +299,39 @@ public:
         return true;
     }
 
+    bool enqueue_input_chunks(std::vector<std::string> chunks)
+    {
+        if (chunks.empty())
+            return true;
+
+        std::lock_guard guard(mutex_);
+        if (stopping_
+            || chunks.size()
+                > kRemoteHostCommandLimit
+                    - std::min(commands_.size(),
+                        kRemoteHostCommandLimit))
+        {
+            return false;
+        }
+
+        // Keep each caller-provided frame as one server request. Bracketed
+        // paste uses this to ensure a rejected request cannot deliver an
+        // opening marker without its matching closing marker.
+        auto staged = commands_;
+        for (auto& chunk : chunks)
+        {
+            if (chunk.empty() || chunk.size() > kRemoteInputBatchBytes)
+                return false;
+            staged.push_back({
+                .kind = RemoteHostCommand::Kind::Input,
+                .text = std::move(chunk),
+            });
+        }
+        commands_.swap(staged);
+        command_wake_.notify_one();
+        return true;
+    }
+
     std::optional<RemotePublishedState> take_published_state()
     {
         std::lock_guard guard(mutex_);
@@ -322,7 +398,7 @@ private:
         scrollback_page_.reset();
         publish_projection();
         DRAXUL_LOG_INFO(LogCategory::App,
-            "Remote terminal client %s reattached after its server lease expired",
+            "Remote terminal client %s attached to the server terminal",
             options_.client_id.c_str());
         return true;
     }
@@ -330,10 +406,39 @@ private:
     void worker_main()
     {
         bool fatal_error = false;
+        bool attached = false;
         std::optional<std::chrono::steady_clock::time_point>
             transient_failure_since;
         while (!stopping_ && !fatal_error)
         {
+            if (!attached)
+            {
+                std::string error;
+                if (recover_attachment(error))
+                {
+                    attached = true;
+                    transient_failure_since.reset();
+                }
+                else
+                {
+                    const std::string error_code
+                        = client_->last_error_code();
+                    if (is_removed_remote_terminal(error_code))
+                    {
+                        publish_error(std::move(error));
+                        fatal_error = true;
+                        break;
+                    }
+                    note_transient_failure(transient_failure_since,
+                        error_code, error);
+                    std::unique_lock lock(mutex_);
+                    command_wake_.wait_for(
+                        lock, kRemotePollInterval,
+                        [this] { return stopping_.load(); });
+                    continue;
+                }
+            }
+
             std::deque<RemoteHostCommand> commands;
             {
                 std::unique_lock lock(mutex_);
@@ -352,8 +457,12 @@ private:
 
             for (const auto& command : commands)
             {
+                if (stopping_)
+                    break;
                 std::string error;
                 bool ok = execute_command(command, error);
+                if (stopping_)
+                    break;
                 if (!ok)
                 {
                     std::string error_code
@@ -363,6 +472,7 @@ private:
                         std::string attach_error;
                         if (recover_attachment(attach_error))
                         {
+                            attached = true;
                             error.clear();
                             ok = execute_command(command, error);
                             if (ok)
@@ -409,19 +519,23 @@ private:
                 }
                 transient_failure_since.reset();
             }
-            if (fatal_error)
+            if (stopping_ || fatal_error)
                 break;
 
             bool changed = false;
             std::string error;
             if (!client_->poll(changed, error))
             {
+                if (stopping_)
+                    break;
                 std::string error_code = client_->last_error_code();
                 if (error_code == "not_attached")
                 {
+                    attached = false;
                     std::string attach_error;
                     if (recover_attachment(attach_error))
                     {
+                        attached = true;
                         transient_failure_since.reset();
                         continue;
                     }
@@ -449,6 +563,8 @@ private:
                 fatal_error = true;
                 break;
             }
+            if (stopping_)
+                break;
             transient_failure_since.reset();
             if (changed)
             {
@@ -463,9 +579,27 @@ private:
             }
         }
 
-        std::string disconnect_error;
-        client_->disconnect(disconnect_error);
+        // The server expires inactive clients. A synchronous goodbye during
+        // shutdown merely adds another full transport timeout to window
+        // teardown, so only send it after an unexpected worker exit.
+        if (!stopping_ && attached)
+        {
+            std::string disconnect_error;
+            client_->disconnect(disconnect_error);
+        }
         running_ = false;
+        {
+            std::lock_guard lock(worker_exit_mutex_);
+            worker_exited_ = true;
+        }
+        worker_exited_changed_.notify_all();
+    }
+
+    void join_worker()
+    {
+        std::lock_guard lock(worker_join_mutex_);
+        if (worker_.joinable())
+            worker_.join();
     }
 
     void note_transient_failure(
@@ -508,6 +642,9 @@ private:
             std::lock_guard guard(mutex_);
             published_state_ = std::move(state);
         }
+        std::lock_guard owner_guard(owner_callback_mutex_);
+        if (stopping_)
+            return;
         owner_.callbacks().wake_window();
     }
 
@@ -577,6 +714,9 @@ private:
             std::lock_guard guard(mutex_);
             pending_error_ = std::move(error);
         }
+        std::lock_guard owner_guard(owner_callback_mutex_);
+        if (stopping_)
+            return;
         owner_.callbacks().wake_window();
     }
 
@@ -586,7 +726,13 @@ private:
     std::jthread worker_;
     std::atomic<bool> running_ = false;
     std::atomic<bool> stopping_ = false;
+    std::atomic<bool> reaper_started_ = false;
     mutable std::mutex mutex_;
+    std::mutex owner_callback_mutex_;
+    std::mutex worker_exit_mutex_;
+    std::condition_variable worker_exited_changed_;
+    bool worker_exited_ = true;
+    std::mutex worker_join_mutex_;
     std::condition_variable command_wake_;
     std::deque<RemoteHostCommand> commands_;
     std::optional<RemotePublishedState> published_state_;
@@ -618,7 +764,7 @@ RemoteTerminalHost::RemoteTerminalHost(RemoteTerminalHostOptions options)
         };
         return cbs;
     }())
-    , impl_(std::make_unique<Impl>(*this, std::move(options)))
+    , impl_(std::make_shared<Impl>(*this, std::move(options)))
 {
 }
 
@@ -1086,19 +1232,39 @@ void RemoteTerminalHost::send_paste(std::string_view text)
             .kind = RemoteHostCommand::Kind::ScrollToLive,
         });
     }
-    std::string input;
     if (metadata_.modes.bracketed_paste)
     {
-        input.reserve(text.size() + 12);
-        input += "\x1B[200~";
-        input += text;
-        input += "\x1B[201~";
+        constexpr std::string_view begin = "\x1B[200~";
+        constexpr std::string_view end = "\x1B[201~";
+        constexpr size_t framing_bytes = begin.size() + end.size();
+        constexpr size_t payload_bytes
+            = kRemoteInputBatchBytes - framing_bytes;
+        std::vector<std::string> chunks;
+        chunks.reserve(std::max<size_t>(
+            1, (text.size() + payload_bytes - 1) / payload_bytes));
+        size_t offset = 0;
+        do
+        {
+            const size_t count
+                = std::min(payload_bytes, text.size() - offset);
+            std::string chunk;
+            chunk.reserve(count + framing_bytes);
+            chunk.append(begin);
+            chunk.append(text.substr(offset, count));
+            chunk.append(end);
+            chunks.push_back(std::move(chunk));
+            offset += count;
+        } while (offset < text.size());
+        if (!impl_->enqueue_input_chunks(std::move(chunks)))
+        {
+            callbacks().push_toast(
+                1, "Terminal input queue is full; paste was not sent.");
+        }
     }
     else
     {
-        input = text;
+        send_remote_input(std::string(text));
     }
-    send_remote_input(std::move(input));
 }
 
 void RemoteTerminalHost::apply_mouse_modes(

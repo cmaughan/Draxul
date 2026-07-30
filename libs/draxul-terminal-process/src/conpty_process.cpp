@@ -610,6 +610,7 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
 
     input_write_ = pty_input_write;
     output_read_ = pty_output_read;
+    writes_stopping_ = false;
     on_output_available_ = std::move(on_output_available);
     reader_running_ = true;
     reader_thread_ = std::thread([this]() { reader_main(); });
@@ -620,6 +621,8 @@ void ConPtyProcess::shutdown()
 {
     PERF_MEASURE();
     reader_running_ = false;
+    writes_stopping_ = true;
+    output_space_.notify_all();
 
     if (reader_thread_.joinable())
         CancelSynchronousIo(static_cast<HANDLE>(reader_thread_.native_handle()));
@@ -630,10 +633,13 @@ void ConPtyProcess::shutdown()
         pty_ = nullptr;
     }
 
-    if (input_write_ != INVALID_HANDLE_VALUE)
     {
-        CloseHandle(input_write_);
-        input_write_ = INVALID_HANDLE_VALUE;
+        std::lock_guard input_lock(input_mutex_);
+        if (input_write_ != INVALID_HANDLE_VALUE)
+        {
+            CloseHandle(input_write_);
+            input_write_ = INVALID_HANDLE_VALUE;
+        }
     }
     if (output_read_ != INVALID_HANDLE_VALUE)
     {
@@ -682,13 +688,14 @@ void ConPtyProcess::shutdown()
     std::scoped_lock lock(output_mutex_);
     output_chunks_.clear();
     output_bytes_ = 0;
-    output_overflowed_ = false;
 }
 
 void ConPtyProcess::request_close()
 {
     PERF_MEASURE();
-    if (input_write_ != INVALID_HANDLE_VALUE)
+    writes_stopping_ = true;
+    std::unique_lock lock(input_mutex_, std::try_to_lock);
+    if (lock.owns_lock() && input_write_ != INVALID_HANDLE_VALUE)
     {
         CloseHandle(input_write_);
         input_write_ = INVALID_HANDLE_VALUE;
@@ -812,7 +819,9 @@ bool ConPtyProcess::resize(int cols, int rows)
 bool ConPtyProcess::write(std::string_view text)
 {
     PERF_MEASURE();
-    if (input_write_ == INVALID_HANDLE_VALUE)
+    std::lock_guard lock(input_mutex_);
+    if (writes_stopping_
+        || input_write_ == INVALID_HANDLE_VALUE)
         return false;
 
     size_t total_written = 0;
@@ -830,6 +839,21 @@ bool ConPtyProcess::write(std::string_view text)
     return true;
 }
 
+void ConPtyProcess::cancel_pending_write(HANDLE writer_thread)
+{
+    writes_stopping_ = true;
+    for (;;)
+    {
+        std::unique_lock lock(input_mutex_, std::try_to_lock);
+        if (lock.owns_lock())
+            return;
+        // Repeating closes the narrow gap where cancellation ran after the
+        // writer took input_mutex_ but just before it entered WriteFile.
+        (void)CancelSynchronousIo(writer_thread);
+        Sleep(1);
+    }
+}
+
 std::vector<std::string> ConPtyProcess::drain_output(
     bool* overflowed)
 {
@@ -839,7 +863,8 @@ std::vector<std::string> ConPtyProcess::drain_output(
     drained.swap(output_chunks_);
     output_bytes_ = 0;
     if (overflowed)
-        *overflowed = std::exchange(output_overflowed_, false);
+        *overflowed = false;
+    output_space_.notify_all();
     return drained;
 }
 
@@ -854,13 +879,14 @@ void ConPtyProcess::reader_main()
             break;
 
         {
-            std::scoped_lock lock(output_mutex_);
-            if (output_bytes_ + bytes_read > kMaxQueuedOutputBytes)
-            {
-                output_chunks_.clear();
-                output_bytes_ = 0;
-                output_overflowed_ = true;
-            }
+            std::unique_lock lock(output_mutex_);
+            output_space_.wait(lock, [this, bytes_read] {
+                return !reader_running_
+                    || output_bytes_
+                        <= kMaxQueuedOutputBytes - bytes_read;
+            });
+            if (!reader_running_)
+                break;
             output_chunks_.emplace_back(buffer, buffer + bytes_read);
             output_bytes_ += bytes_read;
         }

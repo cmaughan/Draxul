@@ -74,7 +74,7 @@ private:
     class Impl;
     MouseReporter mouse_reporter_;
     SelectionManager selection_;
-    std::unique_ptr<Impl> impl_;
+    std::shared_ptr<Impl> impl_;
     std::string init_error_;
     std::string last_error_;
     std::string controller_client_id_;
