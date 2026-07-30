@@ -21,7 +21,8 @@ one problem.
 1. The host worker's five-second grace (`libs/draxul-host/src/remote_terminal_host.cpp:29`)
    is wall-clock, but each failing request against a hung server itself consumes ~5 s, so the
    second failure lands past the grace. It amounts to roughly one retry, after which the pane
-   dies permanently (`:342-348`) — see `kanban/pending/15` for the no-recovery consequence.
+   dies permanently (`:342-348`) — see
+   `kanban/done/15 oversized-paste-kills-remote-pane -bug.md` for the no-recovery consequence.
 2. The topology client retries forever with an announce-once toast and no backoff
    (`app/app.cpp:3058-3066`).
 3. `refresh_scrollback_after_output` failure is instantly fatal with no classification at all
@@ -98,7 +99,7 @@ lockstep.
 
 ## Dependencies and ownership
 
-Subsumes the permanent-ghost half of `kanban/pending/15
+Subsumes the permanent-ghost half of `kanban/done/15
 oversized-paste-kills-remote-pane -bug.md`; if both are scheduled together, one owner should
 hold `remote_terminal_host.cpp`. Best sequenced after `kanban/pending/17
 sync-ipc-on-ui-thread -bug.md`, since the worker-thread move changes where these policies run.

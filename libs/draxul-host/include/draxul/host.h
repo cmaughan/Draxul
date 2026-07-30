@@ -36,6 +36,10 @@ struct HostLaunchOptions
     // Stable server-owned terminal identity used by RemoteTerminalHost.
     // Empty selects the server's compatibility/default terminal.
     std::string remote_terminal_id;
+    // Exact server topology descriptor for a client-local pane. This stays
+    // populated even when this build cannot parse the kind, allowing an
+    // inert placeholder to preserve and later reconcile the foreign pane.
+    std::string client_host_kind;
     bool enable_ligatures = true;
     std::string pty_capture_file;
 

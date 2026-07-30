@@ -106,12 +106,25 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   panes remain responsive placeholders until their first snapshot arrives. Divider
   drags preview locally and send one trailing authoritative update rather than
   blocking the UI on every mouse move.
+- Each server terminal admits input to a bounded per-terminal queue and performs the
+  potentially blocking PTY/ConPTY write on that terminal's writer thread. Saturation
+  returns backpressure without delaying another terminal or the server request loop.
+  PTY output readers pause at their bounded queue limit without dropping bytes, and
+  live-process teardown is reaped away from the server state thread.
 - The real endpoint retains bounded semantic scrollback and serves versioned pages.
   Each window owns its scroll offset, selection, clipboard copy, and cursor
-  presentation, so scrolling one client does not disturb another. Keyboard, focus,
-  terminal mouse reporting, bracketed paste, OSC 8 links, OSC 52 clipboard writes,
+  presentation, so scrolling one client does not disturb another. Shift+PageUp,
+  Shift+PageDown, Shift+Home, and Shift+End navigate that local view, and keyboard
+  copy mode works over both live and historical cells without sending navigation to
+  the shell. Observers can still scroll and copy; attempted text or paste shows one
+  Take Terminal Control hint instead of disappearing. Keyboard, focus, terminal
+  mouse reporting, bracketed paste, OSC 8 links, OSC 52 clipboard writes,
   alternate-screen state, synchronized output, shell marks, title, and cwd travel
   through the remote path. Input while scrolled returns only that client to live.
+  Oversized paste is sent as ordered bounded frames; invalid input, input
+  backpressure, process-write rejection, and other request failures are surfaced
+  without stopping a live pane. Unexpected poll failures reattach with bounded
+  backoff, while a scrollback failure simply returns that client to live.
 - Hello negotiation explicitly advertises scrollback, sanitized metrics, and the
   current uncompressed frame fallback. `terminal.metrics` reports counts, encoded
   bytes, delta density, queue pressure/resyncs, and scrollback service volume without
@@ -132,6 +145,12 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   client-local focus. Restarting a shared terminal pane restarts its server runtime
   exactly once, advances its runtime generation, and resynchronizes every attached
   client with the new process identity. Client-local pane restart remains local.
+  A host kind missing from a particular build now projects as an inert
+  `<kind> not available in this build` grid instead of preventing that client
+  from attaching. Topology and agent snapshots remain pending until the UI
+  acknowledges successful application by server epoch and revision; failed
+  projections retry, coalesce to the newest snapshot, preserve input routing,
+  and report a persistent apply error only once.
 
 ---
 
@@ -211,7 +230,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **Word/line selection**: Double-click selects the word at the cursor (contiguous non-whitespace), triple-click selects the entire row
 - **Selection copy gestures**: Clicking inside an existing mouse selection copies it to the system clipboard; `Ctrl+C` also copies when a shell-pane mouse selection is active, without sending SIGINT to the process
 - **Copy on select**: `copy_on_select` automatically copies completed mouse selections (drag, double-click, or triple-click) to the system clipboard; enabled by default
-- **Keyboard copy mode**: `toggle_copy_mode` (default `Ctrl+S, Return`) enters a vim/tmux-style cursor: `h/j/k/l` and arrows move, `0/Home/End` jump to line bounds, `g/Shift+G` jump to top/bottom, `v`/`V` start char/line selection, `y` yanks to clipboard and exits, `Esc`/`q` exits without copy. Available on shell hosts only (Neovim panes already provide their own visual mode)
+- **Keyboard copy mode**: `toggle_copy_mode` (default `Ctrl+S, Return`) enters a vim/tmux-style cursor: `h/j/k/l` and arrows move, `0/Home/End` jump to line bounds, `g/Shift+G` jump to top/bottom, `v`/`V` start char/line selection, `y` yanks to clipboard and exits, `Esc`/`q` exits without copy. Available on both client-owned and server-owned shell hosts (including an observer's local scrollback view); Neovim panes already provide their own visual mode
 - **Terminal colors**: Configurable foreground/background via `[terminal]` config section
 - **Renderer-free terminal state**: Local PowerShell, Bash, and Zsh hosts all compose
   the same platform-neutral terminal core for VT parsing, grid/mode state,
@@ -257,7 +276,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **When a saved session is kept vs discarded**: closing the window (titlebar, or the OS quit path) **saves** the topology, so the next launch restores it. Ending the last shell from inside — typing `exit` in the final pane of the final tab of the final Space — **deletes** the saved session, on the basis that you finished the work rather than parked it. Both paths are deliberate; they are simply not symmetric, so it is worth knowing which one you are using.
 - **Session saving is shell-only, and says so**: a saved layout covers shell panes only, so a single Neovim, Markdown, Kanban, ScoreView, or MegaCity pane anywhere in any Space disables every checkpoint *and* the shutdown save. That gate is intentional; Draxul now reports the transition once (log plus a toast) instead of silently dropping the layout, and reports again when persistence resumes.
 - **One session, one process**: a Session is single-owner. Launching a second Draxul on a session id that is already open refuses with a message pointing at `--session <id>` and `--new-session`, rather than restoring the same topology twice and letting the two instances overwrite each other's checkpoint. Distinct session ids run concurrently as normal.
-- **Session-scoped shell restore CLI/UI**: `--session <id>` selects which saved shell session Draxul should restore, `--new-session` starts a fresh saved shell session (generating a unique id when `--session` is omitted), and `--session-name <name>` sets its display name. `--list-sessions`, `--rename-session --session-name <name>`, and `--delete-session --session <id>` all act on the running shared server's Session store and say so in human-readable output. The list includes each display name plus Space, terminal, live-terminal, and checkpoint status; `--json` returns only those server Session rows. Delete refuses while a UI is attached and requires `--yes` before stopping live terminals. In the running app, `save_session_as` saves the current topology under a prompted name and switches to the generated session id; `load_session` shows a fuzzy list of saved sessions and restores the selection in the current window.
+- **Session-scoped shell restore CLI/UI**: `--session <id>` selects which saved shell session Draxul should restore, `--new-session` starts a fresh saved shell session (generating a unique id when `--session` is omitted), and `--session-name <name>` sets its display name. `--list-sessions`, `--rename-session --session-name <name>`, and `--delete-session --session <id>` all act on the running shared server's Session store and say so in human-readable output. The list includes each display name plus Space, terminal, live-terminal, and checkpoint status; `--json` returns only those server Session rows. Delete refuses while a UI is attached and requires `--yes` before stopping live terminals. Shared-server windows hide the legacy `save_session_as` and `load_session` palette actions: select or create their named Session at launch with `--session`/`--new-session`. Under `--no-server`, those palette actions remain available for the client-owned file-backed Session store.
 - **Abnormally exited shell panes stay inspectable**: If a shell pane dies unexpectedly, Draxul keeps the pane and its last rendered output visible instead of immediately tearing it down. The pane status pill shows `[exited]`, a toast points you at `restart_host`, and the existing restart action respawns the host in place. Clean shell exits still close the pane normally.
 - **Session startup messaging**: Shell sessions surface a toast when Draxul starts a brand-new session or restores saved topology, so the user can tell which path was taken.
 - **Restart host**: Kills the current host in the focused pane and relaunches with the same arguments

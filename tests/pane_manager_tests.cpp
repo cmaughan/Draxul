@@ -9,6 +9,7 @@
 #include <draxul/app_config.h>
 #include <draxul/app_options.h>
 #include <draxul/text_service.h>
+#include <draxul/unavailable_host.h>
 
 #include "pane_manager.h"
 #include "split_tree.h"
@@ -94,6 +95,7 @@ struct PaneManagerHarness
     int before_host_destroyed_calls = 0;
     bool fail_next_initialize = false;
     std::string next_init_error_code;
+    std::optional<HostKind> unavailable_factory_kind;
     bool allow_local_layout_mutation = true;
     std::function<void(DividerId, float)>
         request_projected_divider_ratio;
@@ -117,7 +119,9 @@ struct PaneManagerHarness
         options.load_user_config = false;
         options.save_user_config = false;
         options.host_kind = HostKind::Nvim;
-        options.host_factory = [this](HostKind) -> std::unique_ptr<IHost> {
+        options.host_factory = [this](HostKind kind) -> std::unique_ptr<IHost> {
+            if (unavailable_factory_kind == kind)
+                return nullptr;
             auto counter = std::make_shared<int>(0);
             auto host = std::make_unique<LifetimeTestHost>("lifetime-test");
             host->fail_initialize
@@ -798,6 +802,62 @@ TEST_CASE("pane manager: projected host preserves typed initialization failure",
         harness.callbacks, 800, 600, projected));
     CHECK(harness.manager.error_code() == "terminal_not_found");
     CHECK(harness.manager.host_count() == 1);
+}
+
+TEST_CASE("pane manager: projected unavailable client host keeps the rest of the layout live",
+    "[pane_manager][topology][unavailable]")
+{
+    PaneManagerHarness harness;
+    REQUIRE(harness.manager.create(
+        harness.callbacks, 800, 600));
+
+    SplitTree split_tree;
+    const LeafId root = split_tree.reset(800, 600);
+    const LeafId added
+        = split_tree.split_leaf(
+            root, SplitDirection::Vertical);
+    REQUIRE(added != kInvalidLeaf);
+
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = split_tree.snapshot();
+    projected.panes = {
+        {
+            .leaf_id = root,
+            .launch = { .kind = HostKind::Nvim },
+            .pane_id = "shared-pane-1",
+        },
+        {
+            .leaf_id = added,
+            .launch = {
+                .kind = HostKind::PowerShell,
+                .client_host_kind = "future_view",
+            },
+            .pane_id = "shared-pane-2",
+        },
+    };
+
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    CHECK(harness.manager.host_count() == 2);
+    CHECK(harness.manager.host_for(root) != nullptr);
+    const auto* unavailable = dynamic_cast<UnavailableHost*>(
+        harness.manager.host_for(added));
+    REQUIRE(unavailable != nullptr);
+    CHECK(unavailable->status_text()
+        == "future_view not available in this build");
+
+    // A known optional kind absent from this build degrades in exactly the
+    // same way; ordinary local launches still retain their failure behavior.
+    harness.unavailable_factory_kind = HostKind::Score;
+    projected.panes[1].launch.kind = HostKind::Score;
+    projected.panes[1].launch.client_host_kind = "score";
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    unavailable = dynamic_cast<UnavailableHost*>(
+        harness.manager.host_for(added));
+    REQUIRE(unavailable != nullptr);
+    CHECK(unavailable->status_text()
+        == "score not available in this build");
 }
 
 TEST_CASE("pane manager: identifies only server-owned remote terminals",

@@ -63,6 +63,9 @@ struct TopologyTab
 {
     std::string tab_id;
     std::string name;
+    // Older topology payloads predate this field and therefore represent
+    // explicit names. Newly-created default tabs set it to false.
+    bool name_user_set = true;
     std::string root_node_id;
     std::vector<TopologyNode> nodes;
     std::vector<TopologyPane> panes;

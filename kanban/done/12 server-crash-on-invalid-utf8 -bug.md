@@ -83,5 +83,5 @@ The local terminal path never JSON-encodes cells, so this is new to this branch.
 
 Independent; touches `draxul-terminal-core`, `draxul-server`, and `draxul-control`. Should
 land before any other card in this wave — the review's recommended order starts here. Same
-owner as `kanban/pending/13 blocking-pty-io-stalls-server -bug.md`, since both harden the
+owner as `kanban/done/13 blocking-pty-io-stalls-server -bug.md`, since both harden the
 kernel loop.

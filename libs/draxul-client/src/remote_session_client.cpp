@@ -93,7 +93,52 @@ public:
         return result;
     }
 
+    void acknowledge_topology(
+        std::string_view server_epoch, uint64_t revision)
+    {
+        std::lock_guard guard(mutex_);
+        if (pending_topology_
+            && pending_topology_->server_epoch == server_epoch
+            && pending_topology_->snapshot.revision == revision)
+        {
+            pending_topology_.reset();
+        }
+        if (published_ && published_->topology
+            && published_->topology_server_epoch == server_epoch
+            && published_->topology->revision == revision)
+        {
+            published_->topology.reset();
+            published_->topology_server_epoch.clear();
+        }
+    }
+
+    void acknowledge_agents(
+        std::string_view server_epoch, uint64_t revision)
+    {
+        std::lock_guard guard(mutex_);
+        if (pending_agents_
+            && pending_agents_->server_epoch == server_epoch
+            && pending_agents_->snapshot.revision == revision)
+        {
+            pending_agents_.reset();
+        }
+        if (published_ && published_->agents
+            && published_->agent_server_epoch == server_epoch
+            && published_->agents->revision == revision)
+        {
+            published_->agents.reset();
+            published_->agent_server_epoch.clear();
+        }
+    }
+
 private:
+    template <typename Snapshot>
+    struct PendingSnapshot
+    {
+        std::string server_epoch;
+        Snapshot snapshot;
+    };
+
     void publish(std::function<void(RemoteSessionPublishedState&)> update)
     {
         {
@@ -108,18 +153,70 @@ private:
 
     void publish_topology(const TopologySnapshot& snapshot)
     {
-        publish([&](RemoteSessionPublishedState& state) {
-            state.topology = snapshot;
-            state.topology_error.reset();
-        });
+        const std::string epoch
+            = options_.recovery->server_epoch();
+        {
+            std::lock_guard guard(mutex_);
+            pending_topology_ = PendingSnapshot<TopologySnapshot>{
+                .server_epoch = epoch,
+                .snapshot = snapshot,
+            };
+            if (!published_)
+                published_.emplace();
+            published_->topology = snapshot;
+            published_->topology_server_epoch = epoch;
+            published_->topology_error.reset();
+        }
+        if (options_.wake_consumer)
+            options_.wake_consumer();
     }
 
     void publish_agents(const ServerAgentSnapshot& snapshot)
     {
-        publish([&](RemoteSessionPublishedState& state) {
-            state.agents = snapshot;
-            state.agent_error.reset();
-        });
+        const std::string epoch
+            = options_.recovery->server_epoch();
+        {
+            std::lock_guard guard(mutex_);
+            pending_agents_ = PendingSnapshot<ServerAgentSnapshot>{
+                .server_epoch = epoch,
+                .snapshot = snapshot,
+            };
+            if (!published_)
+                published_.emplace();
+            published_->agents = snapshot;
+            published_->agent_server_epoch = epoch;
+            published_->agent_error.reset();
+        }
+        if (options_.wake_consumer)
+            options_.wake_consumer();
+    }
+
+    void republish_pending()
+    {
+        bool published = false;
+        {
+            std::lock_guard guard(mutex_);
+            if (!pending_topology_ && !pending_agents_)
+                return;
+            if (!published_)
+                published_.emplace();
+            if (pending_topology_)
+            {
+                published_->topology
+                    = pending_topology_->snapshot;
+                published_->topology_server_epoch
+                    = pending_topology_->server_epoch;
+            }
+            if (pending_agents_)
+            {
+                published_->agents = pending_agents_->snapshot;
+                published_->agent_server_epoch
+                    = pending_agents_->server_epoch;
+            }
+            published = true;
+        }
+        if (published && options_.wake_consumer)
+            options_.wake_consumer();
     }
 
     std::chrono::milliseconds publish_recovery_failure(
@@ -155,6 +252,19 @@ private:
             != options_.recovery->server_epoch();
         if (changed)
         {
+            {
+                std::lock_guard guard(mutex_);
+                pending_topology_.reset();
+                pending_agents_.reset();
+                if (published_)
+                {
+                    published_->topology.reset();
+                    published_->topology_server_epoch.clear();
+                    published_->agents.reset();
+                    published_->agent_server_epoch.clear();
+                    published_->commands.clear();
+                }
+            }
             publish([&](RemoteSessionPublishedState& state) {
                 state.server_epoch_changed = true;
                 state.recovery
@@ -257,11 +367,36 @@ private:
             completion.error_message = std::move(error);
         else
             options_.recovery->note_connected("topology.command");
-        publish([&](RemoteSessionPublishedState& state) {
-            if (completion.snapshot)
-                state.topology = *completion.snapshot;
-            state.commands.push_back(std::move(completion));
-        });
+        if (completion.snapshot)
+        {
+            const std::string epoch
+                = options_.recovery->server_epoch();
+            {
+                std::lock_guard guard(mutex_);
+                pending_topology_
+                    = PendingSnapshot<TopologySnapshot>{
+                        .server_epoch = epoch,
+                        .snapshot = *completion.snapshot,
+                    };
+                if (!published_)
+                    published_.emplace();
+                published_->topology
+                    = *completion.snapshot;
+                published_->topology_server_epoch = epoch;
+                published_->topology_error.reset();
+                published_->commands.push_back(
+                    std::move(completion));
+            }
+            if (options_.wake_consumer)
+                options_.wake_consumer();
+        }
+        else
+        {
+            publish([&](RemoteSessionPublishedState& state) {
+                state.commands.push_back(
+                    std::move(completion));
+            });
+        }
         return true;
     }
 
@@ -502,6 +637,7 @@ private:
                             == "topology.poll");
                     next_poll = now + delay;
                 }
+                republish_pending();
             }
         }
     }
@@ -516,6 +652,10 @@ private:
     std::deque<uint64_t> statuses_;
     uint64_t next_status_id_ = 1;
     std::optional<RemoteSessionPublishedState> published_;
+    std::optional<PendingSnapshot<TopologySnapshot>>
+        pending_topology_;
+    std::optional<PendingSnapshot<ServerAgentSnapshot>>
+        pending_agents_;
     bool topology_failed_ = false;
     bool agents_failed_ = false;
     bool topology_supported_ = true;
@@ -556,6 +696,18 @@ std::optional<RemoteSessionPublishedState>
 RemoteSessionClient::take_published_state()
 {
     return impl_->take_published_state();
+}
+
+void RemoteSessionClient::acknowledge_topology(
+    std::string_view server_epoch, uint64_t revision)
+{
+    impl_->acknowledge_topology(server_epoch, revision);
+}
+
+void RemoteSessionClient::acknowledge_agents(
+    std::string_view server_epoch, uint64_t revision)
+{
+    impl_->acknowledge_agents(server_epoch, revision);
 }
 
 } // namespace draxul

@@ -205,8 +205,11 @@ private:
     ControlMethodResult handle_control_request(const ControlRequest& request);
     bool initialize_remote_topology();
     void consume_remote_session_state();
-    void apply_remote_command_completion(
-        struct RemoteTopologyCommandCompletion completion);
+    bool announce_remote_topology_apply_error(
+        std::string_view error);
+    void apply_remote_command_activation(
+        const TopologyCommand& command,
+        const TopologySnapshot& previous_snapshot);
     void handle_remote_status_completion(
         struct RemoteStatusCompletion completion);
     bool apply_remote_agents(
@@ -345,7 +348,16 @@ private:
     bool topology_poll_error_announced_ = false;
     bool agent_poll_error_announced_ = false;
     bool topology_command_error_announced_ = false;
+    std::string topology_apply_error_announced_;
     bool accept_next_remote_topology_revision_ = false;
+    struct PendingRemoteCommandActivation
+    {
+        TopologyCommand command;
+        TopologySnapshot previous_snapshot;
+        uint64_t required_revision = 0;
+    };
+    std::vector<PendingRemoteCommandActivation>
+        pending_remote_command_activations_;
     uint64_t next_server_agent_mutation_id_ = 1;
     enum class PendingServerStatusAction
     {

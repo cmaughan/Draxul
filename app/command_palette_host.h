@@ -23,6 +23,7 @@ public:
         GuiActionHandler* gui_action_handler = nullptr;
         const std::vector<GuiKeybinding>* keybindings = nullptr;
         float* palette_bg_alpha = nullptr;
+        std::function<bool(std::string_view)> action_visible;
     };
 
     explicit CommandPaletteHost(Deps deps);

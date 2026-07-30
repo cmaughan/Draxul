@@ -9,6 +9,7 @@ add_library(draxul-host
     src/selection_manager.cpp
     src/terminal_host_base.cpp
     src/terminal_key_encoder.cpp
+    src/unavailable_host.cpp
 )
 
 if(WIN32)

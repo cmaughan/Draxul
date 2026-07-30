@@ -8,7 +8,7 @@
 ## Goal
 
 `App` now carries two parallel mutation paths, and that fork is the direct cause of the parity
-regressions in `kanban/pending/23`. Every pane feature has to be implemented twice or it
+regressions in `kanban/done/23 shared-terminal-feature-parity -feature.md`. Every pane feature has to be implemented twice or it
 diverges. This is the structural fix that stops that class of regression recurring.
 
 ## Observed behaviour
@@ -79,6 +79,6 @@ Roughly 250 duplicated lines.
 Should follow the P0 and P1 waves — this is a large refactor and wants a stable base. Schedule
 with or immediately before `kanban/pending/17 sync-ipc-on-ui-thread -bug.md` (same code, and
 the worker-thread move is cheaper done once) and before
-`kanban/pending/23 shared-terminal-feature-parity -feature.md`, so parity work lands in one
+`kanban/done/23 shared-terminal-feature-parity -feature.md`, so parity work lands in one
 place instead of two. Related existing card:
 `kanban/ice-box/22 app-tab-session-controllers -refactor.md`.

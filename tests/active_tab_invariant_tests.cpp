@@ -94,6 +94,13 @@ struct AppTestAccess
     {
         app.request_quit();
     }
+
+    static bool announce_topology_apply_error(
+        App& app, std::string_view error)
+    {
+        return app.announce_remote_topology_apply_error(
+            error);
+    }
 };
 
 } // namespace draxul
@@ -185,6 +192,18 @@ TEST_CASE("closing an inactive tab preserves active identity and the last tab", 
     CHECK_FALSE(AppTestAccess::close(app, 1));
     CHECK(AppTestAccess::count(app) == 1);
     CHECK(AppTestAccess::active_id(app) == 1);
+}
+
+TEST_CASE("remote topology apply errors latch by exact message",
+    "[app][topology][toast]")
+{
+    App app;
+    CHECK(AppTestAccess::announce_topology_apply_error(
+        app, "projection failed"));
+    CHECK_FALSE(AppTestAccess::announce_topology_apply_error(
+        app, "projection failed"));
+    CHECK(AppTestAccess::announce_topology_apply_error(
+        app, "different projection failure"));
 }
 
 TEST_CASE("tab controller cycles, activates by index, and reorders the active tab",

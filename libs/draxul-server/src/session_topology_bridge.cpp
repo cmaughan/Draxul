@@ -100,7 +100,7 @@ std::optional<TabSnapshot> capture_tab(
     TabSnapshot tab;
     tab.id = numeric_suffix(source.tab_id, fallback_id);
     tab.name = source.name;
-    tab.name_user_set = true;
+    tab.name_user_set = source.name_user_set;
 
     int fallback_leaf = 1'000'000;
     LeafId maximum_leaf = kInvalidLeaf;
@@ -241,6 +241,7 @@ std::optional<TopologyTab> restore_tab(
     TopologyTab tab{
         .tab_id = "tab-" + std::to_string(source.id),
         .name = source.name,
+        .name_user_set = source.name_user_set,
     };
     RestoreTabBuilder builder;
     for (const auto& pane : source.pane_layout.panes)

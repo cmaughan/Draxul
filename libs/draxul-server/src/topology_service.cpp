@@ -631,6 +631,7 @@ bool TopologyService::apply(const TopologyCommand& command,
         if (!valid_name(command.name))
             return reject("invalid_name", "Tab name is required.");
         tab->name = command.name;
+        tab->name_user_set = true;
         return true;
     }
     if (command.kind == TopologyCommandKind::CloseTab)
@@ -885,6 +886,7 @@ TopologyTab TopologyService::make_client_local_tab(std::string name)
     return {
         .tab_id = next_id("tab"),
         .name = std::move(name),
+        .name_user_set = false,
         .root_node_id = node.node_id,
         .nodes = { std::move(node) },
         .panes = { std::move(pane) },
@@ -907,6 +909,7 @@ TopologyTab TopologyService::make_initial_server_tab()
     return {
         .tab_id = next_id("tab"),
         .name = "Shell",
+        .name_user_set = false,
         .root_node_id = node.node_id,
         .nodes = { std::move(node) },
         .panes = { std::move(pane) },

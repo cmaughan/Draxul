@@ -1126,12 +1126,20 @@ Implementation notes:
 - `RemoteTerminalHost` composes a history page with the live screen without mutating
   the server projection. Scroll offset, selection, copy/paste confirmation, pointer
   state, and renderer palette remain client-local.
+- Keyboard copy mode and Shift+PageUp/PageDown/Home/End now operate on that local
+  projection for controllers and observers alike. Observer text/paste produces one
+  take-control hint; a stale history page from an earlier column count returns to live.
 - Remote mode now forwards keyboard, focus, DEC mouse modes, bracketed paste, OSC 8
   links, controller-directed OSC 52 writes, cursor/mode/title/cwd/shell-mark state,
   and withholds synchronized-output deltas until the batch ends.
 - First server launch owns shell kind/command/arguments/environment/cwd/history limits;
   the controller continues to own terminal dimensions. UI fonts, palette, selection,
   and rendering options never enter the server library.
+- Server input admission is non-blocking: each terminal has a bounded writer queue,
+  PTY/ConPTY writes run on its own writer thread, and output readers pause at a bounded
+  byte cap. Input rejection is a visible drop rather than a worker exit, unexpected
+  poll failures reattach with bounded backoff, and only authoritative terminal removal
+  ends a remote host.
 - `terminal.metrics` is intentionally content-free. It reports frame counts/bytes,
   delta density, queue depth/resyncs, subscriber count, and scrollback request volume;
   each client separately records attach/reconnect latency.
@@ -1699,6 +1707,25 @@ Follow-up recovery hardening completed on 2026-07-30:
 Windows validation includes a real 10.25-second outage followed by a new-epoch server
 restart, attachment of both the existing pane and a newly projected pane, all six
 Release/Ninja core and app shards, and Debug/Ninja smoke.
+
+Topology projection failure handling completed on 2026-07-30:
+
+- client-local host descriptors unavailable in one build remain visible as
+  inert placeholder panes while every supported pane stays live;
+- topology and agent delivery now separates received snapshots from UI-applied
+  snapshots, retaining and coalescing pending state until an epoch/revision
+  acknowledgement;
+- command-result snapshots use the same acknowledged apply path, with activation
+  deferred until the corresponding topology has applied;
+- a transient pane creation failure retries automatically, performs stale cleanup,
+  and restores the active input route on every exit; and
+- apply-error notifications latch by exact error text rather than repeating on
+  every poll.
+
+Focused Release/Ninja coverage exercises unknown and known-but-unregistered host
+placeholders, republish/ack/coalescing semantics including a same-revision new
+epoch, and an App-level first-apply failure followed by successful retry and
+keyboard routing restoration.
 
 Known boundaries retained for later work:
 

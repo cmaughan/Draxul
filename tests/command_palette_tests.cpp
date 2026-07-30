@@ -138,6 +138,28 @@ TEST_CASE("CommandPalette prompt: submit trims input and closes", "[palette][pro
     CHECK(close_count == 1);
 }
 
+TEST_CASE("CommandPalette: action visibility filters unavailable commands",
+    "[palette]")
+{
+    CommandPalette palette(CommandPalette::Deps{
+        .action_visible = [](std::string_view action) {
+            return action != "save_session_as"
+                && action != "load_session";
+        },
+    });
+    palette.open();
+    const auto state = palette.view_state(120, 40);
+    CHECK(std::ranges::none_of(state.entries,
+        [](const gui::PaletteEntry& entry) {
+            return entry.name == "save_session_as"
+                || entry.name == "load_session";
+        }));
+    CHECK(std::ranges::any_of(state.entries,
+        [](const gui::PaletteEntry& entry) {
+            return entry.name == "new_space";
+        }));
+}
+
 TEST_CASE("CommandPalette prompt: empty submit keeps prompt open with message", "[palette][prompt]")
 {
     bool submitted = false;

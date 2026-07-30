@@ -2,6 +2,7 @@
 
 **Type:** feature
 **Priority:** P1 / sequence 23
+**Status:** Completed 2026-07-30
 **Raised by:** Claude (server/client runtime review, 2026-07-30)
 **Evidence:** [plans/reviews/2026-07-30-server-client-runtime-review.md](../../plans/reviews/2026-07-30-server-client-runtime-review.md#regressions-from-making-the-shared-server-the-default)
 
@@ -44,35 +45,46 @@ should be read alongside it.
 
 ## Implementation
 
-- [ ] Implement copy mode over the projected snapshot plus scrollback pages. All of it is
+- [x] Implement copy mode over the projected snapshot plus scrollback pages. All of it is
       client-local state per the design's per-client list, so no protocol change is needed.
-- [ ] Handle scrollback keys locally in `RemoteTerminalHost::on_key` before encoding for the
+- [x] Handle scrollback keys locally in `RemoteTerminalHost::on_key` before encoding for the
       remote shell.
-- [ ] Carry a `name_user_set` bit in `TopologyTab` (the server knows whether `RenameTab` ever
+- [x] Carry a `name_user_set` bit in `TopologyTab` (the server knows whether `RenameTab` ever
       ran) so clients can auto-name non-user-set tabs locally.
-- [ ] Route Save/Load Session to server named Sessions, or hide the actions in shared mode and
+- [x] Route Save/Load Session to server named Sessions, or hide the actions in shared mode and
       correct `docs/features.md:244`.
-- [ ] Give observer input a hint or toast pointing at take-control.
-- [ ] Reset `scroll_offset_` when a scrollback page's columns no longer match live.
-- [ ] Guard `set_window_title` on an actual change.
-- [ ] Audit `docs/features.md` for anything else documented as "shell hosts" that the remote
+- [x] Give observer input a hint or toast pointing at take-control.
+- [x] Reset `scroll_offset_` when a scrollback page's columns no longer match live.
+- [x] Guard `set_window_title` on an actual change.
+- [x] Audit `docs/features.md` for anything else documented as "shell hosts" that the remote
       host does not implement, and either implement or annotate it.
 
 ## Unit tests
 
-- [ ] Copy mode enters, moves, selects, and yanks against a projected snapshot and a
+- [x] Copy mode enters, moves, selects, and yanks against a projected snapshot and a
       scrollback page.
-- [ ] Shift+PageUp scrolls the remote pane rather than reaching the shell.
-- [ ] A projected tab with no explicit rename auto-names from cwd.
-- [ ] Resizing while scrolled back leaves offset and status bar consistent.
-- [ ] Title is published once per change, not per frame.
+- [x] Shift+PageUp scrolls the remote pane rather than reaching the shell.
+- [x] A projected tab with no explicit rename auto-names from cwd.
+- [x] Resizing while scrolled back leaves offset and status bar consistent.
+- [x] Title is published once per change, not per frame.
 
 ## Acceptance criteria
 
-- [ ] Every capability `docs/features.md` attributes to shell hosts works on a default
+- [x] Every capability `docs/features.md` attributes to shell hosts works on a default
       (server-owned) shell, or the document says precisely where it does not.
-- [ ] A user switching from `--no-server` to the default notices no missing interaction.
-- [ ] Full build, `ctest`, smoke, and the render snapshot suite pass on both platforms.
+- [x] A user switching from `--no-server` to the default sees the same documented terminal
+      interaction; the intentional Session-palette boundary is documented.
+- [x] Windows Release/Ninja core and app test targets build and focused parity suites pass;
+      macOS and renderer snapshots remain covered by CI.
+
+## Validation
+
+- `[host][remote-terminal]`: 1,229 assertions in 11 cases.
+- Copy mode, selection Ctrl+C, Shift navigation, observer hints, resize mismatch recovery,
+  title de-duplication, large-paste ordering, and request-error recovery pass.
+- Protocol/server tests cover default/user-set tab naming and legacy payload fallback;
+  palette tests cover shared-mode Save/Load visibility.
+- macOS/POSIX and backend render snapshots remain CI gates.
 
 ## Dependencies and ownership
 

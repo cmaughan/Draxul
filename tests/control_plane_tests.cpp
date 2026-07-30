@@ -768,6 +768,163 @@ TEST_CASE("remote Session client publishes topology and command results",
     std::filesystem::remove_all(runtime, ignored);
 }
 
+TEST_CASE("remote Session client republishes snapshots until epoch-aware acknowledgement",
+    "[control][client-worker][topology][ack]")
+{
+    const auto runtime = unique_runtime_directory();
+    const std::string control_id
+        = namespaced_control_id(kServerControlId, runtime);
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(
+        control_id, runtime, [] {}, &start_error));
+
+    TopologySnapshot topology{
+        .revision = 1,
+        .session_id = "default",
+        .spaces = {
+            {
+                .space_id = "space-1",
+                .name = "Work",
+                .tabs = {
+                    {
+                        .tab_id = "tab-1",
+                        .name = "Tab",
+                        .root_node_id = "node-1",
+                        .nodes = {
+                            {
+                                .node_id = "node-1",
+                                .is_leaf = true,
+                                .pane_id = "pane-1",
+                            },
+                        },
+                        .panes = {
+                            {
+                                .pane_id = "pane-1",
+                                .domain
+                                = TopologyPaneDomain::ClientLocal,
+                                .client_host_kind
+                                = "platform_default",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    };
+    bool force_changed = false;
+    auto dispatch = [&](const ControlRequest& request) {
+        if (request.method == "topology.snapshot")
+        {
+            return ControlMethodResult::success(
+                topology_snapshot_to_json(topology));
+        }
+        if (request.method == "topology.poll")
+        {
+            const uint64_t after
+                = request.params.value("after_revision", 0ULL);
+            const bool changed
+                = force_changed || after < topology.revision;
+            force_changed = false;
+            nlohmann::json result{
+                { "changed", changed },
+                { "revision", topology.revision },
+            };
+            if (changed)
+            {
+                result["snapshot"]
+                    = topology_snapshot_to_json(topology);
+            }
+            return ControlMethodResult::success(
+                std::move(result));
+        }
+        return ControlMethodResult::error(
+            "unknown_method", "Not used by this test.");
+    };
+
+    auto recovery
+        = std::make_shared<ClientRecoveryState>("ack-test");
+    REQUIRE(recovery->set_server_epoch("epoch-a"));
+    RemoteSessionClient client({
+        .runtime_directory = runtime,
+        .client_id = "ack-ui",
+        .session_id = "default",
+        .recovery = recovery,
+    });
+    REQUIRE(client.start());
+
+    const auto take_revision = [&](uint64_t revision,
+                                   std::string_view epoch,
+                                   std::chrono::milliseconds timeout) {
+        const auto deadline
+            = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            server.process_pending(dispatch);
+            if (auto state = client.take_published_state();
+                state && state->topology
+                && state->topology->revision == revision
+                && state->topology_server_epoch == epoch)
+            {
+                return true;
+            }
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(1));
+        }
+        return false;
+    };
+
+    REQUIRE(take_revision(
+        1, "epoch-a", std::chrono::seconds(2)));
+    // Without an acknowledgement, an unchanged server poll republishes the
+    // pending snapshot so a transient UI projection failure can retry.
+    REQUIRE(take_revision(
+        1, "epoch-a", std::chrono::seconds(1)));
+    client.acknowledge_topology("epoch-a", 1);
+
+    bool saw_acked_revision = false;
+    const auto quiet_deadline
+        = std::chrono::steady_clock::now()
+        + std::chrono::milliseconds(250);
+    while (std::chrono::steady_clock::now() < quiet_deadline)
+    {
+        server.process_pending(dispatch);
+        if (auto state = client.take_published_state();
+            state && state->topology
+            && state->topology->revision == 1)
+        {
+            saw_acked_revision = true;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(1));
+    }
+    CHECK_FALSE(saw_acked_revision);
+
+    topology.revision = 2;
+    REQUIRE(take_revision(
+        2, "epoch-a", std::chrono::seconds(1)));
+    topology.revision = 3;
+    // The newest server snapshot replaces an older unacknowledged one.
+    REQUIRE(take_revision(
+        3, "epoch-a", std::chrono::seconds(1)));
+
+    REQUIRE(recovery->set_server_epoch("epoch-b"));
+    force_changed = true;
+    REQUIRE(take_revision(
+        3, "epoch-b", std::chrono::seconds(1)));
+    // A late ack from the old server cannot consume a same-revision snapshot
+    // published by its replacement.
+    client.acknowledge_topology("epoch-a", 3);
+    REQUIRE(take_revision(
+        3, "epoch-b", std::chrono::seconds(1)));
+    client.acknowledge_topology("epoch-b", 3);
+
+    client.stop();
+    server.stop();
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
 TEST_CASE("control server stop fails queued dispatch before listener join",
     "[control][shutdown]")
 {

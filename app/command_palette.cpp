@@ -76,6 +76,11 @@ void CommandPalette::open()
     {
         if (name == "command_palette")
             continue;
+        if (deps_.action_visible
+            && !deps_.action_visible(name))
+        {
+            continue;
+        }
         if (kTabIndexActions.count(name))
         {
             for (int i = 1; i <= 9; ++i)

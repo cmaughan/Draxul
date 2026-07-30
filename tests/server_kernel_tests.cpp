@@ -200,6 +200,103 @@ TEST_CASE("server terminal teardown stays off the kernel thread under input back
     CHECK_FALSE(process_alive);
 }
 
+TEST_CASE("a saturated non-reading terminal leaves another terminal responsive",
+    "[server][remote-terminal][backpressure][multi-terminal]")
+{
+    ServerTerminalRuntimeOptions stalled_options;
+#ifdef _WIN32
+    stalled_options.command = "powershell.exe";
+    stalled_options.args = {
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "Start-Sleep -Seconds 30",
+    };
+#else
+    stalled_options.command = "/bin/sh";
+    stalled_options.args = { "-c", "sleep 30" };
+#endif
+    ServerTerminalRuntime stalled_runtime(
+        std::move(stalled_options));
+    ServerTerminalRuntime responsive_runtime({});
+    RemoteTerminalService stalled_service(
+        {
+            .method_prefix = "stalled",
+            .server_epoch = "multi-terminal-epoch",
+            .pane_id = "stalled-pane",
+            .terminal_id = "stalled-terminal",
+            .name = "Stalled",
+        },
+        stalled_runtime);
+    RemoteTerminalService responsive_service(
+        {
+            .method_prefix = "responsive",
+            .server_epoch = "multi-terminal-epoch",
+            .pane_id = "responsive-pane",
+            .terminal_id = "responsive-terminal",
+            .name = "Responsive",
+        },
+        responsive_runtime);
+    REQUIRE(stalled_service.handle(
+                "stalled.attach",
+                { { "client_id", "stalled-controller" } })
+                .ok);
+    REQUIRE(responsive_service.handle(
+                "responsive.attach",
+                { { "client_id", "responsive-controller" } })
+                .ok);
+
+    const std::string input(64 * 1024, 'x');
+    std::optional<std::chrono::steady_clock::duration>
+        backpressure_elapsed;
+    for (int attempt = 0; attempt < 32; ++attempt)
+    {
+        const auto started_at
+            = std::chrono::steady_clock::now();
+        const auto result = stalled_service.handle(
+            "stalled.input",
+            {
+                { "client_id", "stalled-controller" },
+                { "request_id", static_cast<uint64_t>(attempt + 1) },
+                { "text", input },
+            });
+        const auto elapsed
+            = std::chrono::steady_clock::now() - started_at;
+        CHECK(elapsed < std::chrono::milliseconds(100));
+        if (!result.ok)
+        {
+            REQUIRE(result.error_code == "backpressure");
+            backpressure_elapsed = elapsed;
+            break;
+        }
+    }
+    REQUIRE(backpressure_elapsed);
+    CHECK(*backpressure_elapsed < std::chrono::milliseconds(100));
+
+    const auto responsive_started_at
+        = std::chrono::steady_clock::now();
+    const auto responsive = responsive_service.handle(
+        "responsive.input",
+        {
+            { "client_id", "responsive-controller" },
+            { "request_id", uint64_t{ 1 } },
+            { "text", "still-responsive" },
+        });
+    const auto responsive_elapsed
+        = std::chrono::steady_clock::now() - responsive_started_at;
+    REQUIRE(responsive.ok);
+    CHECK(responsive_elapsed < std::chrono::milliseconds(100));
+
+    const auto metrics_started_at
+        = std::chrono::steady_clock::now();
+    REQUIRE(responsive_service.handle(
+                "responsive.metrics", nlohmann::json::object())
+                .ok);
+    CHECK(std::chrono::steady_clock::now() - metrics_started_at
+        < std::chrono::milliseconds(100));
+}
+
 namespace
 {
 
@@ -1039,6 +1136,7 @@ TEST_CASE("clean server shell exit removes its shared pane for every client",
         = controller.snapshot().spaces.front();
     const TopologyTab& initial_tab
         = initial_space.tabs.front();
+    REQUIRE_FALSE(initial_tab.name_user_set);
     TopologyCommand split{
         .command_id = "clean-exit-split",
         .expected_revision
@@ -1892,6 +1990,7 @@ TEST_CASE("two topology clients converge through idempotent server commands",
     const auto& created_tab
         = tab_result.snapshot.spaces.front().tabs.back();
     REQUIRE(created_tab.name == "PowerShell");
+    REQUIRE_FALSE(created_tab.name_user_set);
     REQUIRE(created_tab.panes.size() == 1);
     REQUIRE(created_tab.panes.front().domain
         == TopologyPaneDomain::ClientLocal);
@@ -1910,6 +2009,9 @@ TEST_CASE("two topology clients converge through idempotent server commands",
     REQUIRE(first.execute(rename_tab, renamed_tab, error));
     REQUIRE(renamed_tab.snapshot.spaces.front().tabs.back().name
         == "Shared PowerShell");
+    REQUIRE(renamed_tab.snapshot.spaces.front()
+                .tabs.back()
+                .name_user_set);
 
     TopologyCommand move_tab{
         .command_id = "move-tab-1",
@@ -2559,6 +2661,9 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
     REQUIRE(saved);
     REQUIRE(saved->spaces.size() == 2);
     REQUIRE(saved->spaces.back().name == "Restored Space");
+    REQUIRE_FALSE(saved->spaces.front()
+                      .tabs.front()
+                      .name_user_set);
     auto& saved_panes
         = saved->spaces.front().tabs.front().pane_layout.panes;
     const auto saved_dynamic = std::ranges::find(
@@ -2607,6 +2712,9 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
             == "Restored Space");
         REQUIRE(client.snapshot().spaces.back().root_directory
             == "D:/restored");
+        REQUIRE_FALSE(client.snapshot().spaces.front()
+                          .tabs.front()
+                          .name_user_set);
         REQUIRE(client.snapshot().spaces.back().tabs.front().panes.front().domain
             == TopologyPaneDomain::ClientLocal);
         REQUIRE(client.snapshot().spaces.back().tabs.front().panes.front().client_host_kind

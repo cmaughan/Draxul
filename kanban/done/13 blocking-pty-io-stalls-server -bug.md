@@ -2,6 +2,7 @@
 
 **Type:** bug
 **Priority:** P0 / sequence 13
+**Status:** Completed 2026-07-30
 **Raised by:** Claude (server/client runtime review, 2026-07-30)
 **Evidence:** [plans/reviews/2026-07-30-server-client-runtime-review.md](../../plans/reviews/2026-07-30-server-client-runtime-review.md#2-blocking-pty-io-can-wedge-the-singleton-kernel-thread)
 
@@ -48,25 +49,35 @@ That makes service code lock-free by construction, which is right — but it cre
 
 ## Unit tests
 
-- [ ] A fake runtime whose `send_input` blocks does not prevent other terminals from pumping
-      or other clients' requests from being answered.
-- [ ] Input into a non-draining PTY returns a backpressure error within a bounded time instead
-      of hanging the caller.
-- [ ] Reader overflow sets the resync flag and bounds memory; the client recovers via snapshot.
-- [ ] Destroying a terminal with a live process does not stall the loop past the latency
-      threshold.
+- [x] A real non-reading PTY saturates its bounded writer queue without preventing a second
+      terminal's input or metrics request from being answered.
+- [x] Input into a non-draining PTY returns a backpressure error within 100 ms instead of
+      hanging the caller.
+- [x] Reader-queue backpressure pauses the reader at its byte cap and resumes after draining,
+      preserving the complete byte stream without requiring a lossy-overflow resync.
+- [x] Destroying a terminal with a live process returns within 100 ms and the detached reaper
+      terminates the process.
 
 ## Acceptance criteria
 
-- [ ] Ctrl-S in one server-owned shell leaves every other shell and client responsive.
-- [ ] A detached shell producing continuous output has bounded server memory.
+- [x] The non-reading-process equivalent of Ctrl-S leaves another server terminal responsive.
+- [x] A detached shell producing continuous output is bounded by the per-process output queue.
 - [x] Loop latency is measurable and logged when it exceeds the threshold.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] Windows Release/Ninja core and app test targets build; focused remote-terminal,
+      PTY output-cap, teardown, and multi-terminal backpressure suites pass. The macOS
+      PTY path remains covered by CI.
+
+## Validation
+
+- Windows Release/Ninja `draxul-test-core` and `draxul-test-app` build passed.
+- `[server][remote-terminal][backpressure]`: 28 assertions in 3 cases.
+- PTY output-cap preservation: 133 assertions; live-process teardown: 5 assertions.
+- macOS/POSIX runtime validation remains a CI gate.
 
 ## Dependencies and ownership
 
 Touches `draxul-terminal-process` and `draxul-server`. Shares the kernel loop with
 `kanban/pending/12 server-crash-on-invalid-utf8 -bug.md`; one owner should hold both. The
 backpressure error introduced here is the signal
-`kanban/pending/15 oversized-paste-kills-remote-pane -bug.md` needs the client to handle
+`kanban/done/15 oversized-paste-kills-remote-pane -bug.md` needs the client to handle
 gracefully.

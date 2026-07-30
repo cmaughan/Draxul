@@ -26,6 +26,10 @@ public:
     virtual bool ensure_started(std::string& error) = 0;
     virtual bool restart(std::string& error) = 0;
     virtual bool pump() = 0;
+    // Must be non-blocking. Implementations may only admit bytes to a bounded
+    // queue here; PTY/ConPTY writes belong on a per-terminal writer thread.
+    // Backpressure is an ordinary result and must never stall the server state
+    // loop or another terminal.
     virtual RemoteTerminalInputResult send_input(
         std::string_view bytes) = 0;
     virtual bool resize(int cols, int rows) = 0;

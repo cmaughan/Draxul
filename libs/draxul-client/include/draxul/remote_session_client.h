@@ -43,7 +43,9 @@ struct RemoteStatusCompletion
 struct RemoteSessionPublishedState
 {
     std::optional<TopologySnapshot> topology;
+    std::string topology_server_epoch;
     std::optional<ServerAgentSnapshot> agents;
+    std::string agent_server_epoch;
     std::vector<RemoteTopologyCommandCompletion> commands;
     std::vector<RemoteStatusCompletion> statuses;
     std::optional<std::string> topology_error;
@@ -71,6 +73,10 @@ public:
     bool enqueue(TopologyCommand command);
     std::optional<uint64_t> request_status();
     std::optional<RemoteSessionPublishedState> take_published_state();
+    void acknowledge_topology(
+        std::string_view server_epoch, uint64_t revision);
+    void acknowledge_agents(
+        std::string_view server_epoch, uint64_t revision);
 
 private:
     class Impl;

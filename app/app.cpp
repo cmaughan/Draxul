@@ -94,6 +94,28 @@ bool is_remote_server_shell_kind(HostKind kind)
     }
 }
 
+template <typename F>
+class ScopeExit
+{
+public:
+    explicit ScopeExit(F callback)
+        : callback_(std::move(callback))
+    {
+    }
+    ~ScopeExit()
+    {
+        callback_();
+    }
+    ScopeExit(const ScopeExit&) = delete;
+    ScopeExit& operator=(const ScopeExit&) = delete;
+
+private:
+    F callback_;
+};
+
+template <typename F>
+ScopeExit(F) -> ScopeExit<F>;
+
 class CallbackInputRouter final : public IInputRouter
 {
 public:
@@ -498,6 +520,12 @@ bool App::initialize()
         palette_host_deps.gui_action_handler = &gui_action_handler_;
         palette_host_deps.keybindings = &config_.keybindings;
         palette_host_deps.palette_bg_alpha = &config_.palette_bg_alpha;
+        palette_host_deps.action_visible
+            = [this](std::string_view action) {
+                  return !options_.enable_remote_topology
+                      || (action != "save_session_as"
+                          && action != "load_session");
+              };
         palette_host_ = std::make_unique<CommandPaletteHost>(std::move(palette_host_deps));
 
         HostContext palette_ctx;
@@ -3075,6 +3103,7 @@ void App::consume_remote_session_state()
     if (published->server_epoch_changed)
     {
         accept_next_remote_topology_revision_ = true;
+        pending_remote_command_activations_.clear();
         if (published->recovery
             && options_.server_connection)
         {
@@ -3110,11 +3139,34 @@ void App::consume_remote_session_state()
         agent_poll_error_announced_ = false;
     }
 
+    TopologySnapshot activation_previous
+        = remote_topology_snapshot_;
     for (auto& completion : published->commands)
-        apply_remote_command_completion(
-            std::move(completion));
+    {
+        if (!completion.ok || !completion.snapshot)
+        {
+            if (!topology_command_error_announced_)
+            {
+                topology_command_error_announced_ = true;
+                push_toast(2,
+                    completion.error_message.empty()
+                        ? "Shared topology command failed."
+                        : completion.error_message);
+            }
+            continue;
+        }
+        topology_command_error_announced_ = false;
+        pending_remote_command_activations_.push_back({
+            .command = std::move(completion.command),
+            .previous_snapshot = activation_previous,
+            .required_revision
+            = completion.snapshot->revision,
+        });
+        activation_previous = *completion.snapshot;
+    }
 
     std::string error;
+    bool topology_apply_failed = false;
     if (published->topology
         && (accept_next_remote_topology_revision_
             || published->topology->revision
@@ -3123,22 +3175,78 @@ void App::consume_remote_session_state()
         if (!apply_remote_topology_spaces(
                 *published->topology, &error))
         {
-            push_toast(2,
-                "Could not apply shared topology: " + error);
+            topology_apply_failed = true;
+            const std::string apply_error = error.empty()
+                ? "Could not project the server topology."
+                : error;
+            if (announce_remote_topology_apply_error(
+                    apply_error))
+            {
+                push_toast(2,
+                    "Could not apply shared topology: "
+                        + apply_error);
+            }
         }
         else
         {
+            topology_apply_error_announced_.clear();
             accept_next_remote_topology_revision_ = false;
+            remote_session_client_->acknowledge_topology(
+                published->topology_server_epoch,
+                published->topology->revision);
         }
     }
+    else if (published->topology)
+    {
+        remote_session_client_->acknowledge_topology(
+            published->topology_server_epoch,
+            published->topology->revision);
+    }
+
+    if (!topology_apply_failed)
+    {
+        std::erase_if(pending_remote_command_activations_,
+            [&](const PendingRemoteCommandActivation& pending) {
+                if (pending.required_revision
+                    > remote_topology_snapshot_.revision)
+                {
+                    return false;
+                }
+                apply_remote_command_activation(
+                    pending.command,
+                    pending.previous_snapshot);
+                return true;
+            });
+    }
+
     error.clear();
-    if (published->agents
-        && !apply_remote_agents(*published->agents, &error))
-        push_toast(2, "Could not apply shared agents: " + error);
+    if (published->agents && !topology_apply_failed)
+    {
+        if (!apply_remote_agents(*published->agents, &error))
+        {
+            push_toast(2,
+                "Could not apply shared agents: " + error);
+        }
+        else
+        {
+            remote_session_client_->acknowledge_agents(
+                published->agent_server_epoch,
+                published->agents->revision);
+        }
+    }
 
     for (auto& completion : published->statuses)
         handle_remote_status_completion(
             std::move(completion));
+}
+
+bool App::announce_remote_topology_apply_error(
+    std::string_view error)
+{
+    if (topology_apply_error_announced_ == error)
+        return false;
+    topology_apply_error_announced_ = error;
+    return true;
 }
 
 bool App::apply_remote_agents(
@@ -3222,6 +3330,11 @@ bool App::apply_remote_agents(
 bool App::apply_remote_topology_spaces(
     const TopologySnapshot& snapshot, std::string* error)
 {
+    ScopeExit restore_input([this] {
+        input_dispatcher_.set_host(find_active_tab()
+                ? active_pane_manager().focused_host()
+                : nullptr);
+    });
     remote_topology_projection_error_code_.clear();
     if (snapshot.spaces.empty())
     {
@@ -3312,16 +3425,45 @@ bool App::apply_remote_topology_tabs(
     {
         const auto space_mapping
             = topology_space_to_local_.find(remote_space.space_id);
-        if (space_mapping == topology_space_to_local_.end())
-            continue;
-        Space* local_space
-            = space_controller_.find_space(space_mapping->second);
-        if (!local_space)
+        if (space_mapping == topology_space_to_local_.end()
+            || !space_controller_.find_space(space_mapping->second))
         {
             if (error)
                 *error = "Projected Space could not be resolved.";
             return false;
         }
+        for (const TopologyTab& remote_tab : remote_space.tabs)
+        {
+            live_tab_ids.insert(remote_tab.tab_id);
+            for (const TopologyPane& pane : remote_tab.panes)
+                live_pane_ids.insert(pane.pane_id);
+            const auto mapped
+                = topology_tab_to_local_.find(remote_tab.tab_id);
+            if (mapped != topology_tab_to_local_.end()
+                && mapped->second.first != space_mapping->second)
+            {
+                if (error)
+                    *error = "Server tab identity moved between Spaces.";
+                return false;
+            }
+        }
+    }
+
+    std::string first_error;
+    const auto remember_error = [&](std::string message) {
+        if (first_error.empty())
+            first_error = std::move(message);
+    };
+    for (const TopologySpace& remote_space : snapshot.spaces)
+    {
+        const auto space_mapping
+            = topology_space_to_local_.find(remote_space.space_id);
+        if (space_mapping == topology_space_to_local_.end())
+            continue;
+        Space* local_space
+            = space_controller_.find_space(space_mapping->second);
+        if (!local_space)
+            continue;
 
         TabController& tabs = local_space->tab_controller;
         const int previously_active = tabs.active_tab_id();
@@ -3338,10 +3480,6 @@ bool App::apply_remote_topology_tabs(
         ordered_local_tabs.reserve(remote_space.tabs.size());
         for (const TopologyTab& remote_tab : remote_space.tabs)
         {
-            live_tab_ids.insert(remote_tab.tab_id);
-            for (const TopologyPane& pane : remote_tab.panes)
-                live_pane_ids.insert(pane.pane_id);
-
             auto mapping
                 = topology_tab_to_local_.find(remote_tab.tab_id);
             if (mapping == topology_tab_to_local_.end())
@@ -3361,13 +3499,10 @@ bool App::apply_remote_topology_tabs(
                         make_pane_manager_deps(local_space));
                     if (local_tab_id < 0)
                     {
-                        if (error)
-                        {
-                            *error = tabs.last_error().empty()
+                        remember_error(tabs.last_error().empty()
                                 ? "Could not create a projected tab."
-                                : tabs.last_error();
-                        }
-                        return false;
+                                : tabs.last_error());
+                        continue;
                     }
                 }
                 topology_tab_to_local_[remote_tab.tab_id]
@@ -3377,20 +3512,17 @@ bool App::apply_remote_topology_tabs(
                     remote_tab.tab_id);
             }
 
-            if (mapping->second.first != local_space->id)
-            {
-                if (error)
-                    *error = "Server tab identity moved between Spaces.";
-                return false;
-            }
             claimed_local_tabs.insert(mapping->second.second);
+            ordered_local_tabs.push_back(mapping->second.second);
+            std::string projection_error;
             if (!project_remote_tab(
                     remote_tab, local_space->id,
-                    mapping->second.second, error))
+                    mapping->second.second, &projection_error))
             {
-                return false;
+                remember_error(projection_error.empty()
+                        ? "Could not project the server tab layout."
+                        : std::move(projection_error));
             }
-            ordered_local_tabs.push_back(mapping->second.second);
         }
 
         // The server owns the tab collection. Remove any locally restored
@@ -3405,9 +3537,8 @@ bool App::apply_remote_topology_tabs(
             tabs.close_tab(tab_id);
         if (!tabs.reorder_projected_tabs(ordered_local_tabs))
         {
-            if (error)
-                *error = "Could not apply authoritative tab order.";
-            return false;
+            remember_error(
+                "Could not apply authoritative tab order.");
         }
 
         if (previously_active >= 0
@@ -3450,9 +3581,15 @@ bool App::apply_remote_topology_tabs(
         });
 
     refresh_app_shell_layout();
-    input_dispatcher_.set_host(
-        active_pane_manager().focused_host());
     request_frame();
+    if (!first_error.empty())
+    {
+        if (error)
+            *error = std::move(first_error);
+        return false;
+    }
+    if (error)
+        error->clear();
     return true;
 }
 
@@ -3483,7 +3620,7 @@ bool App::project_remote_tab(const TopologyTab& remote,
     }
 
     local_tab->name = remote.name;
-    local_tab->name_user_set = true;
+    local_tab->name_user_set = remote.name_user_set;
 
     std::ostringstream signature;
     signature << remote.root_node_id << '|';
@@ -3642,22 +3779,18 @@ bool App::project_remote_tab(const TopologyTab& remote,
         {
             const auto parsed
                 = parse_host_kind(pane.client_host_kind);
-            if (!parsed)
-            {
-                if (error)
-                {
-                    *error = "Unsupported projected host kind '"
-                        + pane.client_host_kind + "'.";
-                }
-                return false;
-            }
-            host_kind = *parsed;
+            if (parsed)
+                host_kind = *parsed;
         }
         PaneManager::PaneSnapshot projected{
             .leaf_id = leaf->second,
             .launch = {
                 .kind = host_kind,
                 .remote_terminal_id = pane.terminal_id,
+                .client_host_kind
+                = pane.domain == TopologyPaneDomain::ClientLocal
+                ? pane.client_host_kind
+                : std::string{},
             },
             .pane_name = pane.name,
             .pane_id = pane.pane_id,
@@ -3713,62 +3846,34 @@ bool App::execute_remote_topology_command(
     return true;
 }
 
-void App::apply_remote_command_completion(
-    RemoteTopologyCommandCompletion completion)
+void App::apply_remote_command_activation(
+    const TopologyCommand& command,
+    const TopologySnapshot& previous_snapshot)
 {
-    if (!completion.ok || !completion.snapshot)
-    {
-        if (!topology_command_error_announced_)
-        {
-            topology_command_error_announced_ = true;
-            push_toast(2,
-                completion.error_message.empty()
-                    ? "Shared topology command failed."
-                    : completion.error_message);
-        }
-        return;
-    }
-    topology_command_error_announced_ = false;
-
     std::unordered_set<std::string> previous_spaces;
     std::unordered_set<std::string> previous_tabs;
     std::unordered_set<std::string> previous_panes;
     for (const TopologySpace& space
-        : remote_topology_snapshot_.spaces)
+        : previous_snapshot.spaces)
     {
         previous_spaces.insert(space.space_id);
-        if (space.space_id != completion.command.space_id)
+        if (space.space_id != command.space_id)
             continue;
         for (const TopologyTab& tab : space.tabs)
         {
             previous_tabs.insert(tab.tab_id);
-            if (tab.tab_id != completion.command.tab_id)
+            if (tab.tab_id != command.tab_id)
                 continue;
             for (const TopologyPane& pane : tab.panes)
                 previous_panes.insert(pane.pane_id);
         }
     }
 
-    std::string error;
-    if (!apply_remote_topology_spaces(
-            *completion.snapshot, &error))
-    {
-        if (!topology_command_error_announced_)
-        {
-            topology_command_error_announced_ = true;
-            push_toast(2,
-                error.empty()
-                    ? "Could not apply shared topology."
-                    : error);
-        }
-        return;
-    }
-
-    if (completion.command.kind
+    if (command.kind
         == TopologyCommandKind::CreateSpace)
     {
         for (const TopologySpace& space
-            : completion.snapshot->spaces)
+            : remote_topology_snapshot_.spaces)
         {
             if (previous_spaces.contains(space.space_id))
                 continue;
@@ -3779,13 +3884,13 @@ void App::apply_remote_command_completion(
             break;
         }
     }
-    else if (completion.command.kind
+    else if (command.kind
         == TopologyCommandKind::CreateTab)
     {
         for (const TopologySpace& space
-            : completion.snapshot->spaces)
+            : remote_topology_snapshot_.spaces)
         {
-            if (space.space_id != completion.command.space_id)
+            if (space.space_id != command.space_id)
                 continue;
             for (const TopologyTab& tab : space.tabs)
             {
@@ -3803,17 +3908,17 @@ void App::apply_remote_command_completion(
             break;
         }
     }
-    else if (completion.command.kind
+    else if (command.kind
         == TopologyCommandKind::SplitPane)
     {
         for (const TopologySpace& space
-            : completion.snapshot->spaces)
+            : remote_topology_snapshot_.spaces)
         {
-            if (space.space_id != completion.command.space_id)
+            if (space.space_id != command.space_id)
                 continue;
             for (const TopologyTab& tab : space.tabs)
             {
-                if (tab.tab_id != completion.command.tab_id)
+                if (tab.tab_id != command.tab_id)
                     continue;
                 for (const TopologyPane& pane : tab.panes)
                 {

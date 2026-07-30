@@ -10,6 +10,7 @@
 #include <draxul/perf_timing.h>
 #include <draxul/renderer.h>
 #include <draxul/text_service.h>
+#include <draxul/unavailable_host.h>
 
 #include <charconv>
 
@@ -84,6 +85,7 @@ PaneManager::SavedLaunchOptions save_launch_options(const HostLaunchOptions& lau
     saved.source_path = launch.source_path;
     saved.startup_commands = launch.startup_commands;
     saved.remote_terminal_id = launch.remote_terminal_id;
+    saved.client_host_kind = launch.client_host_kind;
     saved.pty_capture_file = launch.pty_capture_file;
     return saved;
 }
@@ -99,6 +101,7 @@ HostLaunchOptions restore_launch_options(const PaneManager::SavedLaunchOptions& 
     launch.source_path = saved.source_path;
     launch.startup_commands = saved.startup_commands;
     launch.remote_terminal_id = saved.remote_terminal_id;
+    launch.client_host_kind = saved.client_host_kind;
     launch.pty_capture_file = saved.pty_capture_file;
     launch.enable_ligatures = deps.config ? deps.config->enable_ligatures : true;
     if (deps.config)
@@ -851,7 +854,9 @@ bool PaneManager::reconcile_projected_layout(
             || launch->second.kind
                 != pane->second->launch.kind
             || launch->second.remote_terminal_id
-                != pane->second->launch.remote_terminal_id)
+                != pane->second->launch.remote_terminal_id
+            || launch->second.client_host_kind
+                != pane->second->launch.client_host_kind)
         {
             removed.push_back(leaf);
         }
@@ -1194,7 +1199,15 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
 
     std::unique_ptr<IHost> new_host;
 
-    if (deps_.options && deps_.options->host_factory)
+    const bool projected_client_host
+        = !launch.client_host_kind.empty()
+        && launch.client_host_kind != "platform_default";
+    if (projected_client_host
+        && !parse_host_kind(launch.client_host_kind))
+    {
+        new_host = std::make_unique<UnavailableHost>();
+    }
+    else if (deps_.options && deps_.options->host_factory)
     {
         new_host = deps_.options->host_factory(launch.kind);
     }
@@ -1202,6 +1215,9 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
     {
         new_host = HostProviderRegistry::global().create(launch.kind);
     }
+
+    if (!new_host && projected_client_host)
+        new_host = std::make_unique<UnavailableHost>();
 
     if (!new_host)
     {

@@ -219,6 +219,7 @@ nlohmann::json tab_to_json(const TopologyTab& tab)
     return {
         { "tab_id", tab.tab_id },
         { "name", tab.name },
+        { "name_user_set", tab.name_user_set },
         { "root_node_id", tab.root_node_id },
         { "nodes", std::move(nodes) },
         { "panes", std::move(panes) },
@@ -230,6 +231,8 @@ bool read_tab(const nlohmann::json& value, TopologyTab& tab)
     if (!value.is_object()
         || !read_string(value, "tab_id", tab.tab_id)
         || !read_string(value, "name", tab.name)
+        || (value.contains("name_user_set")
+            && !value["name_user_set"].is_boolean())
         || !read_string(value, "root_node_id", tab.root_node_id)
         || !value.contains("nodes") || !value["nodes"].is_array()
         || !value.contains("panes") || !value["panes"].is_array()
@@ -240,6 +243,8 @@ bool read_tab(const nlohmann::json& value, TopologyTab& tab)
     {
         return false;
     }
+    tab.name_user_set
+        = value.value("name_user_set", true);
 
     std::unordered_set<std::string> pane_ids;
     for (const auto& item : value["panes"])

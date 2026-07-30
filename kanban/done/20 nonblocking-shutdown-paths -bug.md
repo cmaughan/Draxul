@@ -61,7 +61,9 @@ The same `ControlServer` is embedded in the UI's `App`, so this hits both proces
 
 ## Dependencies and ownership
 
-Shares `remote_terminal_host.cpp` with `kanban/pending/15` and `kanban/pending/19`, and
+Shares `remote_terminal_host.cpp` with
+`kanban/done/15 oversized-paste-kills-remote-pane -bug.md` and
+`kanban/done/19 client-recovery-state-machine -refactor.md`, and
 `control_plane.cpp` with `kanban/done/17 sync-ipc-on-ui-thread -bug.md` (the absolute
 per-request deadline added there is the same mechanism this card needs on teardown). Schedule
 after or alongside `17`. Related existing card:

@@ -6,6 +6,8 @@
 #include <draxul/terminal_key_encoder.h>
 #include <draxul/window.h>
 
+#include <SDL3/SDL_keycode.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -15,6 +17,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -44,7 +47,9 @@ bool is_expected_command_error(std::string_view code)
 {
     return code == "not_controller"
         || code == "invalid_resize"
-        || code == "invalid_input";
+        || code == "invalid_input"
+        || code == "backpressure"
+        || code == "process_write_failed";
 }
 
 bool is_removed_remote_terminal(std::string_view code)
@@ -54,7 +59,23 @@ bool is_removed_remote_terminal(std::string_view code)
 
 bool is_transient_remote_error(std::string_view code)
 {
-    return is_transient_client_error(code) || code == "backpressure";
+    return is_transient_client_error(code);
+}
+
+bool is_selection_copy_shortcut(const KeyEvent& event)
+{
+    if (!event.pressed || event.keycode != SDLK_C)
+        return false;
+    ModifierFlags normalized_mods = kModNone;
+    if (event.mod & kModShift)
+        normalized_mods |= kModShift;
+    if (event.mod & kModCtrl)
+        normalized_mods |= kModCtrl;
+    if (event.mod & kModAlt)
+        normalized_mods |= kModAlt;
+    if (event.mod & kModSuper)
+        normalized_mods |= kModSuper;
+    return normalized_mods == kModCtrl;
 }
 
 struct RemoteHostCommand
@@ -75,6 +96,7 @@ struct RemoteHostCommand
     int scroll_rows = 0;
     uint64_t request_id = 0;
     bool attempted = false;
+    bool mergeable = true;
 };
 
 struct RemotePublishedState
@@ -223,6 +245,8 @@ public:
             && command.kind == RemoteHostCommand::Kind::Input
             && commands_.back().kind == RemoteHostCommand::Kind::Input
             && !commands_.back().attempted
+            && commands_.back().mergeable
+            && command.mergeable
             && commands_.back().text.size() <= kRemoteInputBatchBytes
             && command.text.size() <= kRemoteInputBatchBytes
             && commands_.back().text.size() + command.text.size()
@@ -294,6 +318,7 @@ public:
                 && staged.back().kind
                     == RemoteHostCommand::Kind::Input
                 && !staged.back().attempted
+                && staged.back().mergeable
                 && staged.back().text.size()
                     <= kRemoteInputBatchBytes
                 && chunk.size() <= kRemoteInputBatchBytes
@@ -346,6 +371,7 @@ public:
                 .kind = RemoteHostCommand::Kind::Input,
                 .text = std::move(chunk),
                 .request_id = next_remote_request_id(),
+                .mergeable = false,
             });
         }
         commands_.swap(staged);
@@ -451,7 +477,7 @@ private:
             recovery.attempts,
             static_cast<long long>(delay.count()), error.c_str());
         if (recovery.attempts == 1)
-            publish_error(error);
+            publish_error_once(error_code, error);
         return delay;
     }
 
@@ -480,9 +506,9 @@ private:
 
     void worker_main()
     {
-        bool fatal_error = false;
+        bool terminal_removed = false;
         bool attached = false;
-        while (!stopping_ && !fatal_error)
+        while (!stopping_ && !terminal_removed)
         {
             if (!attached)
             {
@@ -497,7 +523,7 @@ private:
                     if (is_removed_remote_terminal(error_code))
                     {
                         publish_error(std::move(error));
-                        fatal_error = true;
+                        terminal_removed = true;
                         break;
                     }
                     if (error_code == "stale_epoch")
@@ -570,12 +596,12 @@ private:
                     }
                     if (is_removed_remote_terminal(error_code))
                     {
-                        fatal_error = true;
+                        terminal_removed = true;
                         break;
                     }
                     if (is_expected_command_error(error_code))
                     {
-                        publish_error(std::move(error));
+                        publish_error_once(error_code, error);
                         continue;
                     }
                     if (error_code == "unknown_method")
@@ -583,7 +609,7 @@ private:
                         // Optional capabilities (notably scrollback on an
                         // older server) degrade gently rather than killing
                         // the pane.
-                        publish_error(std::move(error));
+                        publish_error_once(error_code, error);
                         continue;
                     }
                     if (error_code == "stale_epoch")
@@ -603,15 +629,20 @@ private:
                         retry_batch = true;
                         break;
                     }
-                    publish_error(error);
-                    log_fatal_failure(error_code, error);
-                    fatal_error = true;
-                    break;
+                    // A request-level failure must not orphan a live server
+                    // terminal behind a stopped UI host. Drop this command,
+                    // surface the error once, and keep polling so a later
+                    // command can prove the pane is usable.
+                    publish_error_once(error_code, error);
+                    DRAXUL_LOG_WARN(LogCategory::App,
+                        "Remote terminal command was dropped (%s): %s",
+                        error_code.c_str(), error.c_str());
+                    continue;
                 }
                 options_.recovery->note_connected(
                     recovery_channel());
             }
-            if (stopping_ || fatal_error)
+            if (stopping_ || terminal_removed)
                 break;
             if (retry_batch)
                 continue;
@@ -653,7 +684,7 @@ private:
                     break;
                 if (error_code == "unknown_method")
                 {
-                    publish_error(std::move(error));
+                    publish_error_once(error_code, error);
                     wait_for_retry(
                         options_.recovery->note_failure(
                             recovery_channel()));
@@ -667,10 +698,16 @@ private:
                     wait_for_retry(delay);
                     continue;
                 }
-                publish_error(error);
-                log_fatal_failure(error_code, error);
-                fatal_error = true;
-                break;
+                // Unknown poll failures are treated as a bounded
+                // resynchronization attempt. The next loop reattaches and
+                // obtains a full snapshot instead of permanently stopping
+                // the pane.
+                publish_error_once(error_code, error);
+                attached = false;
+                const auto delay
+                    = note_recoverable_failure(error_code, error);
+                wait_for_retry(delay);
+                continue;
             }
             if (stopping_)
                 break;
@@ -707,9 +744,13 @@ private:
                     }
                     else
                     {
-                        publish_error(error);
-                        fatal_error = true;
-                        break;
+                        // Scrollback is optional client-local presentation.
+                        // If it fails unexpectedly, return to the live view
+                        // and keep the terminal worker healthy.
+                        publish_error_once(error_code, error);
+                        scroll_offset_ = 0;
+                        scrollback_total_ = 0;
+                        scrollback_page_.reset();
                     }
                 }
                 publish_projection();
@@ -739,19 +780,19 @@ private:
             worker_.join();
     }
 
-    void log_fatal_failure(
-        std::string_view error_code, const std::string& error)
-    {
-        DRAXUL_LOG_ERROR(LogCategory::App,
-            "Remote terminal host stopped (%.*s): %s",
-            static_cast<int>(error_code.size()), error_code.data(),
-            error.c_str());
-    }
-
     void publish_projection()
     {
+        const auto& live = client_->projection().snapshot();
+        if (scroll_offset_ > 0 && scrollback_page_
+            && scrollback_page_->snapshot
+            && scrollback_page_->snapshot->cols != live.cols)
+        {
+            scroll_offset_ = 0;
+            scrollback_total_ = 0;
+            scrollback_page_.reset();
+        }
         RemotePublishedState state{
-            .snapshot = client_->projection().snapshot(),
+            .snapshot = live,
             .scrollback_page = scrollback_page_,
             .scroll_offset = scroll_offset_,
             .scrollback_total = scrollback_total_,
@@ -842,6 +883,17 @@ private:
         owner_.callbacks().wake_window();
     }
 
+    void publish_error_once(
+        std::string_view error_code, const std::string& error)
+    {
+        const std::string key = error_code.empty()
+            ? error
+            : std::string(error_code);
+        if (!published_error_keys_.insert(key).second)
+            return;
+        publish_error(error);
+    }
+
     RemoteTerminalHost& owner_;
     RemoteTerminalHostOptions options_;
     std::unique_ptr<RemoteTerminalClient> client_;
@@ -862,6 +914,7 @@ private:
     uint64_t scroll_offset_ = 0;
     uint64_t scrollback_total_ = 0;
     std::string pending_error_;
+    std::unordered_set<std::string> published_error_keys_;
 };
 
 RemoteTerminalHost::RemoteTerminalHost(RemoteTerminalHostOptions options)
@@ -996,12 +1049,18 @@ void RemoteTerminalHost::pump()
         if (metadata.cursor.blink)
             timing = { 530, 530, 530 };
         set_cursor_style(style, timing, !metadata.cursor.visible);
-        if (!metadata.title.empty())
+        if (!metadata.title.empty()
+            && metadata.title != published_window_title_)
+        {
             callbacks().set_window_title(metadata.title);
+            published_window_title_ = metadata.title;
+        }
         const bool became_controller
             = controller_client_id_ != impl_->options().client_id
             && state->controller_client_id == impl_->options().client_id;
         controller_client_id_ = std::move(state->controller_client_id);
+        if (became_controller)
+            observer_input_hint_shown_ = false;
         if (state->clipboard_write
             && controller_client_id_ == impl_->options().client_id)
         {
@@ -1009,6 +1068,14 @@ void RemoteTerminalHost::pump()
         }
         apply_mouse_modes(state->snapshot.metadata.modes.mouse);
         metadata_ = metadata;
+        if (copy_mode_.active)
+        {
+            copy_mode_.cursor.x = std::clamp(
+                copy_mode_.cursor.x, 0, std::max(0, grid_cols() - 1));
+            copy_mode_.cursor.y = std::clamp(
+                copy_mode_.cursor.y, 0, std::max(0, grid_rows() - 1));
+            update_copy_mode_overlay();
+        }
         flush_grid();
         if (became_controller
             && desired_cols_ > 0 && desired_rows_ > 0
@@ -1078,16 +1145,38 @@ void RemoteTerminalHost::on_focus_lost()
 
 void RemoteTerminalHost::on_key(const KeyEvent& event)
 {
-    if (!event.pressed
-        || controller_client_id_ != impl_->options().client_id)
+    if (!event.pressed)
         return;
-    if (scroll_offset_ > 0)
+
+    if (suppress_next_selection_copy_text_input_)
+        suppress_next_selection_copy_text_input_ = false;
+
+    if (copy_mode_.active)
     {
-        selection_.clear();
-        impl_->enqueue({
-            .kind = RemoteHostCommand::Kind::ScrollToLive,
-        });
+        (void)handle_copy_mode_key(event);
+        return;
     }
+
+    if (selection_.is_active() && is_selection_copy_shortcut(event))
+    {
+        copy_active_selection_to_clipboard();
+        selection_.clear();
+        suppress_next_selection_copy_text_input_ = true;
+        return;
+    }
+
+    if (handle_scrollback_key(event))
+        return;
+
+    if (controller_client_id_ != impl_->options().client_id)
+    {
+        show_observer_input_hint();
+        return;
+    }
+
+    if (scroll_offset_ > 0)
+        scroll_to_live();
+
     VtState state;
     state.cursor_app_mode = metadata_.modes.cursor_application;
     const std::string sequence = encode_terminal_key(event, state);
@@ -1097,18 +1186,21 @@ void RemoteTerminalHost::on_key(const KeyEvent& event)
 
 void RemoteTerminalHost::on_text_input(const TextInputEvent& event)
 {
-    if (!event.text.empty()
-        && controller_client_id_ == impl_->options().client_id)
+    if (suppress_next_selection_copy_text_input_)
     {
-        if (scroll_offset_ > 0)
-        {
-            selection_.clear();
-            impl_->enqueue({
-                .kind = RemoteHostCommand::Kind::ScrollToLive,
-            });
-        }
-        send_remote_input(event.text);
+        suppress_next_selection_copy_text_input_ = false;
+        return;
     }
+    if (event.text.empty() || copy_mode_.active)
+        return;
+    if (controller_client_id_ != impl_->options().client_id)
+    {
+        show_observer_input_hint();
+        return;
+    }
+    if (scroll_offset_ > 0)
+        scroll_to_live();
+    send_remote_input(event.text);
 }
 
 void RemoteTerminalHost::on_mouse_button(const MouseButtonEvent& event)
@@ -1240,8 +1332,21 @@ bool RemoteTerminalHost::dispatch_action(std::string_view action)
         copy_active_selection_to_clipboard();
         return true;
     }
+    if (action == "toggle_copy_mode")
+    {
+        if (copy_mode_.active)
+            exit_copy_mode(false);
+        else
+            enter_copy_mode();
+        return true;
+    }
     if (action == "paste")
     {
+        if (controller_client_id_ != impl_->options().client_id)
+        {
+            show_observer_input_hint();
+            return true;
+        }
         const std::string clipboard = window().clipboard_text();
         const int threshold = launch_options().paste_confirm_lines;
         if (threshold > 0 && !clipboard.empty())
@@ -1321,6 +1426,149 @@ bool RemoteTerminalHost::open_link_at(
     return true;
 }
 
+void RemoteTerminalHost::enter_copy_mode()
+{
+    pending_selection_copy_click_.reset();
+    suppress_next_selection_copy_text_input_ = false;
+    selection_.clear();
+    copy_mode_.active = true;
+    copy_mode_.selecting = false;
+    copy_mode_.line_mode = false;
+    copy_mode_.cursor = {
+        std::clamp(metadata_.cursor.col, 0, std::max(0, grid_cols() - 1)),
+        std::clamp(metadata_.cursor.row, 0, std::max(0, grid_rows() - 1)),
+    };
+    copy_mode_.anchor = copy_mode_.cursor;
+    update_copy_mode_overlay();
+    callbacks().push_toast(0,
+        "Copy mode: hjkl/arrows to move, v/V select, y yank, q/Esc exit");
+}
+
+void RemoteTerminalHost::exit_copy_mode(bool yank)
+{
+    if (yank && selection_.is_active())
+        copy_active_selection_to_clipboard();
+    pending_selection_copy_click_.reset();
+    suppress_next_selection_copy_text_input_ = false;
+    selection_.clear();
+    copy_mode_ = {};
+    callbacks().request_frame();
+}
+
+void RemoteTerminalHost::update_copy_mode_overlay()
+{
+    if (copy_mode_.selecting)
+    {
+        if (copy_mode_.line_mode)
+        {
+            const int first_row
+                = std::min(copy_mode_.anchor.y, copy_mode_.cursor.y);
+            const int last_row
+                = std::max(copy_mode_.anchor.y, copy_mode_.cursor.y);
+            selection_.begin_drag({ { 0, first_row } });
+            selection_.end_drag(
+                { { std::max(0, grid_cols() - 1), last_row } });
+        }
+        else
+        {
+            selection_.begin_drag(
+                { { copy_mode_.anchor.x, copy_mode_.anchor.y } });
+            selection_.end_drag(
+                { { copy_mode_.cursor.x, copy_mode_.cursor.y } });
+        }
+    }
+    else
+    {
+        selection_.begin_drag(
+            { { copy_mode_.cursor.x, copy_mode_.cursor.y } });
+        selection_.end_drag(
+            { { copy_mode_.cursor.x, copy_mode_.cursor.y } });
+    }
+    callbacks().request_frame();
+}
+
+bool RemoteTerminalHost::handle_copy_mode_key(const KeyEvent& event)
+{
+    const int cols = grid_cols();
+    const int rows = grid_rows();
+    auto clamp_cursor = [&] {
+        copy_mode_.cursor.x = std::clamp(
+            copy_mode_.cursor.x, 0, std::max(0, cols - 1));
+        copy_mode_.cursor.y = std::clamp(
+            copy_mode_.cursor.y, 0, std::max(0, rows - 1));
+    };
+
+    switch (event.keycode)
+    {
+    case SDLK_ESCAPE:
+    case SDLK_Q:
+        exit_copy_mode(false);
+        return true;
+    case SDLK_Y:
+        exit_copy_mode(true);
+        return true;
+    case SDLK_V:
+        if ((event.mod & kModShift) != 0)
+        {
+            copy_mode_.selecting = true;
+            copy_mode_.line_mode = true;
+            copy_mode_.anchor = copy_mode_.cursor;
+        }
+        else
+        {
+            copy_mode_.selecting = !copy_mode_.selecting;
+            copy_mode_.line_mode = false;
+            if (copy_mode_.selecting)
+                copy_mode_.anchor = copy_mode_.cursor;
+            else
+                selection_.clear();
+        }
+        update_copy_mode_overlay();
+        return true;
+    case SDLK_H:
+    case SDLK_LEFT:
+        --copy_mode_.cursor.x;
+        clamp_cursor();
+        update_copy_mode_overlay();
+        return true;
+    case SDLK_L:
+    case SDLK_RIGHT:
+        ++copy_mode_.cursor.x;
+        clamp_cursor();
+        update_copy_mode_overlay();
+        return true;
+    case SDLK_K:
+    case SDLK_UP:
+        --copy_mode_.cursor.y;
+        clamp_cursor();
+        update_copy_mode_overlay();
+        return true;
+    case SDLK_J:
+    case SDLK_DOWN:
+        ++copy_mode_.cursor.y;
+        clamp_cursor();
+        update_copy_mode_overlay();
+        return true;
+    case SDLK_0:
+    case SDLK_HOME:
+        copy_mode_.cursor.x = 0;
+        update_copy_mode_overlay();
+        return true;
+    case SDLK_END:
+        copy_mode_.cursor.x = std::max(0, cols - 1);
+        update_copy_mode_overlay();
+        return true;
+    case SDLK_G:
+        copy_mode_.cursor.y = (event.mod & kModShift) != 0
+            ? std::max(0, rows - 1)
+            : 0;
+        update_copy_mode_overlay();
+        return true;
+    default:
+        return true;
+    }
+}
+
 bool RemoteTerminalHost::copy_active_selection_to_clipboard()
 {
     if (!selection_.is_active())
@@ -1329,11 +1577,67 @@ bool RemoteTerminalHost::copy_active_selection_to_clipboard()
     return !text.empty() && window().set_clipboard_text(text);
 }
 
+bool RemoteTerminalHost::handle_scrollback_key(const KeyEvent& event)
+{
+    if ((event.mod & kModShift) == 0)
+        return false;
+
+    RemoteHostCommand command;
+    if (event.keycode == SDLK_PAGEUP)
+    {
+        command.kind = RemoteHostCommand::Kind::Scroll;
+        command.scroll_rows = std::max(1, grid_rows());
+    }
+    else if (event.keycode == SDLK_PAGEDOWN)
+    {
+        command.kind = RemoteHostCommand::Kind::Scroll;
+        command.scroll_rows = -std::max(1, grid_rows());
+    }
+    else if (event.keycode == SDLK_HOME)
+    {
+        command.kind = RemoteHostCommand::Kind::Scroll;
+        command.scroll_rows = std::numeric_limits<int>::max();
+    }
+    else if (event.keycode == SDLK_END)
+    {
+        command.kind = RemoteHostCommand::Kind::ScrollToLive;
+    }
+    else
+    {
+        return false;
+    }
+
+    selection_.clear();
+    pending_selection_copy_click_.reset();
+    impl_->enqueue(std::move(command));
+    return true;
+}
+
+void RemoteTerminalHost::scroll_to_live()
+{
+    selection_.clear();
+    pending_selection_copy_click_.reset();
+    impl_->enqueue({
+        .kind = RemoteHostCommand::Kind::ScrollToLive,
+    });
+}
+
+void RemoteTerminalHost::show_observer_input_hint()
+{
+    if (observer_input_hint_shown_)
+        return;
+    observer_input_hint_shown_ = true;
+    callbacks().push_toast(
+        0, "This terminal is read-only. Use Take Terminal Control to type.");
+}
+
 void RemoteTerminalHost::send_remote_input(std::string text)
 {
-    if (text.empty()
-        || controller_client_id_ != impl_->options().client_id)
+    if (text.empty())
+        return;
+    if (controller_client_id_ != impl_->options().client_id)
     {
+        show_observer_input_hint();
         return;
     }
     if (!impl_->enqueue_input(text))
@@ -1346,14 +1650,12 @@ void RemoteTerminalHost::send_remote_input(std::string text)
 void RemoteTerminalHost::send_paste(std::string_view text)
 {
     if (controller_client_id_ != impl_->options().client_id)
-        return;
-    if (scroll_offset_ > 0)
     {
-        selection_.clear();
-        impl_->enqueue({
-            .kind = RemoteHostCommand::Kind::ScrollToLive,
-        });
+        show_observer_input_hint();
+        return;
     }
+    if (scroll_offset_ > 0)
+        scroll_to_live();
     if (metadata_.modes.bracketed_paste)
     {
         constexpr std::string_view begin = "\x1B[200~";

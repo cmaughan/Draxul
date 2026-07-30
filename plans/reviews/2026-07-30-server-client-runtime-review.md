@@ -88,7 +88,7 @@ the state loop or a PTY reader. Related: the PTY reader queues are unbounded
 stall also grows server memory without limit; and `ConPtyProcess::shutdown` waits up to two
 seconds per destroyed terminal on the same thread.
 
-→ `kanban/pending/13 blocking-pty-io-stalls-server -bug.md`
+→ `kanban/done/13 blocking-pty-io-stalls-server -bug.md`
 
 ### 3. A paste over 64 KiB permanently kills the pane
 
@@ -108,7 +108,7 @@ command and die with it.
 The deeper problem is that a fatal worker exit has no recovery path at all: `pump()` is
 skipped for non-running hosts, and nothing recreates the host.
 
-→ `kanban/pending/15 oversized-paste-kills-remote-pane -bug.md`
+→ `kanban/done/15 oversized-paste-kills-remote-pane -bug.md`
 
 ### 4. POSIX singleton enforcement has a TOCTOU
 
@@ -229,7 +229,7 @@ These are what users notice on upgrade.
 `kanban/pending/11` tracks scrollback and selection parity for the experimental path; these
 are default-mode regressions and are tracked separately.
 
-→ `kanban/pending/23 shared-terminal-feature-parity -feature.md`
+→ `kanban/done/23 shared-terminal-feature-parity -feature.md`
 
 ## Topology apply-failure handling
 
@@ -247,7 +247,7 @@ permanently out of sync — the next poll reports `changed=false` and never retr
 has the same shape. Apply-failure and drag-failure toasts are also unlatched, unlike poll
 failures, so a persistent failure strobes the toast stack.
 
-→ `kanban/pending/24 topology-apply-failure-handling -bug.md`
+→ `kanban/done/24 topology-apply-failure-handling -bug.md`
 
 ## Resource bounds
 

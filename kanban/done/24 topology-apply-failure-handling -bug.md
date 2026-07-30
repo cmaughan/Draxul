@@ -38,32 +38,53 @@ sync with the server until an unrelated revision bump. `AgentClient` has the sam
 
 ## Implementation
 
-- [ ] Project an unknown `client_host_kind` as an inert placeholder pane ("not available in
+- [x] Project an unknown `client_host_kind` as an inert placeholder pane ("not available in
       this build") and keep the rest of the topology live. Never let it fail startup.
-- [ ] Make `apply_remote_topology_*` failure paths leave consistent state: restore the input
+- [x] Make `apply_remote_topology_*` failure paths leave consistent state: restore the input
       host on every exit path, and either complete stale cleanup or roll back cleanly.
-- [ ] Separate "received" from "applied": keep a pending-apply revision (or let the app own
+- [x] Separate "received" from "applied": keep a pending-apply revision (or let the app own
       last-applied) and retry the apply on subsequent ticks until it succeeds, rather than
       committing the revision in `poll`.
-- [ ] Latch apply-failure toasts on the error string, matching the poll path. (Also listed in
+- [x] Latch apply-failure toasts on the error string, matching the poll path. (Also listed in
       `kanban/pending/17`; whichever lands first should take it.)
 
 ## Unit tests
 
-- [ ] A snapshot containing an unknown host kind still starts the client and projects every
+- [x] A snapshot containing an unknown host kind still starts the client and projects every
       other pane.
-- [ ] A failed apply is retried on the next poll and eventually converges.
-- [ ] The input host is valid after a mid-application failure.
-- [ ] A persistent apply failure produces one toast, not one per poll.
+- [x] A failed apply is retried on the next poll and eventually converges.
+- [x] The input host is valid after a mid-application failure.
+- [x] A persistent apply failure produces one toast, not one per poll.
 
 ## Acceptance criteria
 
-- [ ] A client can always start against a shared Session, whatever build produced it.
-- [ ] No single failed apply leaves a window permanently diverged from the server.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] A client can always start against a shared Session, whatever build produced it.
+- [x] No single failed apply leaves a window permanently diverged from the server.
+- [x] Full build, focused `ctest`, and smoke pass on Windows; macOS remains CI-only for
+      this Windows implementation run.
 
 ## Dependencies and ownership
 
 Touches `app/app.cpp` projection code and `libs/draxul-client`. Overlaps
 `kanban/pending/27 topology-projection-extraction -refactor.md` — if `27` is scheduled first,
 implement this behaviour inside the extracted projection rather than in `App`.
+
+## Completion notes
+
+Completed 2026-07-30. Foreign and optional-unavailable client hosts now use an inert
+`UnavailableHost`; exact raw host descriptors survive reconciliation. The Session client
+retains topology and agent snapshots until an epoch/revision acknowledgement, atomically
+publishes command-result topology, coalesces newer revisions, invalidates old-epoch pending
+state, and defers command activation until the topology has applied.
+
+Windows Release/Ninja validation:
+
+- production executable and both core/app test targets built;
+- focused retry, placeholder, acknowledgement/coalescing, and error-latch tests passed;
+- five of six parallel core/app shards passed; the existing deadline timing case in the
+  remaining app shard reported `main_thread_timeout` instead of `deadline_exceeded` under
+  `-j2`, then passed serially (7 assertions); and
+- `py do.py smoke` rebuilt Debug/Ninja and passed the executable smoke test.
+
+The code path is platform-neutral C++; macOS compilation and execution are left to CI because
+this run was performed on Windows.

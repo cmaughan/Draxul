@@ -16,6 +16,8 @@
 #include <draxul/text_service.h>
 #include <draxul/topology_client.h>
 
+#include <SDL3/SDL_keycode.h>
+
 #include <thread>
 
 using namespace draxul;
@@ -118,6 +120,75 @@ bool snapshot_contains(
         text += cell.text;
     return text.find(needle) != std::string::npos;
 }
+
+TerminalSemanticSnapshot snapshot_from_rows(
+    std::initializer_list<std::string_view> rows,
+    std::string title = {}, int cursor_col = 0, int cursor_row = 0)
+{
+    if (rows.size() == 0)
+        return {};
+    const int cols = static_cast<int>(rows.begin()->size());
+    TerminalSemanticSnapshot snapshot{
+        .cols = cols,
+        .rows = static_cast<int>(rows.size()),
+        .metadata = {
+            .cursor = {
+                .col = cursor_col,
+                .row = cursor_row,
+                .visible = true,
+            },
+            .title = std::move(title),
+        },
+    };
+    snapshot.cells.reserve(
+        static_cast<size_t>(snapshot.cols) * snapshot.rows);
+    for (const std::string_view row : rows)
+    {
+        if (static_cast<int>(row.size()) != cols)
+            return {};
+        for (const char ch : row)
+        {
+            snapshot.cells.push_back({
+                .text = std::string(1, ch),
+            });
+        }
+    }
+    return snapshot;
+}
+
+class RecordingHostCallbacks final : public IHostCallbacks
+{
+public:
+    void request_frame() override
+    {
+        ++request_frame_calls;
+    }
+    void request_quit() override {}
+    void wake_window() override
+    {
+        ++wake_window_calls;
+    }
+    void set_window_title(const std::string& title) override
+    {
+        ++window_title_calls;
+        last_window_title = title;
+    }
+    void set_text_input_area(int, int, int, int) override {}
+    void push_toast(int level, std::string_view message) override
+    {
+        ++push_toast_calls;
+        last_toast_level = level;
+        last_toast_message = std::string(message);
+    }
+
+    std::atomic<int> request_frame_calls = 0;
+    std::atomic<int> wake_window_calls = 0;
+    std::atomic<int> window_title_calls = 0;
+    std::atomic<int> push_toast_calls = 0;
+    int last_toast_level = -1;
+    std::string last_toast_message;
+    std::string last_window_title;
+};
 
 } // namespace
 
@@ -392,7 +463,266 @@ TEST_CASE("remote terminal host chunks a large paste without stopping",
     host.shutdown();
 }
 
-TEST_CASE("remote terminal host reattaches after one malformed event",
+TEST_CASE("remote terminal host drops rejected commands and remains usable",
+    "[host][remote-terminal][input][recovery]")
+{
+    TempDir temp("draxul-remote-host-rejected-input");
+    ControlServer control;
+    std::string control_error;
+    REQUIRE(control.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &control_error));
+
+    const auto snapshot = snapshot_from_rows(
+        { "ready   ", "        " }, "Rejected Input");
+    const RemoteTerminalAttach attach{
+        .pane = {
+            .pane_id = std::string(kFakeRemotePaneId),
+            .terminal_id = std::string(kFakeRemoteTerminalId),
+            .name = "Rejected Input",
+            .execution_domain = "server_terminal",
+        },
+        .state = {
+            .kind = RemoteTerminalEventKind::Snapshot,
+            .version = {
+                .server_epoch = "rejected-input-epoch",
+                .terminal_id = std::string(kFakeRemoteTerminalId),
+                .generation = 1,
+            },
+            .controller_client_id = "rejected-input-client",
+            .snapshot = snapshot,
+        },
+    };
+    const std::vector<std::pair<std::string, std::string>> failures{
+        { "invalid_input", "Synthetic invalid input." },
+        { "backpressure", "Synthetic input backpressure." },
+        { "process_write_failed", "Synthetic process write failure." },
+        { "unexpected_command", "Synthetic unexpected command failure." },
+    };
+    std::atomic<int> input_calls = 0;
+    std::mutex accepted_mutex;
+    std::vector<std::string> accepted_input;
+    std::jthread dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            control.process_pending([&](const ControlRequest& request) {
+                if (request.method == "fake.attach")
+                {
+                    return ControlMethodResult::success(
+                        remote_terminal_attach_to_json(attach));
+                }
+                if (request.method == "fake.poll")
+                {
+                    return ControlMethodResult::success({
+                        { "events", nlohmann::json::array() },
+                    });
+                }
+                if (request.method == "fake.input")
+                {
+                    const int call = input_calls++;
+                    if (call < static_cast<int>(failures.size()))
+                    {
+                        return ControlMethodResult::error(
+                            failures[call].first,
+                            failures[call].second);
+                    }
+                    std::lock_guard lock(accepted_mutex);
+                    accepted_input.push_back(
+                        request.params.value("text", ""));
+                    return ControlMethodResult::success(
+                        nlohmann::json::object());
+                }
+                return ControlMethodResult::success(
+                    nlohmann::json::object());
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TextService text_service;
+    TextServiceConfig text_config;
+    text_config.font_path = bundled_font_path();
+    REQUIRE(text_service.initialize(
+        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    TestHostCallbacks callbacks;
+    RemoteTerminalHost host({
+        .runtime_directory = temp.path,
+        .client_id = "rejected-input-client",
+        .server_epoch = "rejected-input-epoch",
+    });
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .launch_options = { .kind = HostKind::RemoteTerminal },
+        .initial_viewport = {
+            .pixel_size = { 320, 160 },
+            .grid_size = { 8, 2 },
+        },
+        .display_ppi = 96.0f,
+    };
+    REQUIRE(host.initialize(context, callbacks));
+    REQUIRE(pump_until(host, [&] {
+        return host.status_text().find("controller")
+            != std::string::npos;
+    }));
+
+    for (size_t index = 0; index < failures.size(); ++index)
+    {
+        host.on_text_input({
+            .text = "rejected-" + std::to_string(index),
+        });
+        REQUIRE(pump_until(host, [&] {
+            return input_calls.load()
+                >= static_cast<int>(index + 1);
+        }));
+        CHECK(host.is_running());
+    }
+
+    host.on_text_input({ .text = "accepted-after-errors" });
+    REQUIRE(pump_until(host, [&] {
+        std::lock_guard lock(accepted_mutex);
+        return accepted_input.size() == 1;
+    }));
+    {
+        std::lock_guard lock(accepted_mutex);
+        REQUIRE(accepted_input
+            == std::vector<std::string>{ "accepted-after-errors" });
+    }
+    CHECK(host.is_running());
+    CHECK(callbacks.push_toast_calls
+        == static_cast<int>(failures.size()));
+    host.shutdown();
+    dispatcher.request_stop();
+    dispatcher.join();
+    control.stop();
+}
+
+TEST_CASE("remote terminal host keeps large paste frames ahead of later keys",
+    "[host][remote-terminal][paste][ordering]")
+{
+    TempDir temp("draxul-remote-host-paste-order");
+    ControlServer control;
+    std::string control_error;
+    REQUIRE(control.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &control_error));
+
+    auto snapshot = snapshot_from_rows(
+        { "ready   ", "        " }, "Paste Ordering");
+    snapshot.metadata.modes.bracketed_paste = true;
+    const RemoteTerminalAttach attach{
+        .pane = {
+            .pane_id = std::string(kFakeRemotePaneId),
+            .terminal_id = std::string(kFakeRemoteTerminalId),
+            .name = "Paste Ordering",
+            .execution_domain = "server_terminal",
+        },
+        .state = {
+            .kind = RemoteTerminalEventKind::Snapshot,
+            .version = {
+                .server_epoch = "paste-order-epoch",
+                .terminal_id = std::string(kFakeRemoteTerminalId),
+                .generation = 1,
+            },
+            .controller_client_id = "paste-order-client",
+            .snapshot = snapshot,
+        },
+    };
+    std::mutex input_mutex;
+    std::vector<std::string> input;
+    std::jthread dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            control.process_pending([&](const ControlRequest& request) {
+                if (request.method == "fake.attach")
+                {
+                    return ControlMethodResult::success(
+                        remote_terminal_attach_to_json(attach));
+                }
+                if (request.method == "fake.poll")
+                {
+                    return ControlMethodResult::success({
+                        { "events", nlohmann::json::array() },
+                    });
+                }
+                if (request.method == "fake.input")
+                {
+                    std::lock_guard lock(input_mutex);
+                    input.push_back(request.params.value("text", ""));
+                    return ControlMethodResult::success(
+                        nlohmann::json::object());
+                }
+                return ControlMethodResult::success(
+                    nlohmann::json::object());
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TextService text_service;
+    TextServiceConfig text_config;
+    text_config.font_path = bundled_font_path();
+    REQUIRE(text_service.initialize(
+        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    TestHostCallbacks callbacks;
+    RemoteTerminalHost host({
+        .runtime_directory = temp.path,
+        .client_id = "paste-order-client",
+        .server_epoch = "paste-order-epoch",
+    });
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .launch_options = { .kind = HostKind::RemoteTerminal },
+        .initial_viewport = {
+            .pixel_size = { 320, 160 },
+            .grid_size = { 8, 2 },
+        },
+        .display_ppi = 96.0f,
+    };
+    REQUIRE(host.initialize(context, callbacks));
+    REQUIRE(pump_until(host, [&] {
+        return host.status_text().find("controller")
+            != std::string::npos;
+    }));
+
+    window.clipboard_ = std::string(200 * 1024, 'p');
+    REQUIRE(host.dispatch_action("paste"));
+    host.on_text_input({ .text = "K" });
+    REQUIRE(pump_until(host, [&] {
+        std::lock_guard lock(input_mutex);
+        return input.size() >= 6;
+    }));
+
+    std::string reconstructed;
+    {
+        std::lock_guard lock(input_mutex);
+        REQUIRE(input.back() == "K");
+        for (size_t index = 0; index + 1 < input.size(); ++index)
+        {
+            INFO(index);
+            REQUIRE(input[index].size() <= 48 * 1024);
+            REQUIRE(input[index].starts_with("\x1B[200~"));
+            REQUIRE(input[index].ends_with("\x1B[201~"));
+            reconstructed.append(
+                input[index].substr(6, input[index].size() - 12));
+        }
+    }
+    REQUIRE(reconstructed == window.clipboard_);
+    CHECK(host.is_running());
+    host.shutdown();
+    dispatcher.request_stop();
+    dispatcher.join();
+    control.stop();
+}
+
+TEST_CASE("remote terminal host recovers from malformed and unexpected polling",
     "[host][remote-terminal][recovery]")
 {
     TempDir temp("draxul-remote-host-event-recovery");
@@ -444,12 +774,19 @@ TEST_CASE("remote terminal host reattaches after one malformed event",
                 }
                 if (request.method == "fake.poll")
                 {
-                    if (++poll_calls == 1)
+                    const int call = ++poll_calls;
+                    if (call == 1)
                     {
                         return ControlMethodResult::success({
                             { "events", nlohmann::json::array(
                                   { { { "kind", "malformed" } } }) },
                         });
+                    }
+                    if (call == 2)
+                    {
+                        return ControlMethodResult::error(
+                            "unexpected_poll",
+                            "Synthetic unexpected poll failure.");
                     }
                     return ControlMethodResult::success({
                         { "events", nlohmann::json::array() },
@@ -472,8 +809,8 @@ TEST_CASE("remote terminal host reattaches after one malformed event",
                 {
                     ++scrollback_calls;
                     return ControlMethodResult::error(
-                        "unknown_method",
-                        "This server has no scrollback capability.");
+                        "unexpected_scrollback",
+                        "Synthetic unexpected scrollback failure.");
                 }
                 return ControlMethodResult::success(
                     nlohmann::json::object());
@@ -509,7 +846,7 @@ TEST_CASE("remote terminal host reattaches after one malformed event",
     };
     REQUIRE(host.initialize(context, callbacks));
     REQUIRE(pump_until(host, [&] {
-        return attach_calls.load() >= 2;
+        return attach_calls.load() >= 3;
     }));
     CHECK(host.is_running());
 
@@ -729,6 +1066,19 @@ TEST_CASE("remote terminal host renders shared state and can take control",
     INFO(host.is_running());
     INFO(callbacks.last_toast_message);
     REQUIRE(host_became_observer);
+
+    const int observer_toasts_before = callbacks.push_toast_calls;
+    window.clipboard_ = "observer-paste";
+    host.on_key({
+        .keycode = SDLK_A,
+        .mod = kModNone,
+        .pressed = true,
+    });
+    host.on_text_input({ .text = "a" });
+    REQUIRE(host.dispatch_action("paste"));
+    CHECK(callbacks.push_toast_calls == observer_toasts_before + 1);
+    CHECK(callbacks.last_toast_message.find("Take Terminal Control")
+        != std::string::npos);
 
     REQUIRE(host.dispatch_action("take_terminal_control"));
     REQUIRE(pump_until(host, [&] {
@@ -982,6 +1332,258 @@ TEST_CASE("two rendered remote terminal hosts survive repeated control transfer"
 
     first.shutdown();
     second.shutdown();
+}
+
+TEST_CASE("remote terminal local navigation copy mode and titles stay client-local",
+    "[host][remote-terminal][copy-mode][scrollback][title]")
+{
+    TempDir temp("draxul-remote-host-local-navigation");
+    ControlServer control;
+    std::string control_error;
+    REQUIRE(control.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &control_error));
+
+    const auto live_snapshot = snapshot_from_rows(
+        { "LIVE0001", "LIVE0002", "LIVE0003" },
+        "Remote Title One");
+    const RemoteTerminalVersion initial_version{
+        .server_epoch = "local-navigation-epoch",
+        .terminal_id = std::string(kFakeRemoteTerminalId),
+        .generation = 1,
+    };
+    const RemoteTerminalAttach attach{
+        .pane = {
+            .pane_id = std::string(kFakeRemotePaneId),
+            .terminal_id = std::string(kFakeRemoteTerminalId),
+            .name = "Local Navigation",
+            .execution_domain = "server_terminal",
+        },
+        .state = {
+            .kind = RemoteTerminalEventKind::Snapshot,
+            .version = initial_version,
+            .controller_client_id = "local-navigation-client",
+            .snapshot = live_snapshot,
+        },
+    };
+    std::atomic<bool> emit_same_title_event = false;
+    std::atomic<bool> same_title_event_sent = false;
+    std::atomic<bool> emit_new_title_event = false;
+    std::atomic<bool> new_title_event_sent = false;
+    std::atomic<int> input_calls = 0;
+    std::atomic<int> scrollback_calls = 0;
+    std::jthread dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            control.process_pending([&](const ControlRequest& request) {
+                if (request.method == "fake.attach")
+                {
+                    return ControlMethodResult::success(
+                        remote_terminal_attach_to_json(attach));
+                }
+                if (request.method == "fake.poll")
+                {
+                    nlohmann::json events = nlohmann::json::array();
+                    if (emit_same_title_event
+                        && !same_title_event_sent.exchange(true))
+                    {
+                        auto version = initial_version;
+                        version.sequence = 1;
+                        events.push_back(remote_terminal_event_to_json({
+                            .kind = RemoteTerminalEventKind::Controller,
+                            .version = version,
+                            .controller_client_id
+                                = "local-navigation-client",
+                        }));
+                    }
+                    else if (emit_new_title_event
+                        && !new_title_event_sent.exchange(true))
+                    {
+                        auto changed_snapshot = live_snapshot;
+                        changed_snapshot.metadata.title
+                            = "Remote Title Two";
+                        auto version = initial_version;
+                        version.sequence = 2;
+                        events.push_back(remote_terminal_event_to_json({
+                            .kind = RemoteTerminalEventKind::Snapshot,
+                            .version = version,
+                            .controller_client_id
+                                = "local-navigation-client",
+                            .snapshot = std::move(changed_snapshot),
+                        }));
+                    }
+                    return ControlMethodResult::success({
+                        { "events", std::move(events) },
+                    });
+                }
+                if (request.method == "fake.scrollback")
+                {
+                    const int call = ++scrollback_calls;
+                    const uint64_t offset = std::min<uint64_t>(
+                        request.params.value(
+                            "offset_from_live", uint64_t{ 0 }),
+                        12);
+                    auto version = initial_version;
+                    version.sequence = new_title_event_sent ? 2 : 0;
+                    if (call == 1)
+                    {
+                        return ControlMethodResult::success(
+                            remote_terminal_scrollback_page_to_json({
+                                .version = version,
+                                .total_rows = 12,
+                                .offset_from_live = offset,
+                                .cols = 8,
+                                .snapshot = snapshot_from_rows(
+                                    { "HISTORY1", "HISTORY2", "HISTORY3" }),
+                            }));
+                    }
+                    return ControlMethodResult::success(
+                        remote_terminal_scrollback_page_to_json({
+                            .version = version,
+                            .total_rows = 12,
+                            .offset_from_live = offset,
+                            .cols = 7,
+                            .snapshot = snapshot_from_rows(
+                                { "OLD0001", "OLD0002", "OLD0003" }),
+                        }));
+                }
+                if (request.method == "fake.input")
+                {
+                    ++input_calls;
+                    return ControlMethodResult::success(
+                        nlohmann::json::object());
+                }
+                return ControlMethodResult::success(
+                    nlohmann::json::object());
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TextService text_service;
+    TextServiceConfig text_config;
+    text_config.font_path = bundled_font_path();
+    REQUIRE(text_service.initialize(
+        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    RecordingHostCallbacks callbacks;
+    RemoteTerminalHost host({
+        .runtime_directory = temp.path,
+        .client_id = "local-navigation-client",
+        .server_epoch = "local-navigation-epoch",
+    });
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .launch_options = {
+            .kind = HostKind::RemoteTerminal,
+            .copy_on_select = false,
+        },
+        .initial_viewport = {
+            .pixel_size = { 320, 160 },
+            .grid_size = { 8, 3 },
+        },
+        .display_ppi = 96.0f,
+    };
+    REQUIRE(host.initialize(context, callbacks));
+    REQUIRE(pump_until(host, [&] {
+        return host.status_text().find("controller")
+                != std::string::npos
+            && callbacks.window_title_calls.load() == 1;
+    }));
+    CHECK(callbacks.last_window_title == "Remote Title One");
+
+    emit_same_title_event = true;
+    REQUIRE(pump_until(host, [&] {
+        return same_title_event_sent.load()
+            && callbacks.wake_window_calls.load() >= 2;
+    }));
+    CHECK(callbacks.window_title_calls.load() == 1);
+
+    emit_new_title_event = true;
+    REQUIRE(pump_until(host, [&] {
+        return new_title_event_sent.load()
+            && callbacks.window_title_calls.load() == 2;
+    }));
+    CHECK(callbacks.last_window_title == "Remote Title Two");
+
+    host.on_mouse_button({
+        .button = 1,
+        .pressed = true,
+        .mod = kModNone,
+        .pos = { 1, 1 },
+        .clicks = 2,
+    });
+    host.on_key({
+        .keycode = SDLK_C,
+        .mod = kModCtrl,
+        .pressed = true,
+    });
+    host.on_text_input({ .text = "c" });
+    CHECK(window.clipboard_ == "LIVE0001");
+    CHECK(input_calls.load() == 0);
+
+    host.on_key({
+        .keycode = SDLK_PAGEUP,
+        .mod = kModShift,
+        .pressed = true,
+    });
+    REQUIRE(pump_until(host, [&] {
+        return host.status_text().find("[3/12]")
+            != std::string::npos;
+    }));
+    CHECK(input_calls.load() == 0);
+
+    REQUIRE(host.dispatch_action("toggle_copy_mode"));
+    host.on_key({ .keycode = SDLK_V, .pressed = true });
+    host.on_key({ .keycode = SDLK_RIGHT, .pressed = true });
+    host.on_key({ .keycode = SDLK_RIGHT, .pressed = true });
+    host.on_key({ .keycode = SDLK_Y, .pressed = true });
+    CHECK(window.clipboard_ == "HIS");
+    CHECK(input_calls.load() == 0);
+
+    host.on_key({
+        .keycode = SDLK_END,
+        .mod = kModShift,
+        .pressed = true,
+    });
+    REQUIRE(pump_until(host, [&] {
+        return host.status_text().find("[")
+            == std::string::npos;
+    }));
+    REQUIRE(host.dispatch_action("toggle_copy_mode"));
+    host.on_key({ .keycode = SDLK_V, .pressed = true });
+    host.on_key({ .keycode = SDLK_RIGHT, .pressed = true });
+    host.on_key({ .keycode = SDLK_RIGHT, .pressed = true });
+    host.on_key({ .keycode = SDLK_Y, .pressed = true });
+    CHECK(window.clipboard_ == "LIV");
+
+    // A scrollback page captured at the previous terminal width is stale.
+    // The host must return to live immediately and clear its status offset.
+    host.on_key({
+        .keycode = SDLK_PAGEUP,
+        .mod = kModShift,
+        .pressed = true,
+    });
+    REQUIRE(pump_until(host, [&] {
+        return scrollback_calls.load() >= 2;
+    }));
+    for (int attempt = 0; attempt < 20; ++attempt)
+    {
+        host.pump();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    CHECK(host.status_text().find("[") == std::string::npos);
+    CHECK(callbacks.window_title_calls.load() == 2);
+    CHECK(input_calls.load() == 0);
+    CHECK(host.is_running());
+
+    host.shutdown();
+    dispatcher.request_stop();
+    dispatcher.join();
+    control.stop();
 }
 
 TEST_CASE("remote terminal hosts scroll and select server history independently",

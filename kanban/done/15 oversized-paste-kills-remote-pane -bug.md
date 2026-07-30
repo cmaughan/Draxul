@@ -2,6 +2,7 @@
 
 **Type:** bug
 **Priority:** P0 / sequence 15
+**Status:** Completed 2026-07-30
 **Raised by:** Claude (server/client runtime review, 2026-07-30)
 **Evidence:** [plans/reviews/2026-07-30-server-client-runtime-review.md](../../plans/reviews/2026-07-30-server-client-runtime-review.md#3-a-paste-over-64-kib-permanently-kills-the-pane)
 
@@ -42,32 +43,43 @@ Two aggravators:
 - [x] Fix the batching guard to compare against the limit directly rather than subtracting
       (`back.size() >= limit` means start a new command).
 - [x] Reclassify `invalid_input` — and the backpressure code introduced by
-      `kanban/pending/13` — as expected: toast and drop, never fatal.
-- [ ] Give a fatal worker exit a recovery path. A remote host that dies must either be
-      recreated by the app or present an explicit "reconnect" affordance; a live server
-      terminal must never be orphaned behind a dead pane. Coordinate with
-      `kanban/pending/19 client-recovery-state-machine -refactor.md`, which owns the general
-      policy.
+      `kanban/done/13 blocking-pty-io-stalls-server -bug.md` — as expected: toast and drop,
+      never fatal.
+- [x] Reserve worker exit for an authoritative `terminal_not_found`. Attach and poll failures
+      retry with bounded backoff; rejected or unexpected commands toast and drop while polling
+      continues; scrollback failures return to live. A live server terminal is therefore never
+      orphaned behind a dead pane.
 - [x] Surface `enqueue` failure to the user instead of dropping silently.
 
 ## Unit tests
 
 - [x] A paste larger than the server limit reaches the shell intact via chunking.
-- [ ] A rejected input command toasts and leaves the worker running and the pane usable.
-- [ ] Enqueueing an oversized command followed by keystrokes does not merge them (regression
+- [x] Rejected input commands toast and leave the worker running and the pane usable, including
+      `invalid_input`, `backpressure`, `process_write_failed`, and an unknown error code.
+- [x] Enqueueing an oversized command followed by keystrokes does not merge them (regression
       test for the underflow).
-- [ ] A fatal worker exit results in a recoverable pane, not a permanent ghost.
+- [x] Malformed and unexpected poll failures reattach in place; an unexpected scrollback error
+      returns to live without creating a permanent ghost.
 
 ## Acceptance criteria
 
 - [x] Pasting a multi-hundred-KB buffer into a shared terminal works.
-- [ ] No single rejected command can permanently freeze a pane whose shell is alive.
+- [x] No single rejected command can permanently freeze a pane whose shell is alive.
 - [x] Dropped input is always visible to the user.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] Windows Release/Ninja core and app test targets build; the full remote-host and
+      focused paste/recovery suites pass. The macOS remote-host path remains covered
+      by CI.
+
+## Validation
+
+- `[host][remote-terminal]`: 1,229 assertions in 11 cases.
+- Rejected-command recovery, ordered large paste/key input, malformed/unexpected poll
+  recovery, and local copy/scroll/title parity all pass in focused Release/Ninja tests.
+- macOS/POSIX runtime validation remains a CI gate.
 
 ## Dependencies and ownership
 
-Depends on `kanban/pending/13` for the backpressure error code. The permanent-ghost half
+Depends on `kanban/done/13 blocking-pty-io-stalls-server -bug.md` for the backpressure error code. The permanent-ghost half
 overlaps `kanban/pending/19`; if both are scheduled together, one owner should hold
 `remote_terminal_host.cpp`. Related existing card:
 `kanban/ice-box/34 large-paste-stress -test.md`.

@@ -19,8 +19,11 @@
 #include <SDL3/SDL.h>
 #include <catch2/catch_all.hpp>
 #include <draxul/app_config.h>
+#include <draxul/control_plane.h>
 #include <draxul/host.h>
 #include <draxul/http/http_client.h>
+#include <draxul/server_protocol.h>
+#include <draxul/topology_protocol.h>
 #include <atomic>
 #include <filesystem>
 #include <fstream>
@@ -345,6 +348,119 @@ TEST_CASE("app smoke: remote topology starts with a host-free placeholder",
     CHECK(host_creations == 0);
     CHECK(app.init_error().empty());
     app.shutdown();
+}
+
+TEST_CASE("app smoke: failed remote projection retries and restores input routing",
+    "[app_smoke][topology][retry]")
+{
+    TempDir temp("draxul-app-remote-retry");
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &start_error));
+
+    const TopologySnapshot topology{
+        .revision = 1,
+        .session_id = "default",
+        .spaces = {
+            {
+                .space_id = "space-1",
+                .name = "Work",
+                .tabs = {
+                    {
+                        .tab_id = "tab-1",
+                        .name = "Shell",
+                        .root_node_id = "node-1",
+                        .nodes = {
+                            {
+                                .node_id = "node-1",
+                                .is_leaf = true,
+                                .pane_id = "pane-1",
+                            },
+                        },
+                        .panes = {
+                            {
+                                .pane_id = "pane-1",
+                                .domain
+                                = TopologyPaneDomain::ClientLocal,
+                                .client_host_kind = "nvim",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    };
+    const auto dispatch = [&](const ControlRequest& request) {
+        if (request.method == "topology.snapshot")
+        {
+            return ControlMethodResult::success(
+                topology_snapshot_to_json(topology));
+        }
+        if (request.method == "topology.poll")
+        {
+            return ControlMethodResult::success({
+                { "changed", false },
+                { "revision", topology.revision },
+            });
+        }
+        return ControlMethodResult::error(
+            "unknown_method", "Not used by this test.");
+    };
+    std::jthread server_thread([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            server.process_pending(dispatch);
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(1));
+        }
+    });
+
+    int host_creations = 0;
+    AppOptions opts = make_smoke_options();
+    opts.enable_control_server = false;
+    opts.enable_session_restore = false;
+    opts.enable_remote_topology = true;
+    opts.server_runtime_directory = temp.path;
+    opts.server_client_id = "retry-client";
+    opts.host_factory = [&](HostKind)
+        -> std::unique_ptr<IHost> {
+        ++host_creations;
+        auto host = std::make_unique<SmokeTestHost>();
+        if (host_creations == 1)
+        {
+            host->fail_initialize = true;
+            host->init_error_message
+                = "Synthetic transient projection failure.";
+        }
+        else
+        {
+            g_last_smoke_host = host.get();
+        }
+        return host;
+    };
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    REQUIRE(app.run_smoke_test(
+        std::chrono::seconds(2)));
+    REQUIRE(host_creations >= 2);
+    REQUIRE(g_last_smoke_host != nullptr);
+    REQUIRE(g_last_fake_window != nullptr);
+    REQUIRE(static_cast<bool>(g_last_fake_window->on_key));
+    g_last_fake_window->on_key({
+        .scancode = 4,
+        .keycode = 'a',
+        .mod = kModNone,
+        .pressed = true,
+    });
+    CHECK(g_last_smoke_host->key_events.size() == 1);
+
+    app.shutdown();
+    server_thread.request_stop();
+    server_thread.join();
+    server.stop();
 }
 
 TEST_CASE("app smoke: Space lifecycle creates rooted hosts and switches in memory",

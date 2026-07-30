@@ -67,9 +67,25 @@ private:
         int row = 0;
     };
 
+    struct CopyMode
+    {
+        bool active = false;
+        bool selecting = false;
+        bool line_mode = false;
+        glm::ivec2 cursor{ 0, 0 };
+        glm::ivec2 anchor{ 0, 0 };
+    };
+
     GridPos pixel_to_cell(int px, int py) const;
     bool open_link_at(const GridPos& pos, ModifierFlags mod);
+    void enter_copy_mode();
+    void exit_copy_mode(bool yank);
+    bool handle_copy_mode_key(const KeyEvent& event);
+    void update_copy_mode_overlay();
     bool copy_active_selection_to_clipboard();
+    bool handle_scrollback_key(const KeyEvent& event);
+    void scroll_to_live();
+    void show_observer_input_hint();
     void send_remote_input(std::string text);
     void send_paste(std::string_view text);
     void apply_mouse_modes(const TerminalMouseModeSnapshot& modes);
@@ -84,12 +100,16 @@ private:
     std::string pending_paste_;
     TerminalSnapshotMetadata metadata_;
     TerminalMouseModeSnapshot mouse_modes_;
+    CopyMode copy_mode_;
     std::optional<GridPos> pending_selection_copy_click_;
+    bool suppress_next_selection_copy_text_input_ = false;
+    bool observer_input_hint_shown_ = false;
     uint64_t scroll_offset_ = 0;
     uint64_t scrollback_total_ = 0;
     std::chrono::microseconds attach_latency_{ 0 };
     int desired_cols_ = 0;
     int desired_rows_ = 0;
+    std::string published_window_title_;
 };
 
 } // namespace draxul

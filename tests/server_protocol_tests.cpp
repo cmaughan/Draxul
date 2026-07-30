@@ -234,6 +234,7 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
                     {
                         .tab_id = "tab-1",
                         .name = "Shells",
+                        .name_user_set = false,
                         .root_node_id = "split-1",
                         .nodes = {
                             {
@@ -277,6 +278,20 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
         topology_snapshot_to_json(snapshot), error);
     INFO(error);
     REQUIRE(decoded == snapshot);
+    REQUIRE_FALSE(decoded->spaces.front()
+                      .tabs.front()
+                      .name_user_set);
+
+    auto legacy_json = topology_snapshot_to_json(snapshot);
+    legacy_json["spaces"][0]["tabs"][0].erase(
+        "name_user_set");
+    const auto legacy_decoded
+        = topology_snapshot_from_json(legacy_json, error);
+    INFO(error);
+    REQUIRE(legacy_decoded);
+    REQUIRE(legacy_decoded->spaces.front()
+                .tabs.front()
+                .name_user_set);
 
     TopologyCommand command{
         .client_id = "client-a",
