@@ -287,6 +287,7 @@ add_library(draxul-app
     app/chrome_vector_pass.cpp
     app/rename_editor.cpp
     app/cli_args.cpp
+    app/cli_help.cpp
     app/server_status_surface.cpp
     app/command_palette.cpp
     app/command_palette_host.cpp

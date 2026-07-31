@@ -1,6 +1,7 @@
 #include "agent_integration.h"
 #include "app.h"
 #include "cli_args.h"
+#include "cli_help.h"
 #include "control_cli.h"
 #include "server_status_surface.h"
 #include "session_id.h"
@@ -157,31 +158,6 @@ std::filesystem::path executable_path(
     constexpr std::string_view executable_name = "draxul";
 #endif
     return executable_dir() / executable_name;
-}
-
-const char* help_text()
-{
-    return
-        "Draxul terminal and agent harness\n\n"
-        "Usage:\n"
-        "  draxul [--session <id>] [--host <kind>]\n"
-        "  draxul --server | --server-status [--json]\n"
-        "  draxul --list-sessions [--json]\n"
-        "  draxul --rename-session --session <id> --session-name <name>\n"
-        "  draxul --delete-session --session <id> [--yes]\n"
-        "  draxul --delete-all-sessions --yes\n"
-        "  draxul --shutdown-server [--yes]\n"
-        "  draxul --force-stop-server --yes\n\n"
-        "Shell launches attach to the per-user Draxul server.\n"
-        "List, rename, and delete operate on the shared server Session store.\n"
-        "Explicit Neovim and product hosts remain client-local.\n\n"
-        "Server options:\n"
-        "  --server-runtime-dir <path>   Isolate or select a server runtime\n"
-        "  --server-shell <kind>         powershell, bash, zsh, or wsl\n"
-        "  --server-command <path>       Override the server shell executable\n"
-        "  --server-working-dir <path>  Initial server shell directory\n"
-        "  --server-scrollback-lines N  Retained rows (0..1000000)\n"
-        "  --yes                         Confirm stopping live terminals\n";
 }
 
 int report_server_startup_failure(
@@ -470,6 +446,40 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
 static int draxul_main(std::vector<std::string> args)
 {
     PERF_MEASURE();
+
+    // Subcommands have their own option grammars. Dispatch them before the
+    // launch/server flag parser so nouns such as "agent" are not rejected as
+    // unknown top-level options.
+    const auto integration_cli
+        = draxul::parse_integration_cli(args);
+#ifdef _WIN32
+    if (integration_cli.recognized)
+        ensure_console_io(true);
+#endif
+    if (integration_cli.error)
+    {
+        std::fprintf(
+            stderr, "%s\n", integration_cli.error->c_str());
+        return 1;
+    }
+    if (integration_cli.command)
+        return draxul::run_integration_cli(
+            *integration_cli.command);
+
+    const auto control_cli = draxul::parse_control_cli(args);
+#ifdef _WIN32
+    if (control_cli.recognized)
+        ensure_console_io(true);
+#endif
+    if (control_cli.error)
+    {
+        std::fprintf(
+            stderr, "%s\n", control_cli.error->c_str());
+        return 1;
+    }
+    if (control_cli.command)
+        return draxul::run_control_cli(*control_cli.command);
+
     auto parse_result = draxul::parse_args(args);
 #ifdef _WIN32
     const bool needs_console_output = parse_result.error.has_value()
@@ -493,7 +503,7 @@ static int draxul_main(std::vector<std::string> args)
     draxul::ParsedArgs& parsed = parse_result.args;
     if (parsed.help)
     {
-        std::fputs(help_text(), stdout);
+        std::fputs(draxul::cli_help_text(), stdout);
         return 0;
     }
     const auto current_executable = executable_path(args);
@@ -508,32 +518,6 @@ static int draxul_main(std::vector<std::string> args)
     {
         return run_server_mode(parsed, current_executable);
     }
-
-    const auto integration_cli = draxul::parse_integration_cli(args);
-#ifdef _WIN32
-    if (integration_cli.recognized)
-        ensure_console_io(true);
-#endif
-    if (integration_cli.error)
-    {
-        std::fprintf(stderr, "%s\n", integration_cli.error->c_str());
-        return 1;
-    }
-    if (integration_cli.command)
-        return draxul::run_integration_cli(*integration_cli.command);
-
-    const auto control_cli = draxul::parse_control_cli(args);
-#ifdef _WIN32
-    if (control_cli.recognized)
-        ensure_console_io(true);
-#endif
-    if (control_cli.error)
-    {
-        std::fprintf(stderr, "%s\n", control_cli.error->c_str());
-        return 1;
-    }
-    if (control_cli.command)
-        return draxul::run_control_cli(*control_cli.command);
 
     const bool shared_server
         = draxul::should_use_shared_server(parsed);

@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "cli_args.h"
+#include "cli_help.h"
 
 #include <string>
 #include <vector>
@@ -354,6 +355,21 @@ TEST_CASE("cli: help and server command are parsed",
     REQUIRE_FALSE(command.error);
     REQUIRE(command.args.server_command
         == "D:/tools/pwsh.exe");
+}
+
+TEST_CASE("cli: help enumerates public command families", "[cli][help]")
+{
+    const std::string help = cli_help_text();
+
+    REQUIRE(help.find("draxul --server-status") != std::string::npos);
+    REQUIRE(help.find("draxul --list-sessions") != std::string::npos);
+    REQUIRE(help.find("draxul space list") != std::string::npos);
+    REQUIRE(help.find("draxul agent start") != std::string::npos);
+    REQUIRE(help.find("draxul agent wait") != std::string::npos);
+    REQUIRE(help.find("draxul pane read") != std::string::npos);
+    REQUIRE(help.find("draxul integration status") != std::string::npos);
+    REQUIRE(help.find("--force-stop-server") == std::string::npos);
+    REQUIRE(help.find("--server-stop-dialog") == std::string::npos);
 }
 
 TEST_CASE("cli: fake remote terminal opts into server bootstrap",

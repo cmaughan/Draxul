@@ -577,6 +577,12 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 
 ## CLI Flags
 
+`draxul --help` enumerates the public launch, server/Session, Space, agent,
+pane-inspection, and Codex/Claude integration commands. Internal test hooks and
+server helper invocations are deliberately omitted. Subcommands are dispatched
+through their own option grammars, so invocations such as `draxul agent list`
+and `draxul integration status` do not pass through the launch-option parser.
+
 | Flag | Description |
 |------|-------------|
 | `--host <type>` | Host type: nvim, markdown, powershell, bash, zsh, wsl, megacity, bioview, satview, score |
