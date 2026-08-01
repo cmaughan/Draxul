@@ -5,6 +5,18 @@
 
 namespace draxul
 {
+namespace
+{
+constexpr float kFamilyBodyBrightness = 0.30f;
+
+Color faded_family_color(Color color)
+{
+    color.r *= kFamilyBodyBrightness;
+    color.g *= kFamilyBodyBrightness;
+    color.b *= kFamilyBodyBrightness;
+    return color;
+}
+} // namespace
 
 ChromePillLayout layout_chrome_pill(ChromePillSpec spec)
 {
@@ -52,37 +64,38 @@ ChromePillPalette chrome_pill_palette(const ChromeTheme& theme,
     ChromePillRole role, bool emphasized, bool editing)
 {
     ChromePillPalette palette;
+    Color family_accent = theme.tab_active_bg;
     switch (role)
     {
     case ChromePillRole::Space:
-        palette.body_bg = theme.tab_inactive_bg;
-        palette.accent_bg = emphasized ? theme.space_active_bg : theme.tab_inactive_bg;
+        family_accent = theme.space_active_bg;
         palette.body_fg = emphasized ? theme.tab_active_fg : theme.tab_inactive_fg;
         break;
     case ChromePillRole::Agent:
-        palette.body_bg = theme.tab_inactive_bg;
-        palette.accent_bg = emphasized
-            ? theme.status_focused_accent_bg
-            : theme.tab_inactive_bg;
+        family_accent = theme.agent_active_bg;
         palette.body_fg = emphasized ? theme.tab_active_fg : theme.tab_inactive_fg;
         break;
     case ChromePillRole::Tab:
-        palette.body_bg = editing ? theme.tab_editing_bg : theme.tab_inactive_bg;
-        palette.accent_bg = emphasized ? theme.tab_active_bg : theme.tab_inactive_bg;
+        family_accent = theme.tab_active_bg;
         palette.body_fg = editing
             ? chrome_pill_text_color(theme.tab_editing_bg)
             : (emphasized ? theme.tab_active_fg : theme.tab_inactive_fg);
         break;
     case ChromePillRole::Pane:
-        palette.body_bg = editing ? theme.status_editing_bg : theme.status_bar_bg;
-        palette.accent_bg = emphasized
-            ? theme.status_focused_accent_bg
-            : theme.status_inactive_accent_bg;
+        family_accent = theme.status_focused_accent_bg;
         palette.body_fg = editing
             ? chrome_pill_text_color(theme.status_editing_bg)
             : theme.status_bar_fg;
         break;
     }
+
+    const Color faded = faded_family_color(family_accent);
+    palette.body_bg = editing
+        ? (role == ChromePillRole::Tab
+                  ? theme.tab_editing_bg
+                  : theme.status_editing_bg)
+        : faded;
+    palette.accent_bg = emphasized ? family_accent : faded;
     palette.accent_fg = chrome_pill_text_color(palette.accent_bg);
     return palette;
 }

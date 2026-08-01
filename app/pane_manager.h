@@ -168,13 +168,15 @@ public:
     // Returns the host for a specific leaf.
     IHost* host_for(LeafId id) const;
 
-    // User-set pane name override (WI 128 — pane rename). When non-empty,
-    // ChromeHost displays this in place of the host's status_text() for the
-    // pane status pill. Cleared by passing an empty string. Persisted only
+    // User-set pane name override (WI 128 — pane rename). Cleared by passing
+    // an empty string. Persisted only
     // for the lifetime of the leaf — closing the pane drops the override.
     void set_pane_name(LeafId id, std::string name);
     const std::string& pane_name(LeafId id) const;
     bool has_pane_name(LeafId id) const;
+    // Stable chrome label: user override, host-reported identity, then the
+    // configured host kind's canonical display name.
+    std::string pane_display_name(LeafId id) const;
     const std::string& pane_id(LeafId id) const;
     void set_agent_identity(LeafId id, AgentIdentity identity,
         AgentRestorePolicy restore_policy = AgentRestorePolicy::ResumeIfAvailable);

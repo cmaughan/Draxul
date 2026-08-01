@@ -943,6 +943,21 @@ TEST_CASE("topology ratio storms retain only bounded command outcomes",
             * sizeof(std::string));
 }
 
+TEST_CASE("restored topology removes the legacy generated server shell name",
+    "[server][topology][persistence][migration]")
+{
+    TopologyService original("legacy-name", {});
+    TopologySnapshot legacy = original.snapshot();
+    auto& pane = legacy.spaces.front().tabs.front().panes.front();
+    pane.pane_id = "legacy-generated-pane-42";
+    pane.terminal_id = "legacy-generated-terminal-42";
+    pane.name = "Server Shell";
+
+    TopologyService restored(std::move(legacy), {});
+    CHECK(restored.snapshot().spaces.front().tabs.front()
+              .panes.front().name.empty());
+}
+
 TEST_CASE("server kernel publishes one identity and stops gracefully", "[server][kernel]")
 {
     TempDir temp("draxul-server-kernel");
@@ -1722,6 +1737,7 @@ TEST_CASE("server-owned shell survives every client detaching and reconnecting",
     REQUIRE(observer.attach(error));
     INFO(error);
 
+    CHECK(controller.projection().pane().name == "PowerShell");
     const uint64_t process_id = controller.projection().pane().process_id;
     const uint64_t generation
         = controller.projection().version().generation;
@@ -2435,6 +2451,7 @@ TEST_CASE("two topology clients converge through idempotent server commands",
     REQUIRE(first.snapshot().spaces.size() == 1);
     REQUIRE(first.snapshot().spaces[0].tabs[0].panes[0].domain
         == TopologyPaneDomain::ServerTerminal);
+    CHECK(first.snapshot().spaces[0].tabs[0].panes[0].name.empty());
 
     TopologyCommand create{
         .command_id = "create-space-1",

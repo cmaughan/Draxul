@@ -303,7 +303,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - A server-owned Session can contain multiple live Spaces. Each UI chooses its
   active Space independently while the server continues to own every inactive
   Space's terminals and agents.
-- The left rail appears once a second Space or a tracked agent exists. Its upper Spaces section uses the shared segmented pill component (`1: Name`): a palette-blue number accent for the selected Space (grey when inactive), followed by the name on the standard grey pill body. Click a pill to activate it. A horizontal application-shell divider separates the lower Agents section. Agent rows are derived from pane-owned identities across all Spaces, use the pane-green accent when focused, show `[exited]` when their host is unavailable, and navigate to the owning Space, tab, and pane when clicked. The rail background uses the same dark-grey chrome colour as the surrounding UI and default console background. Drag the rail's right-hand divider to resize it; the width snaps to terminal columns and is retained across launches.
+- The left rail appears once a second Space or a tracked agent exists. Its upper Spaces section uses the shared segmented pill component (`1: Name`): every Space pill has a one-third-brightness palette-blue body, while the selected Space's number segment uses the bright blue. The first Space row follows its header with the same compact spacing used by Agents. Click a pill to activate it. A horizontal application-shell divider separates the lower Agents section. Agent rows are derived from pane-owned identities across all Spaces, use their own mauve family body and bright focused/attention number accent, show `[exited]` when their host is unavailable, and navigate to the owning Space, tab, and pane when clicked. The rail background uses the same dark-grey chrome colour as the surrounding UI and default console background. Drag the rail's right-hand divider to resize it; the width snaps to terminal columns and is retained across launches.
 - `new_space`, `switch_space`, `rename_space`, and `close_space` are available in the command palette. They are unbound by default.
 - `launch_agent` is available in the command palette and unbound by default. It
   opens a profile picker with built-in Codex and Claude entries plus structured
@@ -366,7 +366,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 ## Tabs
 
 - Multiple tabs, each with its own independent split tree and host set
-- Space, tab, and pane-status labels share one pill layout and palette model for capsule size, number accent width, text columns, foreground contrast, and active/inactive/editing colours.
+- Space, Agent, tab, and pane-status labels share one pill layout and palette model for capsule size, number accent width, text columns, foreground contrast, and active/inactive/editing colours. Each collection keeps a 30%-brightness version of its unchanged role colour across every pill; the selected/focused number segment uses the brighter role colour (Space blue, Agent mauve, tab red, pane green).
 - The top tab bar remains visible even with a single tab and shows right-aligned pills for live system usage and active chord prefixes
 - `new_tab` (`Ctrl+S, C`): Create a new tab
 - `close_tab` (`Ctrl+S, &`): Close the active tab (disabled when only one tab remains)
@@ -375,7 +375,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - Tab switching preserves focus state per tab (focus lost/gained notifications)
 - **Inline tab rename**: double-click a tab pill (or press `Ctrl+S, ,` — tmux-style chord) to edit the tab name in place. Enter commits, Escape cancels, Backspace/Delete/Home/End/Left/Right work as expected. Empty commits leave the existing name untouched.
 - **OSC 7 default naming**: shell hosts (e.g. zsh) drive the tab name from the OSC 7 working-directory escape until the user explicitly renames the tab; once the user sets a name, OSC 7 updates no longer overwrite it.
-- **Inline pane rename**: double-click a pane status pill (or press `Ctrl+S, .`) to set a per-pane override name. Empty commit clears the override and reverts to the host-provided status text. Pane name overrides follow the stable pane identity and are included in Session snapshots.
+- **Stable pane labels and inline rename**: pane pills show a custom pane name when set, otherwise the stable host or shell name (`PowerShell`, `Zsh`, `Neovim`, and so on). Live remote-controller role, terminal size, and connection timing remain diagnostics and no longer cause pane labels to change. Double-click a pane pill (or press `Ctrl+S, .`) to set an override; an empty commit clears it. Pane name overrides follow the stable pane identity and are included in Session snapshots.
 - **Luminance-based pill text colour**: tab and pane pill text colour is chosen automatically from the underlying NanoVG fill via BT.709 relative luminance, so any future background tweak gets a readable foreground without re-tuning a constant.
 
 ---
@@ -524,7 +524,7 @@ Draxul reads `config.toml` on startup and creates it with defaults on first save
 
 | Key | Default | Range | Notes |
 |-----|---------|-------|-------|
-| `show_pane_status` | true | | One-cell-tall status strip below each pane showing host kind, dimensions, and (for shell hosts) cwd from OSC 7 |
+| `show_pane_status` | true | | One-cell-tall pane label strip showing the custom name or stable host/shell kind |
 
 ### MegaCity (`[mega_city_code]` section)
 
@@ -555,15 +555,16 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 | `tab_active_fg` | `#f5e0dc` | Active tab label text |
 | `tab_inactive_fg` | `#cdd6f4` | Inactive tab label text |
 | `space_active_bg` | `#89b4fa` | Active Space number/accent fill |
+| `agent_active_bg` | `#cba6f7` | Focused or attention Agent number/accent fill |
 | `tab_active_bg` | `#b93c3c` | Active tab number/accent fill |
-| `tab_inactive_bg` | `#45475a` | Inactive tab and dim accent fill |
+| `tab_inactive_bg` | `#45475a` | Secondary neutral chrome fill for headers and outlines |
 | `tab_editing_bg` | `#8c90af` | Tab rename field fill |
 | `divider` | `#78788c` | Spaces/Agents section divider |
 | `focus_border` | `#7b2828` | Focused border when a tab has multiple visible panes |
-| `status_bar_bg` | `#45475a` | Pane status pill body |
+| `status_bar_bg` | `#45475a` | Legacy pane status body setting retained for config compatibility |
 | `status_bar_fg` | `#cdd6f4` | Pane status text |
 | `status_focused_accent_bg` | `#3ca55f` | Focused pane status number/accent fill |
-| `status_inactive_accent_bg` | `#6e738c` | Unfocused pane status number/accent fill |
+| `status_inactive_accent_bg` | `#6e738c` | Legacy inactive-pane accent retained for config compatibility |
 | `status_editing_bg` | `#8c90af` | Pane rename field fill |
 | `resource_pill_bg` | `#f9e2af` | Normal CPU/RAM pill fill |
 | `resource_pill_fg` | `#1a1a1f` | CPU/RAM pill text |

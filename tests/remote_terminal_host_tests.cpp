@@ -398,6 +398,7 @@ TEST_CASE("remote terminal host shutdown is bounded and stops between commands",
         return host.status_text().find("remote controller")
             != std::string::npos;
     }));
+    CHECK(host.display_name() == "Shutdown Test");
 
     window.clipboard_ = std::string(10 * 48 * 1024, 'x');
     REQUIRE(host.dispatch_action("paste"));

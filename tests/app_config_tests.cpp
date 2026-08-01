@@ -1267,7 +1267,7 @@ TEST_CASE("app config complete schema round-trips every scalar and nested table"
     original.markdown.margin_columns = 4.5f;
 
     using ChromeMember = Color ChromeTheme::*;
-    const std::array<ChromeMember, 21> chrome_members = {
+    const std::array<ChromeMember, 22> chrome_members = {
         &ChromeTheme::tab_bar_bg,
         &ChromeTheme::tab_active_fg,
         &ChromeTheme::tab_inactive_fg,
@@ -1289,6 +1289,7 @@ TEST_CASE("app config complete schema round-trips every scalar and nested table"
         &ChromeTheme::weather_pill_bg,
         &ChromeTheme::editing_outline,
         &ChromeTheme::space_active_bg,
+        &ChromeTheme::agent_active_bg,
     };
     for (std::size_t i = 0; i < chrome_members.size(); ++i)
         original.chrome.*chrome_members[i] = color_from_rgb(0x101010u + static_cast<uint32_t>(i * 0x030507u));

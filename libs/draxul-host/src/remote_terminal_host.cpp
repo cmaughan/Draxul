@@ -113,6 +113,7 @@ struct RemotePublishedState
     uint64_t scroll_offset = 0;
     uint64_t scrollback_total = 0;
     std::string controller_client_id;
+    std::string display_name;
     std::optional<std::string> clipboard_write;
     std::chrono::microseconds attach_latency{ 0 };
 };
@@ -829,6 +830,7 @@ private:
             .scrollback_total = scrollback_total_,
             .controller_client_id
                 = client_->projection().controller_client_id(),
+            .display_name = client_->projection().pane().name,
             .clipboard_write = client_->take_clipboard_write(),
             .attach_latency = client_->last_attach_latency(),
         };
@@ -1147,6 +1149,7 @@ void RemoteTerminalHost::pump()
             = controller_client_id_ != impl_->options().client_id
             && state->controller_client_id == impl_->options().client_id;
         controller_client_id_ = std::move(state->controller_client_id);
+        remote_display_name_ = std::move(state->display_name);
         if (became_controller)
             observer_input_hint_shown_ = false;
         if (state->clipboard_write
@@ -1799,6 +1802,11 @@ void RemoteTerminalHost::apply_mouse_modes(
 void RemoteTerminalHost::request_close()
 {
     shutdown();
+}
+
+std::string RemoteTerminalHost::display_name() const
+{
+    return remote_display_name_;
 }
 
 std::string RemoteTerminalHost::status_text() const

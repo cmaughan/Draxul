@@ -14,7 +14,9 @@
 #include <draxul/session_state.h>
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
+#include <cstdlib>
 #include <deque>
 #include <fstream>
 #include <iomanip>
@@ -48,6 +50,47 @@ namespace
 
 constexpr size_t kFatalListenerFailureCount = 8;
 constexpr size_t kCompletedAgentMutationLimit = 1024;
+
+std::string terminal_display_name(
+    const ServerTerminalRuntimeOptions& options)
+{
+    std::string identity = options.shell_kind;
+    if (identity.empty() && !options.command.empty())
+    {
+        identity = std::filesystem::path(options.command)
+                       .stem().string();
+    }
+#ifndef _WIN32
+    if (identity.empty())
+    {
+        if (const char* shell = std::getenv("SHELL");
+            shell && *shell != '\0')
+        {
+            identity = std::filesystem::path(shell).stem().string();
+        }
+    }
+#endif
+    std::string normalized = identity;
+    std::ranges::transform(normalized, normalized.begin(),
+        [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+    if (normalized == "powershell" || normalized == "pwsh")
+        return "PowerShell";
+    if (normalized == "bash")
+        return "Bash";
+    if (normalized == "zsh")
+        return "Zsh";
+    if (normalized == "wsl" || normalized == "wslhost")
+        return "WSL";
+    if (!identity.empty())
+        return identity;
+#ifdef _WIN32
+    return "PowerShell";
+#else
+    return "Shell";
+#endif
+}
 
 uint64_t current_process_id()
 {
@@ -597,6 +640,10 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
             .scrollback_capacity = options.terminal_scrollback_lines,
         };
     }
+    const bool legacy_generated_name = name == "Server Shell";
+    const std::string display_name = name.empty() || legacy_generated_name
+        ? terminal_display_name(*runtime_options)
+        : std::string(name);
     runtime_options->resource_budget
         = terminal_resource_budget;
     auto runtime = std::make_unique<ServerTerminalRuntime>(
@@ -608,9 +655,7 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
             .server_epoch = epoch_value,
             .pane_id = std::string(pane_id),
             .terminal_id = terminal_id,
-            .name = name.empty()
-                ? "Server Shell"
-                : std::string(name),
+            .name = display_name,
             .preferred_controller_client_id
             = std::move(preferred_controller_client_id),
             .prepare_restart_generation
@@ -1054,7 +1099,7 @@ bool ServerKernel::Impl::initialize_session(
     {
         if (!create_server_terminal_with_id(stable_session_id,
                 std::string(kServerShellTerminalId),
-                kServerShellPaneId, "Server Shell", error))
+                kServerShellPaneId, {}, error))
         {
             session.terminals.clear();
             return false;

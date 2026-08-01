@@ -22,6 +22,7 @@ window_height = 999
 window_width = 1777
 
 [chrome]
+agent_active_bg = '#191a1b'
 chord_pill_bg = '#444546'
 divider = '#232425'
 editing_outline = '#4a4b4c'

@@ -767,6 +767,9 @@ bool App::initialize_chrome_host()
     chrome_deps.get_pane_name = [this](LeafId leaf) {
         return active_pane_manager().pane_name(leaf);
     };
+    chrome_deps.get_pane_display_name = [this](LeafId leaf) {
+        return active_pane_manager().pane_display_name(leaf);
+    };
     chrome_deps.request_frame = [this]() { request_frame(); };
     chrome_host_ = std::make_unique<ChromeHost>(std::move(chrome_deps));
 

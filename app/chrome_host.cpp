@@ -189,13 +189,11 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
                 IHost* host = manager->host_for(leaf);
                 if (!host || descriptor.pixel_size.x <= 0 || descriptor.pixel_size.y <= 0)
                     return;
-                std::string override_name;
-                if (input.show_status && deps_.get_pane_name)
-                    override_name = deps_.get_pane_name(leaf);
                 std::string text;
                 if (input.show_status)
                 {
-                    text = override_name.empty() ? host->status_text() : std::move(override_name);
+                    if (deps_.get_pane_display_name)
+                        text = deps_.get_pane_display_name(leaf);
                     if (!host->is_running() && text.find("[exited]") == std::string::npos)
                     {
                         if (!text.empty())

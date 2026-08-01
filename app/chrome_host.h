@@ -58,6 +58,9 @@ public:
         // Look up the existing user override for a pane. Returns empty string
         // when no override is set. Used to seed the rename buffer.
         std::function<std::string(LeafId leaf)> get_pane_name;
+        // Stable resolved pane label. Kept separate from get_pane_name so the
+        // rename editor is seeded only with an actual user override.
+        std::function<std::string(LeafId leaf)> get_pane_display_name;
         // Request the host to schedule another frame even when no input
         // arrived (used to drive the rename caret blink).
         std::function<void()> request_frame;

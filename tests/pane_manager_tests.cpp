@@ -41,7 +41,13 @@ public:
         return FakeHost::initialize(ctx, callbacks);
     }
 
+    std::string display_name() const override
+    {
+        return stable_display_name;
+    }
+
     HostLaunchOptions captured_launch;
+    std::string stable_display_name;
 };
 
 // Alias for the shared FakeGridHost (replaces the ad-hoc GuardedGridHost).
@@ -611,6 +617,24 @@ TEST_CASE("pane manager: closing the preview pane clears preview tracking", "[pa
     // Closing the preview by any other path must not leave a dangling ref.
     REQUIRE(harness.manager.close_leaf(preview));
     CHECK_FALSE(harness.manager.has_markdown_preview());
+}
+
+TEST_CASE("pane manager: pane labels prefer custom then stable host identity",
+    "[pane_manager][chrome][label]")
+{
+    PaneManagerHarness harness;
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+    const LeafId leaf = harness.manager.focused_leaf();
+
+    CHECK(harness.manager.pane_display_name(leaf) == "Neovim");
+    REQUIRE(harness.created_hosts.size() == 1);
+    harness.created_hosts.front()->stable_display_name = "PowerShell";
+    CHECK(harness.manager.pane_display_name(leaf) == "PowerShell");
+
+    harness.manager.set_pane_name(leaf, "build");
+    CHECK(harness.manager.pane_display_name(leaf) == "build");
+    harness.manager.set_pane_name(leaf, {});
+    CHECK(harness.manager.pane_display_name(leaf) == "PowerShell");
 }
 
 TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_manager]")

@@ -267,7 +267,6 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
         out.sidebar_width = shell.sidebar.w;
         out.sidebar_height = shell.sidebar.h;
         out.sidebar_cols = std::max(1, out.sidebar_width / cw);
-        out.sidebar_rows = std::max(1, out.sidebar_height / ch);
         out.sidebar_rect = {
             static_cast<float>(shell.sidebar.x), static_cast<float>(shell.sidebar.y),
             static_cast<float>(shell.sidebar.w), static_cast<float>(shell.sidebar.h)
@@ -324,6 +323,12 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             : 0;
         out.sidebar_agents_header = section_header(
             out.sidebar_section_divider.y + out.sidebar_section_divider.h);
+        const int spaces_origin_y
+            = static_cast<int>(out.sidebar_spaces_header.y);
+        const int spaces_height = std::max(0,
+            shell.sidebar_spaces.y + shell.sidebar_spaces.h
+                - spaces_origin_y);
+        out.sidebar_rows = std::max(1, spaces_height / ch);
         out.sidebar_divider = {
             static_cast<float>(shell.sidebar_divider.x),
             static_cast<float>(shell.sidebar_divider.y),
@@ -333,7 +338,8 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
         for (size_t i = 0; i < input.spaces.size(); ++i)
         {
             const int row = static_cast<int>(i) + kSidebarFirstSpaceRow;
-            const int row_bottom = shell.sidebar.y + (row + 1) * ch;
+            const int row_y = spaces_origin_y + row * ch;
+            const int row_bottom = row_y + ch;
             if (row >= out.sidebar_rows
                 || row_bottom > shell.sidebar_spaces.y + shell.sidebar_spaces.h)
                 break;
@@ -353,7 +359,7 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                 display_columns(space.label) + kTabPadCols * 2);
             static_cast<ChromePillLayout&>(space) = layout_chrome_pill({
                 .grid_x = static_cast<float>(shell.sidebar.x),
-                .grid_y = static_cast<float>(shell.sidebar.y + row * ch),
+                .grid_y = static_cast<float>(row_y),
                 .columns = total,
                 .text_col = kTabPadCols,
                 .prefix_cols = digits + 1,
@@ -366,7 +372,7 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             });
             out.hit_regions.push_back({ ChromeHitKind::Space, space.space_id,
                 { static_cast<float>(shell.sidebar.x),
-                    static_cast<float>(shell.sidebar.y + row * ch),
+                    static_cast<float>(row_y),
                     static_cast<float>(out.sidebar_width), static_cast<float>(ch) } });
             out.spaces.push_back(std::move(space));
         }

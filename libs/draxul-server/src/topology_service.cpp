@@ -139,6 +139,22 @@ TopologyService::TopologyService(TopologySnapshot snapshot,
     , callbacks_(std::move(callbacks))
     , next_serial_(next_serial_for(snapshot_))
 {
+    // Older checkpoints stored this generated label as though it were a user
+    // rename. Keep names custom-only so chrome can show the actual shell kind.
+    for (auto& space : snapshot_.spaces)
+    {
+        for (auto& tab : space.tabs)
+        {
+            for (auto& pane : tab.panes)
+            {
+                if (pane.domain == TopologyPaneDomain::ServerTerminal
+                    && pane.name == "Server Shell")
+                {
+                    pane.name.clear();
+                }
+            }
+        }
+    }
 }
 
 bool TopologyService::handles(std::string_view method) const
@@ -906,7 +922,7 @@ TopologyTab TopologyService::make_initial_server_tab()
 {
     TopologyPane pane{
         .pane_id = std::string(kServerShellPaneId),
-        .name = "Server Shell",
+        .name = {},
         .domain = TopologyPaneDomain::ServerTerminal,
         .terminal_id = std::string(kServerShellTerminalId),
     };

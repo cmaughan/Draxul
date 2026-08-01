@@ -34,6 +34,32 @@ ChromeLayoutInput base_input()
 }
 } // namespace
 
+TEST_CASE("Chrome pills retain a dim role color across each collection",
+    "[chrome][pill][palette]")
+{
+    const ChromeTheme theme;
+    const auto check_family = [&](ChromePillRole role, const Color& bright) {
+        const auto inactive = chrome_pill_palette(theme, role, false);
+        const auto active = chrome_pill_palette(theme, role, true);
+
+        CHECK(inactive.body_bg.r == Catch::Approx(bright.r * 0.30f));
+        CHECK(inactive.body_bg.g == Catch::Approx(bright.g * 0.30f));
+        CHECK(inactive.body_bg.b == Catch::Approx(bright.b * 0.30f));
+        CHECK(inactive.body_bg.a == Catch::Approx(bright.a));
+        CHECK(inactive.accent_bg == inactive.body_bg);
+        CHECK(active.body_bg == inactive.body_bg);
+        CHECK(active.accent_bg == bright);
+    };
+
+    check_family(ChromePillRole::Space, theme.space_active_bg);
+    check_family(ChromePillRole::Agent, theme.agent_active_bg);
+    check_family(ChromePillRole::Tab, theme.tab_active_bg);
+    check_family(ChromePillRole::Pane, theme.status_focused_accent_bg);
+
+    CHECK(theme.agent_active_bg.r != Catch::Approx(theme.status_focused_accent_bg.r));
+    CHECK(theme.agent_active_bg.b != Catch::Approx(theme.status_focused_accent_bg.b));
+}
+
 TEST_CASE("ChromeLayout golden tab structure remains stable", "[chrome][layout][golden]")
 {
     const auto layout = compute_chrome_layout(base_input());
@@ -94,40 +120,42 @@ TEST_CASE("ChromeLayout reserves a clickable Space sidebar", "[chrome][layout][s
     CHECK(layout.sidebar_spaces_header.w == Catch::Approx(188.0f));
     CHECK(layout.sidebar_spaces_header.h == Catch::Approx(16.0f));
     CHECK(layout.sidebar_agents_header.x == Catch::Approx(9.0f));
-    CHECK(layout.sidebar_agents_header.y == Catch::Approx(111.0f));
+    CHECK(layout.sidebar_agents_header.y == Catch::Approx(71.0f));
     CHECK(layout.sidebar_agents_header.w == Catch::Approx(188.0f));
     CHECK(layout.sidebar_agents_header.h == Catch::Approx(16.0f));
     CHECK(layout.sidebar_spaces_rect.y == Catch::Approx(0.0f));
-    CHECK(layout.sidebar_spaces_rect.h == Catch::Approx(110.0f));
+    CHECK(layout.sidebar_spaces_rect.h == Catch::Approx(70.0f));
     CHECK(layout.sidebar_section_divider.x == Catch::Approx(8.0f));
-    CHECK(layout.sidebar_section_divider.y == Catch::Approx(110.0f));
+    CHECK(layout.sidebar_section_divider.y == Catch::Approx(70.0f));
     CHECK(layout.sidebar_section_divider.w == Catch::Approx(190.0f));
     CHECK(layout.sidebar_section_divider.h == Catch::Approx(1.0f));
-    CHECK(layout.sidebar_agents_rect.y == Catch::Approx(111.0f));
+    CHECK(layout.sidebar_agents_rect.y == Catch::Approx(71.0f));
     REQUIRE(layout.bar_width == 596);
     REQUIRE(layout.grid_cols == 59);
     REQUIRE(layout.spaces.size() == 2);
 
     CHECK(layout.spaces[0].space_id == 0);
-    CHECK(layout.spaces[0].row == 3);
+    CHECK(layout.spaces[0].row == 1);
     CHECK(layout.spaces[0].active);
     CHECK(layout.spaces[0].label == "1: default");
     CHECK(layout.spaces[0].accent_w == Catch::Approx(30.0f));
     CHECK(layout.spaces[0].rect.x == Catch::Approx(6.5f));
-    CHECK(layout.spaces[0].rect.y == Catch::Approx(62.0f));
+    CHECK(layout.spaces[0].rect.y == Catch::Approx(30.0f));
     CHECK(layout.spaces[0].rect.w == Catch::Approx(115.0f));
     CHECK(layout.spaces[0].rect.h == Catch::Approx(16.0f));
     CHECK(layout.spaces[0].palette.body_bg.r
-        == Catch::Approx(input.theme.tab_inactive_bg.r));
+        == Catch::Approx(input.theme.space_active_bg.r * 0.30f));
+    CHECK(layout.spaces[0].palette.body_bg.a
+        == Catch::Approx(input.theme.space_active_bg.a));
     CHECK(layout.spaces[0].palette.accent_bg.r
         == Catch::Approx(input.theme.space_active_bg.r));
     CHECK(layout.spaces[1].space_id == 7);
-    CHECK(layout.spaces[1].row == 4);
+    CHECK(layout.spaces[1].row == 2);
     CHECK_FALSE(layout.spaces[1].active);
     CHECK(layout.spaces[1].label == "2: renderer");
-    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 70) == 0);
-    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 90) == 7);
-    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 210, 70) == -1);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 30) == 0);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 50) == 7);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 210, 30) == -1);
     REQUIRE(layout.agents.size() == 2);
     CHECK(layout.agents[0].agent_index == 1);
     CHECK(layout.agents[0].instance_id == "agent-0-1-pane-2");
@@ -135,14 +163,23 @@ TEST_CASE("ChromeLayout reserves a clickable Space sidebar", "[chrome][layout][s
     CHECK(layout.agents[0].focused);
     CHECK(layout.agents[1].label == "2: Clau… [exited]");
     CHECK_FALSE(layout.agents[1].running);
-    CHECK(hit_test_chrome(layout, ChromeHitKind::Agent, 10, 135) == 1);
-    CHECK(hit_test_chrome(layout, ChromeHitKind::Agent, 10, 155) == 2);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Agent, 10, 95) == 1);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Agent, 10, 115) == 2);
+    CHECK(layout.spaces[0].rect.y
+            - (layout.sidebar_spaces_header.y
+                + layout.sidebar_spaces_header.h)
+        == Catch::Approx(6.0f));
+    CHECK(layout.agents[0].rect.y
+            - (layout.sidebar_agents_header.y
+                + layout.sidebar_agents_header.h)
+        == Catch::Approx(6.0f));
 
     REQUIRE(layout.tabs.size() == 2);
     CHECK(layout.tabs[0].rect.x == Catch::Approx(210.5f));
     CHECK(layout.spaces[0].rect.x - layout.sidebar_rect.x
         == Catch::Approx(layout.tabs[0].rect.x - layout.content_x));
     CHECK(layout.spaces[0].rect.y
+            - layout.sidebar_spaces_header.y
             - static_cast<float>(layout.spaces[0].row * layout.cell_height)
         == Catch::Approx(layout.tabs[0].rect.y));
     CHECK(layout.spaces[0].rect.h == Catch::Approx(layout.tabs[0].rect.h));

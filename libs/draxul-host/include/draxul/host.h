@@ -264,9 +264,15 @@ public:
         return false;
     }
 
-    // One-line status string shown in the per-pane status bar (WI 78). Hosts
-    // override to expose host kind, dimensions, cwd, etc. Returning an empty
-    // string causes the status bar to display a generic placeholder.
+    // Stable user-facing identity for chrome. Runtime diagnostics belong in
+    // status_text() so changing connection state does not rename the pane.
+    virtual std::string display_name() const
+    {
+        return {};
+    }
+
+    // One-line runtime diagnostics exposed by hosts (dimensions, connection
+    // role, cwd, etc.). This is deliberately separate from display_name().
     virtual std::string status_text() const
     {
         return {};

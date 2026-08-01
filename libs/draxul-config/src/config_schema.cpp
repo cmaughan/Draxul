@@ -36,7 +36,7 @@ namespace
 // Field order mirrors the historical wrong-type-check order in
 // app_config_io.cpp so that, once type-checking is schema-driven, the
 // "first reported error wins" behavior is preserved byte-for-byte.
-constexpr std::array<ConfigFieldDesc, 53> kFields = { {
+constexpr std::array<ConfigFieldDesc, 54> kFields = { {
     // -- top level ---------------------------------------------------------
     { "", "window_width", ValueKind::Int,
         +[](const AppConfig& c) -> const int& { return c.window_width; },
@@ -154,6 +154,10 @@ constexpr std::array<ConfigFieldDesc, 53> kFields = { {
         +[](const AppConfig& c) -> const Color& { return c.chrome.space_active_bg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
         "Active Space number accent color." },
+    { "chrome", "agent_active_bg", ValueKind::ColorHex,
+        +[](const AppConfig& c) -> const Color& { return c.chrome.agent_active_bg; },
+        RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
+        "Focused or attention Agent number accent color." },
     { "chrome", "tab_active_bg", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.tab_active_bg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
@@ -161,7 +165,7 @@ constexpr std::array<ConfigFieldDesc, 53> kFields = { {
     { "chrome", "tab_inactive_bg", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.tab_inactive_bg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
-        "Inactive tab background color." },
+        "Secondary neutral chrome fill for section headers and pane outlines." },
     { "chrome", "tab_editing_bg", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.tab_editing_bg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
@@ -177,7 +181,7 @@ constexpr std::array<ConfigFieldDesc, 53> kFields = { {
     { "chrome", "status_bar_bg", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.status_bar_bg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
-        "Status bar background color." },
+        "Legacy pane status body color retained for config compatibility." },
     { "chrome", "status_bar_fg", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.status_bar_fg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
@@ -189,7 +193,7 @@ constexpr std::array<ConfigFieldDesc, 53> kFields = { {
     { "chrome", "status_inactive_accent_bg", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.status_inactive_accent_bg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
-        "Status bar accent background for inactive panes." },
+        "Legacy inactive pane accent retained for config compatibility." },
     { "chrome", "status_editing_bg", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.status_editing_bg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,

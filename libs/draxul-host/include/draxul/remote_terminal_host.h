@@ -50,6 +50,7 @@ public:
     void set_scroll_offset(float px) override;
     bool dispatch_action(std::string_view action) override;
     void request_close() override;
+    std::string display_name() const override;
     std::string status_text() const override;
     std::string current_working_directory() const override;
     std::optional<std::chrono::steady_clock::time_point>
@@ -98,6 +99,7 @@ private:
     std::string init_error_;
     std::string last_error_;
     std::string controller_client_id_;
+    std::string remote_display_name_;
     std::string pending_paste_;
     TerminalSnapshotMetadata metadata_;
     TerminalMouseModeSnapshot mouse_modes_;

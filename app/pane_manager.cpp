@@ -926,6 +926,47 @@ bool PaneManager::has_pane_name(LeafId id) const
     return pane_user_names_.find(id) != pane_user_names_.end();
 }
 
+std::string PaneManager::pane_display_name(LeafId id) const
+{
+    if (const auto custom = pane_user_names_.find(id);
+        custom != pane_user_names_.end())
+    {
+        return custom->second;
+    }
+
+    if (const auto host = hosts_.find(id);
+        host != hosts_.end() && host->second)
+    {
+        if (std::string name = host->second->display_name();
+            !name.empty())
+        {
+            return name;
+        }
+    }
+
+    const auto launch = launch_options_.find(id);
+    if (launch == launch_options_.end())
+        return "Pane";
+
+    HostKind kind = launch->second.kind;
+    if (!launch->second.client_host_kind.empty()
+        && launch->second.client_host_kind != "platform_default")
+    {
+        const auto projected
+            = parse_host_kind(launch->second.client_host_kind);
+        if (!projected)
+            return launch->second.client_host_kind;
+        kind = *projected;
+    }
+    if (const auto* metadata
+        = HostProviderRegistry::global().metadata(kind))
+    {
+        if (!metadata->display_name.empty())
+            return metadata->display_name;
+    }
+    return to_string(kind);
+}
+
 const std::string& PaneManager::pane_id(LeafId id) const
 {
     static const std::string empty;
