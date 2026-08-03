@@ -37,14 +37,24 @@ A Draxul server that should die, doesn't. Two gaps observed live on macOS
 
 ## Implementation
 
-- [ ] Decide and record the SIGTERM policy (see design question above).
-- [ ] Install SIGTERM/SIGINT handlers in `--server` mode that route to
-      `ServerKernel::request_stop()`; verify checkpoint-on-signal.
-- [ ] Add the eviction self-check (bounded interval, e.g. every 5-10s):
-      metadata missing, or pid/start-token not self → graceful retire with a
-      log line naming the reason.
-- [ ] Windows parity: console control handler / equivalent, and confirm the
-      eviction check reads the pipe-world metadata the same way.
+- [x] Policy decided by the owner (2026-08-03): **signals terminate
+      gracefully** (checkpoint within the shutdown budget, then exit, no
+      dialog); the interactive quit menu keeps its confirmation when live
+      terminals exist.
+- [x] SIGTERM/SIGINT handlers in `--server` mode store an atomic; the
+      status-surface pump routes it to `ServerKernel::request_stop()`, and
+      the existing shutdown tail checkpoints. Verified live: `kill -TERM`
+      exits with "received termination signal 15; stopping gracefully".
+- [x] Eviction self-check every `eviction_check_interval` (option, default
+      5s; tests use 50ms): metadata pid/start-token != self on two
+      consecutive checks → graceful retire. Before stopping it calls
+      `ControlServer::abandon_endpoint()` so shutdown cannot unlink the
+      successor's socket/metadata at the shared path. Unit test covers the
+      retire and the successor-files-survive property; verified live by
+      wiping a running server's runtime dir (retired within two intervals).
+- [x] Windows parity written (`SetConsoleCtrlHandler` for CTRL_C/BREAK/
+      CLOSE/SHUTDOWN; the eviction check is platform-neutral file reads) —
+      **compiles only on Windows, needs a CI run before trust**.
 
 ## Acceptance
 

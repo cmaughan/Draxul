@@ -47,20 +47,36 @@ platform gap, not a regression from the startup fix.
   `agent_discovery_tests.cpp:8` and `rpc_integration_tests.cpp:81` are
   unrelated one-offs worth a look while in there.
 
-## Implementation
+## Resolution (2026-08-03)
 
-- [ ] Reproduce one failing `server_kernel` remote-terminal test in isolation
-      and diagnose the POSIX-side failure (timeout semantics, partial
-      frame I/O, non-blocking edge, or message-size limits).
-- [ ] Decide the long-request story on POSIX: per-request wire deadlines are
-      already threaded through the client (`client_read_frame(fd, bytes,
-      deadline)`) — the server side's fixed 5s socket timeouts and dispatch
-      wait must honor the request's `timeout_ms` instead of `kIoTimeout`.
-- [ ] Re-run the GUI end-to-end on macOS: shared shell appears, no
-      interruption warnings in a 60s idle session.
-- [ ] Coalesce the recovery toasts: announce once per outage, not per flap
-      (rate-limit the latch reset, or only re-announce after N stable
-      seconds).
+The 5s-timeout lead above was WRONG — recorded here so it is not re-chased.
+The actual root cause, found by capturing the server's reply to a failing
+attach: **BSD/macOS accepted sockets inherit the listener's `O_NONBLOCK`**
+(Linux's do not; Windows uses overlapped I/O). Every accepted control
+connection was secretly non-blocking, so whenever the server's `recv()` ran
+before the client's bytes landed, `read_frame` got EAGAIN and answered
+"invalid_frame" for a valid request. Small fast requests usually won the
+race; the terminal channel lost it constantly.
+
+- [x] Diagnosed via a temporary probe at the client's id-mismatch rejection:
+      the server's reply was `{"error":{"code":"invalid_frame"...},"id":""}`.
+- [x] Fixed: clear `O_NONBLOCK` on accepted fds (restores the intended
+      SO_RCVTIMEO semantics); `read_exact`/`write_exact` retry EINTR so
+      signal delivery cannot corrupt a frame.
+- [x] Suite result: 33 failing core cases → green (the one remaining failure
+      is the config docs-freshness test, tied to uncommitted local config
+      edits, not this subsystem).
+- [x] Also swept: `executable_name()` normalizes backslashes (the neutral
+      matcher parses Windows-shaped evidence on POSIX), and
+      `launch_detached` double-forks so a dead detached server is reaped
+      instead of lingering as a zombie that `kill(pid,0)` reports alive
+      (the force-stop test failure) — argv now built pre-fork per the
+      done/01 allocator-deadlock lesson.
+- [x] GUI end-to-end on macOS: zero interruption warnings over 20s
+      (previously 10+, escalating).
+- [ ] Toast coalescing not touched: with the channel stable the per-flap
+      re-announce no longer fires in normal runs; revisit only if a real
+      outage shows spam again.
 
 ## Acceptance
 

@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -99,6 +99,11 @@ public:
 
     const std::string& endpoint() const;
     const std::filesystem::path& metadata_path() const;
+    // Disown the published endpoint files without stopping. For a server that
+    // discovered it was EVICTED (a successor now owns the same path): its
+    // stop() must not unlink the successor's socket or metadata, which live
+    // at the path this instance originally claimed.
+    void abandon_endpoint();
 
 private:
     class Impl;

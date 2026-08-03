@@ -22,6 +22,7 @@
 #include <csignal>
 #include <fcntl.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
 #endif
@@ -941,6 +942,49 @@ bool ServerClient::launch_detached(
     CloseHandle(process.hProcess);
     return true;
 #else
+    // Build the argv BEFORE forking. The parent is multithreaded (GUI or test
+    // harness), and heap allocation between fork() and execv() can inherit a
+    // locked allocator and deadlock the child — the exact failure recorded in
+    // kanban done/01 macos-app-self-launch. After fork, only async-signal-safe
+    // calls (setsid/fork/dup2/execv/_exit) run.
+    const std::string executable = executable_path.string();
+    const std::string runtime = runtime_directory.string();
+    const std::string scrollback
+        = std::to_string(options.terminal_scrollback_lines);
+    std::vector<std::string> arguments{
+        executable,
+        "--server",
+        "--server-runtime-dir",
+        runtime,
+    };
+    if (!options.terminal_shell_kind.empty())
+    {
+        arguments.push_back("--server-shell");
+        arguments.push_back(options.terminal_shell_kind);
+    }
+    if (!options.terminal_command.empty())
+    {
+        arguments.push_back("--server-command");
+        arguments.push_back(options.terminal_command);
+    }
+    if (!options.terminal_working_directory.empty())
+    {
+        arguments.push_back("--server-working-dir");
+        arguments.push_back(
+            options.terminal_working_directory.string());
+    }
+    arguments.push_back("--server-scrollback-lines");
+    arguments.push_back(scrollback);
+    std::vector<char*> argv;
+    argv.reserve(arguments.size() + 1);
+    for (std::string& argument : arguments)
+        argv.push_back(argument.data());
+    argv.push_back(nullptr);
+
+    // Double-fork so the server reparents to launchd/init and is reaped
+    // automatically when it dies. As a direct child it became a ZOMBIE on
+    // exit — no caller reaps it, so `kill(pid, 0)` kept reporting the dead
+    // server alive (and force-stopped servers appeared unkillable).
     const pid_t child = ::fork();
     if (child < 0)
     {
@@ -950,6 +994,9 @@ bool ServerClient::launch_detached(
     if (child == 0)
     {
         ::setsid();
+        const pid_t grandchild = ::fork();
+        if (grandchild != 0)
+            _exit(grandchild < 0 ? 127 : 0);
         const int null_fd = ::open("/dev/null", O_RDWR);
         if (null_fd >= 0)
         {
@@ -959,42 +1006,13 @@ bool ServerClient::launch_detached(
             if (null_fd > STDERR_FILENO)
                 ::close(null_fd);
         }
-        const std::string executable = executable_path.string();
-        const std::string runtime = runtime_directory.string();
-        const std::string scrollback
-            = std::to_string(options.terminal_scrollback_lines);
-        std::vector<std::string> arguments{
-            executable,
-            "--server",
-            "--server-runtime-dir",
-            runtime,
-        };
-        if (!options.terminal_shell_kind.empty())
-        {
-            arguments.push_back("--server-shell");
-            arguments.push_back(options.terminal_shell_kind);
-        }
-        if (!options.terminal_command.empty())
-        {
-            arguments.push_back("--server-command");
-            arguments.push_back(options.terminal_command);
-        }
-        if (!options.terminal_working_directory.empty())
-        {
-            arguments.push_back("--server-working-dir");
-            arguments.push_back(
-                options.terminal_working_directory.string());
-        }
-        arguments.push_back("--server-scrollback-lines");
-        arguments.push_back(scrollback);
-        std::vector<char*> argv;
-        argv.reserve(arguments.size() + 1);
-        for (std::string& argument : arguments)
-            argv.push_back(argument.data());
-        argv.push_back(nullptr);
         ::execv(executable.c_str(), argv.data());
         _exit(127);
     }
+    // The intermediate exits immediately after its fork; reap it so the
+    // launcher itself leaves no zombie behind.
+    int intermediate_status = 0;
+    ::waitpid(child, &intermediate_status, 0);
     return true;
 #endif
 }

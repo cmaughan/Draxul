@@ -38,6 +38,7 @@
 #endif
 #include <algorithm>
 #include <atomic>
+#include <csignal>
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -160,6 +161,42 @@ std::filesystem::path executable_path(
     return executable_dir() / executable_name;
 }
 
+// SIGTERM/SIGINT (and the Windows console-close events) request a GRACEFUL
+// server stop: checkpoint sessions within the shutdown budget, then exit.
+// Policy decided 2026-08-03: signals terminate without a confirmation dialog;
+// the interactive quit menu keeps its query when live terminals exist. The
+// handler only stores an atomic — the pump loop below acts on it — so no
+// async-signal-unsafe work happens in signal context.
+std::atomic<int> g_server_termination_signal{ 0 };
+
+#ifdef _WIN32
+BOOL WINAPI on_server_console_event(DWORD event)
+{
+    if (event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT
+        || event == CTRL_CLOSE_EVENT || event == CTRL_SHUTDOWN_EVENT)
+    {
+        g_server_termination_signal.store(static_cast<int>(event) + 1);
+        return TRUE;
+    }
+    return FALSE;
+}
+#else
+extern "C" void on_server_termination_signal(int signal_number)
+{
+    g_server_termination_signal.store(signal_number);
+}
+#endif
+
+void install_server_termination_handlers()
+{
+#ifdef _WIN32
+    SetConsoleCtrlHandler(on_server_console_event, TRUE);
+#else
+    std::signal(SIGTERM, on_server_termination_signal);
+    std::signal(SIGINT, on_server_termination_signal);
+#endif
+}
+
 int report_server_startup_failure(
     const std::string& message)
 {
@@ -245,6 +282,7 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
             draxul::shutdown_logging();
             return 1;
         }
+        install_server_termination_handlers();
         std::atomic<int> status{ 1 };
         std::jthread server_thread([&]() {
             status.store(kernel.run_until_stopped());
@@ -263,6 +301,15 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
         }
         while (kernel.running())
         {
+            if (const int signal_number
+                = g_server_termination_signal.exchange(0))
+            {
+                DRAXUL_LOG_INFO(draxul::LogCategory::App,
+                    "Draxul server received termination signal %d; "
+                    "stopping gracefully",
+                    signal_number);
+                kernel.request_stop();
+            }
             if (surface.available())
                 surface.pump();
             else

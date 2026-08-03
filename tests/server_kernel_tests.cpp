@@ -1041,6 +1041,49 @@ TEST_CASE("a successful start clears the failure marker and binds a short socket
     run_guard.join();
 }
 
+TEST_CASE("an evicted server retires and leaves the successor's endpoint alone",
+    "[server][kernel]")
+{
+    // A server whose published metadata no longer names it (wiped runtime
+    // dir, or a newer server claiming the path) must retire instead of
+    // running forever as an unreachable tray icon — and its shutdown must
+    // NOT unlink the successor's files at the shared path.
+    TempDir temp("draxul-server-evict");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .eviction_check_interval = std::chrono::milliseconds(50),
+        .build_version = "unit-test",
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    const auto metadata_path = server_metadata_path(temp.path);
+    REQUIRE(std::filesystem::exists(metadata_path));
+
+    // Replace the published identity, as a successor server would.
+    {
+        std::ifstream input(metadata_path, std::ios::binary);
+        auto metadata = nlohmann::json::parse(input);
+        metadata["server_pid"]
+            = metadata["server_pid"].get<uint64_t>() + 1;
+        std::ofstream output(metadata_path,
+            std::ios::binary | std::ios::trunc);
+        output << metadata.dump();
+    }
+
+    const auto deadline
+        = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (server.running()
+        && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    CHECK_FALSE(server.running());
+    run_guard.join();
+
+    // The "successor's" metadata survives the evicted server's shutdown.
+    CHECK(std::filesystem::exists(metadata_path));
+}
+
 TEST_CASE("server kernel publishes one identity and stops gracefully", "[server][kernel]")
 {
     TempDir temp("draxul-server-kernel");
@@ -1110,7 +1153,12 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     auto attached_client = remote_client(
         temp.path, "unit-client", "fixed-epoch", "fake",
         recovery);
-    REQUIRE(attached_client.attach(agent_error));
+    {
+        const bool attached = attached_client.attach(agent_error);
+        INFO("attach error_code=" << attached_client.last_error_code()
+                                  << " message=" << agent_error);
+        REQUIRE(attached);
+    }
     const auto stale_topology = ControlClient::request(
         namespaced_control_id(kServerControlId, temp.path),
         temp.path, "topology.poll",
@@ -1820,7 +1868,14 @@ TEST_CASE("server-owned shell survives every client detaching and reconnecting",
     REQUIRE(observer.attach(error));
     INFO(error);
 
+    // The pane is named after the platform's default shell: deterministic on
+    // Windows, $SHELL-dependent on POSIX (Zsh on stock macOS, Bash elsewhere).
+#ifdef _WIN32
     CHECK(controller.projection().pane().name == "PowerShell");
+#else
+    CHECK_FALSE(controller.projection().pane().name.empty());
+    CHECK(controller.projection().pane().name != "PowerShell");
+#endif
     const uint64_t process_id = controller.projection().pane().process_id;
     const uint64_t generation
         = controller.projection().version().generation;

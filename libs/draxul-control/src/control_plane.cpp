@@ -607,8 +607,10 @@ bool read_exact(int fd, void* data, size_t size)
     {
         const ssize_t read = ::recv(fd, static_cast<char*>(data) + offset,
             size - offset, 0);
+        if (read < 0 && errno == EINTR)
+            continue; // a delivered signal must not corrupt a frame
         if (read <= 0)
-            return false;
+            return false; // peer closed, or SO_RCVTIMEO genuinely expired
         offset += static_cast<size_t>(read);
     }
     return true;
@@ -621,6 +623,8 @@ bool write_exact(int fd, const void* data, size_t size)
     {
         const ssize_t written = ::send(fd,
             static_cast<const char*>(data) + offset, size - offset, 0);
+        if (written < 0 && errno == EINTR)
+            continue;
         if (written <= 0)
             return false;
         offset += static_cast<size_t>(written);
@@ -1542,6 +1546,16 @@ void ControlServer::Impl::run(std::stop_token stop_token)
             const int client = ::accept(server, nullptr, nullptr);
             if (client < 0)
                 continue;
+            // BSD/macOS accepted sockets INHERIT the listener's O_NONBLOCK
+            // (Linux does not). With it set, recv() races the client's write:
+            // whenever the request bytes had not landed yet, read_frame got
+            // EAGAIN immediately and the server answered "invalid_frame" for a
+            // perfectly good request — the remote-terminal channel then
+            // retried forever. Clear it so the SO_RCVTIMEO/SO_SNDTIMEO bounds
+            // below govern I/O as designed.
+            const int client_flags = ::fcntl(client, F_GETFL, 0);
+            if (client_flags >= 0 && (client_flags & O_NONBLOCK) != 0)
+                ::fcntl(client, F_SETFL, client_flags & ~O_NONBLOCK);
             timeval timeout{
                 static_cast<long>(kIoTimeout.count()), 0
             };
@@ -1630,6 +1644,11 @@ bool ControlServer::running() const
 bool ControlServer::endpoint_in_use() const
 {
     return impl_->endpoint_in_use;
+}
+
+void ControlServer::abandon_endpoint()
+{
+    impl_->owns_endpoint = false;
 }
 
 uint32_t ControlServer::take_listener_error()

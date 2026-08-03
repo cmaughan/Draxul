@@ -405,6 +405,7 @@ public:
     ControlMethodResult handle_request(const ControlRequest& request);
     ServerStatusSnapshot status_snapshot() const;
     void publish_starting_marker();
+    bool published_identity_matches() const;
     void publish_failure_marker(std::string_view reason);
     void remove_failure_marker();
     void remove_starting_marker();
@@ -578,6 +579,29 @@ void ServerKernel::Impl::publish_starting_marker()
                       .dump();
         output.flush();
     }
+}
+
+bool ServerKernel::Impl::published_identity_matches() const
+{
+    std::error_code size_error;
+    const auto metadata_path = control.metadata_path();
+    const auto size = std::filesystem::file_size(metadata_path, size_error);
+    if (size_error || size == 0 || size > 16 * 1024)
+        return false;
+    std::ifstream input(metadata_path, std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(input)),
+        std::istreambuf_iterator<char>());
+    const auto metadata = nlohmann::json::parse(bytes, nullptr, false);
+    if (metadata.is_discarded() || !metadata.is_object())
+        return false;
+    return metadata.contains("server_pid")
+        && metadata["server_pid"].is_number_unsigned()
+        && metadata["server_pid"].get<uint64_t>() == pid
+        && metadata.contains("server_process_start_token")
+        && metadata["server_process_start_token"].is_string()
+        && metadata["server_process_start_token"]
+               .get_ref<const std::string&>()
+        == process_start_identity;
 }
 
 void ServerKernel::Impl::publish_failure_marker(std::string_view reason)
@@ -3206,8 +3230,40 @@ int ServerKernel::Impl::run_until_stopped()
     auto last_listener_failure
         = std::chrono::steady_clock::time_point{};
     bool fatal_listener_failure = false;
+    auto next_eviction_check = std::chrono::steady_clock::now()
+        + options.eviction_check_interval;
+    int eviction_strikes = 0;
     while (!stop_requested)
     {
+        // Retire when this process is no longer the PUBLISHED server. Without
+        // this, a server whose metadata was wiped or replaced ran forever —
+        // invisible to clients, unreachable by the CLI, tray icon its only
+        // surface — and every later launch added another one. Two consecutive
+        // failed checks tolerate transient filesystem states (the metadata
+        // write is not atomic).
+        if (options.eviction_check_interval.count() > 0
+            && std::chrono::steady_clock::now() >= next_eviction_check)
+        {
+            next_eviction_check = std::chrono::steady_clock::now()
+                + options.eviction_check_interval;
+            if (published_identity_matches())
+            {
+                eviction_strikes = 0;
+            }
+            else if (++eviction_strikes >= 2)
+            {
+                DRAXUL_LOG_INFO(LogCategory::App,
+                    "Draxul server pid=%llu is no longer the published "
+                    "endpoint owner; retiring gracefully",
+                    static_cast<unsigned long long>(pid));
+                // The path now belongs to a successor (or to nobody): this
+                // instance's shutdown must not unlink the successor's socket
+                // or metadata.
+                control.abandon_endpoint();
+                stop_requested = true;
+                break;
+            }
+        }
         for (auto& [session_id, session] : sessions)
         {
             try
