@@ -40,9 +40,10 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
 - The server owns a Windows notification-area or macOS menu-bar status item. Its menu
   reports connected clients, Sessions, Spaces, terminals, live terminals, and agents,
   and provides Open Draxul, refresh, open-log, and one guarded Stop Server action.
-  The stop dialog runs in a short-lived helper process, so its native modal UI cannot
-  strand the server tray process. It tries graceful shutdown first and offers Force
-  Stop only if that attempt fails. `server_status`, `open_server_log`, and
+  The stop dialog runs in a short-lived helper process on Windows. On macOS it runs
+  in the menu-bar server while the RPC loop continues on its server thread, avoiding
+  a second Dock identity for the shared app bundle. It tries graceful shutdown first
+  and offers Force Stop only if that attempt fails. `server_status`, `open_server_log`, and
   `stop_server` expose the matching UI operations through the command palette.
 - Graceful shutdown refuses to stop a server with live terminals unless the action is
   explicitly confirmed. CLI shutdown therefore uses `--shutdown-server --yes`, while

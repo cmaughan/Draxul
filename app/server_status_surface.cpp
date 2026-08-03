@@ -4,6 +4,7 @@
 #include <SDL3/SDL_tray.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <draxul/server_client.h>
 #include <iomanip>
@@ -497,7 +498,9 @@ public:
     {
 #ifdef __APPLE__
         SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");
-        if (!configure_macos_server_status_application(error))
+        if (!configure_macos_server_status_application(
+                &Impl::macos_reopen_callback,
+                &Impl::macos_quit_callback, this, error))
             return false;
 #endif
         if (!SDL_Init(SDL_INIT_VIDEO))
@@ -559,6 +562,12 @@ public:
             // not own an application window, so SDL quit events are not
             // interpreted as permission to destroy live terminals.
         }
+#ifdef __APPLE__
+        if (macos_reopen_requested.exchange(false))
+            open();
+        if (macos_quit_requested.exchange(false))
+            stop();
+#endif
         const auto now = std::chrono::steady_clock::now();
         if (now >= next_refresh)
             refresh();
@@ -627,6 +636,13 @@ public:
 
     void stop()
     {
+#ifdef __APPLE__
+        // A second executable from the same app bundle is registered as
+        // another copy of Draxul and can acquire its own Dock identity. The
+        // server RPC loop runs on a separate thread, so the native modal can
+        // safely perform status and shutdown requests in this process.
+        run_server_stop_dialog(options.runtime_directory);
+#else
         std::string error;
         if (!launch_server_stop_dialog(
                 options.executable_path,
@@ -634,6 +650,7 @@ public:
         {
             report_error(error);
         }
+#endif
     }
 
     void report_error(const std::string& message)
@@ -673,6 +690,20 @@ public:
         static_cast<Impl*>(userdata)->open();
     }
 
+#ifdef __APPLE__
+    static void macos_reopen_callback(void* userdata)
+    {
+        static_cast<Impl*>(userdata)
+            ->macos_reopen_requested.store(true);
+    }
+
+    static void macos_quit_callback(void* userdata)
+    {
+        static_cast<Impl*>(userdata)
+            ->macos_quit_requested.store(true);
+    }
+#endif
+
     static void SDLCALL refresh_callback(
         void* userdata, SDL_TrayEntry*)
     {
@@ -697,6 +728,10 @@ public:
     SDL_TrayEntry* clients_entry = nullptr;
     SDL_TrayEntry* topology_entry = nullptr;
     bool video_initialized = false;
+#ifdef __APPLE__
+    std::atomic_bool macos_reopen_requested{ false };
+    std::atomic_bool macos_quit_requested{ false };
+#endif
     std::chrono::steady_clock::time_point next_refresh{};
 };
 
