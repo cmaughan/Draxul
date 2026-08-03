@@ -35,6 +35,7 @@ public:
 
     void shutdown() override;
     bool is_running() const override;
+    std::optional<int> exit_code() const override;
     std::string init_error() const override;
     std::string init_error_code() const override;
     void pump() override;
@@ -100,6 +101,8 @@ private:
     std::string last_error_;
     std::string controller_client_id_;
     std::string remote_display_name_;
+    bool remote_process_running_ = true;
+    std::optional<int> remote_exit_code_;
     std::string pending_paste_;
     TerminalSnapshotMetadata metadata_;
     TerminalMouseModeSnapshot mouse_modes_;

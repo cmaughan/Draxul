@@ -258,7 +258,10 @@ endif()
 #   cmake/CompileShaders_Metal.cmake (Apple)
 #   cmake/CompileShaders.cmake (Windows)
 if(APPLE)
-    set(DRAXUL_APP_PLATFORM_SOURCES "app/macos_menu.mm")
+    set(DRAXUL_APP_PLATFORM_SOURCES
+        "app/macos_menu.mm"
+        "app/macos_server_status_surface.mm"
+    )
     set(DRAXUL_EXEC_PLATFORM_SOURCES "")
     set(DRAXUL_ICON_FILE "${CMAKE_SOURCE_DIR}/assets/draxul.icns")
     if(EXISTS "${DRAXUL_ICON_FILE}")

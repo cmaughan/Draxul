@@ -95,6 +95,11 @@ uint64_t FakeTerminalRuntime::process_id() const
     return 0;
 }
 
+std::optional<int> FakeTerminalRuntime::exit_code() const
+{
+    return std::nullopt;
+}
+
 uint64_t FakeTerminalRuntime::scrollback_rows() const
 {
     return 0;

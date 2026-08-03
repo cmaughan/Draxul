@@ -277,6 +277,8 @@ RemoteTerminalEvent RemoteTerminalService::snapshot_event()
         .kind = RemoteTerminalEventKind::Snapshot,
         .version = version(),
         .process_id = runtime_.process_id(),
+        .process_running = runtime_.is_running(),
+        .exit_code = runtime_.exit_code(),
         .controller_client_id = controller_client_id_,
         .snapshot = runtime_.snapshot(),
     };
@@ -290,6 +292,9 @@ RemoteTerminalEvent RemoteTerminalService::make_delta_event()
     RemoteTerminalEvent event{
         .kind = RemoteTerminalEventKind::Delta,
         .version = version(),
+        .process_id = runtime_.process_id(),
+        .process_running = runtime_.is_running(),
+        .exit_code = runtime_.exit_code(),
         .controller_client_id = controller_client_id_,
         .delta = runtime_.take_delta(),
     };
@@ -309,6 +314,9 @@ RemoteTerminalEvent RemoteTerminalService::make_controller_event()
     return {
         .kind = RemoteTerminalEventKind::Controller,
         .version = version(),
+        .process_id = runtime_.process_id(),
+        .process_running = runtime_.is_running(),
+        .exit_code = runtime_.exit_code(),
         .controller_client_id = controller_client_id_,
     };
 }
@@ -320,6 +328,9 @@ RemoteTerminalEvent RemoteTerminalService::make_clipboard_event(
     return {
         .kind = RemoteTerminalEventKind::Clipboard,
         .version = version(),
+        .process_id = runtime_.process_id(),
+        .process_running = runtime_.is_running(),
+        .exit_code = runtime_.exit_code(),
         .controller_client_id = controller_client_id_,
         .clipboard = std::move(text),
     };
@@ -426,6 +437,8 @@ ControlMethodResult RemoteTerminalService::attach(
     std::string error;
     if (!ensure_runtime_started(error))
         return ControlMethodResult::error("process_start_failed", std::move(error));
+    published_process_running_ = true;
+    published_exit_code_.reset();
 
     subscribers_[client_id] = {};
     if (controller_client_id_.empty()
@@ -453,6 +466,8 @@ ControlMethodResult RemoteTerminalService::attach(
             .name = options_.name,
             .execution_domain = "server_terminal",
             .process_id = runtime_.process_id(),
+            .process_running = runtime_.is_running(),
+            .exit_code = runtime_.exit_code(),
         },
         .state = state->event,
     };
@@ -763,6 +778,8 @@ bool RemoteTerminalService::restart_runtime(std::string& error)
     if (!runtime_.restart(error))
         return false;
     started_ = true;
+    published_process_running_ = true;
+    published_exit_code_.reset();
     ++generation_;
     sequence_ = 0;
     for (auto& [subscriber_id, subscriber] : subscribers_)
@@ -886,7 +903,18 @@ void RemoteTerminalService::pump()
     }
     last_pump_at_ = now;
     if (started_)
+    {
         publish_runtime_updates(runtime_.pump());
+        const bool process_running = runtime_.is_running();
+        const std::optional<int> exit_code = runtime_.exit_code();
+        if (process_running != published_process_running_
+            || exit_code != published_exit_code_)
+        {
+            published_process_running_ = process_running;
+            published_exit_code_ = exit_code;
+            broadcast(make_controller_event());
+        }
+    }
 }
 
 bool RemoteTerminalService::started() const

@@ -35,6 +35,7 @@ public:
     virtual bool resize(int cols, int rows) = 0;
     virtual bool is_running() const = 0;
     virtual uint64_t process_id() const = 0;
+    virtual std::optional<int> exit_code() const = 0;
     virtual uint64_t scrollback_rows() const = 0;
     virtual std::optional<TerminalSemanticSnapshot> scrollback_page(
         uint64_t offset_from_live, size_t max_rows) const = 0;

@@ -78,7 +78,7 @@ public:
         int max_rows, size_t max_bytes) const;
     std::optional<AgentProcessObservation>
     capture_agent_process_observation() const;
-    std::optional<int> exit_code() const;
+    std::optional<int> exit_code() const override;
     bool scrollback_storage_initialized() const noexcept;
     void set_environment_value(
         std::string key, std::string value);

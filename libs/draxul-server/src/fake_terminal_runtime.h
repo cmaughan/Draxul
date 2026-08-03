@@ -27,6 +27,7 @@ public:
     bool resize(int cols, int rows) override;
     bool is_running() const override;
     uint64_t process_id() const override;
+    std::optional<int> exit_code() const override;
     uint64_t scrollback_rows() const override;
     std::optional<TerminalSemanticSnapshot> scrollback_page(
         uint64_t offset_from_live, size_t max_rows) const override;

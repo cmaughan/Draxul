@@ -11,6 +11,10 @@
 #include <string_view>
 #include <vector>
 
+#ifdef __APPLE__
+#include "macos_server_status_surface.h"
+#endif
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -493,6 +497,8 @@ public:
     {
 #ifdef __APPLE__
         SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");
+        if (!configure_macos_server_status_application(error))
+            return false;
 #endif
         if (!SDL_Init(SDL_INIT_VIDEO))
         {

@@ -2906,7 +2906,7 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
             = static_cast<size_t>(std::ranges::count_if(
                 session->terminals,
                 [](const auto& item) {
-                    return item.second.service->started();
+                    return item.second.runtime->is_running();
                 }));
         space_count += spaces;
         terminal_count += session->terminals.size();
