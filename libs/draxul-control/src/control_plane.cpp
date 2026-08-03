@@ -61,6 +61,21 @@ uint64_t fnv1a(std::string_view text)
     return hash;
 }
 
+// The bind()-constrained variant of session_key. sockaddr_un::sun_path is 104
+// bytes on macOS and the full <hash>-<slug> key under
+// ".../Application Support/draxul/runtime/server-v1/" already exceeded it for
+// an ordinary home directory (named pipes have no such limit, which is why
+// this only surfaced on macOS). The socket keeps the collision-resistant hash
+// only; the human-readable slug stays on the metadata/lock filenames, which
+// are open()ed rather than bound. Clients never derive this name — they read
+// the endpoint string from the metadata document.
+std::string endpoint_key(std::string_view session_id)
+{
+    std::ostringstream out;
+    out << std::hex << fnv1a(session_id);
+    return out.str();
+}
+
 std::string session_key(std::string_view session_id)
 {
     std::string slug;
@@ -592,8 +607,10 @@ bool read_exact(int fd, void* data, size_t size)
     {
         const ssize_t read = ::recv(fd, static_cast<char*>(data) + offset,
             size - offset, 0);
+        if (read < 0 && errno == EINTR)
+            continue; // a delivered signal must not corrupt a frame
         if (read <= 0)
-            return false;
+            return false; // peer closed, or SO_RCVTIMEO genuinely expired
         offset += static_cast<size_t>(read);
     }
     return true;
@@ -606,6 +623,8 @@ bool write_exact(int fd, const void* data, size_t size)
     {
         const ssize_t written = ::send(fd,
             static_cast<const char*>(data) + offset, size - offset, 0);
+        if (written < 0 && errno == EINTR)
+            continue;
         if (written <= 0)
             return false;
         offset += static_cast<size_t>(written);
@@ -1050,7 +1069,7 @@ bool ControlServer::Impl::start(std::string new_session_id,
 #ifdef _WIN32
     endpoint = R"(\\.\pipe\draxul-control-)" + session_key(session_id);
 #else
-    endpoint = (runtime_directory / (session_key(session_id) + ".sock")).string();
+    endpoint = (runtime_directory / (endpoint_key(session_id) + ".sock")).string();
     sockaddr_un endpoint_address{};
     if (endpoint.size() >= sizeof(endpoint_address.sun_path))
     {
@@ -1527,6 +1546,16 @@ void ControlServer::Impl::run(std::stop_token stop_token)
             const int client = ::accept(server, nullptr, nullptr);
             if (client < 0)
                 continue;
+            // BSD/macOS accepted sockets INHERIT the listener's O_NONBLOCK
+            // (Linux does not). With it set, recv() races the client's write:
+            // whenever the request bytes had not landed yet, read_frame got
+            // EAGAIN immediately and the server answered "invalid_frame" for a
+            // perfectly good request — the remote-terminal channel then
+            // retried forever. Clear it so the SO_RCVTIMEO/SO_SNDTIMEO bounds
+            // below govern I/O as designed.
+            const int client_flags = ::fcntl(client, F_GETFL, 0);
+            if (client_flags >= 0 && (client_flags & O_NONBLOCK) != 0)
+                ::fcntl(client, F_SETFL, client_flags & ~O_NONBLOCK);
             timeval timeout{
                 static_cast<long>(kIoTimeout.count()), 0
             };
@@ -1615,6 +1644,11 @@ bool ControlServer::running() const
 bool ControlServer::endpoint_in_use() const
 {
     return impl_->endpoint_in_use;
+}
+
+void ControlServer::abandon_endpoint()
+{
+    impl_->owns_endpoint = false;
 }
 
 uint32_t ControlServer::take_listener_error()

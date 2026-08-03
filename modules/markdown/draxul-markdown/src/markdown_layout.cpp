@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cctype>
 #include <numeric>
-#include <sstream>
 #include <string_view>
 #include <utility>
 
@@ -24,37 +23,15 @@ constexpr float kSectionMaxIndent = 48.0f;
 constexpr float kTableMinColumnWidth = 84.0f;
 constexpr float kTableMaxPreferredColumnShare = 0.55f;
 
-constexpr StyleId kBodyStyle{ 0 };
-constexpr StyleId kHeading1Style{ 1 };
-constexpr StyleId kHeading2Style{ 2 };
-constexpr StyleId kHeading3Style{ 3 };
-constexpr StyleId kHeading4Style{ 4 };
-constexpr StyleId kHeading5Style{ 5 };
-constexpr StyleId kHeading6Style{ 6 };
-constexpr StyleId kCodeStyle{ 7 };
-
-const MarkdownTextStyle& style_for_id(const MarkdownTheme& theme, StyleId style)
-{
-    switch (style.value)
-    {
-    case kHeading1Style.value:
-        return theme.heading1;
-    case kHeading2Style.value:
-        return theme.heading2;
-    case kHeading3Style.value:
-        return theme.heading3;
-    case kHeading4Style.value:
-        return theme.heading4;
-    case kHeading5Style.value:
-        return theme.heading5;
-    case kHeading6Style.value:
-        return theme.heading6;
-    case kCodeStyle.value:
-        return theme.code;
-    default:
-        return theme.body;
-    }
-}
+// Task-list markers are drawn as text so they scale with the body font instead of
+// staying a fixed-size stroked box. U+25A1/U+2713 are deliberate: the obvious
+// ballot-box pair (U+2610/U+2611) is missing from common coding fonts, and U+2611
+// is also an emoji, so it resolves to Apple Color Emoji on macOS -- a colored glyph
+// that ignores the accent tint and does not match its unchecked partner. Both
+// glyphs below are present in the bundled coding fonts and in the platform
+// fallbacks, and neither is in any color-emoji font.
+constexpr std::string_view kUncheckedMarker = "\xE2\x96\xA1"; // U+25A1 WHITE SQUARE
+constexpr std::string_view kCheckedMarker = "\xE2\x9C\x93"; // U+2713 CHECK MARK
 
 StyleId style_id_for_heading(int level)
 {
@@ -77,17 +54,82 @@ StyleId style_id_for_heading(int level)
     }
 }
 
+// A styled slice of a block's inline content. Emphasis spans become style flags
+// rather than literal markers, and breaks are carried as a flag so the wrapper
+// starts a new visual line there.
+//
+// Every authored newline starts a new line, matching Obsidian's default (and the
+// "\n" -> <br>" behavior most note editors use) rather than CommonMark's reflow.
+// Author-controlled line structure -- one-per-line bold terms, wrapped bullet
+// prose -- is the point of a preview pane. Crucially, a break starts a line and
+// does not leave a blank one: the doubled newline that used to space every line
+// apart came from the parser storing "\n" on the break node while the text
+// collectors appended another.
+struct StyledSpan
+{
+    std::string text;
+    StyleId style;
+    SourceSpan source;
+    bool line_break = false;
+};
+
+void collect_inline_spans(const std::vector<Inline>& inlines, StyleId style, std::vector<StyledSpan>& spans)
+{
+    for (const auto& inline_node : inlines)
+    {
+        if (inline_node.kind == InlineKind::SoftBreak || inline_node.kind == InlineKind::LineBreak)
+        {
+            spans.push_back(StyledSpan{
+                .style = style,
+                .source = inline_node.source,
+                .line_break = true,
+            });
+            continue;
+        }
+
+        StyleId child_style = style;
+        if (inline_node.kind == InlineKind::Strong)
+            child_style = with_bold(child_style);
+        else if (inline_node.kind == InlineKind::Emphasis)
+            child_style = with_italic(child_style);
+
+        if (!inline_node.text.empty())
+        {
+            spans.push_back(StyledSpan{
+                .text = inline_node.text,
+                .style = child_style,
+                .source = inline_node.source,
+            });
+        }
+        if (!inline_node.children.empty())
+            collect_inline_spans(inline_node.children, child_style, spans);
+    }
+}
+
+std::vector<StyledSpan> collect_inline_spans(const std::vector<Inline>& inlines, StyleId style)
+{
+    std::vector<StyledSpan> spans;
+    collect_inline_spans(inlines, style, spans);
+    return spans;
+}
+
 std::string collect_inline_text(const std::vector<Inline>& inlines)
 {
     std::string text;
     for (const auto& inline_node : inlines)
     {
+        // Break nodes already carry their own newline as text, so emit exactly
+        // one here rather than doubling it.
+        if (inline_node.kind == InlineKind::SoftBreak || inline_node.kind == InlineKind::LineBreak)
+        {
+            text += '\n';
+            continue;
+        }
+
         if (!inline_node.text.empty())
             text += inline_node.text;
         if (!inline_node.children.empty())
             text += collect_inline_text(inline_node.children);
-        if (inline_node.kind == InlineKind::SoftBreak || inline_node.kind == InlineKind::LineBreak)
-            text += '\n';
     }
     return text;
 }
@@ -162,8 +204,8 @@ public:
             layout_front_matter(block, indent);
             break;
         case BlockKind::Heading:
-            layout_wrapped_text(
-                collect_inline_text(block.inlines),
+            layout_wrapped_inlines(
+                block.inlines,
                 style_id_for_heading(block.heading_level),
                 block.kind,
                 block.source,
@@ -172,13 +214,7 @@ public:
             add_block_gap();
             break;
         case BlockKind::Paragraph:
-            layout_wrapped_text(
-                collect_inline_text(block.inlines),
-                kBodyStyle,
-                block.kind,
-                block.source,
-                indent,
-                {});
+            layout_wrapped_inlines(block.inlines, kBodyStyle, block.kind, block.source, indent, {});
             add_block_gap();
             break;
         case BlockKind::CodeBlock:
@@ -270,7 +306,7 @@ private:
     {
         if (text.empty())
             return 0.0f;
-        const auto& markdown_style = style_for_id(theme_, style);
+        const auto markdown_style = resolve_markdown_style(theme_, style);
         const auto& metrics = rich_text_.metrics_for(markdown_style.rich_text);
         const float cell_width = static_cast<float>(std::max(1, metrics.cell_width));
 
@@ -299,16 +335,18 @@ private:
         return width;
     }
 
+    // Row metrics always come from the base style so inline emphasis inside a
+    // paragraph cannot change line height mid-block.
     float row_height_for(StyleId style)
     {
-        const auto& markdown_style = style_for_id(theme_, style);
+        const auto markdown_style = resolve_markdown_style(theme_, base_style_of(style));
         const auto& metrics = rich_text_.metrics_for(markdown_style.rich_text);
         return std::max(1.0f, static_cast<float>(metrics.cell_height) * markdown_style.line_height_multiplier);
     }
 
     float baseline_for(StyleId style, float row_y, float row_height)
     {
-        const auto& markdown_style = style_for_id(theme_, style);
+        const auto markdown_style = resolve_markdown_style(theme_, base_style_of(style));
         const auto& metrics = rich_text_.metrics_for(markdown_style.rich_text);
         const float leading = std::max(0.0f, row_height - static_cast<float>(metrics.cell_height));
         return row_y + leading * 0.5f + static_cast<float>(metrics.ascender);
@@ -354,34 +392,74 @@ private:
         return document_.rows.back();
     }
 
-    std::vector<std::string> wrap_line(std::string_view text, StyleId style, float width)
+    struct StyledPiece
     {
-        std::vector<std::string> rows;
-        auto words = split_words(text);
-        if (words.empty())
-        {
-            rows.emplace_back();
-            return rows;
-        }
+        std::string text;
+        StyleId style;
+        float dx = 0.0f;
+        SourceSpan source;
+    };
 
-        std::string current;
-        auto push_current = [&rows, &current]() {
-            if (current.empty())
+    struct WrappedLine
+    {
+        std::vector<StyledPiece> pieces;
+        float width = 0.0f;
+    };
+
+    // Greedy word wrap over styled spans. Words carry their own style, so a run
+    // only ends where the style changes or the line breaks.
+    std::vector<WrappedLine> wrap_spans(const std::vector<StyledSpan>& spans, float width)
+    {
+        std::vector<WrappedLine> lines;
+        WrappedLine current;
+        float pen = 0.0f;
+
+        auto flush_line = [&lines, &current, &pen](bool force) {
+            if (current.pieces.empty() && !force)
                 return;
-            rows.push_back(std::exchange(current, {}));
+            current.width = pen;
+            lines.push_back(std::move(current));
+            current = {};
+            pen = 0.0f;
         };
 
-        auto append_cluster = [this, style, width, &current, &push_current](std::string_view cluster) {
-            if (cluster.empty())
+        auto append_piece = [this, &current, &pen](
+                                std::string_view text, StyleId style, SourceSpan source, float gap) {
+            if (text.empty())
                 return;
 
-            const std::string candidate = current + std::string(cluster);
-            if (!current.empty() && measure(candidate, style) > width)
-                push_current();
-            current.append(cluster);
+            if (!current.pieces.empty() && current.pieces.back().style.value == style.value)
+            {
+                auto& back = current.pieces.back();
+                if (gap > 0.0f)
+                    back.text += ' ';
+                back.text.append(text);
+            }
+            else
+            {
+                current.pieces.push_back(StyledPiece{
+                    .text = std::string(text),
+                    .style = style,
+                    .dx = pen + gap,
+                    .source = source,
+                });
+            }
+            pen += gap + measure(text, style);
         };
 
-        auto append_long_word = [&append_cluster](std::string_view word) {
+        auto place_word = [this, width, &current, &pen, &flush_line, &append_piece](
+                              std::string_view word, StyleId style, SourceSpan source, bool space_before) {
+            const float gap = (space_before && !current.pieces.empty()) ? measure(" ", style) : 0.0f;
+            if (!current.pieces.empty() && pen + gap + measure(word, style) > width)
+                flush_line(false);
+
+            if (!current.pieces.empty() || measure(word, style) <= width)
+            {
+                append_piece(word, style, source, current.pieces.empty() ? 0.0f : gap);
+                return;
+            }
+
+            // A single word wider than the column: split it on cluster boundaries.
             size_t offset = 0;
             while (offset < word.size())
             {
@@ -389,30 +467,116 @@ private:
                 uint32_t cp = 0;
                 if (!draxul::utf8_decode_next(word, offset, cp))
                     break;
-                append_cluster(word.substr(cluster_start, offset - cluster_start));
+
+                const std::string_view cluster = word.substr(cluster_start, offset - cluster_start);
+                if (!current.pieces.empty() && pen + measure(cluster, style) > width)
+                    flush_line(false);
+                append_piece(cluster, style, source, 0.0f);
             }
         };
 
-        for (const auto& word : words)
+        bool pending_space = false;
+        for (const auto& span : spans)
         {
-            const std::string candidate = current.empty() ? word : current + " " + word;
-            if (measure(candidate, style) <= width)
+            if (span.line_break)
             {
-                current = candidate;
+                flush_line(true);
+                pending_space = false;
                 continue;
             }
 
-            push_current();
-            if (measure(word, style) <= width)
-                current = word;
-            else
-                append_long_word(word);
+            const std::string_view text = span.text;
+            size_t index = 0;
+            while (index < text.size())
+            {
+                while (index < text.size() && std::isspace(static_cast<unsigned char>(text[index])))
+                {
+                    pending_space = true;
+                    ++index;
+                }
+
+                const size_t start = index;
+                while (index < text.size() && !std::isspace(static_cast<unsigned char>(text[index])))
+                    ++index;
+                if (start == index)
+                    break;
+
+                place_word(text.substr(start, index - start), span.style, span.source, pending_space);
+                pending_space = false;
+            }
         }
 
-        push_current();
-        if (rows.empty())
-            rows.emplace_back();
-        return rows;
+        flush_line(false);
+        if (lines.empty())
+            lines.emplace_back();
+        return lines;
+    }
+
+    std::vector<WrappedLine> wrap_text(std::string_view text, StyleId style, float width)
+    {
+        std::vector<StyledSpan> spans;
+        for (const auto& line : split_preserving_lines(text))
+        {
+            if (!spans.empty())
+                spans.push_back(StyledSpan{ .style = style, .line_break = true });
+            spans.push_back(StyledSpan{ .text = line, .style = style });
+        }
+        return wrap_spans(spans, width);
+    }
+
+    void append_wrapped_lines(
+        const std::vector<WrappedLine>& lines,
+        StyleId base_style,
+        BlockKind source_kind,
+        SourceSpan source,
+        float indent,
+        const std::vector<Decoration>& row_decorations)
+    {
+        const float origin = content_left(indent);
+        for (const auto& line : lines)
+        {
+            const float row_height = row_height_for(base_style);
+            const float baseline = baseline_for(base_style, y_, row_height);
+
+            LayoutRow row;
+            row.y = y_;
+            row.height = row_height;
+            row.baseline = baseline;
+            row.source_kind = source_kind;
+            row.source = source;
+            row.decorations = row_decorations;
+            for (const auto& piece : line.pieces)
+            {
+                row.runs.push_back(TextRun{
+                    .text = piece.text,
+                    .style = piece.style,
+                    .x = origin + piece.dx,
+                    .baseline = baseline,
+                    .source = piece.source.byte_length > 0 ? piece.source : source,
+                });
+            }
+
+            document_.rows.push_back(std::move(row));
+            y_ += row_height;
+        }
+    }
+
+    void layout_wrapped_inlines(
+        const std::vector<Inline>& inlines,
+        StyleId style,
+        BlockKind source_kind,
+        SourceSpan source,
+        float indent,
+        const std::vector<Decoration>& row_decorations)
+    {
+        const auto spans = collect_inline_spans(inlines, style);
+        append_wrapped_lines(
+            wrap_spans(spans, available_width(indent)),
+            style,
+            source_kind,
+            source,
+            indent,
+            row_decorations);
     }
 
     void layout_wrapped_text(
@@ -421,14 +585,15 @@ private:
         BlockKind source_kind,
         SourceSpan source,
         float indent,
-        std::vector<Decoration> row_decorations)
+        const std::vector<Decoration>& row_decorations)
     {
-        for (const auto& raw_line : split_preserving_lines(text))
-        {
-            auto wrapped = wrap_line(raw_line, style, available_width(indent));
-            for (auto& line : wrapped)
-                append_text_row(std::move(line), style, source_kind, source, indent, row_decorations);
-        }
+        append_wrapped_lines(
+            wrap_text(text, style, available_width(indent)),
+            style,
+            source_kind,
+            source,
+            indent,
+            row_decorations);
     }
 
     void layout_document_blocks(const std::vector<Block>& blocks, float indent)
@@ -504,15 +669,7 @@ private:
         const size_t first_row = document_.rows.size();
 
         if (!block.inlines.empty())
-        {
-            layout_wrapped_text(
-                collect_inline_text(block.inlines),
-                kBodyStyle,
-                block.kind,
-                block.source,
-                item_indent,
-                {});
-        }
+            layout_wrapped_inlines(block.inlines, kBodyStyle, block.kind, block.source, item_indent, {});
 
         for (const auto& child : block.children)
             layout_block(child, item_indent);
@@ -522,15 +679,28 @@ private:
 
         auto& first = document_.rows[first_row];
         first.source_kind = block.kind;
-        const auto kind = block.kind == BlockKind::TaskItem ? Decoration::Kind::Checkbox : Decoration::Kind::Bullet;
+        if (block.kind == BlockKind::TaskItem)
+        {
+            // Task markers are glyphs rather than hand-drawn rects: they track the
+            // body font size and read far better than a small stroked box.
+            first.runs.push_back(TextRun{
+                .text = std::string(block.checked ? kCheckedMarker : kUncheckedMarker),
+                .style = kBodyStyle,
+                .x = content_left(indent),
+                .baseline = first.baseline,
+                .source = block.source,
+                .color = theme_.accent,
+            });
+            return;
+        }
+
         first.decorations.push_back(Decoration{
-            .kind = kind,
+            .kind = Decoration::Kind::Bullet,
             .x = content_left(indent),
             .y = first.y + first.height * 0.35f,
             .width = ordered ? 10.0f * scale_ : 8.0f * scale_,
             .height = 8.0f * scale_,
             .color = theme_.accent,
-            .checked = block.checked,
         });
     }
 
@@ -654,7 +824,7 @@ private:
                 const std::string text = collect_inline_text(cell.inlines);
                 const float full_text_width = measure(text, style) + edge_width;
                 const float min_text_width = (header ? std::max(full_text_width, longest_word_width(text, style) + edge_width)
-                                                      : longest_word_width(text, style) + edge_width);
+                                                     : longest_word_width(text, style) + edge_width);
                 auto& budget = budgets[column];
                 budget.minimum = std::max(budget.minimum, min_text_width);
                 budget.preferred = std::max(budget.preferred, full_text_width);
@@ -745,13 +915,11 @@ private:
     float aligned_cell_text_x(
         float cell_x,
         float cell_width,
-        std::string_view line,
-        StyleId style,
+        float text_width,
         TableCellAlignment alignment)
     {
         const float padding_x = table_cell_padding_x();
         const float inner_width = std::max(1.0f, cell_width - padding_x * 2.0f);
-        const float text_width = measure(line, style);
 
         switch (effective_alignment(alignment))
         {
@@ -828,7 +996,7 @@ private:
             for (const auto& child : block.children)
                 layout_table_like(child, indent);
             if (block.children.empty())
-                layout_wrapped_text(collect_inline_text(block.inlines), kBodyStyle, block.kind, block.source, indent, {});
+                layout_wrapped_inlines(block.inlines, kBodyStyle, block.kind, block.source, indent, {});
             return;
         }
 
@@ -851,17 +1019,17 @@ private:
             const bool header = table_row_is_header(row);
             const StyleId style = header ? kHeading6Style : kBodyStyle;
             const float row_height = row_height_for(style);
-            std::vector<std::vector<std::string>> wrapped_cells(static_cast<size_t>(column_count));
+            std::vector<std::vector<WrappedLine>> wrapped_cells(static_cast<size_t>(column_count));
             size_t visual_line_count = 1;
 
             for (int column = 0; column < column_count; ++column)
             {
-                std::string text;
+                std::vector<StyledSpan> spans;
                 if (column < static_cast<int>(row.children.size()) && row.children[column].kind == BlockKind::TableCell)
-                    text = collect_inline_text(row.children[column].inlines);
+                    spans = collect_inline_spans(row.children[column].inlines, style);
 
                 const float inner_width = std::max(1.0f, column_widths[static_cast<size_t>(column)] - padding_x * 2.0f);
-                wrapped_cells[static_cast<size_t>(column)] = wrap_line(text, style, inner_width);
+                wrapped_cells[static_cast<size_t>(column)] = wrap_spans(spans, inner_width);
                 visual_line_count = std::max(visual_line_count, wrapped_cells[static_cast<size_t>(column)].size());
             }
 
@@ -888,25 +1056,29 @@ private:
                 for (int column = 0; column < column_count; ++column)
                 {
                     const auto& lines = wrapped_cells[static_cast<size_t>(column)];
-                    const std::string line = visual_line < lines.size() ? lines[visual_line] : std::string();
-                    if (!line.empty())
+                    if (visual_line < lines.size() && !lines[visual_line].pieces.empty())
                     {
+                        const WrappedLine& line = lines[visual_line];
                         const Block* cell = column < static_cast<int>(row.children.size()) ? &row.children[column] : nullptr;
                         const TableCellAlignment alignment = cell != nullptr
                             ? cell->table_alignment
                             : TableCellAlignment::Default;
-                        visual_row.runs.push_back(TextRun{
-                            .text = line,
-                            .style = style,
-                            .x = aligned_cell_text_x(
-                                cell_x,
-                                column_widths[static_cast<size_t>(column)],
-                                line,
-                                style,
-                                alignment),
-                            .baseline = visual_row.baseline,
-                            .source = cell != nullptr ? cell->source : row.source,
-                        });
+                        const float line_x = aligned_cell_text_x(
+                            cell_x,
+                            column_widths[static_cast<size_t>(column)],
+                            line.width,
+                            alignment);
+
+                        for (const auto& piece : line.pieces)
+                        {
+                            visual_row.runs.push_back(TextRun{
+                                .text = piece.text,
+                                .style = piece.style,
+                                .x = line_x + piece.dx,
+                                .baseline = visual_row.baseline,
+                                .source = cell != nullptr ? cell->source : row.source,
+                            });
+                        }
                     }
                     cell_x += column_widths[static_cast<size_t>(column)];
                 }

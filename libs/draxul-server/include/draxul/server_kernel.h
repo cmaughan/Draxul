@@ -47,6 +47,16 @@ struct ServerKernelOptions
     std::chrono::milliseconds client_activity_timeout{
         std::chrono::seconds(10)
     };
+    // How often the kernel verifies it is still the PUBLISHED server. A
+    // server whose metadata was removed or replaced (wiped runtime dir, a
+    // newer server claiming the endpoint) used to run forever — invisible to
+    // clients, unreachable by the CLI, a tray icon its only surface — and
+    // every later launch then added another one. Two consecutive failed
+    // checks retire the kernel gracefully (single misses tolerate transient
+    // filesystem states).
+    std::chrono::milliseconds eviction_check_interval{
+        std::chrono::seconds(5)
+    };
     int protocol_major = kServerProtocolMajor;
     int protocol_minor = kServerProtocolMinor;
     std::string build_version;

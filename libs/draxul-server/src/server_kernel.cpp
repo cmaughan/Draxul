@@ -58,7 +58,8 @@ std::string terminal_display_name(
     if (identity.empty() && !options.command.empty())
     {
         identity = std::filesystem::path(options.command)
-                       .stem().string();
+                       .stem()
+                       .string();
     }
 #ifndef _WIN32
     if (identity.empty())
@@ -138,7 +139,7 @@ std::optional<std::string> process_start_token(uint64_t pid)
     return token;
 #elif defined(__APPLE__)
     if (pid > static_cast<uint64_t>(
-                  std::numeric_limits<pid_t>::max()))
+            std::numeric_limits<pid_t>::max()))
     {
         return std::nullopt;
     }
@@ -156,8 +157,7 @@ std::optional<std::string> process_start_token(uint64_t pid)
         return std::nullopt;
     }
     return std::to_string(process.kp_proc.p_starttime.tv_sec)
-        + ":" + std::to_string(
-              process.kp_proc.p_starttime.tv_usec);
+        + ":" + std::to_string(process.kp_proc.p_starttime.tv_usec);
 #else
     std::ifstream stat(
         "/proc/" + std::to_string(pid) + "/stat");
@@ -199,6 +199,17 @@ std::filesystem::path starting_marker_path(
     const std::filesystem::path& runtime_directory, uint64_t pid)
 {
     return runtime_directory / ("server-starting-" + std::to_string(pid) + ".json");
+}
+
+// A detached server's stderr goes to /dev/null, so a startup failure that
+// leaves no trace is indistinguishable from "no server exists" — the client
+// then reports Absent and can only guess. The failure marker records WHY the
+// last start died; ServerClient::probe reads it (same literal name there) and
+// a successful start deletes it.
+std::filesystem::path failure_marker_path(
+    const std::filesystem::path& runtime_directory)
+{
+    return runtime_directory / "server-failed.json";
 }
 
 uint64_t numeric_suffix(std::string_view value)
@@ -374,8 +385,7 @@ public:
             options.checkpoint_save = save_session_state_to_path;
         if (options.build_version.empty())
             options.build_version = server_build_version();
-        for (const AgentDefinition& definition
-            : options.agent_definitions)
+        for (const AgentDefinition& definition : options.agent_definitions)
         {
             agent_definitions.register_definition(
                 definition);
@@ -395,6 +405,9 @@ public:
     ControlMethodResult handle_request(const ControlRequest& request);
     ServerStatusSnapshot status_snapshot() const;
     void publish_starting_marker();
+    bool published_identity_matches() const;
+    void publish_failure_marker(std::string_view reason);
+    void remove_failure_marker();
     void remove_starting_marker();
     void remove_all_starting_markers();
     bool prepare_session_restore(std::string& error);
@@ -568,6 +581,54 @@ void ServerKernel::Impl::publish_starting_marker()
     }
 }
 
+bool ServerKernel::Impl::published_identity_matches() const
+{
+    std::error_code size_error;
+    const auto metadata_path = control.metadata_path();
+    const auto size = std::filesystem::file_size(metadata_path, size_error);
+    if (size_error || size == 0 || size > 16 * 1024)
+        return false;
+    std::ifstream input(metadata_path, std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(input)),
+        std::istreambuf_iterator<char>());
+    const auto metadata = nlohmann::json::parse(bytes, nullptr, false);
+    if (metadata.is_discarded() || !metadata.is_object())
+        return false;
+    return metadata.contains("server_pid")
+        && metadata["server_pid"].is_number_unsigned()
+        && metadata["server_pid"].get<uint64_t>() == pid
+        && metadata.contains("server_process_start_token")
+        && metadata["server_process_start_token"].is_string()
+        && metadata["server_process_start_token"]
+               .get_ref<const std::string&>()
+        == process_start_identity;
+}
+
+void ServerKernel::Impl::publish_failure_marker(std::string_view reason)
+{
+    std::error_code directory_error;
+    std::filesystem::create_directories(
+        options.runtime_directory, directory_error);
+    std::ofstream output(failure_marker_path(options.runtime_directory),
+        std::ios::binary | std::ios::trunc);
+    if (!output)
+        return;
+    output << nlohmann::json{
+        { "pid", pid },
+        { "error", std::string(reason) },
+        { "created_unix_ms", current_unix_time_ms() },
+    }
+                  .dump();
+    output.flush();
+}
+
+void ServerKernel::Impl::remove_failure_marker()
+{
+    std::error_code ignored;
+    std::filesystem::remove(
+        failure_marker_path(options.runtime_directory), ignored);
+}
+
 void ServerKernel::Impl::remove_starting_marker()
 {
     if (starting_marker.empty())
@@ -582,8 +643,8 @@ void ServerKernel::Impl::remove_all_starting_markers()
     std::error_code iteration_error;
     for (std::filesystem::directory_iterator it(
              options.runtime_directory, iteration_error);
-         !iteration_error && it != std::filesystem::directory_iterator();
-         it.increment(iteration_error))
+        !iteration_error && it != std::filesystem::directory_iterator();
+        it.increment(iteration_error))
     {
         const std::string name = it->path().filename().string();
         if (!name.starts_with("server-starting-")
@@ -677,7 +738,7 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
                                   .runtime = std::move(runtime),
                                   .service = std::move(service),
                               })
-             .second)
+            .second)
     {
         error = "Saved Session contains a duplicate server terminal identity.";
         return false;
@@ -748,8 +809,8 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
                     ? "Archived unreadable Session checkpoint as '"
                         + archived->filename().string() + "': "
                         + (load_error.empty()
-                                  ? "the checkpoint is invalid."
-                                  : load_error)
+                                ? "the checkpoint is invalid."
+                                : load_error)
                     : "Could not archive unreadable Session checkpoint '"
                         + prepared->persistence_path.filename().string()
                         + "': " + archive_error);
@@ -892,9 +953,9 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
     std::error_code iteration_error;
     for (std::filesystem::directory_iterator it(
              sessions_directory, iteration_error);
-         !iteration_error
-         && it != std::filesystem::directory_iterator();
-         it.increment(iteration_error))
+        !iteration_error
+        && it != std::filesystem::directory_iterator();
+        it.increment(iteration_error))
     {
         if (it->is_regular_file()
             && it->path().extension() == ".toml"
@@ -943,21 +1004,15 @@ bool ServerKernel::Impl::initialize_session(
     TopologyServiceCallbacks callbacks{
         .create_server_terminal
         = [this, stable_session_id](std::string_view pane_id,
-              std::string_view name, std::string& callback_error) {
-              return create_server_terminal(stable_session_id,
-                  pane_id, name, callback_error);
-          },
+              std::string_view name, std::string& callback_error) { return create_server_terminal(stable_session_id,
+                                                                        pane_id, name, callback_error); },
         .destroy_server_terminal
-        = [this, stable_session_id](std::string_view terminal_id) {
-              destroy_server_terminal(
-                  stable_session_id, terminal_id);
-          },
+        = [this, stable_session_id](std::string_view terminal_id) { destroy_server_terminal(
+                                                                        stable_session_id, terminal_id); },
         .restart_server_terminal
         = [this, stable_session_id](std::string_view terminal_id,
-              std::string& callback_error) {
-              return restart_server_terminal(stable_session_id,
-                  terminal_id, callback_error);
-          },
+              std::string& callback_error) { return restart_server_terminal(stable_session_id,
+                                                 terminal_id, callback_error); },
         .create_managed_agent_terminal
         = [this, stable_session_id](
               std::string_view space_id,
@@ -965,12 +1020,10 @@ bool ServerKernel::Impl::initialize_session(
               std::string_view pane_id,
               std::string_view name,
               const ManagedAgentTopologyLaunch& launch,
-              std::string& callback_error) {
-              return create_managed_agent_terminal(
-                  stable_session_id, space_id, tab_id,
-                  pane_id, name, launch,
-                  callback_error);
-          },
+              std::string& callback_error) { return create_managed_agent_terminal(
+                                                 stable_session_id, space_id, tab_id,
+                                                 pane_id, name, launch,
+                                                 callback_error); },
     };
 
     if (session.restored_topology)
@@ -1010,9 +1063,9 @@ bool ServerKernel::Impl::initialize_session(
                             = pane.restore_policy,
                             .working_directory
                             = pane.server_working_directory
-                                  .empty()
-                            ? space.root_directory
-                            : pane.server_working_directory,
+                                    .empty()
+                                ? space.root_directory
+                                : pane.server_working_directory,
                         };
                         if (options.agents_resume_on_restore
                             && pane.restore_policy
@@ -1029,13 +1082,10 @@ bool ServerKernel::Impl::initialize_session(
                             launch.additional_args
                                 = pane.agent->kind == "codex"
                                 ? std::vector<std::string>{
-                                    "resume",
-                                    pane.agent_session->value
-                                }
-                                : std::vector<std::string>{
-                                    "--resume",
-                                    pane.agent_session->value
-                                };
+                                      "resume",
+                                      pane.agent_session->value
+                                  }
+                                : std::vector<std::string>{ "--resume", pane.agent_session->value };
                         }
                         runtime_options
                             = managed_agent_runtime_options(
@@ -1566,7 +1616,7 @@ void ServerKernel::Impl::forget_session_clients(
 {
     std::lock_guard guard(mutex);
     for (auto it = client_sessions.begin();
-         it != client_sessions.end();)
+        it != client_sessions.end();)
     {
         it->second.erase(std::string(session_id));
         if (it->second.empty())
@@ -1804,6 +1854,7 @@ ServerStartResult ServerKernel::Impl::start()
     if (!prepare_session_restore(error))
     {
         remove_starting_marker();
+        publish_failure_marker(error);
         return { ServerStartDisposition::Failed, std::move(error) };
     }
     const nlohmann::json metadata{
@@ -1825,6 +1876,7 @@ ServerStartResult ServerKernel::Impl::start()
         remove_starting_marker();
         if (control.endpoint_in_use())
             return { ServerStartDisposition::AlreadyRunning, std::move(error) };
+        publish_failure_marker(error);
         return { ServerStartDisposition::Failed, std::move(error) };
     }
 
@@ -1834,6 +1886,7 @@ ServerStartResult ServerKernel::Impl::start()
     // can represent a second valid owner. Clean crash leftovers and losing
     // concurrent launchers together.
     remove_all_starting_markers();
+    remove_failure_marker();
     DRAXUL_LOG_INFO(LogCategory::App,
         "Draxul server ready pid=%llu epoch=%s protocol=%d.%d",
         static_cast<unsigned long long>(pid),
@@ -1859,7 +1912,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         }
 
         const bool token_capable = std::ranges::find(
-            hello->capabilities, kServerClientTokenCapability)
+                                       hello->capabilities, kServerClientTokenCapability)
             != hello->capabilities.end();
         std::string connection_token;
         const ClientAccessResult registration
@@ -2133,8 +2186,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                   }
                   session->completed_agent_mutation_order
                       .push_back(agent_mutation_key);
-                  session->completed_agent_mutations[
-                      agent_mutation_key]
+                  session->completed_agent_mutations[agent_mutation_key]
                       = result;
                   while (session
                              ->completed_agent_mutation_order
@@ -2180,11 +2232,11 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             {
                 if (!request.params["client_id"].is_string()
                     || request.params["client_id"]
-                           .get_ref<const std::string&>()
-                           .empty()
+                        .get_ref<const std::string&>()
+                        .empty()
                     || request.params["client_id"]
-                           .get_ref<const std::string&>()
-                           .size()
+                            .get_ref<const std::string&>()
+                            .size()
                         > 128)
                 {
                     return ControlMethodResult::error(
@@ -2212,13 +2264,12 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                         "are not durable yet; put stable arguments in "
                         "the agent profile.");
                 }
-                for (const auto& value
-                    : request.params["args"])
+                for (const auto& value : request.params["args"])
                 {
                     if (!value.is_string()
                         || value
-                               .get_ref<const std::string&>()
-                               .size()
+                                .get_ref<const std::string&>()
+                                .size()
                             > 4096)
                     {
                         return ControlMethodResult::error(
@@ -2233,8 +2284,8 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             {
                 if (!request.params["cwd"].is_string()
                     || request.params["cwd"]
-                           .get_ref<const std::string&>()
-                           .size()
+                            .get_ref<const std::string&>()
+                            .size()
                         > kTopologyMaxTextBytes)
                 {
                     return ControlMethodResult::error(
@@ -2264,8 +2315,8 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                     = request.params[name];
                 if (value.is_string()
                     && !value
-                            .get_ref<const std::string&>()
-                            .empty())
+                        .get_ref<const std::string&>()
+                        .empty())
                 {
                     return value.get<std::string>();
                 }
@@ -2339,11 +2390,9 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                     + std::to_string(
                         session->next_agent_serial++);
                 bool used = false;
-                for (const auto& candidate_space
-                    : topology.spaces)
+                for (const auto& candidate_space : topology.spaces)
                 {
-                    for (const auto& candidate_tab
-                        : candidate_space.tabs)
+                    for (const auto& candidate_tab : candidate_space.tabs)
                     {
                         used = used
                             || std::ranges::any_of(
@@ -2352,7 +2401,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                                     return pane.agent
                                         && pane.agent
                                                ->instance_id
-                                            == instance_id;
+                                        == instance_id;
                                 });
                     }
                 }
@@ -2429,7 +2478,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             {
                 std::string restart_error;
                 if (!terminal->second.service
-                         ->restart_runtime(restart_error))
+                        ->restart_runtime(restart_error))
                 {
                     return ControlMethodResult::error(
                         "restart_failed",
@@ -2478,8 +2527,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                 std::vector<std::string> keys;
                 keys.reserve(
                     request.params["keys"].size());
-                for (const auto& value
-                    : request.params["keys"])
+                for (const auto& value : request.params["keys"])
                 {
                     if (!value.is_string())
                     {
@@ -2551,8 +2599,8 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                 || !request.params.contains(name)
                 || !request.params[name].is_string()
                 || request.params[name]
-                       .get_ref<const std::string&>()
-                       .empty())
+                    .get_ref<const std::string&>()
+                    .empty())
             {
                 return std::nullopt;
             }
@@ -2727,8 +2775,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         }
         const std::string pane_id
             = request.params["pane_id"].get<std::string>();
-        for (const auto& [terminal_id, endpoint]
-            : session->terminals)
+        for (const auto& [terminal_id, endpoint] : session->terminals)
         {
             const TopologySnapshot& topology
                 = session->topology_service->snapshot();
@@ -2741,7 +2788,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                         [&](const TopologyPane& value) {
                             return value.pane_id == pane_id
                                 && value.terminal_id
-                                    == terminal_id;
+                                == terminal_id;
                         });
                     if (pane == tab.panes.end())
                         continue;
@@ -3082,8 +3129,8 @@ ServerKernel::Impl::managed_agent_runtime_options(
         .args = std::move(args),
         .working_directory
         = launch.working_directory.empty()
-        ? options.terminal_working_directory
-        : launch.working_directory,
+            ? options.terminal_working_directory
+            : launch.working_directory,
         .environment = std::move(environment),
         .scrollback_capacity
         = options.terminal_scrollback_lines,
@@ -3156,17 +3203,9 @@ void ServerKernel::Impl::refresh_agents(
                         endpoint.service->generation(),
                     },
                     .runtime_running = running,
-                    .exit_code
-                    = endpoint.runtime->exit_code(),
-                    .process_observation = running
-                        ? endpoint.runtime
-                              ->capture_agent_process_observation()
-                        : std::nullopt,
-                    .terminal_observation = running
-                        ? endpoint.runtime
-                              ->capture_agent_observation(
-                                  12, 8 * 1024)
-                        : std::nullopt,
+                    .exit_code = endpoint.runtime->exit_code(),
+                    .process_observation = running ? endpoint.runtime->capture_agent_process_observation() : std::nullopt,
+                    .terminal_observation = running ? endpoint.runtime->capture_agent_observation(12, 8 * 1024) : std::nullopt,
                 });
             }
         }
@@ -3191,8 +3230,40 @@ int ServerKernel::Impl::run_until_stopped()
     auto last_listener_failure
         = std::chrono::steady_clock::time_point{};
     bool fatal_listener_failure = false;
+    auto next_eviction_check = std::chrono::steady_clock::now()
+        + options.eviction_check_interval;
+    int eviction_strikes = 0;
     while (!stop_requested)
     {
+        // Retire when this process is no longer the PUBLISHED server. Without
+        // this, a server whose metadata was wiped or replaced ran forever —
+        // invisible to clients, unreachable by the CLI, tray icon its only
+        // surface — and every later launch added another one. Two consecutive
+        // failed checks tolerate transient filesystem states (the metadata
+        // write is not atomic).
+        if (options.eviction_check_interval.count() > 0
+            && std::chrono::steady_clock::now() >= next_eviction_check)
+        {
+            next_eviction_check = std::chrono::steady_clock::now()
+                + options.eviction_check_interval;
+            if (published_identity_matches())
+            {
+                eviction_strikes = 0;
+            }
+            else if (++eviction_strikes >= 2)
+            {
+                DRAXUL_LOG_INFO(LogCategory::App,
+                    "Draxul server pid=%llu is no longer the published "
+                    "endpoint owner; retiring gracefully",
+                    static_cast<unsigned long long>(pid));
+                // The path now belongs to a successor (or to nobody): this
+                // instance's shutdown must not unlink the successor's socket
+                // or metadata.
+                control.abandon_endpoint();
+                stop_requested = true;
+                break;
+            }
+        }
         for (auto& [session_id, session] : sessions)
         {
             try
@@ -3210,8 +3281,7 @@ int ServerKernel::Impl::run_until_stopped()
                           ->snapshot()
                           .revision
                     : 0;
-                for (auto& [terminal_id, endpoint]
-                    : session->terminals)
+                for (auto& [terminal_id, endpoint] : session->terminals)
                 {
                     endpoint.service->pump();
                     if (endpoint.runtime->is_running())

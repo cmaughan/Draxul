@@ -30,10 +30,11 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include <windows.h>
 #include <aclapi.h>
 #include <process.h>
+#include <windows.h>
 #else
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -151,10 +152,9 @@ bool owner_only_windows_dacl(
                       descriptor, &control, &revision)
         && (control & SE_DACL_PROTECTED) != 0;
     ACL_SIZE_INFORMATION information{};
-    secure = secure && GetAclInformation(dacl, &information,
-        sizeof(information), AclSizeInformation);
+    secure = secure && GetAclInformation(dacl, &information, sizeof(information), AclSizeInformation);
     for (DWORD index = 0;
-         secure && index < information.AceCount; ++index)
+        secure && index < information.AceCount; ++index)
     {
         void* encoded = nullptr;
         if (!GetAce(dacl, index, &encoded))
@@ -167,7 +167,7 @@ bool owner_only_windows_dacl(
         if (header->AceType == ACCESS_ALLOWED_ACE_TYPE)
         {
             sid = &reinterpret_cast<ACCESS_ALLOWED_ACE*>(
-                       encoded)
+                encoded)
                        ->SidStart;
         }
         if (sid
@@ -226,16 +226,28 @@ TEST_CASE("control CLI keeps agent argv structured and parses wait policy", "[co
         == std::vector<std::string>{ "blocked", "done" });
 
     auto report = parse_control_cli({
-        "draxul", "pane", "report-agent-session", "pane-7",
-        "--agent-instance", "agent-7",
-        "--source", "draxul:codex",
-        "--agent", "codex",
-        "--integration-version", "1",
-        "--sequence", "9",
-        "--session-ref", "native-7",
-        "--server-epoch", "epoch-7",
-        "--runtime-generation", "3",
-        "--server-runtime-dir", "D:/runtime",
+        "draxul",
+        "pane",
+        "report-agent-session",
+        "pane-7",
+        "--agent-instance",
+        "agent-7",
+        "--source",
+        "draxul:codex",
+        "--agent",
+        "codex",
+        "--integration-version",
+        "1",
+        "--sequence",
+        "9",
+        "--session-ref",
+        "native-7",
+        "--server-epoch",
+        "epoch-7",
+        "--runtime-generation",
+        "3",
+        "--server-runtime-dir",
+        "D:/runtime",
     });
     REQUIRE(report.command);
     CHECK(report.command->server_epoch == "epoch-7");
@@ -261,8 +273,7 @@ TEST_CASE("control metadata atomically replaces a pre-existing file with owner-o
 
     ControlServer server;
     std::string error;
-    REQUIRE(server.start("owner-only-metadata",
-        runtime, [] {}, &error));
+    REQUIRE(server.start("owner-only-metadata", runtime, [] {}, &error));
     INFO(error);
     REQUIRE(std::filesystem::exists(metadata));
 #ifdef _WIN32
@@ -583,8 +594,7 @@ TEST_CASE("control requests obey one absolute deadline",
     ControlServer server;
     std::atomic<bool> request_queued = false;
     std::string start_error;
-    REQUIRE(server.start("deadline-test", runtime,
-        [&] { request_queued = true; }, &start_error));
+    REQUIRE(server.start("deadline-test", runtime, [&] { request_queued = true; }, &start_error));
 
     const auto started_at = std::chrono::steady_clock::now();
     auto client = std::async(std::launch::async, [&] {
@@ -703,10 +713,8 @@ TEST_CASE("remote Session client publishes topology and command results",
                             {
                                 .pane_id = "pane-1",
                                 .name = "Shell",
-                                .domain
-                                = TopologyPaneDomain::ClientLocal,
-                                .client_host_kind
-                                = "platform_default",
+                                .domain = TopologyPaneDomain::ClientLocal,
+                                .client_host_kind = "platform_default",
                             },
                         },
                     },
@@ -896,10 +904,8 @@ TEST_CASE("remote Session client republishes snapshots until epoch-aware acknowl
                         .panes = {
                             {
                                 .pane_id = "pane-1",
-                                .domain
-                                = TopologyPaneDomain::ClientLocal,
-                                .client_host_kind
-                                = "platform_default",
+                                .domain = TopologyPaneDomain::ClientLocal,
+                                .client_host_kind = "platform_default",
                             },
                         },
                     },
@@ -1027,8 +1033,7 @@ TEST_CASE("control server stop fails queued dispatch before listener join",
     ControlServer server;
     std::atomic<bool> request_queued = false;
     std::string start_error;
-    REQUIRE(server.start("stop-pending-test", runtime,
-        [&] { request_queued = true; }, &start_error));
+    REQUIRE(server.start("stop-pending-test", runtime, [&] { request_queued = true; }, &start_error));
 
     auto client = std::async(std::launch::async, [&] {
         return ControlClient::request("stop-pending-test", runtime,
@@ -1103,8 +1108,7 @@ TEST_CASE("a stalled Windows control client does not starve another client",
     const auto runtime = unique_runtime_directory();
     ControlServer server;
     std::string start_error;
-    REQUIRE(server.start("concurrent-transport-test", runtime, [] {},
-        &start_error));
+    REQUIRE(server.start("concurrent-transport-test", runtime, [] {}, &start_error));
 
     const std::string endpoint = server.endpoint();
     const std::wstring pipe_name(endpoint.begin(), endpoint.end());

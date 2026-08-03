@@ -1,11 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "support/temp_dir.h"
 #include "../libs/draxul-server/src/fake_terminal_runtime.h"
 #include "../libs/draxul-server/src/remote_terminal_service.h"
-#include "../libs/draxul-server/src/session_topology_bridge.h"
 #include "../libs/draxul-server/src/server_terminal_runtime.h"
+#include "../libs/draxul-server/src/session_topology_bridge.h"
 #include "../libs/draxul-server/src/topology_service.h"
+#include "support/temp_dir.h"
 
 #include <draxul/agent_client.h>
 #include <draxul/agent_protocol.h>
@@ -18,9 +18,9 @@
 #include <draxul/session_state.h>
 #include <draxul/topology_client.h>
 
+#include <cstdlib>
 #include <fstream>
 #include <future>
-#include <cstdlib>
 #include <limits>
 #include <nlohmann/json.hpp>
 #include <random>
@@ -84,13 +84,13 @@ TEST_CASE("remote terminal subscriber queues are byte bounded",
         },
         runtime);
     REQUIRE(service.handle(
-                "bytes.attach",
-                { { "client_id", "controller" } })
-                .ok);
+                       "bytes.attach",
+                       { { "client_id", "controller" } })
+            .ok);
     REQUIRE(service.handle(
-                "bytes.attach",
-                { { "client_id", "observer" } })
-                .ok);
+                       "bytes.attach",
+                       { { "client_id", "observer" } })
+            .ok);
 
     for (int index = 0; index < 4; ++index)
     {
@@ -98,15 +98,15 @@ TEST_CASE("remote terminal subscriber queues are byte bounded",
             ? kRemoteTerminalMaxColumns
             : kRemoteTerminalMaxColumns - 1;
         REQUIRE(service.handle(
-                    "bytes.resize",
-                    {
-                        { "client_id", "controller" },
-                        { "request_id",
-                            static_cast<uint64_t>(index + 1) },
-                        { "cols", cols },
-                        { "rows", kRemoteTerminalMaxRows },
-                    })
-                    .ok);
+                           "bytes.resize",
+                           {
+                               { "client_id", "controller" },
+                               { "request_id",
+                                   static_cast<uint64_t>(index + 1) },
+                               { "cols", cols },
+                               { "rows", kRemoteTerminalMaxRows },
+                           })
+                .ok);
     }
 
     const auto metrics = service.handle(
@@ -135,7 +135,8 @@ TEST_CASE("remote terminal subscriber queues are byte bounded",
 
     const auto invalid_client = service.handle(
         "bytes.attach",
-        { { "client_id", "bad\x1b" "client" } });
+        { { "client_id", "bad\x1b"
+                         "client" } });
     CHECK_FALSE(invalid_client.ok);
     CHECK(invalid_client.error_code == "invalid_client");
 }
@@ -208,8 +209,8 @@ TEST_CASE("remote terminal mutation request ids are idempotent",
         },
         runtime);
     REQUIRE(service.handle("idempotent.attach",
-                { { "client_id", "controller" } })
-                .ok);
+                       { { "client_id", "controller" } })
+            .ok);
 
     const auto first = service.handle("idempotent.input",
         {
@@ -342,13 +343,13 @@ TEST_CASE("a saturated non-reading terminal leaves another terminal responsive",
         },
         responsive_runtime);
     REQUIRE(stalled_service.handle(
-                "stalled.attach",
-                { { "client_id", "stalled-controller" } })
-                .ok);
+                               "stalled.attach",
+                               { { "client_id", "stalled-controller" } })
+            .ok);
     REQUIRE(responsive_service.handle(
-                "responsive.attach",
-                { { "client_id", "responsive-controller" } })
-                .ok);
+                                  "responsive.attach",
+                                  { { "client_id", "responsive-controller" } })
+            .ok);
 
     const std::string input(64 * 1024, 'x');
     std::optional<std::chrono::steady_clock::duration>
@@ -394,8 +395,8 @@ TEST_CASE("a saturated non-reading terminal leaves another terminal responsive",
     const auto metrics_started_at
         = std::chrono::steady_clock::now();
     REQUIRE(responsive_service.handle(
-                "responsive.metrics", nlohmann::json::object())
-                .ok);
+                                  "responsive.metrics", nlohmann::json::object())
+            .ok);
     CHECK(std::chrono::steady_clock::now() - metrics_started_at
         < std::chrono::milliseconds(100));
 }
@@ -898,13 +899,11 @@ TEST_CASE("topology ratio storms retain only bounded command outcomes",
 {
     uint64_t next_terminal = 1;
     TopologyService service("cache-test", {
-        .create_server_terminal
-        = [&next_terminal](std::string_view, std::string_view,
-              std::string&) -> std::optional<std::string> {
-              return "cache-terminal-"
-                  + std::to_string(next_terminal++);
-          },
-    });
+                                              .create_server_terminal = [&next_terminal](std::string_view, std::string_view, std::string&) -> std::optional<std::string> {
+                                                  return "cache-terminal-"
+                                                      + std::to_string(next_terminal++);
+                                              },
+                                          });
     const auto& initial_space = service.snapshot().spaces.front();
     const auto& initial_tab = initial_space.tabs.front();
     TopologyCommand split{
@@ -920,16 +919,14 @@ TEST_CASE("topology ratio storms retain only bounded command outcomes",
         .pane_domain = TopologyPaneDomain::ServerTerminal,
     };
     REQUIRE(service.handle(
-                "topology.command",
-                topology_command_to_json(split))
-                .ok);
+                       "topology.command",
+                       topology_command_to_json(split))
+            .ok);
     const std::string split_node_id
-        = service.snapshot().spaces.front()
-              .tabs.front()
-              .root_node_id;
+        = service.snapshot().spaces.front().tabs.front().root_node_id;
 
     for (size_t index = 0;
-         index < kTopologyCompletedCommandLimit + 128; ++index)
+        index < kTopologyCompletedCommandLimit + 128; ++index)
     {
         TopologyCommand ratio{
             .client_id = "cache-client",
@@ -938,16 +935,14 @@ TEST_CASE("topology ratio storms retain only bounded command outcomes",
             .expected_revision = service.snapshot().revision,
             .kind = TopologyCommandKind::SetSplitRatio,
             .space_id = service.snapshot().spaces.front().space_id,
-            .tab_id = service.snapshot().spaces.front()
-                          .tabs.front()
-                          .tab_id,
+            .tab_id = service.snapshot().spaces.front().tabs.front().tab_id,
             .node_id = split_node_id,
             .ratio = index % 2 == 0 ? 0.4f : 0.6f,
         };
         REQUIRE(service.handle(
-                    "topology.command",
-                    topology_command_to_json(ratio))
-                    .ok);
+                           "topology.command",
+                           topology_command_to_json(ratio))
+                .ok);
     }
     CHECK(service.completed_command_count()
         == kTopologyCompletedCommandLimit);
@@ -1033,8 +1028,139 @@ TEST_CASE("restored topology removes the legacy generated server shell name",
     pane.name = "Server Shell";
 
     TopologyService restored(std::move(legacy), {});
-    CHECK(restored.snapshot().spaces.front().tabs.front()
-              .panes.front().name.empty());
+    CHECK(restored.snapshot().spaces.front().tabs.front().panes.front().name.empty());
+}
+
+TEST_CASE("a recorded startup failure explains an absent server", "[server][kernel]")
+{
+    // A detached server's stderr is /dev/null, so its startup failure must
+    // reach the client through the runtime directory. The kernel writes
+    // server-failed.json when start() dies; the probe surfaces the recorded
+    // reason instead of an unexplained Absent.
+    TempDir temp("draxul-server-failmark");
+    const auto now_ms = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+    {
+        std::ofstream marker(temp.path / "server-failed.json",
+            std::ios::binary | std::ios::trunc);
+        marker << nlohmann::json{
+            { "pid", 1234 },
+            { "error", "Control socket path is too long." },
+            { "created_unix_ms", now_ms },
+        }
+                      .dump();
+    }
+
+    const auto fresh = ServerClient::probe(probe_options(temp.path));
+    REQUIRE(fresh.state == ServerProbeState::Absent);
+    REQUIRE(fresh.error_code == "server_start_failed");
+    REQUIRE(fresh.error_message.find("Control socket path is too long")
+        != std::string::npos);
+
+    // An old marker must not mislabel a later, unrelated problem.
+    {
+        std::ofstream marker(temp.path / "server-failed.json",
+            std::ios::binary | std::ios::trunc);
+        marker << nlohmann::json{
+            { "pid", 1234 },
+            { "error", "Control socket path is too long." },
+            { "created_unix_ms", now_ms - 16 * 60 * 1000 },
+        }
+                      .dump();
+    }
+    const auto expired = ServerClient::probe(probe_options(temp.path));
+    REQUIRE(expired.state == ServerProbeState::Absent);
+    REQUIRE(expired.error_code == "endpoint_unavailable");
+}
+
+TEST_CASE("a successful start clears the failure marker and binds a short socket",
+    "[server][kernel]")
+{
+    TempDir temp("draxul-server-failclear");
+    {
+        std::ofstream marker(temp.path / "server-failed.json",
+            std::ios::binary | std::ios::trunc);
+        marker << nlohmann::json{
+            { "pid", 99 },
+            { "error", "stale reason from an earlier crash" },
+            { "created_unix_ms", 1 },
+        }
+                      .dump();
+    }
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .build_version = "unit-test",
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    REQUIRE_FALSE(std::filesystem::exists(temp.path / "server-failed.json"));
+
+    // The bound socket keeps the hash-only name: sockaddr_un::sun_path is 104
+    // bytes on macOS and the old <hash>-<slug> key overflowed it under a
+    // normal home directory. The readable slug stays on the metadata file.
+    size_t sockets = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(temp.path))
+    {
+        if (entry.path().extension() != ".sock")
+            continue;
+        ++sockets;
+        REQUIRE(entry.path().filename().string().size() <= 21);
+    }
+#ifndef _WIN32
+    REQUIRE(sockets == 1);
+#endif
+
+    std::string shutdown_error;
+    REQUIRE(ServerClient::shutdown(temp.path,
+        { .confirm_live_terminals = true }, shutdown_error));
+    run_guard.join();
+}
+
+TEST_CASE("an evicted server retires and leaves the successor's endpoint alone",
+    "[server][kernel]")
+{
+    // A server whose published metadata no longer names it (wiped runtime
+    // dir, or a newer server claiming the path) must retire instead of
+    // running forever as an unreachable tray icon — and its shutdown must
+    // NOT unlink the successor's files at the shared path.
+    TempDir temp("draxul-server-evict");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .eviction_check_interval = std::chrono::milliseconds(50),
+        .build_version = "unit-test",
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    const auto metadata_path = server_metadata_path(temp.path);
+    REQUIRE(std::filesystem::exists(metadata_path));
+
+    // Replace the published identity, as a successor server would.
+    {
+        std::ifstream input(metadata_path, std::ios::binary);
+        auto metadata = nlohmann::json::parse(input);
+        metadata["server_pid"]
+            = metadata["server_pid"].get<uint64_t>() + 1;
+        std::ofstream output(metadata_path,
+            std::ios::binary | std::ios::trunc);
+        output << metadata.dump();
+    }
+
+    const auto deadline
+        = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (server.running()
+        && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    CHECK_FALSE(server.running());
+    run_guard.join();
+
+    // The "successor's" metadata survives the evicted server's shutdown.
+    CHECK(std::filesystem::exists(metadata_path));
 }
 
 TEST_CASE("server kernel publishes one identity and stops gracefully", "[server][kernel]")
@@ -1106,7 +1232,12 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     auto attached_client = remote_client(
         temp.path, "unit-client", "fixed-epoch", "fake",
         recovery);
-    REQUIRE(attached_client.attach(agent_error));
+    {
+        const bool attached = attached_client.attach(agent_error);
+        INFO("attach error_code=" << attached_client.last_error_code()
+                                  << " message=" << agent_error);
+        REQUIRE(attached);
+    }
     const auto stale_topology = ControlClient::request(
         namespaced_control_id(kServerControlId, temp.path),
         temp.path, "topology.poll",
@@ -1202,7 +1333,7 @@ TEST_CASE("server connection tokens bind active client identities",
         server_hello_to_json({
             .client_id = "bound-client",
             .registration_nonce
-                = options.registration_nonce,
+            = options.registration_nonce,
             .capabilities = {
                 std::string(kServerClientTokenCapability),
             },
@@ -1241,12 +1372,12 @@ TEST_CASE("server connection tokens bind active client identities",
     CHECK(wrong.error_code
         == "invalid_connection_token");
     REQUIRE(request(
-                "fake.attach",
-                {
-                    { "client_id", "bound-client" },
-                    { "connection_token", token },
-                })
-                .ok);
+        "fake.attach",
+        {
+            { "client_id", "bound-client" },
+            { "connection_token", token },
+        })
+            .ok);
 
     const auto spoofed_input = request(
         "fake.input",
@@ -1259,14 +1390,14 @@ TEST_CASE("server connection tokens bind active client identities",
     CHECK(spoofed_input.error_code
         == "invalid_connection_token");
     REQUIRE(request(
-                "fake.input",
-                {
-                    { "client_id", "bound-client" },
-                    { "connection_token", token },
-                    { "request_id", uint64_t{ 2 } },
-                    { "text", "accepted" },
-                })
-                .ok);
+        "fake.input",
+        {
+            { "client_id", "bound-client" },
+            { "connection_token", token },
+            { "request_id", uint64_t{ 2 } },
+            { "text", "accepted" },
+        })
+            .ok);
 
     const auto wrong_hello = request(
         "server.hello",
@@ -1363,8 +1494,8 @@ TEST_CASE("server bounds the connected client registry",
     ServerRunGuard run_guard(server);
 
     for (size_t index = 0;
-         index < kServerMaxConnectedClients;
-         ++index)
+        index < kServerMaxConnectedClients;
+        ++index)
     {
         const auto hello = ControlClient::request(
             namespaced_control_id(
@@ -1816,7 +1947,14 @@ TEST_CASE("server-owned shell survives every client detaching and reconnecting",
     REQUIRE(observer.attach(error));
     INFO(error);
 
+    // The pane is named after the platform's default shell: deterministic on
+    // Windows, $SHELL-dependent on POSIX (Zsh on stock macOS, Bash elsewhere).
+#ifdef _WIN32
     CHECK(controller.projection().pane().name == "PowerShell");
+#else
+    CHECK_FALSE(controller.projection().pane().name.empty());
+    CHECK(controller.projection().pane().name != "PowerShell");
+#endif
     const uint64_t process_id = controller.projection().pane().process_id;
     const uint64_t generation
         = controller.projection().version().generation;
@@ -1915,8 +2053,8 @@ TEST_CASE("binary shell output without subscribers leaves the server running",
     REQUIRE(client.send_input(binary_command, error));
     REQUIRE(client.disconnect(error));
     for (int attempt = 0;
-         attempt < 100 && !std::filesystem::exists(completed);
-         ++attempt)
+        attempt < 100 && !std::filesystem::exists(completed);
+        ++attempt)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
     }
@@ -2001,11 +2139,9 @@ TEST_CASE("clean server shell exit removes its shared pane for every client",
 
     const auto contains_pane
         = [&](const TopologySnapshot& snapshot) {
-              for (const TopologySpace& space
-                  : snapshot.spaces)
+              for (const TopologySpace& space : snapshot.spaces)
               {
-                  for (const TopologyTab& tab
-                      : space.tabs)
+                  for (const TopologyTab& tab : space.tabs)
                   {
                       if (std::ranges::any_of(
                               tab.panes,
@@ -2022,7 +2158,7 @@ TEST_CASE("clean server shell exit removes its shared pane for every client",
           };
     bool removed = false;
     for (int attempt = 0;
-         attempt < 200 && !removed; ++attempt)
+        attempt < 200 && !removed; ++attempt)
     {
         bool controller_changed = false;
         bool observer_changed = false;
@@ -2042,9 +2178,7 @@ TEST_CASE("clean server shell exit removes its shared pane for every client",
     REQUIRE(removed);
     CHECK(controller.snapshot()
         == observer.snapshot());
-    CHECK(controller.snapshot().spaces.front()
-              .tabs.front()
-              .panes.size()
+    CHECK(controller.snapshot().spaces.front().tabs.front().panes.size()
         == 1);
 
     RemoteTerminalClient removed_terminal({
@@ -2113,9 +2247,9 @@ TEST_CASE("server-owned shell discovery converges in two agent clients",
     INFO(error);
     bool changed = false;
     for (int attempt = 0;
-         attempt < 100
-         && second.snapshot() != first.snapshot();
-         ++attempt)
+        attempt < 100
+        && second.snapshot() != first.snapshot();
+        ++attempt)
     {
         REQUIRE(second.poll(changed, error));
         std::this_thread::sleep_for(
@@ -2238,7 +2372,7 @@ TEST_CASE("managed agents launch and restart without a UI",
             { "args", nlohmann::json::array() },
         });
     INFO(started.error_code << ": "
-        << started.error_message);
+                            << started.error_message);
     REQUIRE(started.ok);
     const auto replayed_start = request("agent.start",
         {
@@ -2274,8 +2408,8 @@ TEST_CASE("managed agents launch and restart without a UI",
     REQUIRE(observer.attach(terminal_error));
     INFO(terminal_error);
     CHECK(observer.projection()
-              .controller_client_id()
-        .empty());
+            .controller_client_id()
+            .empty());
     CHECK_FALSE(observer.send_input("x", terminal_error));
     CHECK(observer.last_error_code()
         == "not_controller");
@@ -2314,8 +2448,7 @@ TEST_CASE("managed agents launch and restart without a UI",
     REQUIRE(second.refresh(agent_error));
     REQUIRE(first.snapshot() == second.snapshot());
     REQUIRE(first.snapshot().agents.size() == 1);
-    CHECK(first.snapshot().agents[0]
-        .identity.instance_id == instance_id);
+    CHECK(first.snapshot().agents[0].identity.instance_id == instance_id);
 
     auto wait_for_environment
         = [&](std::string_view expected) {
@@ -2328,8 +2461,7 @@ TEST_CASE("managed agents launch and restart without a UI",
                       });
                   if (read.ok)
                   {
-                      for (const auto& line
-                          : read.result["lines"])
+                      for (const auto& line : read.result["lines"])
                       {
                           if (line.get<std::string>()
                                   .find(expected)
@@ -2403,7 +2535,7 @@ TEST_CASE("managed agents launch and restart without a UI",
         "topology.snapshot", nlohmann::json::object());
     REQUIRE(topology.ok);
     const auto& panes = topology.result["spaces"][0]
-                             ["tabs"][0]["panes"];
+                                       ["tabs"][0]["panes"];
     REQUIRE(panes.size() == 2);
     CHECK(panes[1]["agent"]["instance_id"]
         == instance_id);
@@ -2418,8 +2550,7 @@ TEST_CASE("managed agents launch and restart without a UI",
     INFO(load_error);
     REQUIRE(saved);
     const auto& saved_panes
-        = saved->spaces.front().tabs.front()
-              .pane_layout.panes;
+        = saved->spaces.front().tabs.front().pane_layout.panes;
     const auto saved_agent = std::ranges::find(
         saved_panes, pane_id,
         &SessionPaneSnapshot::pane_id);
@@ -2449,8 +2580,8 @@ TEST_CASE("managed agents launch and restart without a UI",
           };
     ControlClientResult restored_agent;
     for (int attempt = 0;
-         attempt < 200 && !restored_agent.ok;
-         ++attempt)
+        attempt < 200 && !restored_agent.ok;
+        ++attempt)
     {
         restored_agent = restored_request(
             "agent.get",
@@ -2472,8 +2603,8 @@ TEST_CASE("managed agents launch and restart without a UI",
 
     bool restored_environment = false;
     for (int attempt = 0;
-         attempt < 200 && !restored_environment;
-         ++attempt)
+        attempt < 200 && !restored_environment;
+        ++attempt)
     {
         const auto read = restored_request(
             "pane.read",
@@ -2850,8 +2981,8 @@ TEST_CASE("two topology clients converge through idempotent server commands",
     REQUIRE(renamed_tab.snapshot.spaces.front().tabs.back().name
         == "Shared PowerShell");
     REQUIRE(renamed_tab.snapshot.spaces.front()
-                .tabs.back()
-                .name_user_set);
+            .tabs.back()
+            .name_user_set);
 
     TopologyCommand move_tab{
         .command_id = "move-tab-1",
@@ -3001,14 +3132,8 @@ TEST_CASE("named server Sessions isolate topology and terminal identity across c
         REQUIRE(beta.refresh(error));
         REQUIRE(alpha.snapshot().session_id == "alpha");
         REQUIRE(beta.snapshot().session_id == "beta");
-        REQUIRE(alpha.snapshot().spaces.front()
-                    .tabs.front()
-                    .panes.front()
-                    .terminal_id
-            == beta.snapshot().spaces.front()
-                   .tabs.front()
-                   .panes.front()
-                   .terminal_id);
+        REQUIRE(alpha.snapshot().spaces.front().tabs.front().panes.front().terminal_id
+            == beta.snapshot().spaces.front().tabs.front().panes.front().terminal_id);
 
         TopologyCommand rename_alpha{
             .command_id = "rename-alpha",
@@ -3196,9 +3321,9 @@ TEST_CASE("server deletes a detached Session and its checkpoint",
         REQUIRE(alpha_terminal.attach(error));
 
         for (int attempt = 0;
-             attempt < 100
-             && !std::filesystem::exists(alpha_checkpoint);
-             ++attempt)
+            attempt < 100
+            && !std::filesystem::exists(alpha_checkpoint);
+            ++attempt)
         {
             std::this_thread::sleep_for(
                 std::chrono::milliseconds(10));
@@ -3488,8 +3613,8 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
     REQUIRE(saved->spaces.size() == 2);
     REQUIRE(saved->spaces.back().name == "Restored Space");
     REQUIRE_FALSE(saved->spaces.front()
-                      .tabs.front()
-                      .name_user_set);
+            .tabs.front()
+            .name_user_set);
     auto& saved_panes
         = saved->spaces.front().tabs.front().pane_layout.panes;
     const auto saved_dynamic = std::ranges::find(
@@ -3524,8 +3649,10 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
         });
         REQUIRE(server.start().disposition
             == ServerStartDisposition::Started);
-        REQUIRE(std::filesystem::last_write_time(checkpoint)
-            == checkpoint_time);
+        // Wrapped in extra parens so Catch2 does not decompose the expression:
+        // file_time_type has a __int128 duration rep that it cannot stringify.
+        REQUIRE((std::filesystem::last_write_time(checkpoint)
+            == checkpoint_time));
         ServerRunGuard run_guard(server);
         TopologyClient client({
             .runtime_directory = temp.path,
@@ -3538,9 +3665,7 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
             == "Restored Space");
         REQUIRE(client.snapshot().spaces.back().root_directory
             == "D:/restored");
-        REQUIRE_FALSE(client.snapshot().spaces.front()
-                          .tabs.front()
-                          .name_user_set);
+        REQUIRE_FALSE(client.snapshot().spaces.front().tabs.front().name_user_set);
         REQUIRE(client.snapshot().spaces.back().tabs.front().panes.front().domain
             == TopologyPaneDomain::ClientLocal);
         REQUIRE(client.snapshot().spaces.back().tabs.front().panes.front().client_host_kind
@@ -3618,7 +3743,7 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
         const auto reported = report(
             "persistence-second", 1, 2);
         INFO(reported.error_code << ": "
-            << reported.error_message);
+                                 << reported.error_message);
         REQUIRE(reported.ok);
         REQUIRE(reported.result.contains("session_ref"));
         CHECK(reported.result["session_ref"]["value"]
@@ -3630,9 +3755,7 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
 
         REQUIRE(client.refresh(error));
         const auto& updated_panes
-            = client.snapshot().spaces.front()
-                  .tabs.front()
-                  .panes;
+            = client.snapshot().spaces.front().tabs.front().panes;
         const auto updated = std::ranges::find(
             updated_panes, restored_dynamic_pane_id,
             &TopologyPane::pane_id);
@@ -3649,8 +3772,7 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
     INFO(load_error);
     REQUIRE(updated);
     const auto& updated_panes
-        = updated->spaces.front().tabs.front()
-              .pane_layout.panes;
+        = updated->spaces.front().tabs.front().pane_layout.panes;
     const auto updated_dynamic = std::ranges::find(
         updated_panes, restored_dynamic_pane_id,
         &SessionPaneSnapshot::pane_id);
@@ -3980,9 +4102,8 @@ TEST_CASE("server archives an unreadable checkpoint and resumes saving",
     REQUIRE(status.status->checkpoint_state != "disabled");
     REQUIRE_FALSE(status.status->restore_warnings.empty());
     std::vector<std::filesystem::path> archived;
-    for (const auto& entry
-        : std::filesystem::directory_iterator(
-            checkpoint.parent_path()))
+    for (const auto& entry : std::filesystem::directory_iterator(
+             checkpoint.parent_path()))
     {
         if (entry.path().filename().string().starts_with(
                 "default.toml.corrupt-"))
@@ -4154,8 +4275,8 @@ TEST_CASE("remote alternate screen preserves Unicode and resize semantics",
 
     REQUIRE(client.send_input(leave, error));
     for (int attempt = 0; attempt < 200
-         && client.projection().snapshot().metadata.modes.alternate_screen;
-         ++attempt)
+        && client.projection().snapshot().metadata.modes.alternate_screen;
+        ++attempt)
     {
         REQUIRE(client.poll(changed, error));
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -4193,10 +4314,10 @@ TEST_CASE("remote observer receives a burst of large resize events in bounded fr
     }
 
     for (int attempt = 0;
-         attempt < 16
-         && observer.projection().version()
-             != controller.projection().version();
-         ++attempt)
+        attempt < 16
+        && observer.projection().version()
+            != controller.projection().version();
+        ++attempt)
     {
         REQUIRE(observer.poll(changed, error));
         INFO(error);
@@ -4290,8 +4411,7 @@ TEST_CASE("remote terminal compact codec validates coordinates and metadata",
 
     auto bad_mark = encoded;
     bad_mark["metadata"]["shell_marks"].push_back({
-        { "kind", static_cast<int>(
-              TerminalShellMarkKind::PromptStart) },
+        { "kind", static_cast<int>(TerminalShellMarkKind::PromptStart) },
         { "row", 2 },
         { "exit_code", 0 },
     });
@@ -4328,7 +4448,8 @@ TEST_CASE("remote terminal compact codec validates coordinates and metadata",
     };
     auto bad_controller = remote_terminal_event_to_json(event);
     bad_controller["controller_client_id"]
-        = "bad\x1b" "controller";
+        = "bad\x1b"
+          "controller";
     REQUIRE_FALSE(remote_terminal_event_from_json(
         bad_controller, error));
 }
@@ -4587,10 +4708,10 @@ TEST_CASE("ensure relaunches past a recycled PID and an expired startup marker",
                   { .confirm_live_terminals = true },
                   shutdown_error));
               for (int attempt = 0;
-                   attempt < 200
-                   && std::filesystem::exists(
-                       server_metadata_path(runtime));
-                   ++attempt)
+                  attempt < 200
+                  && std::filesystem::exists(
+                      server_metadata_path(runtime));
+                  ++attempt)
               {
                   std::this_thread::sleep_for(
                       std::chrono::milliseconds(10));
@@ -4670,7 +4791,7 @@ TEST_CASE("force stop uses published process identity when the server is unrespo
 
     bool alive = true;
     for (int attempt = 0; attempt < 200 && alive;
-         ++attempt)
+        ++attempt)
     {
 #ifdef _WIN32
         HANDLE process = OpenProcess(
@@ -4739,9 +4860,9 @@ TEST_CASE("ten concurrent clients converge on one detached server epoch", "[serv
     REQUIRE(ServerClient::shutdown(temp.path,
         { .confirm_live_terminals = true }, shutdown_error));
     for (int attempt = 0;
-         attempt < 200
-         && std::filesystem::exists(server_metadata_path(temp.path));
-         ++attempt)
+        attempt < 200
+        && std::filesystem::exists(server_metadata_path(temp.path));
+        ++attempt)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }

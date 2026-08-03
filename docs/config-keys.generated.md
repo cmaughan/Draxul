@@ -41,7 +41,7 @@ Markdown viewer layout and font options.
 
 | Key | Type | Default | Range | Description |
 |-----|------|---------|-------|-------------|
-| `font_size` | float | `11` | 6 .. 72 | Markdown viewer font point size. Defaults to the global font_size when unset. |
+| `font_size` | float | `10` | 6 .. 72 | Markdown viewer font point size. Defaults to the global font_size minus 1pt when unset. |
 | `margin_columns` | float | `2` | 0 .. 24 | Markdown viewer horizontal margin, in text columns. |
 
 ## [chrome]
@@ -95,3 +95,4 @@ GUI-only keyboard shortcuts (action = combo).
 Compound section: `action = "combo"` pairs. See the GUI action
 registry (`libs/draxul-config/include/draxul/gui_actions.h`) for the
 full list of action names and `docs/features.md` for combo syntax.
+

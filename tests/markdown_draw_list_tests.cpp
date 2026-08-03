@@ -132,15 +132,6 @@ TEST_CASE("markdown draw-list emits rects for every decoration kind", "[markdown
             .color = Color(0.1f, 0.8f, 0.3f, 1.0f),
         },
         Decoration{
-            .kind = Decoration::Kind::Checkbox,
-            .x = 20.0f,
-            .y = 42.0f,
-            .width = 10.0f,
-            .height = 10.0f,
-            .color = Color(0.9f, 0.9f, 0.2f, 1.0f),
-            .checked = true,
-        },
-        Decoration{
             .kind = Decoration::Kind::ScrollbarThumb,
             .x = 94.0f,
             .y = 10.0f,
@@ -179,9 +170,9 @@ TEST_CASE("markdown draw-list emits rects for every decoration kind", "[markdown
     REQUIRE(list.glyphs.empty());
     REQUIRE(list.glyph_batches.empty());
     REQUIRE(list.used_atlas_ids.empty());
-    REQUIRE(list.rects.size() >= 9);
+    REQUIRE(list.rects.size() >= 7);
     REQUIRE(std::ranges::any_of(list.rects, [](const MarkdownRectInstance& rect) {
-        return rect.rect == glm::vec4(20.0f, 42.0f, 10.0f, 1.0f);
+        return rect.rect == glm::vec4(1.0f, 2.0f, 30.0f, 12.0f);
     }));
 
     service.shutdown();
