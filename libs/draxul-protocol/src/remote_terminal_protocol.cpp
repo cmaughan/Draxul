@@ -608,10 +608,13 @@ nlohmann::json remote_terminal_event_to_json(
     nlohmann::json value{
         { "kind", to_string(event.kind) },
         { "version", version_to_json(event.version) },
+        { "process_running", event.process_running },
         { "controller_client_id", event.controller_client_id },
     };
     if (event.process_id != 0)
         value["process_id"] = event.process_id;
+    if (event.exit_code)
+        value["exit_code"] = *event.exit_code;
     if (event.snapshot)
         value["snapshot"] = terminal_semantic_snapshot_to_json(*event.snapshot);
     if (event.delta)
@@ -642,6 +645,15 @@ std::optional<RemoteTerminalEvent> remote_terminal_event_from_json(
         return std::nullopt;
     }
     event.kind = *kind;
+    if (value.contains("process_running"))
+    {
+        if (!value["process_running"].is_boolean())
+        {
+            error = "Remote terminal process state is invalid.";
+            return std::nullopt;
+        }
+        event.process_running = value["process_running"].get<bool>();
+    }
     if (value.contains("process_id"))
     {
         if (!value["process_id"].is_number_unsigned())
@@ -650,6 +662,16 @@ std::optional<RemoteTerminalEvent> remote_terminal_event_from_json(
             return std::nullopt;
         }
         event.process_id = value["process_id"].get<uint64_t>();
+    }
+    if (value.contains("exit_code"))
+    {
+        int exit_code = 0;
+        if (!read_bounded_integer(value["exit_code"], exit_code))
+        {
+            error = "Remote terminal exit code is invalid.";
+            return std::nullopt;
+        }
+        event.exit_code = exit_code;
     }
     event.controller_client_id
         = value["controller_client_id"].get<std::string>();
@@ -713,16 +735,20 @@ std::optional<RemoteTerminalEvent> remote_terminal_event_from_json(
 nlohmann::json remote_terminal_attach_to_json(
     const RemoteTerminalAttach& attach)
 {
-    return {
+    nlohmann::json value{
         { "pane", {
               { "pane_id", attach.pane.pane_id },
               { "terminal_id", attach.pane.terminal_id },
               { "name", attach.pane.name },
               { "execution_domain", attach.pane.execution_domain },
               { "process_id", attach.pane.process_id },
+              { "process_running", attach.pane.process_running },
           } },
         { "state", remote_terminal_event_to_json(attach.state) },
     };
+    if (attach.pane.exit_code)
+        value["pane"]["exit_code"] = *attach.pane.exit_code;
+    return value;
 }
 
 std::optional<RemoteTerminalAttach> remote_terminal_attach_from_json(
@@ -758,6 +784,26 @@ std::optional<RemoteTerminalAttach> remote_terminal_attach_from_json(
             return std::nullopt;
         }
         attach.pane.process_id = pane["process_id"].get<uint64_t>();
+    }
+    if (pane.contains("process_running"))
+    {
+        if (!pane["process_running"].is_boolean())
+        {
+            error = "Remote pane process state is invalid.";
+            return std::nullopt;
+        }
+        attach.pane.process_running
+            = pane["process_running"].get<bool>();
+    }
+    if (pane.contains("exit_code"))
+    {
+        int exit_code = 0;
+        if (!read_bounded_integer(pane["exit_code"], exit_code))
+        {
+            error = "Remote pane exit code is invalid.";
+            return std::nullopt;
+        }
+        attach.pane.exit_code = exit_code;
     }
     if (attach.pane.pane_id.empty() || attach.pane.terminal_id.empty()
         || attach.pane.pane_id.size() > 128

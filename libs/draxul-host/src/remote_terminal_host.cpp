@@ -114,6 +114,8 @@ struct RemotePublishedState
     uint64_t scrollback_total = 0;
     std::string controller_client_id;
     std::string display_name;
+    bool process_running = true;
+    std::optional<int> exit_code;
     std::optional<std::string> clipboard_write;
     std::chrono::microseconds attach_latency{ 0 };
 };
@@ -831,6 +833,9 @@ private:
             .controller_client_id
                 = client_->projection().controller_client_id(),
             .display_name = client_->projection().pane().name,
+            .process_running
+                = client_->projection().pane().process_running,
+            .exit_code = client_->projection().pane().exit_code,
             .clipboard_write = client_->take_clipboard_write(),
             .attach_latency = client_->last_attach_latency(),
         };
@@ -1007,6 +1012,11 @@ bool RemoteTerminalHost::is_running() const
     return impl_->running();
 }
 
+std::optional<int> RemoteTerminalHost::exit_code() const
+{
+    return remote_exit_code_;
+}
+
 std::string RemoteTerminalHost::init_error() const
 {
     return init_error_;
@@ -1150,6 +1160,21 @@ void RemoteTerminalHost::pump()
             && state->controller_client_id == impl_->options().client_id;
         controller_client_id_ = std::move(state->controller_client_id);
         remote_display_name_ = std::move(state->display_name);
+        const bool process_exited
+            = remote_process_running_ && !state->process_running;
+        const bool exit_code_became_known
+            = !remote_exit_code_ && state->exit_code.has_value();
+        remote_process_running_ = state->process_running;
+        remote_exit_code_ = state->process_running
+            ? std::nullopt
+            : state->exit_code;
+        if (!remote_process_running_ && remote_exit_code_
+            && *remote_exit_code_ != 0
+            && (process_exited || exit_code_became_known))
+        {
+            callbacks().push_toast(
+                1, "Shell exited unexpectedly. Use restart_host to start it again.");
+        }
         if (became_controller)
             observer_input_hint_shown_ = false;
         if (state->clipboard_write
@@ -1806,7 +1831,8 @@ void RemoteTerminalHost::request_close()
 
 std::string RemoteTerminalHost::display_name() const
 {
-    return remote_display_name_;
+    return remote_display_name_
+        + (remote_process_running_ ? "" : " [exited]");
 }
 
 std::string RemoteTerminalHost::status_text() const

@@ -40,9 +40,12 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
 - The server owns a Windows notification-area or macOS menu-bar status item. Its menu
   reports connected clients, Sessions, Spaces, terminals, live terminals, and agents,
   and provides Open Draxul, refresh, open-log, and one guarded Stop Server action.
-  The stop dialog runs in a short-lived helper process, so its native modal UI cannot
-  strand the server tray process. It tries graceful shutdown first and offers Force
-  Stop only if that attempt fails. `server_status`, `open_server_log`, and
+  The stop dialog runs in a short-lived helper process on Windows. On macOS the server
+  itself runs as a nested `LSUIElement` app with a distinct bundle identifier, and its
+  dialog runs in the menu-bar process while the RPC loop continues on the server thread.
+  The normal Draxul app therefore remains purely a UI client and always attaches to the
+  existing server when reopened. The dialog tries graceful shutdown first and offers
+  Force Stop only if that attempt fails. `server_status`, `open_server_log`, and
   `stop_server` expose the matching UI operations through the command palette.
 - Graceful shutdown refuses to stop a server with live terminals unless the action is
   explicitly confirmed. CLI shutdown therefore uses `--shutdown-server --yes`, while
@@ -68,8 +71,9 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   or the configured login shell on macOS/Linux. Closing every attached window leaves
   the process and terminal state alive in the server; reconnecting recovers the same
   terminal ID, process ID, generation, and current cells. A clean process exit removes
-  its shared pane, or its now-empty tab/Space, when another pane remains in the Session;
-  abnormal exits and the final pane remain available for explicit restart. The
+  its shared pane, or its now-empty tab/Space, when another pane remains in the Session.
+  A clean exit from the final shell closes each attached UI while leaving the server
+  running; abnormal exits remain visible for explicit restart. The
   diagnostic fake path remains available. On first server launch,
   `--server-shell <powershell|bash|zsh|wsl>`,
   `--server-working-dir <path>`, and `--server-scrollback-lines <count>` define

@@ -1,6 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "server_status_surface.h"
+#ifdef __APPLE__
+#include "macos_server_status_surface.h"
+#endif
 
 using namespace draxul;
 
@@ -88,3 +91,18 @@ TEST_CASE("server stop dialog launch rejects a missing executable",
         "Z:/missing/draxul.exe", "D:/runtime", error));
     CHECK(error == "The Draxul executable is unavailable.");
 }
+
+#ifdef __APPLE__
+TEST_CASE("macOS server helper has a distinct nested app identity",
+    "[server][status-surface][lifecycle]")
+{
+    const std::filesystem::path client
+        = "/tmp/draxul.app/Contents/MacOS/draxul";
+    const auto helper = macos_server_helper_executable(client);
+    CHECK(helper
+        == "/tmp/draxul.app/Contents/Helpers/Draxul Server.app/Contents/MacOS/draxul-server");
+    CHECK(macos_server_helper_executable(helper) == helper);
+    CHECK(macos_client_executable(helper) == client);
+    CHECK(macos_client_executable(client) == client);
+}
+#endif

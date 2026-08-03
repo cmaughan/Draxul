@@ -96,6 +96,8 @@ private:
     uint64_t generation_ = 1;
     uint64_t sequence_ = 0;
     bool started_ = false;
+    bool published_process_running_ = false;
+    std::optional<int> published_exit_code_;
     std::string controller_client_id_;
     std::string preferred_controller_client_id_;
     std::unordered_map<std::string, Subscriber> subscribers_;

@@ -2026,16 +2026,31 @@ bool App::close_dead_panes()
     if (find_active_tab() == nullptr)
         return false;
     std::vector<LeafId> dead;
-    active_pane_manager().for_each_host([this, &dead](LeafId id, const IHost& h) {
+    bool clean_final_remote_exit = false;
+    active_pane_manager().for_each_host([this, &dead, &clean_final_remote_exit](LeafId id, const IHost& h) {
         const std::string pane_id = active_pane_manager().pane_id(id);
+        const bool server_owned_remote_terminal
+            = active_pane_manager()
+                  .is_server_owned_remote_terminal_leaf(id);
+        // RemoteTerminalHost::is_running() describes the server transport,
+        // which deliberately remains alive after its shell process exits.
+        // Inspect the process outcome before taking that transport fast path.
+        if (server_owned_remote_terminal
+            && h.exit_code() == 0
+            && active_pane_manager().host_count() == 1
+            && tab_count() == 1
+            && space_controller_.count() == 1)
+        {
+            clean_final_remote_exit = true;
+            return;
+        }
         if (h.is_running())
         {
             if (!pane_id.empty())
                 announced_dead_panes_.erase(pane_id);
             return;
         }
-        if (active_pane_manager()
-                .is_server_owned_remote_terminal_leaf(id))
+        if (server_owned_remote_terminal)
         {
             // The server publishes terminal exit as a topology update. Keep
             // this projection intact until that authoritative update arrives
@@ -2057,6 +2072,12 @@ bool App::close_dead_panes()
         if (!h.is_running())
             dead.push_back(id);
     });
+    if (clean_final_remote_exit)
+    {
+        input_dispatcher_.set_host(nullptr);
+        running_ = false;
+        return false;
+    }
     if (!dead.empty())
     {
         // Clear the input dispatcher's host pointer before destroying panes so

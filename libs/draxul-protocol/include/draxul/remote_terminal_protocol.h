@@ -38,6 +38,10 @@ struct RemotePaneDescriptor
     std::string name;
     std::string execution_domain;
     uint64_t process_id = 0;
+    // Defaults live for compatibility with servers predating explicit
+    // process-state publication.
+    bool process_running = true;
+    std::optional<int> exit_code;
 
     bool operator==(const RemotePaneDescriptor&) const = default;
 };
@@ -65,6 +69,10 @@ struct RemoteTerminalEvent
     RemoteTerminalEventKind kind = RemoteTerminalEventKind::Snapshot;
     RemoteTerminalVersion version;
     uint64_t process_id = 0;
+    // Carried on every newly emitted event so a retained final pane can show
+    // its exited state without ending the terminal transport subscription.
+    bool process_running = true;
+    std::optional<int> exit_code;
     std::string controller_client_id;
     std::optional<TerminalSemanticSnapshot> snapshot;
     std::optional<TerminalDirtySnapshot> delta;

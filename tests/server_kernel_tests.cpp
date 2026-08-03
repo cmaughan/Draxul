@@ -615,6 +615,10 @@ public:
     {
         return 1;
     }
+    std::optional<int> exit_code() const override
+    {
+        return std::nullopt;
+    }
     uint64_t scrollback_rows() const override
     {
         return 0;
@@ -2005,7 +2009,23 @@ TEST_CASE("server-owned shell survives every client detaching and reconnecting",
     INFO(error);
 
     REQUIRE(reconnected.send_input("exit\r", error));
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+    bool exit_observed = false;
+    for (int attempt = 0; attempt < 100 && !exit_observed; ++attempt)
+    {
+        bool changed = false;
+        REQUIRE(reconnected.poll(changed, error));
+        exit_observed
+            = !reconnected.projection().pane().process_running
+            && reconnected.projection().pane().exit_code.has_value();
+        if (!exit_observed)
+        {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(25));
+        }
+    }
+    REQUIRE(exit_observed);
+    REQUIRE(reconnected.projection().pane().exit_code);
+    CHECK(*reconnected.projection().pane().exit_code == 0);
     auto after_restart
         = remote_client(temp.path, "real-d", "fixed-epoch", "terminal");
     REQUIRE(after_restart.attach(error));
@@ -4343,6 +4363,7 @@ TEST_CASE("remote terminal projection rejects stale identity and sequence",
         .pane = {
             .pane_id = "pane",
             .terminal_id = "terminal",
+            .process_id = 42,
         },
         .state = {
             .kind = RemoteTerminalEventKind::Snapshot,
@@ -4352,6 +4373,7 @@ TEST_CASE("remote terminal projection rejects stale identity and sequence",
                 .generation = 1,
                 .sequence = 5,
             },
+            .process_id = 42,
             .snapshot = snapshot,
         },
     };
@@ -4372,6 +4394,16 @@ TEST_CASE("remote terminal projection rejects stale identity and sequence",
     event.version.server_epoch = "epoch";
     event.version.generation = 2;
     REQUIRE_FALSE(projection.apply(event, error));
+
+    event.version.generation = 1;
+    event.version.sequence = 6;
+    event.process_running = false;
+    event.exit_code = 0;
+    REQUIRE(projection.apply(event, error));
+    CHECK_FALSE(projection.pane().process_running);
+    CHECK(projection.pane().process_id == 0);
+    REQUIRE(projection.pane().exit_code);
+    CHECK(*projection.pane().exit_code == 0);
 }
 
 TEST_CASE("remote terminal compact codec validates coordinates and metadata",

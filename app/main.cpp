@@ -5,6 +5,10 @@
 #include "control_cli.h"
 #include "server_status_surface.h"
 #include "session_id.h"
+#ifdef __APPLE__
+#include "macos_server_status_surface.h"
+#include <unistd.h>
+#endif
 #include <SDL3/SDL.h>
 #include <chrono>
 #include <cstdio>
@@ -289,7 +293,13 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
         });
         draxul::ServerStatusSurface surface({
             .runtime_directory = runtime_dir,
+#ifdef __APPLE__
+            .executable_path
+            = draxul::macos_client_executable(
+                current_executable),
+#else
             .executable_path = current_executable,
+#endif
             .log_path = server_log,
         });
         std::string surface_error;
@@ -562,6 +572,38 @@ static int draxul_main(std::vector<std::string> args)
         return 0;
     }
     const auto current_executable = executable_path(args);
+#ifdef __APPLE__
+    if (parsed.server)
+    {
+        const auto server_executable
+            = draxul::macos_server_helper_executable(
+                current_executable);
+        if (server_executable != current_executable)
+        {
+            if (!std::filesystem::exists(server_executable))
+            {
+                std::fprintf(stderr,
+                    "Draxul server helper is unavailable: %s\n",
+                    server_executable.string().c_str());
+                return 1;
+            }
+            std::string server_executable_text
+                = server_executable.string();
+            std::vector<char*> server_argv;
+            server_argv.reserve(args.size() + 1);
+            for (std::string& argument : args)
+                server_argv.push_back(argument.data());
+            server_argv.front()
+                = server_executable_text.data();
+            server_argv.push_back(nullptr);
+            ::execv(server_executable_text.c_str(),
+                server_argv.data());
+            std::fprintf(stderr,
+                "Could not start the Draxul server helper.\n");
+            return 1;
+        }
+    }
+#endif
     if (parsed.server || parsed.server_status
         || parsed.list_sessions
         || parsed.rename_session
@@ -656,7 +698,13 @@ static int draxul_main(std::vector<std::string> args)
         }
         draxul::ServerEnsureOptions server_options{
             .runtime_directory = connected_server_runtime,
+#ifdef __APPLE__
+            .executable_path
+            = draxul::macos_server_helper_executable(
+                current_executable),
+#else
             .executable_path = current_executable,
+#endif
             .client_id = connected_server_client_id,
             .registration_nonce
             = connected_client_recovery->registration_nonce(),

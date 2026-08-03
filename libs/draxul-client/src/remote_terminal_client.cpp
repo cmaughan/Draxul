@@ -129,6 +129,14 @@ bool RemoteTerminalProjection::apply(
         return false;
     }
     version_ = event.version;
+    pane_.process_running = event.process_running;
+    pane_.exit_code = event.process_running
+        ? std::nullopt
+        : event.exit_code;
+    if (!event.process_running)
+        pane_.process_id = 0;
+    else if (event.process_id != 0)
+        pane_.process_id = event.process_id;
     controller_client_id_ = event.controller_client_id;
     return true;
 }
@@ -215,7 +223,13 @@ bool RemoteTerminalProjection::apply_snapshot(
     snapshot_ = *event.snapshot;
     pending_grid_update_ = full_grid_update(snapshot_);
     version_ = event.version;
-    if (event.process_id != 0)
+    pane_.process_running = event.process_running;
+    pane_.exit_code = event.process_running
+        ? std::nullopt
+        : event.exit_code;
+    if (!event.process_running)
+        pane_.process_id = 0;
+    else if (event.process_id != 0)
         pane_.process_id = event.process_id;
     controller_client_id_ = event.controller_client_id;
     return true;
