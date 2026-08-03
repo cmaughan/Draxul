@@ -180,6 +180,13 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
     {
         const auto server_log
             = draxul::default_server_log_path(runtime_dir);
+        // The log lives inside the runtime directory, which does not exist on
+        // a first run — and a startup failure recorded nowhere is exactly the
+        // debugging hole this log is for. Create it before configuring
+        // logging; the kernel tightens permissions when it starts.
+        std::error_code runtime_dir_error;
+        std::filesystem::create_directories(
+            runtime_dir, runtime_dir_error);
         const std::string server_log_text = server_log.string();
         draxul::configure_default_logging(
             server_log_text.c_str(), true);
@@ -189,8 +196,7 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
             agent_definitions;
         agent_definitions.reserve(
             config.agent_profiles.size());
-        for (const draxul::AgentProfileConfig& profile
-            : config.agent_profiles)
+        for (const draxul::AgentProfileConfig& profile : config.agent_profiles)
         {
             agent_definitions.push_back({
                 .profile_id = profile.id,
@@ -200,10 +206,10 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
                 .default_args = profile.args,
                 .restore_policy
                 = draxul::parse_agent_restore_policy(
-                      profile.restore_policy)
-                      .value_or(
-                          draxul::AgentRestorePolicy::
-                              ResumeIfAvailable),
+                    profile.restore_policy)
+                    .value_or(
+                        draxul::AgentRestorePolicy::
+                            ResumeIfAvailable),
             });
         }
         draxul::ServerKernel kernel({
@@ -230,6 +236,10 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
         }
         if (result.disposition == draxul::ServerStartDisposition::Failed)
         {
+            // stderr is /dev/null when the client launched us detached, so the
+            // log file (already configured above) is the reachable record.
+            DRAXUL_LOG_ERROR(draxul::LogCategory::App,
+                "Draxul server failed to start: %s", result.error.c_str());
             std::fprintf(stderr, "Draxul server failed to start: %s\n",
                 result.error.c_str());
             draxul::shutdown_logging();
@@ -334,8 +344,7 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
                 std::printf("Restore warning: %s\n",
                     warning.c_str());
             }
-            for (const auto& session
-                : result.status->session_statuses)
+            for (const auto& session : result.status->session_statuses)
             {
                 std::printf(
                     "Session %s: Spaces=%zu Terminals=%zu Live=%zu "
@@ -351,8 +360,7 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
                     std::printf("  Checkpoint error: %s\n",
                         session.checkpoint_error.c_str());
                 }
-                for (const auto& warning
-                    : session.restore_warnings)
+                for (const auto& warning : session.restore_warnings)
                 {
                     std::printf("  Restore warning: %s\n",
                         warning.c_str());
@@ -618,13 +626,28 @@ static int draxul_main(std::vector<std::string> args)
         auto server_result = draxul::ServerClient::ensure(server_options);
         if (!server_result.ready())
         {
+            // Only claim a live server for states where one exists; for
+            // Absent/LaunchFailed/Crashed/Stale that advice was actively
+            // wrong ("stop the server" when none is running) and hid the
+            // real evidence: the server log next to the runtime endpoint.
+            const bool server_probably_alive
+                = server_result.state == draxul::ServerProbeState::Busy
+                || server_result.state == draxul::ServerProbeState::Starting
+                || server_result.state
+                    == draxul::ServerProbeState::Incompatible;
+            const std::string remediation = server_probably_alive
+                ? "\n\nThe existing server was left running. "
+                  "Stop it explicitly before retrying."
+                : "\n\nNo running server was found. See "
+                    + draxul::default_server_log_path(
+                        connected_server_runtime)
+                          .string()
+                    + " for the server's own record of what happened.";
             return report_server_startup_failure(
                 "Could not connect to the Draxul server ("
                 + std::string(
                     draxul::to_string(server_result.state))
-                + "): " + server_result.error_message
-                + "\n\nThe existing server was left running. "
-                  "Stop it explicitly before retrying.");
+                + "): " + server_result.error_message + remediation);
         }
         if (fake_remote_terminal
             && std::ranges::find(server_result.welcome->capabilities,
