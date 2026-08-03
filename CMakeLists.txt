@@ -401,6 +401,23 @@ if(APPLE)
     find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
     target_link_libraries(draxul PRIVATE ${COREGRAPHICS_FRAMEWORK})
 
+    configure_file(
+        ${CMAKE_SOURCE_DIR}/cmake/MacOSXServerBundleInfo.plist.in
+        ${CMAKE_BINARY_DIR}/DraxulServerInfo.plist
+        @ONLY
+    )
+    add_custom_command(TARGET draxul POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_BUNDLE_DIR:draxul>/Contents/Helpers/Draxul Server.app/Contents/MacOS"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:draxul>"
+            "$<TARGET_BUNDLE_DIR:draxul>/Contents/Helpers/Draxul Server.app/Contents/MacOS/draxul-server"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_BINARY_DIR}/DraxulServerInfo.plist"
+            "$<TARGET_BUNDLE_DIR:draxul>/Contents/Helpers/Draxul Server.app/Contents/Info.plist"
+        VERBATIM
+    )
+
     function(draxul_stage_metal_shader target_name shader_path)
         add_custom_target(${target_name}
             COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:draxul>/shaders

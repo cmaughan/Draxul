@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 
 namespace draxul
@@ -7,14 +8,17 @@ namespace draxul
 
 using MacosServerApplicationCallback = void (*)(void* userdata);
 
-// The server shares the client app bundle, whose normal activation policy
-// gives it a Dock icon. Switch only the --server process to an accessory
-// before SDL initializes its tray support. Finder routes later bundle-open
-// requests to this process because it has the same bundle identifier as the
-// client, so forward reopen and quit requests to the server status surface.
+// The server runs from a nested LSUIElement helper bundle with its own bundle
+// identifier. Keep the activation policy defensive for direct development
+// launches, and route native reopen and quit events to the status surface.
 bool configure_macos_server_status_application(
     MacosServerApplicationCallback reopen_callback,
     MacosServerApplicationCallback quit_callback,
     void* userdata, std::string& error);
+
+std::filesystem::path macos_server_helper_executable(
+    const std::filesystem::path& client_executable);
+std::filesystem::path macos_client_executable(
+    const std::filesystem::path& current_executable);
 
 } // namespace draxul
