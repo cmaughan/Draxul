@@ -131,7 +131,7 @@ constexpr std::array<ConfigFieldDesc, 54> kFields = { {
     { "markdown", "font_size", ValueKind::Float,
         +[](const AppConfig& c) -> const float& { return c.markdown.font_size; },
         RangeRule::Clamp, RangeRule::Clamp, 6.0, 72.0, false, EmitRule::Always,
-        "Markdown viewer font point size. Defaults to the global font_size when unset." },
+        "Markdown viewer font point size. Defaults to the global font_size minus 1pt when unset." },
     { "markdown", "margin_columns", ValueKind::Float,
         +[](const AppConfig& c) -> const float& { return c.markdown.margin_columns; },
         RangeRule::Clamp, RangeRule::Clamp, 0.0, 24.0, false, EmitRule::Always,

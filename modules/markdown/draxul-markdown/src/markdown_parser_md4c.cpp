@@ -133,12 +133,20 @@ std::string collect_inline_text(const std::vector<Inline>& inlines)
     std::string text;
     for (const auto& inline_node : inlines)
     {
+        // Break nodes already carry their own newline as text, so emit exactly one
+        // here -- emitting both is what used to leave a blank line between every
+        // authored line. Callout headers split this reconstruction on the first
+        // newline, so both break kinds must stay newlines.
+        if (inline_node.kind == InlineKind::SoftBreak || inline_node.kind == InlineKind::LineBreak)
+        {
+            text += '\n';
+            continue;
+        }
+
         if (!inline_node.text.empty())
             text += inline_node.text;
         if (!inline_node.children.empty())
             text += collect_inline_text(inline_node.children);
-        if (inline_node.kind == InlineKind::SoftBreak || inline_node.kind == InlineKind::LineBreak)
-            text += '\n';
     }
     return text;
 }
@@ -508,7 +516,7 @@ ParseResult parse_markdown(
     }
 
     const auto parse_source = std::string_view(state.document.source_text).substr(state.base_offset);
-    MD_PARSER parser {};
+    MD_PARSER parser{};
     parser.abi_version = 0;
     parser.flags = flags_from_options(options);
     parser.enter_block = enter_block_callback;

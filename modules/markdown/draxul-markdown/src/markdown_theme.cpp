@@ -40,6 +40,36 @@ MarkdownTheme default_markdown_theme(float base_point_size)
     return theme;
 }
 
+MarkdownTextStyle resolve_markdown_style(const MarkdownTheme& theme, StyleId style)
+{
+    const auto& base = [&]() -> const MarkdownTextStyle& {
+        switch (base_style_of(style).value)
+        {
+        case kHeading1Style.value:
+            return theme.heading1;
+        case kHeading2Style.value:
+            return theme.heading2;
+        case kHeading3Style.value:
+            return theme.heading3;
+        case kHeading4Style.value:
+            return theme.heading4;
+        case kHeading5Style.value:
+            return theme.heading5;
+        case kHeading6Style.value:
+            return theme.heading6;
+        case kCodeStyle.value:
+            return theme.code;
+        default:
+            return theme.body;
+        }
+    }();
+
+    MarkdownTextStyle resolved = base;
+    resolved.rich_text.bold = resolved.rich_text.bold || (style.value & kStyleBoldFlag) != 0;
+    resolved.rich_text.italic = resolved.rich_text.italic || (style.value & kStyleItalicFlag) != 0;
+    return resolved;
+}
+
 const MarkdownTextStyle& style_for_heading(const MarkdownTheme& theme, int level)
 {
     switch (level)

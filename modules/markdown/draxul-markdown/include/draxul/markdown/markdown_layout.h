@@ -5,17 +5,12 @@
 #include <draxul/rich_text_service.h>
 
 #include <cstddef>
-#include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace draxul::markdown
 {
-
-struct StyleId
-{
-    uint16_t value = 0;
-};
 
 struct TextRun
 {
@@ -24,6 +19,9 @@ struct TextRun
     float x = 0.0f;
     float baseline = 0.0f;
     SourceSpan source;
+    // Overrides the style foreground; used by markers (task-list checkboxes)
+    // that are drawn as glyphs but tinted with the theme accent.
+    std::optional<draxul::Color> color;
 };
 
 struct Decoration
@@ -33,7 +31,6 @@ struct Decoration
         Background,
         BorderLeft,
         Divider,
-        Checkbox,
         Bullet,
         ScrollbarThumb,
         TableCellBackground,
@@ -46,7 +43,6 @@ struct Decoration
     float width = 0.0f;
     float height = 0.0f;
     draxul::Color color = draxul::Color(0.0f, 0.0f, 0.0f, 0.0f);
-    bool checked = false;
 };
 
 struct LayoutRow

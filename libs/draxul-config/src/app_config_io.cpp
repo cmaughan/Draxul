@@ -146,7 +146,8 @@ void apply_agent_profiles(AppConfig& config, const toml::table& agents,
         value.args = toml_support::get_string_array(*profile, "args")
                          .value_or(std::vector<std::string>{});
         value.restore_policy = toml_support::get_string(
-            *profile, "restore_policy").value_or("resume_if_available");
+            *profile, "restore_policy")
+                                   .value_or("resume_if_available");
         if (value.executable.empty())
         {
             if (validation_error && validation_error->empty())
@@ -183,10 +184,11 @@ AppConfig config_from_toml(const toml::table& document, std::string* validation_
 
     config_schema::parse_top_level_fields(document, config);
 
-    // Markdown inherits the parsed global size unless its own section overrides
-    // it. This is the sole cross-field rule and deliberately sits between the
-    // schema driver's top-level and section passes.
-    config.markdown.font_size = config.font_size;
+    // Markdown inherits the parsed global size (one point smaller, since prose
+    // reads better than terminal text at a slightly reduced size) unless its own
+    // section overrides it. This is the sole cross-field rule and deliberately
+    // sits between the schema driver's top-level and section passes.
+    config.markdown.font_size = std::max(1.0f, config.font_size - kMarkdownFontPointSizeOffset);
     config_schema::parse_section_fields(document, config);
 
     if (const auto* keybindings = document["keybindings"].as_table())
@@ -194,7 +196,8 @@ AppConfig config_from_toml(const toml::table& document, std::string* validation_
     if (const auto* agents = document["agents"].as_table())
     {
         config.agents_resume_on_restore = toml_support::get_bool(
-            *agents, "resume_on_restore").value_or(false);
+            *agents, "resume_on_restore")
+                                              .value_or(false);
         apply_agent_profiles(config, *agents, validation_error);
     }
 
