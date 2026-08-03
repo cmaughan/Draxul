@@ -151,6 +151,11 @@ std::optional<TabSnapshot> capture_tab(
             saved.launch.kind = parse_host_kind(
                 pane.client_host_kind).value_or(HostKind::Nvim);
             saved.launch.client_host_kind = pane.client_host_kind;
+            saved.launch.working_dir
+                = pane.client_working_directory;
+            saved.launch.source_path = pane.client_source_path;
+            saved.launch.companion_owner_pane_id
+                = pane.companion_owner_pane_id;
         }
         tab.pane_layout.panes.push_back(std::move(saved));
     }
@@ -289,6 +294,12 @@ std::optional<TopologyTab> restore_tab(
                 = pane.launch.client_host_kind.empty()
                 ? to_string(pane.launch.kind)
                 : pane.launch.client_host_kind;
+            restored.client_working_directory
+                = pane.launch.working_dir;
+            restored.client_source_path
+                = pane.launch.source_path;
+            restored.companion_owner_pane_id
+                = pane.launch.companion_owner_pane_id;
         }
         tab.panes.push_back(std::move(restored));
     }

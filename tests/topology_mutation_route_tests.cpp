@@ -146,6 +146,8 @@ TEST_CASE("server topology route covers every local mutation family",
                 TopologyCommandKind::MoveTab },
             { TopologyMutationKind::SplitPane,
                 TopologyCommandKind::SplitPane },
+            { TopologyMutationKind::UpdateClientPane,
+                TopologyCommandKind::UpdateClientPane },
             { TopologyMutationKind::DuplicatePane,
                 TopologyCommandKind::SplitPane },
             { TopologyMutationKind::ClosePane,
@@ -191,6 +193,30 @@ TEST_CASE("server topology route covers every local mutation family",
     REQUIRE(commands.size() == 1);
     CHECK(commands.front().pane_domain
         == TopologyPaneDomain::ServerTerminal);
+}
+
+TEST_CASE("server topology route preserves client-local launch descriptors",
+    "[app][topology][mutation_route][client_local]")
+{
+    std::vector<TopologyCommand> commands;
+    ServerTopologyMutationRoute route(server_deps(commands));
+    TopologyMutation preview
+        = targeted(TopologyMutationKind::SplitPane);
+    preview.host_kind = HostKind::Markdown;
+    preview.working_directory = "D:/dev/Draxul";
+    preview.source_path = "kanban/pending/card.md";
+    preview.companion_pane = true;
+    preview.ratio = 2.0f / 3.0f;
+
+    REQUIRE(route.mutate(preview).accepted());
+    REQUIRE(commands.size() == 1);
+    CHECK(commands[0].client_host_kind == "markdown");
+    CHECK(commands[0].client_working_directory
+        == "D:/dev/Draxul");
+    CHECK(commands[0].client_source_path
+        == "kanban/pending/card.md");
+    CHECK(commands[0].companion_owner_pane_id == "pane-3");
+    CHECK(commands[0].ratio == Catch::Approx(2.0f / 3.0f));
 }
 
 TEST_CASE("server route keeps client-local restart on the client",

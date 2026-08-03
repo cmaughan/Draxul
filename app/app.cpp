@@ -116,6 +116,7 @@ public:
     std::function<void(int)> activate_space_fn;
     std::function<void(int)> activate_agent_fn;
     std::function<void(int)> activate_pane_fn;
+    std::function<void(int)> begin_space_rename_fn;
     std::function<void(int)> begin_tab_rename_fn;
     std::function<void(LeafId)> begin_pane_rename_fn;
     std::function<bool()> is_editing_fn;
@@ -202,6 +203,12 @@ public:
     {
         if (begin_tab_rename_fn)
             begin_tab_rename_fn(one_based_index);
+    }
+
+    void begin_space_rename(int space_id) override
+    {
+        if (begin_space_rename_fn)
+            begin_space_rename_fn(space_id);
     }
 
     void begin_pane_rename(LeafId leaf) override
@@ -746,6 +753,16 @@ bool App::initialize_chrome_host()
         if (!result.accepted())
         {
             push_toast(2, result.error.empty() ? "Could not rename the tab." : result.error);
+        }
+    };
+    chrome_deps.set_space_name = [this](
+                                     SpaceId space_id,
+                                     std::string name) {
+        if (auto renamed = rename_space(space_id, name); !renamed)
+        {
+            push_toast(2, renamed.error().message.empty()
+                    ? "Could not rename the Space."
+                    : renamed.error().message);
         }
     };
     chrome_deps.set_pane_name = [this](LeafId leaf, std::string name) {
@@ -1763,6 +1780,21 @@ void App::wire_window_callbacks()
         chrome_host_->begin_tab_rename(tab_index);
         request_frame();
     };
+    router->begin_space_rename_fn = [this](int space_id) {
+        if (auto activated = activate_space(
+                static_cast<SpaceId>(space_id));
+            !activated)
+        {
+            push_toast(2, activated.error().message);
+            return;
+        }
+        if (chrome_host_)
+        {
+            chrome_host_->begin_space_rename(
+                static_cast<SpaceId>(space_id));
+        }
+        request_frame();
+    };
     // Reports any active rename session (tab OR pane) so the dispatcher's
     // click-outside-commit and key-routing logic apply uniformly to both.
     router->is_editing_fn = [this]() { return chrome_host_ && chrome_host_->is_editing(); };
@@ -2476,7 +2508,62 @@ bool App::show_markdown_preview(std::string_view path)
     if (owner == kInvalidLeaf)
         return false;
 
+    const bool shared = topology_mutation_route_
+        && topology_mutation_route_->route_kind()
+            == TopologyMutationRouteKind::ServerBacked;
     const bool existed = hm.has_markdown_preview();
+    if (shared)
+    {
+        if (!existed && markdown_preview_split_pending_)
+        {
+            pending_markdown_preview_path_ = path;
+            markdown_preview_close_after_create_ = false;
+            return true;
+        }
+        TopologyMutationResult result;
+        if (existed)
+        {
+            hm.refresh_markdown_preview(path);
+            result = mutate_topology({
+                .kind = TopologyMutationKind::UpdateClientPane,
+                .space_id = space_controller_.active_space_id(),
+                .tab_id = active_tab_id(),
+                .pane_id = hm.markdown_preview_leaf(),
+                .source_path = std::filesystem::path(path),
+                .host_kind = HostKind::Markdown,
+            });
+        }
+        else
+        {
+            result = mutate_topology({
+                .kind = TopologyMutationKind::SplitPane,
+                .space_id = space_controller_.active_space_id(),
+                .tab_id = active_tab_id(),
+                .pane_id = owner,
+                .source_path = std::filesystem::path(path),
+                .direction = TopologySplitDirection::Horizontal,
+                .host_kind = HostKind::Markdown,
+                .companion_pane = true,
+                .ratio = kMarkdownPreviewTopRatio,
+            });
+        }
+        if (!result.accepted())
+        {
+            push_toast(2, result.error.empty()
+                    ? std::string("Failed to open Markdown preview")
+                    : result.error);
+            return false;
+        }
+        if (!existed)
+        {
+            markdown_preview_split_pending_ = true;
+            markdown_preview_close_after_create_ = false;
+            pending_markdown_preview_path_ = path;
+        }
+        request_frame();
+        return true;
+    }
+
     const LeafId preview = hm.show_markdown_preview(owner, kMarkdownPreviewTopRatio, path, *this);
     if (preview == kInvalidLeaf)
     {
@@ -2499,12 +2586,47 @@ bool App::show_markdown_preview(std::string_view path)
 void App::hide_markdown_preview()
 {
     PaneManager& hm = active_pane_manager();
+    if (markdown_preview_split_pending_
+        && !hm.has_markdown_preview())
+    {
+        markdown_preview_close_after_create_ = true;
+        return;
+    }
     if (!hm.has_markdown_preview())
         return;
+    if (topology_mutation_route_
+        && topology_mutation_route_->route_kind()
+            == TopologyMutationRouteKind::ServerBacked)
+    {
+        const auto result = mutate_topology({
+            .kind = TopologyMutationKind::ClosePane,
+            .space_id = space_controller_.active_space_id(),
+            .tab_id = active_tab_id(),
+            .pane_id = hm.markdown_preview_leaf(),
+        });
+        if (!result.accepted())
+        {
+            push_toast(2, result.error.empty()
+                    ? std::string("Failed to close Markdown preview")
+                    : result.error);
+        }
+        request_frame();
+        return;
+    }
     hm.hide_markdown_preview();
     mark_session_dirty();
     refresh_window_layout();
     request_frame();
+}
+
+bool App::is_markdown_preview_visible() const
+{
+    const Space* space = space_controller_.find_active_space();
+    if (!space)
+        return false;
+    const Tab* tab = space->tab_controller.find_active_tab();
+    return markdown_preview_split_pending_
+        || (tab && tab->pane_manager.has_markdown_preview());
 }
 
 void App::push_toast(int level, std::string_view message)
@@ -2926,6 +3048,9 @@ void App::consume_remote_session_state()
     {
         accept_next_remote_topology_revision_ = true;
         topology_projection_.clear_command_activations();
+        markdown_preview_split_pending_ = false;
+        markdown_preview_close_after_create_ = false;
+        pending_markdown_preview_path_.clear();
         if (published->recovery
             && options_.server_connection)
         {
@@ -2963,6 +3088,15 @@ void App::consume_remote_session_state()
     {
         if (!completion.ok || !completion.snapshot)
         {
+            if (completion.command.kind
+                    == TopologyCommandKind::SplitPane
+                && !completion.command
+                        .companion_owner_pane_id.empty())
+            {
+                markdown_preview_split_pending_ = false;
+                markdown_preview_close_after_create_ = false;
+                pending_markdown_preview_path_.clear();
+            }
             if (!topology_command_error_announced_)
             {
                 topology_command_error_announced_ = true;
@@ -3504,8 +3638,13 @@ void App::apply_remote_command_activation(
     {
         const auto tab
             = topology_projection_.local_tab(command.tab_id);
+        const std::string_view activation_pane
+            = command.companion_owner_pane_id.empty()
+            ? std::string_view(created_id)
+            : std::string_view(
+                  command.companion_owner_pane_id);
         const auto leaf
-            = topology_projection_.local_pane(created_id);
+            = topology_projection_.local_pane(activation_pane);
         if (tab && leaf)
         {
             activate_space(tab->first);
@@ -3514,6 +3653,24 @@ void App::apply_remote_command_activation(
             input_dispatcher_.set_host(
                 active_pane_manager().focused_host());
             request_frame();
+        }
+        if (!command.companion_owner_pane_id.empty())
+        {
+            const bool close_after_create
+                = markdown_preview_close_after_create_;
+            const std::string desired_path
+                = pending_markdown_preview_path_;
+            markdown_preview_split_pending_ = false;
+            markdown_preview_close_after_create_ = false;
+            pending_markdown_preview_path_.clear();
+            if (close_after_create)
+                hide_markdown_preview();
+            else if (!desired_path.empty()
+                && desired_path
+                    != command.client_source_path)
+            {
+                show_markdown_preview(desired_path);
+            }
         }
     }
 }
@@ -3607,6 +3764,7 @@ TopologyMutationResult App::mutate_topology(
     case TopologyMutationKind::RenameTab:
     case TopologyMutationKind::RenamePane:
     case TopologyMutationKind::MoveTab:
+    case TopologyMutationKind::UpdateClientPane:
         break;
     default:
         if (window_ && chrome_host_ && diagnostics_host_)
@@ -3820,6 +3978,20 @@ App::apply_local_topology_mutation(
         auto result = TopologyMutationResult::applied();
         result.pane_id = new_leaf;
         return result;
+    }
+    case TopologyMutationKind::UpdateClientPane:
+    {
+        Tab* tab = find_tab();
+        if (!tab
+            || mutation.pane_id
+                != tab->pane_manager.markdown_preview_leaf()
+            || !tab->pane_manager.refresh_markdown_preview(
+                mutation.source_path.string()))
+        {
+            return TopologyMutationResult::rejected(
+                "Client-local pane could not be updated.");
+        }
+        return TopologyMutationResult::applied();
     }
     case TopologyMutationKind::ClosePane:
     {

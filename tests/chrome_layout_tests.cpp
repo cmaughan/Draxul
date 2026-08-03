@@ -265,6 +265,30 @@ TEST_CASE("ChromeLayout pane status structure degrades and keeps stable leaf hit
     CHECK(hit.rect.w <= 50.0f);
 }
 
+TEST_CASE("ChromeLayout Space rename uses the shared pill editor",
+    "[chrome][layout][spaces][rename]")
+{
+    auto input = base_input();
+    input.spaces = {
+        { 0, "default", true },
+        { 7, "renderer", false },
+    };
+    refresh_shell(input, true);
+    input.rename.target = RenameTarget::Space;
+    input.rename.space_id = 7;
+    input.rename.buffer = "agents";
+    input.rename.cursor = input.rename.buffer.size();
+
+    const auto layout = compute_chrome_layout(input);
+    REQUIRE(layout.spaces.size() == 2);
+    CHECK_FALSE(layout.spaces[0].editing);
+    CHECK(layout.spaces[1].editing);
+    CHECK(layout.spaces[1].label == "2: agents");
+    REQUIRE(layout.space_caret);
+    CHECK(layout.space_caret->rect.x
+        < layout.spaces[1].rect.x + layout.spaces[1].rect.w);
+}
+
 TEST_CASE("ChromeLayout omits the focus accent when a tab has one visible pane",
     "[chrome][layout][pane][focus]")
 {

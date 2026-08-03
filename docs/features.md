@@ -151,7 +151,10 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   remain client-local. Shared-shell UIs now project server Spaces, tabs,
   panes, names, and split trees; create/close/rename actions use server commands.
   Each `client_local` descriptor creates an independent host in each UI, and live
-  split reconciliation preserves unchanged hosts instead of restarting them.
+  split reconciliation preserves unchanged hosts instead of restarting them. The
+  descriptor includes the client host kind, working directory, source path, and
+  optional companion owner, so file-backed hosts restore consistently across UI
+  reconnects and durable Session checkpoints.
   `multi-terminal-v1` gives every `server_terminal` pane a distinct lazy server
   runtime and stable TerminalId; the real host adapter targets that identity, and
   closing the shared pane removes its endpoint and process. Tab moves, pane swaps,
@@ -266,7 +269,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **File drop**: Native drag-and-drop dispatched to host as `open_file:` action
 - **Kanban navigation**: Kanban panes support Vim-style card selection with `h/j/k/l`, `Ctrl+F/B` page jumps, `gg`/`G` beginning/end jumps within the current column, shifted up/down arrows for reordering cards, `<`/`>` for moving files between columns, `r` reload, and Enter to open the selected card's Markdown file for editing in a Neovim host.
 - **Kanban column zoom**: `z` collapses the board to just the selected column at full width (moving left/right pages between columns while zoomed); `z` again restores the multi-column view.
-- **Kanban card preview**: `p` pins a live Markdown preview pane across the bottom third of the board that always renders the currently selected card; it follows the selection as you move and Enter keeps input focus on the board so the preview and the board stay in view together. `p` again closes the preview.
+- **Kanban card preview**: `p` pins a live Markdown preview pane across the bottom third of the board that always renders the currently selected card; it follows the selection as you move and Enter keeps input focus on the board so the preview and the board stay in view together. In shared topology, the server owns the preview split and source descriptor so every connected UI projects it and reconnect restores it. `p` again closes the preview.
 - **GUI keybindings**: Chord-style prefix bindings (e.g. `ctrl+s, |`)
 - **Command palette**: `Ctrl+Shift+P` opens a centered fuzzy-search overlay for all GUI actions with fzf-style scoring, `Ctrl+J/K` navigation, keybinding hints, and palette-rendered text prompts for actions needing short values
 - **Print pane** (`print_pane` action, palette or `[keybindings]`): captures the focused pane's pixels, composes a single-page A4 PDF (aspect-fit inside margins, auto landscape for wide panes, CoreGraphics), and presents the native macOS print dialog for it (PDFKit print operation: preview, printer/paper choice, and auto-rotation so landscape pages land correctly on portrait paper); toasts report printed/canceled/failed. Hosts advise the printer via `IHost::print_hint()` — a pane-relative content rect plus a paper-white flag — so ScoreView prints just the page/band (no backdrop border) with its warm screen sheet tint snapped to pure white instead of printed stipple. macOS-only for now. `DRAXUL_PRINT_DRY_RUN=1` composes the PDF but skips the dialog and toasts the temp path (test hook)
@@ -373,7 +376,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - `next_tab` (`Ctrl+S, N`): Cycle to the next tab
 - `prev_tab` (`Ctrl+S, P`): Cycle to the previous tab
 - Tab switching preserves focus state per tab (focus lost/gained notifications)
-- **Inline tab rename**: double-click a tab pill (or press `Ctrl+S, ,` — tmux-style chord) to edit the tab name in place. Enter commits, Escape cancels, Backspace/Delete/Home/End/Left/Right work as expected. Empty commits leave the existing name untouched.
+- **Inline Space and tab rename**: double-click a Space or tab pill (or use the corresponding command-palette action; tabs also support `Ctrl+S, ,`) to edit its name in place. Enter commits, Escape cancels, Backspace/Delete/Home/End/Left/Right work as expected. Empty commits leave the existing name untouched.
 - **OSC 7 default naming**: shell hosts (e.g. zsh) drive the tab name from the OSC 7 working-directory escape until the user explicitly renames the tab; once the user sets a name, OSC 7 updates no longer overwrite it.
 - **Stable pane labels and inline rename**: pane pills show a custom pane name when set, otherwise the stable host or shell name (`PowerShell`, `Zsh`, `Neovim`, and so on). Live remote-controller role, terminal size, and connection timing remain diagnostics and no longer cause pane labels to change. Double-click a pane pill (or press `Ctrl+S, .`) to set an override; an empty commit clears it. Pane name overrides follow the stable pane identity and are included in Session snapshots.
 - **Luminance-based pill text colour**: tab and pane pill text colour is chosen automatically from the underlying NanoVG fill via BT.709 relative luminance, so any future background tweak gets a readable foreground without re-tuning a constant.

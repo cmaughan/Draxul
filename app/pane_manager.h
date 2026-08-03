@@ -123,6 +123,9 @@ public:
     // split so the owner reclaims the space.
     void hide_markdown_preview();
 
+    // Reloads an existing companion preview without changing the split tree.
+    bool refresh_markdown_preview(std::string_view path);
+
     // Whether a companion Markdown preview pane is currently open.
     bool has_markdown_preview() const
     {
@@ -255,6 +258,11 @@ public:
     const std::string& error() const
     {
         return error_;
+    }
+
+    LeafId markdown_preview_leaf() const
+    {
+        return markdown_preview_leaf_;
     }
     const std::string& error_code() const
     {

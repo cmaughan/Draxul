@@ -161,6 +161,13 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
             .client_host_kind = server_terminal
                 ? std::string{}
                 : std::string(to_string(kind)),
+            .client_working_directory
+                = server_terminal
+                ? std::string{}
+                : mutation.working_directory.string(),
+            .client_source_path = server_terminal
+                ? std::string{}
+                : mutation.source_path.string(),
         };
         break;
     }
@@ -215,12 +222,47 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
                         == TopologyMutationKind::DuplicatePane
                 ? TopologySplitDirection::Vertical
                 : mutation.direction,
+            .ratio = mutation.ratio,
             .pane_domain = server_terminal
                 ? TopologyPaneDomain::ServerTerminal
                 : TopologyPaneDomain::ClientLocal,
             .client_host_kind = server_terminal
                 ? std::string{}
                 : std::string(to_string(kind)),
+            .client_working_directory
+                = server_terminal
+                ? std::string{}
+                : mutation.working_directory.string(),
+            .client_source_path = server_terminal
+                ? std::string{}
+                : mutation.source_path.string(),
+            .companion_owner_pane_id
+                = !server_terminal
+                    && mutation.companion_pane
+                ? *pane
+                : std::string{},
+        };
+        break;
+    }
+    case TopologyMutationKind::UpdateClientPane:
+    {
+        const auto space = resolve_space();
+        const auto tab = resolve_tab();
+        const auto pane = resolve_pane(mutation.pane_id);
+        if (!space || !tab || !pane)
+            return reject_unresolved("client-local pane");
+        command = {
+            .kind = TopologyCommandKind::UpdateClientPane,
+            .space_id = *space,
+            .tab_id = *tab,
+            .pane_id = *pane,
+            .client_host_kind = mutation.host_kind
+                ? std::string(to_string(*mutation.host_kind))
+                : std::string{},
+            .client_working_directory
+                = mutation.working_directory.string(),
+            .client_source_path
+                = mutation.source_path.string(),
         };
         break;
     }

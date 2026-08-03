@@ -62,6 +62,8 @@ PaneManager::SavedLaunchOptions save_launch_options(const HostLaunchOptions& lau
     saved.startup_commands = launch.startup_commands;
     saved.remote_terminal_id = launch.remote_terminal_id;
     saved.client_host_kind = launch.client_host_kind;
+    saved.companion_owner_pane_id
+        = launch.companion_owner_pane_id;
     saved.pty_capture_file = launch.pty_capture_file;
     return saved;
 }
@@ -78,6 +80,8 @@ HostLaunchOptions restore_launch_options(const PaneManager::SavedLaunchOptions& 
     launch.startup_commands = saved.startup_commands;
     launch.remote_terminal_id = saved.remote_terminal_id;
     launch.client_host_kind = saved.client_host_kind;
+    launch.companion_owner_pane_id
+        = saved.companion_owner_pane_id;
     launch.pty_capture_file = saved.pty_capture_file;
     launch.enable_ligatures = deps.config ? deps.config->enable_ligatures : true;
     if (deps.config)
@@ -606,6 +610,28 @@ bool PaneManager::should_preserve_dead_leaf(LeafId id) const
     return true;
 }
 
+bool PaneManager::refresh_markdown_preview(
+    std::string_view path)
+{
+    if (markdown_preview_leaf_ == kInvalidLeaf)
+        return false;
+    IHost* preview = host_for(markdown_preview_leaf_);
+    if (!preview)
+        return false;
+    if (!preview->dispatch_action(
+            std::string("open_file:") + std::string(path)))
+    {
+        return false;
+    }
+    if (auto launch
+        = launch_options_.find(markdown_preview_leaf_);
+        launch != launch_options_.end())
+    {
+        launch->second.source_path = path;
+    }
+    return true;
+}
+
 bool PaneManager::is_server_owned_remote_terminal_leaf(LeafId id) const
 {
     if (deps_.allow_local_layout_mutation)
@@ -825,6 +851,11 @@ bool PaneManager::reconcile_projected_layout(
     {
         const auto pane = projected.find(leaf);
         const auto launch = launch_options_.find(leaf);
+        const bool source_changed
+            = pane != projected.end()
+            && launch != launch_options_.end()
+            && launch->second.source_path
+                != pane->second->launch.source_path;
         if (pane == projected.end()
             || launch == launch_options_.end()
             || launch->second.kind
@@ -832,9 +863,20 @@ bool PaneManager::reconcile_projected_layout(
             || launch->second.remote_terminal_id
                 != pane->second->launch.remote_terminal_id
             || launch->second.client_host_kind
-                != pane->second->launch.client_host_kind)
+                != pane->second->launch.client_host_kind
+            || (source_changed
+                && launch->second.kind
+                    != HostKind::Markdown))
         {
             removed.push_back(leaf);
+        }
+        else if (source_changed && host)
+        {
+            host->dispatch_action(
+                std::string("open_file:")
+                + pane->second->launch.source_path);
+            launch->second.source_path
+                = pane->second->launch.source_path;
         }
     }
     for (const LeafId leaf : removed)
@@ -874,7 +916,11 @@ bool PaneManager::reconcile_projected_layout(
             pane_user_names_[leaf] = pane->pane_name;
 
         if (hosts_.contains(leaf))
+        {
+            launch_options_[leaf].companion_owner_pane_id
+                = pane->launch.companion_owner_pane_id;
             continue;
+        }
         HostLaunchOptions launch
             = restore_launch_options(pane->launch, deps_);
         if (!create_host_for_leaf(
@@ -893,6 +939,26 @@ bool PaneManager::reconcile_projected_layout(
             error_code_ = projection_error_code;
             return false;
         }
+    }
+
+    for (const auto& [leaf, pane] : projected)
+    {
+        if (pane->launch.kind != HostKind::Markdown
+            || pane->launch.companion_owner_pane_id.empty())
+        {
+            continue;
+        }
+        const auto owner = std::find_if(
+            pane_ids_.begin(), pane_ids_.end(),
+            [&](const auto& entry) {
+                return entry.second
+                    == pane->launch.companion_owner_pane_id;
+            });
+        if (owner == pane_ids_.end())
+            continue;
+        markdown_preview_leaf_ = leaf;
+        markdown_preview_owner_ = owner->first;
+        break;
     }
 
     if (old_focus != tree_.focused())

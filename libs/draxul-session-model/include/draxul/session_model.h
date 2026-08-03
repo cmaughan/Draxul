@@ -56,6 +56,8 @@ struct SessionSavedLaunchOptions
     // Preserves a server topology's client-local host descriptor when it is
     // more specific than, or intentionally aliases, HostKind.
     std::string client_host_kind;
+    // Durable topology relationship for client-local companion panes.
+    std::string companion_owner_pane_id;
     std::string pty_capture_file;
 };
 

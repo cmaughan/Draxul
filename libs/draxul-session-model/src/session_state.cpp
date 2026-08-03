@@ -242,6 +242,10 @@ toml::table serialize_pane_layout(const SessionPaneLayoutSnapshot& state)
         if (!pane.launch.client_host_kind.empty())
             pane_table.insert_or_assign(
                 "client_host_kind", pane.launch.client_host_kind);
+        if (!pane.launch.companion_owner_pane_id.empty())
+            pane_table.insert_or_assign(
+                "companion_owner_pane_id",
+                pane.launch.companion_owner_pane_id);
         if (!pane.pane_name.empty())
             pane_table.insert_or_assign("pane_name", pane.pane_name);
         if (!pane.pane_id.empty())
@@ -359,6 +363,10 @@ std::optional<SessionPaneLayoutSnapshot> parse_pane_layout(
         pane.launch.client_host_kind
             = toml_support::get_string(
                   *pane_table, "client_host_kind")
+                  .value_or("");
+        pane.launch.companion_owner_pane_id
+            = toml_support::get_string(
+                  *pane_table, "companion_owner_pane_id")
                   .value_or("");
         pane.pane_name = toml_support::get_string(*pane_table, "pane_name").value_or("");
         pane.pane_id = toml_support::get_string(*pane_table, "pane_id").value_or(
@@ -604,6 +612,9 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
                 || !validate_text_limit(
                     pane.launch.client_host_kind,
                     kMaxShortTextBytes, "client host kind", error)
+                || !validate_text_limit(
+                    pane.launch.companion_owner_pane_id,
+                    kMaxShortTextBytes, "companion owner pane id", error)
                 || !validate_text_limit(
                     pane.launch.pty_capture_file, kMaxCommandTextBytes, "capture path", error)
                 || !validate_string_list(pane.launch.args, "host arguments", error)

@@ -51,6 +51,9 @@ public:
         // tab.name and marks tab.name_user_set so subsequent OSC 7
         // updates don't overwrite the user's choice.
         std::function<void(int tab_id, std::string name)> set_tab_name;
+        // Apply a user-typed name to a Space through the same topology route
+        // used by the command palette.
+        std::function<void(SpaceId space_id, std::string name)> set_space_name;
         // Apply a user-typed name to a pane (per-leaf override). Owner (App)
         // forwards this to PaneManager::set_pane_name. Empty name clears the
         // override and reverts to host->status_text().
@@ -111,11 +114,15 @@ public:
     SpaceId hit_test_space(int px, int py) const;
     int hit_test_agent(int px, int py) const;
 
-    // ----- Inline tab/pane rename (WI 128) -----------------------------
+    // ----- Inline Space/tab/pane rename (WI 128) -----------------------
     // A single edit session can target either a tab or a pane
     // status pill. Only one target is active at a time; starting a new edit
     // commits any in-progress one.
     //
+    // Space target:
+    void begin_space_rename(SpaceId space_id);
+    bool is_editing_space() const;
+    SpaceId editing_space_id() const;
     // Tab target:
     void begin_tab_rename(int tab_index);
     // Begin editing the tab corresponding to a tab_id. Same semantics

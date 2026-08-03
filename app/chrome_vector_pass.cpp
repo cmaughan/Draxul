@@ -98,7 +98,20 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
             {
                 draw_segmented_pill(vg, space.rect, space.clip, space.accent_w,
                     space.palette.body_bg, space.palette.accent_bg);
+                if (space.editing)
+                {
+                    const float radius = space.rect.h * 0.5f;
+                    nvgBeginPath(vg);
+                    nvgRoundedRect(vg, space.rect.x, space.rect.y,
+                        space.rect.w, space.rect.h, radius);
+                    nvgStrokeColor(vg,
+                        nvg_color(theme.editing_outline));
+                    nvgStrokeWidth(vg, 1.5f);
+                    nvgStroke(vg);
+                }
             }
+            draw_caret(vg, layout.space_caret,
+                layout.edit_started_at, theme.editing_outline);
             for (const auto& agent : layout.agents)
             {
                 draw_segmented_pill(vg, agent.rect, agent.clip, agent.accent_w,

@@ -48,6 +48,9 @@ TopologyTab split_tab()
                 .domain
                 = TopologyPaneDomain::ClientLocal,
                 .client_host_kind = "future-view",
+                .client_working_directory = "D:/future",
+                .client_source_path = "cards/next.md",
+                .companion_owner_pane_id = "pane-shell",
             },
         },
     };
@@ -98,6 +101,12 @@ TEST_CASE("topology projection builds stable renderer-free pane layouts",
         == HostKind::PowerShell);
     CHECK(first->layout.panes[1].launch.client_host_kind
         == "future-view");
+    CHECK(first->layout.panes[1].launch.working_dir
+        == "D:/future");
+    CHECK(first->layout.panes[1].launch.source_path
+        == "cards/next.md");
+    CHECK(first->layout.panes[1].launch.companion_owner_pane_id
+        == "pane-shell");
     const LeafId shell_leaf
         = first->layout.panes[0].leaf_id;
     const LeafId future_leaf

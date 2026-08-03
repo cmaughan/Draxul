@@ -136,7 +136,10 @@ TopologyProjection::project_tab(const TopologyTab& remote,
         signature << pane.pane_id << ':'
                   << static_cast<int>(pane.domain) << ':'
                   << pane.terminal_id << ':'
-                  << pane.client_host_kind << ';';
+                  << pane.client_host_kind << ':'
+                  << pane.client_working_directory << ':'
+                  << pane.client_source_path << ':'
+                  << pane.companion_owner_pane_id << ';';
     }
     projection.structural_signature = signature.str();
     if (const auto previous
@@ -273,10 +276,22 @@ TopologyProjection::project_tab(const TopologyTab& remote,
             .leaf_id = *leaf,
             .launch = {
                 .kind = host_kind,
+                .working_dir
+                = pane.domain == TopologyPaneDomain::ClientLocal
+                ? pane.client_working_directory
+                : pane.server_working_directory,
+                .source_path
+                = pane.domain == TopologyPaneDomain::ClientLocal
+                ? pane.client_source_path
+                : std::string{},
                 .remote_terminal_id = pane.terminal_id,
                 .client_host_kind
                 = pane.domain == TopologyPaneDomain::ClientLocal
                 ? pane.client_host_kind
+                : std::string{},
+                .companion_owner_pane_id
+                = pane.domain == TopologyPaneDomain::ClientLocal
+                ? pane.companion_owner_pane_id
                 : std::string{},
             },
             .pane_name = pane.name,

@@ -37,6 +37,11 @@ struct TopologyPane
     TopologyPaneDomain domain = TopologyPaneDomain::ClientLocal;
     std::string terminal_id;
     std::string client_host_kind;
+    std::string client_working_directory;
+    std::string client_source_path;
+    // Set for client-local companion panes such as a Kanban card preview.
+    // The value is the durable topology pane id of the owning pane.
+    std::string companion_owner_pane_id;
     std::string server_working_directory;
     std::optional<AgentIdentity> agent;
     std::optional<AgentSessionRef> agent_session;
@@ -102,6 +107,7 @@ enum class TopologyCommandKind
     CloseTab,
     MoveTab,
     SplitPane,
+    UpdateClientPane,
     ClosePane,
     RenamePane,
     SwapPane,
@@ -129,6 +135,9 @@ struct TopologyCommand
     TopologyPaneDomain pane_domain = TopologyPaneDomain::ClientLocal;
     std::string terminal_id;
     std::string client_host_kind;
+    std::string client_working_directory;
+    std::string client_source_path;
+    std::string companion_owner_pane_id;
 
     bool operator==(const TopologyCommand&) const = default;
 };

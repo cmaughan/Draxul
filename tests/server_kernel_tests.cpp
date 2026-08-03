@@ -749,7 +749,10 @@ TEST_CASE("restored child topology identities are scoped by their parents",
         result.pane_layout.panes.push_back({
             .leaf_id = 0,
             .launch = {
-                .kind = HostKind::Nvim,
+                .kind = HostKind::Kanban,
+                .working_dir = "D:/work",
+                .source_path = "custom-board",
+                .client_host_kind = "kanban",
             },
             .pane_name = "Pane",
             .pane_id = "pane-0",
@@ -807,6 +810,16 @@ TEST_CASE("restored child topology identities are scoped by their parents",
               .panes[0]
               .pane_id
         == first.panes[0].pane_id);
+    CHECK(rerestored->topology.spaces[0]
+              .tabs[0]
+              .panes[0]
+              .client_working_directory
+        == "D:/work");
+    CHECK(rerestored->topology.spaces[0]
+              .tabs[0]
+              .panes[0]
+              .client_source_path
+        == "custom-board");
 }
 
 TEST_CASE("oversized truecolour hyperlink snapshots degrade within frame budget",
@@ -941,6 +954,72 @@ TEST_CASE("topology ratio storms retain only bounded command outcomes",
     CHECK(service.completed_command_result_bytes()
         == kTopologyCompletedCommandLimit
             * sizeof(std::string));
+}
+
+TEST_CASE("shared topology stores and updates client-local preview descriptors",
+    "[server][topology][client_local][preview]")
+{
+    TopologyService service("client-local-preview", {});
+    const TopologySpace& initial_space
+        = service.snapshot().spaces.front();
+    const TopologyTab& initial_tab
+        = initial_space.tabs.front();
+    const std::string owner_pane_id
+        = initial_tab.panes.front().pane_id;
+    TopologyCommand split{
+        .client_id = "preview-client",
+        .command_id = "preview-split",
+        .expected_revision = service.snapshot().revision,
+        .kind = TopologyCommandKind::SplitPane,
+        .space_id = initial_space.space_id,
+        .tab_id = initial_tab.tab_id,
+        .pane_id = owner_pane_id,
+        .direction = TopologySplitDirection::Horizontal,
+        .ratio = 2.0f / 3.0f,
+        .pane_domain = TopologyPaneDomain::ClientLocal,
+        .client_host_kind = "markdown",
+        .client_working_directory = "D:/dev/Draxul",
+        .client_source_path = "kanban/pending/one.md",
+        .companion_owner_pane_id = owner_pane_id,
+    };
+    const auto created = service.handle(
+        "topology.command", topology_command_to_json(split));
+    REQUIRE(created.ok);
+    const TopologyTab& split_tab
+        = service.snapshot().spaces.front().tabs.front();
+    REQUIRE(split_tab.panes.size() == 2);
+    CHECK(split_tab.nodes.front().ratio
+        == Catch::Approx(2.0f / 3.0f));
+    const TopologyPane& preview = split_tab.panes.back();
+    CHECK(preview.client_host_kind == "markdown");
+    CHECK(preview.client_working_directory == "D:/dev/Draxul");
+    CHECK(preview.client_source_path == "kanban/pending/one.md");
+    CHECK(preview.companion_owner_pane_id == owner_pane_id);
+
+    TopologyCommand update{
+        .client_id = "preview-client",
+        .command_id = "preview-update",
+        .expected_revision = service.snapshot().revision,
+        .kind = TopologyCommandKind::UpdateClientPane,
+        .space_id = initial_space.space_id,
+        .tab_id = initial_tab.tab_id,
+        .pane_id = preview.pane_id,
+        .client_host_kind = "markdown",
+        .client_working_directory = "D:/dev/Draxul",
+        .client_source_path = "kanban/pending/two.md",
+    };
+    REQUIRE(service.handle(
+                "topology.command",
+                topology_command_to_json(update))
+                .ok);
+    const TopologyPane& updated = service.snapshot()
+                                      .spaces.front()
+                                      .tabs.front()
+                                      .panes.back();
+    CHECK(updated.client_source_path
+        == "kanban/pending/two.md");
+    CHECK(updated.companion_owner_pane_id
+        == owner_pane_id);
 }
 
 TEST_CASE("restored topology removes the legacy generated server shell name",

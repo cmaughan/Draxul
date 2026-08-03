@@ -570,10 +570,17 @@ bool TopologyService::apply(const TopologyCommand& command,
             pane.domain = TopologyPaneDomain::ServerTerminal;
             pane.terminal_id = *terminal_id;
             pane.client_host_kind.clear();
+            pane.client_working_directory.clear();
+            pane.client_source_path.clear();
+            pane.companion_owner_pane_id.clear();
         }
         else if (!command.client_host_kind.empty())
         {
             pane.client_host_kind = command.client_host_kind;
+            pane.client_working_directory
+                = command.client_working_directory;
+            pane.client_source_path
+                = command.client_source_path;
         }
         created_id = space.space_id;
         snapshot_.spaces.push_back(std::move(space));
@@ -639,9 +646,18 @@ bool TopologyService::apply(const TopologyCommand& command,
             pane.domain = TopologyPaneDomain::ServerTerminal;
             pane.terminal_id = *terminal_id;
             pane.client_host_kind.clear();
+            pane.client_working_directory.clear();
+            pane.client_source_path.clear();
+            pane.companion_owner_pane_id.clear();
         }
         else if (!command.client_host_kind.empty())
-            tab.panes.front().client_host_kind = command.client_host_kind;
+        {
+            pane.client_host_kind = command.client_host_kind;
+            pane.client_working_directory
+                = command.client_working_directory;
+            pane.client_source_path
+                = command.client_source_path;
+        }
         created_id = tab.tab_id;
         space->tabs.push_back(std::move(tab));
         return true;
@@ -704,6 +720,27 @@ bool TopologyService::apply(const TopologyCommand& command,
         if (!pane)
             return reject("pane_not_found", "Topology pane was not found.");
         pane->name = command.name;
+        return true;
+    }
+    if (command.kind == TopologyCommandKind::UpdateClientPane)
+    {
+        TopologyPane* pane = find_pane(*tab, command.pane_id);
+        if (!pane)
+            return reject("pane_not_found", "Topology pane was not found.");
+        if (pane->domain != TopologyPaneDomain::ClientLocal)
+        {
+            return reject("server_terminal_pane",
+                "Only client-local pane launch data can be updated.");
+        }
+        if (!command.client_host_kind.empty()
+            && command.client_host_kind != pane->client_host_kind)
+        {
+            return reject("host_kind_mismatch",
+                "Client-local pane host kind cannot be changed in place.");
+        }
+        pane->client_working_directory
+            = command.client_working_directory;
+        pane->client_source_path = command.client_source_path;
         return true;
     }
     if (command.kind == TopologyCommandKind::SwapPane)
@@ -773,6 +810,13 @@ bool TopologyService::apply(const TopologyCommand& command,
     {
         if (tab->panes.size() >= kTopologyMaxPanesPerTab)
             return reject("limit_reached", "Topology pane limit reached.");
+        if (!std::isfinite(command.ratio)
+            || command.ratio < 0.1f
+            || command.ratio > 0.9f)
+        {
+            return reject(
+                "invalid_ratio", "Split ratio must be between 0.1 and 0.9.");
+        }
         TopologyNode* leaf = find_leaf_for_pane(*tab, command.pane_id);
         if (!leaf)
             return reject("pane_not_found", "Topology pane was not found.");
@@ -783,6 +827,11 @@ bool TopologyService::apply(const TopologyCommand& command,
             .domain = command.pane_domain,
             .terminal_id = command.terminal_id,
             .client_host_kind = command.client_host_kind,
+            .client_working_directory
+                = command.client_working_directory,
+            .client_source_path = command.client_source_path,
+            .companion_owner_pane_id
+                = command.companion_owner_pane_id,
         };
         if (pane.domain == TopologyPaneDomain::ServerTerminal)
         {
@@ -809,12 +858,22 @@ bool TopologyService::apply(const TopologyCommand& command,
             }
             pane.terminal_id = *terminal_id;
             pane.client_host_kind.clear();
+            pane.client_working_directory.clear();
+            pane.client_source_path.clear();
+            pane.companion_owner_pane_id.clear();
         }
         else
         {
             pane.terminal_id.clear();
             if (pane.client_host_kind.empty())
                 pane.client_host_kind = "platform_default";
+            if (!pane.companion_owner_pane_id.empty()
+                && !find_pane(*tab,
+                    pane.companion_owner_pane_id))
+            {
+                return reject("companion_owner_not_found",
+                    "Companion pane owner was not found.");
+            }
         }
 
         const std::string old_pane_id = leaf->pane_id;
@@ -823,7 +882,7 @@ bool TopologyService::apply(const TopologyCommand& command,
         leaf->is_leaf = false;
         leaf->pane_id.clear();
         leaf->direction = command.direction;
-        leaf->ratio = 0.5f;
+        leaf->ratio = command.ratio;
         leaf->first_node_id = first_node_id;
         leaf->second_node_id = second_node_id;
         tab->nodes.push_back({

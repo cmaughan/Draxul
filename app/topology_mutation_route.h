@@ -24,6 +24,7 @@ enum class TopologyMutationKind
     CloseTab,
     MoveTab,
     SplitPane,
+    UpdateClientPane,
     DuplicatePane,
     ClosePane,
     RenamePane,
@@ -46,9 +47,12 @@ struct TopologyMutation
     DividerId divider_id = kInvalidDivider;
     std::string name;
     std::filesystem::path root_directory;
+    std::filesystem::path working_directory;
+    std::filesystem::path source_path;
     TopologySplitDirection direction
         = TopologySplitDirection::Vertical;
     std::optional<HostKind> host_kind;
+    bool companion_pane = false;
     float ratio = 0.5f;
     float ratio_delta = 0.0f;
     int move_delta = 0;

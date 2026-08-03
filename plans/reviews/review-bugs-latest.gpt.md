@@ -1,18 +1,99 @@
-No `CRITICAL` findings stood out from static read-only inspection. The strongest untracked correctness bugs I found are:
+# Bug review
 
-1. `HIGH` Post-`fork()` child paths do non-async-signal-safe C++/libc work before `exec`, which can deadlock the child in a multithreaded parent.  
-   Files: [nvim_process.cpp](/Users/cmaughan/dev/Draxul/libs/draxul-nvim/src/nvim_process.cpp:303), [unix_pty_process.cpp](/Users/cmaughan/dev/Draxul/libs/draxul-host/src/unix_pty_process.cpp:73), also the same pattern appears in [session_picker_host.cpp](/Users/cmaughan/dev/Draxul/app/session_picker_host.cpp:323) and [main.cpp](/Users/cmaughan/dev/Draxul/app/main.cpp:470).  
-   What goes wrong: after `fork()`, these children build `std::vector`/`std::string` argv data, call `setenv`, and use `execvp`. Draxul is already multithreaded at runtime (RPC/PTy/weather/session threads), so if another thread is inside malloc/libc when a new shell pane or embedded nvim process is spawned, the child can hang before `exec`, leaving a blank pane or failed startup.  
-   Suggested fix: switch these launches to `posix_spawn` or prebuild argv/env in the parent and keep the child path to async-signal-safe syscalls plus `execve`.
+Reviewed 696 source files under `app/`, `libs/`, `shaders/`, `tests/`, and `scripts/` directly from disk. No reproducible CRITICAL issue was found. Repository files were not edited.
 
-2. `HIGH` Windows ConPTY input writes assume `WriteFile` is all-or-nothing and silently truncate on short writes.  
-   Files: [conpty_process.cpp](/Users/cmaughan/dev/Draxul/libs/draxul-host/src/conpty_process.cpp:259), reached from [shell_host_win.cpp](/Users/cmaughan/dev/Draxul/libs/draxul-host/src/shell_host_win.cpp:79).  
-   What goes wrong: `ConPtyProcess::write()` performs a single `WriteFile(...) && written == size` check. On a pipe, `WriteFile` may succeed with `written < len` when the buffer is nearly full. Large pastes or startup command bursts into a Windows/WSL shell pane can therefore lose the tail of the input, corrupting commands at runtime.  
-   Suggested fix: use the same retry loop already present in [nvim_process.cpp](/Users/cmaughan/dev/Draxul/libs/draxul-nvim/src/nvim_process.cpp:187): advance the pointer until all bytes are written, and treat `written == 0` as a hard failure.
+## HIGH
 
-3. `HIGH` Reinitializing `TextService` on config reload / DPI change reuses live font state without clearing old variant flags or freeing old font objects first.  
-   Files: [app.cpp](/Users/cmaughan/dev/Draxul/app/app.cpp:532), [app.cpp](/Users/cmaughan/dev/Draxul/app/app.cpp:1642), [text_service.cpp](/Users/cmaughan/dev/Draxul/libs/draxul-font/src/text_service.cpp:88), [font_resolver.cpp](/Users/cmaughan/dev/Draxul/libs/draxul-font/src/font_resolver.cpp:147), [font_selector.h](/Users/cmaughan/dev/Draxul/libs/draxul-font/src/font_selector.h:143), [font_manager.cpp](/Users/cmaughan/dev/Draxul/libs/draxul-font/src/font_manager.cpp:39).  
-   What goes wrong: `reload_config()` and `on_display_scale_changed()` call `text_service_.initialize(...)` on a live service, but `TextService::initialize()` never calls `shutdown()`. `FontResolver::initialize()` only ever sets `bold_loaded_` / `italic_loaded_` / `bold_italic_loaded_` to `true`; it does not clear them first. If the user reloads from a font family that had a bold/italic variant to one that does not, bold/italic rendering can keep using the old family’s faces via `FontSelector`, and the old FreeType/HarfBuzz objects leak on each reinit.  
-   Suggested fix: make reinit tear down old state first (`TextService::initialize()` or `FontResolver::initialize()` should call `shutdown()`), and explicitly reset variant-loaded flags/paths before probing optional bold/italic faces. `FontManager::initialize()` should also self-clean old state on entry/failure.
+### 1. Restored companion panes retain stale owner IDs
 
-No other concrete, untracked runtime-breaking defects were as solid as these from static inspection alone.
+**File:** [libs/draxul-server/src/session_topology_bridge.cpp:301](/D:/dev/Draxul/libs/draxul-server/src/session_topology_bridge.cpp:301)
+
+**What goes wrong:** Restore assigns every pane a new scoped ID at line 261, but copies `companion_owner_pane_id` unchanged. After restarting a session containing a Kanban pane and Markdown companion, the companion references the pre-restart owner ID. `PaneManager` cannot find that owner, so preview tracking, toggling, and lifecycle behavior break.
+
+**Suggested fix:** Restore panes in two passes: build `saved pane_id -> scoped pane_id`, then translate every companion-owner reference through that map and reject missing owners.
+
+### 2. Closing an owner pane leaves orphaned companions
+
+**File:** [libs/draxul-server/src/topology_service.cpp:937](/D:/dev/Draxul/libs/draxul-server/src/topology_service.cpp:937)
+
+**What goes wrong:** `ClosePane` removes only the requested pane. Closing a Kanban owner while its Markdown companion exists leaves the companion pointing to a nonexistent owner. With only those two panes, the orphan becomes the final pane and cannot itself be closed through `ClosePane`.
+
+**Suggested fix:** Before erasing, either cascade-close panes whose `companion_owner_pane_id` matches the owner, or reject the operation until dependents are closed; preserve the final-pane invariant.
+
+### 3. Shared preview is changed locally before the server accepts the update
+
+**File:** [app/app.cpp:2526](/D:/dev/Draxul/app/app.cpp:2526)
+
+**What goes wrong:** The Markdown host is refreshed before `UpdateClientPane` is enqueued, and the refresh result is ignored. If the queue is full or the server later rejects the command, the local UI displays the new card while authoritative topology still names the old one. Because the server signature did not change, later polling does not repair the divergence.
+
+**Suggested fix:** Let the accepted server snapshot drive the local refresh, or retain the old source and roll back on both enqueue and completion failure.
+
+### 4. Local preview refresh does not update persisted launch state
+
+**File:** [app/pane_manager.cpp:488](/D:/dev/Draxul/app/pane_manager.cpp:488)
+
+**What goes wrong:** Reusing a local Markdown preview dispatches `open_file:` but neither checks its result nor updates `launch_options_.source_path`. Open card A, switch the preview to card B, then restart: the host displayed B, but the session restores A. The existing-preview path also is not marked session-dirty.
+
+**Suggested fix:**
+
+```cpp
+if (!refresh_markdown_preview(path))
+    return kInvalidLeaf;
+return markdown_preview_leaf_;
+```
+
+Also mark the session dirty after a successful local refresh.
+
+### 5. Failed projected Markdown loads are recorded as successful
+
+**File:** [app/pane_manager.cpp:875](/D:/dev/Draxul/app/pane_manager.cpp:875)
+
+**What goes wrong:** During topology reconciliation, the return value from `dispatch_action("open_file:...")` is ignored and the new source is stored anyway. If another client selects a file absent or unreadable on this machine, the host keeps showing the old document while its metadata and committed topology signature claim the new file is loaded. No subsequent snapshot retries it.
+
+**Suggested fix:** Only update `launch_options_` after a successful dispatch; otherwise fail reconciliation with context and keep the previous signature.
+
+### 6. Working-directory changes are silently ignored by live projections
+
+**File:** [app/pane_manager.cpp:859](/D:/dev/Draxul/app/pane_manager.cpp:859)
+
+**What goes wrong:** The host-reuse predicate compares kind, terminal ID, client kind, and source, but not `working_dir`. A valid `UpdateClientPane` changing `D:/one` to `D:/two` updates the server and projection signature, yet the existing host and its launch metadata remain at `D:/one`. A later client-local restart therefore launches in the wrong directory.
+
+**Suggested fix:**
+
+```cpp
+|| launch->second.working_dir != pane->second->launch.working_dir
+```
+
+Recreate the host when this launch-only field changes.
+
+### 7. Project-board synchronization only reads the first 100 items
+
+**File:** [scripts/sync_project_board.py:75](/D:/dev/Draxul/scripts/sync_project_board.py:75)
+
+**What goes wrong:** The repository currently contains 193 syncable kanban cards, but `get_existing_items()` fetches only `items(first: 100)` with no cursor pagination. Existing items beyond that page are treated as missing and recreated as duplicate drafts on every synchronization run.
+
+**Suggested fix:** Request `pageInfo { hasNextPage endCursor }`, supply `after: $cursor`, and accumulate pages until `hasNextPage` is false.
+
+## MEDIUM
+
+### 8. Pending preview state is shared across every Space and tab
+
+**File:** [app/app.h:342](/D:/dev/Draxul/app/app.h:342)
+
+**What goes wrong:** The pending flag, path, and close-after-create flag are application-global. If tab A has an asynchronous preview split pending, switching to tab B makes `is_markdown_preview_visible()` return true there as well. Pressing the preview toggle in B marks A’s pending preview for closure; when A’s command completes, the app switches back to A and closes the newly created preview.
+
+**Suggested fix:** Key pending preview state by Space, tab, owner pane, and command ID; only expose it as visible for the matching active target.
+
+### 9. Structural signatures can collide because fields are not escaped
+
+**File:** [libs/draxul-client/src/topology_projection.cpp:136](/D:/dev/Draxul/libs/draxul-client/src/topology_projection.cpp:136)
+
+**What goes wrong:** Arbitrary path strings are concatenated with `:` and `;`. On POSIX, these two valid descriptors produce the same signature:
+
+- Working directory `a:b`, source `c`
+- Working directory `a`, source `b:c`
+
+When the server changes between them, `project_tab()` concludes that nothing structural changed and skips reconciliation, leaving the old source and directory active.
+
+**Suggested fix:** Length-prefix every string, hash a structured serialization, or compare typed descriptor snapshots instead of delimiter-concatenated text.
+

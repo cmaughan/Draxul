@@ -40,6 +40,9 @@ struct HostLaunchOptions
     // populated even when this build cannot parse the kind, allowing an
     // inert placeholder to preserve and later reconcile the foreign pane.
     std::string client_host_kind;
+    // Durable launch data for client-local panes projected from shared
+    // topology. These let every UI reconstruct the same local host.
+    std::string companion_owner_pane_id;
     bool enable_ligatures = true;
     std::string pty_capture_file;
 
@@ -159,6 +162,13 @@ public:
     // Close the companion Markdown preview pane opened by show_markdown_preview,
     // if one exists. No-op otherwise.
     virtual void hide_markdown_preview() {}
+
+    // Reports whether the active pane manager already contains a companion
+    // Markdown preview. Hosts use this to recover view state after reconnect.
+    virtual bool is_markdown_preview_visible() const
+    {
+        return false;
+    }
 
     // Show a non-blocking toast notification. level: 0=info, 1=warn, 2=error.
     virtual void push_toast(int /*level*/, std::string_view /*message*/) {}

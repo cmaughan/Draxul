@@ -126,6 +126,11 @@ nlohmann::json pane_to_json(const TopologyPane& pane)
         { "domain", to_string(pane.domain) },
         { "terminal_id", pane.terminal_id },
         { "client_host_kind", pane.client_host_kind },
+        { "client_working_directory",
+            pane.client_working_directory },
+        { "client_source_path", pane.client_source_path },
+        { "companion_owner_pane_id",
+            pane.companion_owner_pane_id },
         { "server_working_directory",
             pane.server_working_directory },
     };
@@ -150,6 +155,18 @@ bool read_pane(const nlohmann::json& value, TopologyPane& pane)
     if (value.contains("server_working_directory")
         && !read_string(value, "server_working_directory",
             pane.server_working_directory, true))
+    {
+        return false;
+    }
+    if ((value.contains("client_working_directory")
+            && !read_string(value, "client_working_directory",
+                pane.client_working_directory, true))
+        || (value.contains("client_source_path")
+            && !read_string(value, "client_source_path",
+                pane.client_source_path, true))
+        || (value.contains("companion_owner_pane_id")
+            && !read_string(value, "companion_owner_pane_id",
+                pane.companion_owner_pane_id, true)))
     {
         return false;
     }
@@ -406,6 +423,8 @@ std::string_view to_string(TopologyCommandKind kind)
         return "move_tab";
     case TopologyCommandKind::SplitPane:
         return "split_pane";
+    case TopologyCommandKind::UpdateClientPane:
+        return "update_client_pane";
     case TopologyCommandKind::ClosePane:
         return "close_pane";
     case TopologyCommandKind::RenamePane:
@@ -441,6 +460,8 @@ std::optional<TopologyCommandKind> parse_topology_command_kind(
         return TopologyCommandKind::MoveTab;
     if (value == "split_pane")
         return TopologyCommandKind::SplitPane;
+    if (value == "update_client_pane")
+        return TopologyCommandKind::UpdateClientPane;
     if (value == "close_pane")
         return TopologyCommandKind::ClosePane;
     if (value == "rename_pane")
@@ -526,6 +547,11 @@ nlohmann::json topology_command_to_json(
         { "pane_domain", to_string(command.pane_domain) },
         { "terminal_id", command.terminal_id },
         { "client_host_kind", command.client_host_kind },
+        { "client_working_directory",
+            command.client_working_directory },
+        { "client_source_path", command.client_source_path },
+        { "companion_owner_pane_id",
+            command.companion_owner_pane_id },
     };
 }
 
@@ -561,7 +587,15 @@ std::optional<TopologyCommand> topology_command_from_json(
         || !read_optional_string(
             "terminal_id", command.terminal_id)
         || !read_optional_string(
-            "client_host_kind", command.client_host_kind))
+            "client_host_kind", command.client_host_kind)
+        || !read_optional_string(
+            "client_working_directory",
+            command.client_working_directory)
+        || !read_optional_string(
+            "client_source_path", command.client_source_path)
+        || !read_optional_string(
+            "companion_owner_pane_id",
+            command.companion_owner_pane_id))
     {
         error = "Invalid optional topology command text.";
         return std::nullopt;

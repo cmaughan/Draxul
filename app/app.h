@@ -161,6 +161,7 @@ private:
     bool dispatch_to_nvim_host(std::string_view action, bool keep_focus) override;
     bool show_markdown_preview(std::string_view path) override;
     void hide_markdown_preview() override;
+    bool is_markdown_preview_visible() const override;
     void push_toast(int level, std::string_view message) override;
     void update_diagnostics_panel();
     void refresh_window_layout();
@@ -338,6 +339,9 @@ private:
         std::chrono::steady_clock::time_point commit_after;
     };
     std::optional<PendingTopologyRatio> pending_topology_ratio_;
+    bool markdown_preview_split_pending_ = false;
+    bool markdown_preview_close_after_create_ = false;
+    std::string pending_markdown_preview_path_;
     bool topology_poll_error_announced_ = false;
     bool agent_poll_error_announced_ = false;
     bool topology_command_error_announced_ = false;

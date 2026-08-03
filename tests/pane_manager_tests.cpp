@@ -930,6 +930,67 @@ TEST_CASE("pane manager: identifies only server-owned remote terminals",
                         local_harness.manager.focused_leaf()));
 }
 
+TEST_CASE("pane manager restores and refreshes a projected companion preview",
+    "[pane_manager][topology][preview]")
+{
+    PaneManagerHarness harness(false);
+    REQUIRE(harness.manager.create(
+        harness.callbacks, 800, 600));
+
+    SplitTree split_tree;
+    const LeafId owner = split_tree.reset(800, 600);
+    const LeafId preview
+        = split_tree.split_leaf(
+            owner, SplitDirection::Horizontal);
+    REQUIRE(preview != kInvalidLeaf);
+    auto tree_snapshot = split_tree.snapshot();
+    REQUIRE(tree_snapshot.root);
+    tree_snapshot.root->ratio = 2.0f / 3.0f;
+
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = std::move(tree_snapshot);
+    projected.panes = {
+        {
+            .leaf_id = owner,
+            .launch = {
+                .kind = HostKind::Kanban,
+                .client_host_kind = "kanban",
+            },
+            .pane_id = "kanban-pane",
+        },
+        {
+            .leaf_id = preview,
+            .launch = {
+                .kind = HostKind::Markdown,
+                .source_path = "D:/cards/one.md",
+                .client_host_kind = "markdown",
+                .companion_owner_pane_id = "kanban-pane",
+            },
+            .pane_id = "preview-pane",
+        },
+    };
+
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    CHECK(harness.manager.has_markdown_preview());
+    CHECK(harness.manager.markdown_preview_leaf() == preview);
+    const size_t hosts_after_restore
+        = harness.created_hosts.size();
+    auto* preview_host = dynamic_cast<LifetimeTestHost*>(
+        harness.manager.host_for(preview));
+    REQUIRE(preview_host);
+
+    projected.panes[1].launch.source_path
+        = "D:/cards/two.md";
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    CHECK(harness.created_hosts.size()
+        == hosts_after_restore);
+    REQUIRE(preview_host->dispatched_actions.size() == 1);
+    CHECK(preview_host->dispatched_actions.back()
+        == "open_file:D:/cards/two.md");
+}
+
 TEST_CASE("pane manager: projected divider drag previews and reports locally",
     "[pane_manager][topology]")
 {
