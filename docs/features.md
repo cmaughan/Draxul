@@ -102,8 +102,9 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   named pipes and Unix-domain sockets both serve four clients concurrently. Windows
   pipes reject remote SMB clients, retain the first pipe instance for the server
   lifetime, and use identification-level client impersonation. Runtime metadata is
-  replaced atomically with owner-only permissions, and the Windows runtime directory
-  has an explicit protected owner-only DACL.
+  replaced atomically with current-user-only permissions, and the Windows runtime
+  directory and named pipes have protected DACLs tied to the user's SID rather than
+  the process owner, so elevated and non-elevated Draxul processes share one server.
   Client presence, Sessions, terminal dimensions, agent wait filters, and stale
   delivery queues are bounded. Server, topology, and agent parsing range-checks
   narrowing integers; status values and client identifiers are also bounded and

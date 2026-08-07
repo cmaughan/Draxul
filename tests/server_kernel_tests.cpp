@@ -1581,6 +1581,31 @@ TEST_CASE("server client classifies absent starting stale and crashed runtimes",
     REQUIRE(ServerClient::probe(options).state == ServerProbeState::Crashed);
 }
 
+TEST_CASE("server discovery reports runtime inspection failures without throwing",
+    "[server][discovery][recovery]")
+{
+    TempDir temp("draxul-server-runtime-inspection");
+    const auto blocker = temp.path / "not-a-directory";
+    {
+        std::ofstream output(blocker);
+        REQUIRE(output.good());
+        output << "block runtime traversal";
+    }
+
+    auto options = probe_options(blocker / "runtime");
+    ServerProbeResult probe;
+    REQUIRE_NOTHROW(probe = ServerClient::probe(options));
+    CHECK(probe.state == ServerProbeState::LaunchFailed);
+    CHECK(probe.error_code == "runtime_unavailable");
+    CHECK_FALSE(probe.error_message.empty());
+
+    options.launch_if_missing = true;
+    ServerProbeResult ensured;
+    REQUIRE_NOTHROW(ensured = ServerClient::ensure(options));
+    CHECK(ensured.state == ServerProbeState::LaunchFailed);
+    CHECK(ensured.error_code == "runtime_unavailable");
+}
+
 TEST_CASE("server discovery rejects recycled process identities and expires starting markers",
     "[server][discovery][recovery]")
 {

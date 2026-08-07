@@ -53,6 +53,10 @@ public:
     {
         return { pixel_w_, pixel_h_ };
     }
+    bool is_minimized() const override
+    {
+        return minimized_;
+    }
     float display_ppi() const override
     {
         return display_ppi_;
@@ -84,6 +88,7 @@ public:
     int logical_w_ = 800;
     int logical_h_ = 600;
     float display_ppi_ = 96.0f;
+    bool minimized_ = false;
 
     // Recorded state — read by tests.
     std::string clipboard_;
@@ -99,6 +104,7 @@ public:
         opened_urls_.clear();
         queued_close_request_ = false;
         queued_resize_.reset();
+        minimized_ = false;
     }
 
     void queue_close_request()

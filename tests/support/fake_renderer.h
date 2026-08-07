@@ -67,9 +67,13 @@ public:
     void shutdown() override {}
     IFrameContext* begin_frame() override
     {
+        ++begin_frame_calls;
         return &frame_context;
     }
-    void end_frame() override {}
+    void end_frame() override
+    {
+        ++end_frame_calls;
+    }
     std::unique_ptr<IGridHandle> create_grid_handle() override
     {
         ++create_grid_handle_calls;
@@ -153,6 +157,8 @@ public:
     int last_cell_h = 16;
     int last_ascender = 0;
     int set_cell_size_calls = 0;
+    int begin_frame_calls = 0;
+    int end_frame_calls = 0;
     FakeFrameContext frame_context;
 
     void reset()
@@ -170,6 +176,8 @@ public:
         last_cell_h = 16;
         last_ascender = 0;
         set_cell_size_calls = 0;
+        begin_frame_calls = 0;
+        end_frame_calls = 0;
     }
 };
 

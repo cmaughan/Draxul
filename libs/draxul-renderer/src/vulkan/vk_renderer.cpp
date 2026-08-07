@@ -597,6 +597,9 @@ bool VkRenderer::create_descriptor_pool(VkDescriptorPool& pool)
 bool VkRenderer::recreate_frame_resources()
 {
     PERF_MEASURE();
+    if (pixel_w_ <= 0 || pixel_h_ <= 0)
+        return false;
+
     PendingSwapchainResources pending_swapchain;
     if (!ctx_.build_swapchain_resources(pixel_w_, pixel_h_, pending_swapchain))
         return false;
@@ -676,6 +679,8 @@ void VkRenderer::update_atlas_region(int x, int y, int w, int h, const uint8_t* 
 void VkRenderer::resize(int pixel_w, int pixel_h)
 {
     PERF_MEASURE();
+    if (pixel_w <= 0 || pixel_h <= 0)
+        return;
     pixel_w_ = pixel_w;
     pixel_h_ = pixel_h;
     framebuffer_resized_ = true;

@@ -26,6 +26,7 @@
 #include <mutex>
 #include <optional>
 #include <thread>
+#include <vector>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -130,9 +131,25 @@ ControlClientResult request_while_pumping(App& app,
 }
 
 #ifdef _WIN32
-bool owner_only_windows_dacl(
-    const std::filesystem::path& path)
+bool current_user_only_windows_dacl(
+    const std::filesystem::path& path,
+    bool require_child_inheritance = false)
 {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+        return false;
+    DWORD token_bytes = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &token_bytes);
+    std::vector<BYTE> token_buffer(token_bytes);
+    const bool token_read = token_bytes != 0
+        && GetTokenInformation(token, TokenUser, token_buffer.data(),
+            token_bytes, &token_bytes);
+    CloseHandle(token);
+    if (!token_read)
+        return false;
+    const auto* token_user
+        = reinterpret_cast<const TOKEN_USER*>(token_buffer.data());
+
     PACL dacl = nullptr;
     PSECURITY_DESCRIPTOR descriptor = nullptr;
     const DWORD result = GetNamedSecurityInfoW(
@@ -151,6 +168,8 @@ bool owner_only_windows_dacl(
     bool secure = GetSecurityDescriptorControl(
                       descriptor, &control, &revision)
         && (control & SE_DACL_PROTECTED) != 0;
+    bool current_user_allowed = false;
+    bool current_user_inherits = false;
     ACL_SIZE_INFORMATION information{};
     secure = secure && GetAclInformation(dacl, &information, sizeof(information), AclSizeInformation);
     for (DWORD index = 0;
@@ -170,16 +189,22 @@ bool owner_only_windows_dacl(
                 encoded)
                        ->SidStart;
         }
-        if (sid
-            && (IsWellKnownSid(sid, WinWorldSid)
-                || IsWellKnownSid(
-                    sid, WinAuthenticatedUserSid)
-                || IsWellKnownSid(
-                    sid, WinBuiltinUsersSid)))
+        if (!sid)
+            continue;
+        if (EqualSid(sid, token_user->User.Sid))
+        {
+            current_user_allowed = true;
+            current_user_inherits = current_user_inherits
+                || ((header->AceFlags & OBJECT_INHERIT_ACE) != 0
+                    && (header->AceFlags & CONTAINER_INHERIT_ACE) != 0);
+        }
+        else if (!IsWellKnownSid(sid, WinLocalSystemSid))
         {
             secure = false;
         }
     }
+    secure = secure && current_user_allowed
+        && (!require_child_inheritance || current_user_inherits);
     LocalFree(descriptor);
     return secure;
 }
@@ -256,13 +281,13 @@ TEST_CASE("control CLI keeps agent argv structured and parses wait policy", "[co
         == "D:/runtime");
 }
 
-TEST_CASE("control metadata atomically replaces a pre-existing file with owner-only permissions",
+TEST_CASE("control metadata atomically replaces a pre-existing file with current-user-only permissions",
     "[control][security]")
 {
     const auto runtime = unique_runtime_directory();
     REQUIRE(std::filesystem::create_directories(runtime));
     const auto metadata = control_metadata_path(
-        runtime, "owner-only-metadata");
+        runtime, "current-user-only-metadata");
     {
         std::ofstream previous(metadata, std::ios::binary);
         previous << "stale and permissive";
@@ -273,12 +298,12 @@ TEST_CASE("control metadata atomically replaces a pre-existing file with owner-o
 
     ControlServer server;
     std::string error;
-    REQUIRE(server.start("owner-only-metadata", runtime, [] {}, &error));
+    REQUIRE(server.start("current-user-only-metadata", runtime, [] {}, &error));
     INFO(error);
     REQUIRE(std::filesystem::exists(metadata));
 #ifdef _WIN32
-    CHECK(owner_only_windows_dacl(runtime));
-    CHECK(owner_only_windows_dacl(metadata));
+    CHECK(current_user_only_windows_dacl(runtime, true));
+    CHECK(current_user_only_windows_dacl(metadata));
 #else
     struct stat metadata_stat{};
     REQUIRE(::stat(metadata.c_str(), &metadata_stat) == 0);

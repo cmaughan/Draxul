@@ -65,6 +65,29 @@ namespace
 {
 
 #ifdef _WIN32
+void ensure_valid_standard_stream(FILE* stream, DWORD standard_handle,
+    const char* mode)
+{
+    const HANDLE handle = GetStdHandle(standard_handle);
+    if (handle != nullptr && handle != INVALID_HANDLE_VALUE)
+        return;
+
+    // A WIN32_EXECUTABLE launched from Explorer has no standard handles.
+    // UCRT treats writes to those unbound FILE streams as an invalid-parameter
+    // failure and terminates the process, so give diagnostics a harmless sink
+    // until --console attaches or allocates a real console below.
+    FILE* replacement = nullptr;
+    freopen_s(&replacement, "NUL", mode, stream);
+}
+
+void ensure_valid_standard_io()
+{
+    ensure_valid_standard_stream(
+        stdout, STD_OUTPUT_HANDLE, "w");
+    ensure_valid_standard_stream(
+        stderr, STD_ERROR_HANDLE, "w");
+}
+
 void ensure_console_io(bool allow_alloc_console)
 {
     static bool configured = false;
@@ -730,7 +753,11 @@ static int draxul_main(std::vector<std::string> args)
                 || server_result.state == draxul::ServerProbeState::Starting
                 || server_result.state
                     == draxul::ServerProbeState::Incompatible;
-            const std::string remediation = server_probably_alive
+            const std::string remediation
+                = server_result.error_code == "runtime_unavailable"
+                ? "\n\nCheck that your user account can access "
+                    + connected_server_runtime.string() + "."
+                : server_probably_alive
                 ? "\n\nThe existing server was left running. "
                   "Stop it explicitly before retrying."
                 : "\n\nNo running server was found. See "
@@ -1135,6 +1162,7 @@ static int draxul_main(std::vector<std::string> args)
 #ifdef _WIN32
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
+    ensure_valid_standard_io();
     return draxul_main(command_line_args());
 }
 #else

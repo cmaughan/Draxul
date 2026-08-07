@@ -50,6 +50,65 @@ namespace
 
 constexpr auto kIoTimeout = std::chrono::seconds(5);
 
+#ifdef _WIN32
+bool create_current_user_security_descriptor(
+    PSECURITY_DESCRIPTOR& descriptor, std::string& error,
+    bool inherit_to_children = false)
+{
+    descriptor = nullptr;
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+    {
+        error = "Unable to open the current Windows user token.";
+        return false;
+    }
+
+    DWORD token_bytes = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &token_bytes);
+    if (token_bytes == 0)
+    {
+        CloseHandle(token);
+        error = "Unable to size the current Windows user identity.";
+        return false;
+    }
+    std::vector<BYTE> token_buffer(token_bytes);
+    if (!GetTokenInformation(token, TokenUser, token_buffer.data(),
+            token_bytes, &token_bytes))
+    {
+        CloseHandle(token);
+        error = "Unable to read the current Windows user identity.";
+        return false;
+    }
+    CloseHandle(token);
+
+    const auto* token_user
+        = reinterpret_cast<const TOKEN_USER*>(token_buffer.data());
+    LPWSTR sid_text = nullptr;
+    if (!ConvertSidToStringSidW(token_user->User.Sid, &sid_text))
+    {
+        error = "Unable to encode the current Windows user identity.";
+        return false;
+    }
+    const std::wstring ace_flags
+        = inherit_to_children ? L"OICI" : L"";
+    // OWNER RIGHTS follows the object's default owner, which is commonly the
+    // Administrators group for an elevated process. Bind the private endpoint
+    // to TokenUser instead so elevated and standard processes for the same
+    // Windows account share one runtime without granting access to other users.
+    const std::wstring sddl
+        = L"D:P(A;" + ace_flags + L";GA;;;SY)(A;" + ace_flags
+        + L";GA;;;" + std::wstring(sid_text) + L")";
+    LocalFree(sid_text);
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.c_str(), SDDL_REVISION_1, &descriptor, nullptr))
+    {
+        error = "Unable to create the current-user security descriptor.";
+        return false;
+    }
+    return true;
+}
+#endif
+
 uint64_t fnv1a(std::string_view text)
 {
     uint64_t hash = 14695981039346656037ull;
@@ -240,7 +299,7 @@ ControlMethodResult parse_request(std::string_view bytes,
     }
     // Preserve the correlation id even for authentication failures. This lets
     // a client distinguish a stale cached token after a server restart and
-    // safely retry after re-reading owner-only endpoint metadata.
+    // safely retry after re-reading current-user-only endpoint metadata.
     request.id = envelope["id"].get<std::string>();
     if (!envelope.contains("token") || !envelope["token"].is_string()
         || envelope["token"].get_ref<const std::string&>() != expected_token)
@@ -283,18 +342,17 @@ ControlMethodResult parse_request(std::string_view bytes,
     return ControlMethodResult::success(nullptr);
 }
 
-bool write_owner_only_file(
+bool write_current_user_file(
     const std::filesystem::path& path, std::string_view contents, std::string& error)
 {
     std::filesystem::path temporary = path;
     temporary += ".tmp-" + random_token();
 #ifdef _WIN32
     PSECURITY_DESCRIPTOR descriptor = nullptr;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"D:P(A;;GA;;;SY)(A;;GA;;;OW)",
-            SDDL_REVISION_1, &descriptor, nullptr))
+    if (!create_current_user_security_descriptor(descriptor, error))
     {
-        error = "Unable to create control metadata security descriptor.";
+        error = "Unable to create control metadata security descriptor: "
+            + error;
         return false;
     }
     SECURITY_ATTRIBUTES attributes{
@@ -405,15 +463,13 @@ bool write_owner_only_file(
 }
 
 #ifdef _WIN32
-bool apply_owner_only_security(
+bool apply_current_user_security(
     const std::filesystem::path& path, std::string& error)
 {
     PSECURITY_DESCRIPTOR descriptor = nullptr;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"D:P(A;;GA;;;SY)(A;;GA;;;OW)",
-            SDDL_REVISION_1, &descriptor, nullptr))
+    if (!create_current_user_security_descriptor(
+            descriptor, error, true))
     {
-        error = "Unable to create the owner-only security descriptor.";
         return false;
     }
     const bool secured = SetFileSecurityW(path.c_str(),
@@ -1089,7 +1145,7 @@ bool ControlServer::Impl::start(std::string new_session_id,
     }
 #ifdef _WIN32
     std::string directory_security_error;
-    if (!apply_owner_only_security(
+    if (!apply_current_user_security(
             runtime_directory, directory_security_error))
     {
         if (error)
@@ -1147,7 +1203,7 @@ bool ControlServer::Impl::start(std::string new_session_id,
     metadata_extra["token"] = token;
     const std::string metadata_bytes = metadata_extra.dump();
     std::string write_error;
-    if (!write_owner_only_file(metadata, metadata_bytes, write_error))
+    if (!write_current_user_file(metadata, metadata_bytes, write_error))
     {
         if (error)
             *error = std::move(write_error);
@@ -1314,11 +1370,13 @@ void ControlServer::Impl::process_pending(const Handler& handler)
 void ControlServer::Impl::run(std::stop_token stop_token)
 {
     PSECURITY_DESCRIPTOR descriptor = nullptr;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"D:P(A;;GA;;;SY)(A;;GA;;;OW)",
-            SDDL_REVISION_1, &descriptor, nullptr))
+    std::string descriptor_error;
+    if (!create_current_user_security_descriptor(
+            descriptor, descriptor_error))
     {
-        report_startup("Unable to build the control pipe security descriptor.");
+        report_startup(
+            "Unable to build the control pipe security descriptor: "
+            + descriptor_error);
         active = false;
         return;
     }

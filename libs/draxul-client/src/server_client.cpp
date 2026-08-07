@@ -161,6 +161,7 @@ bool process_identity_matches(
 
 struct RuntimeEvidence
 {
+    std::string inspection_error;
     bool metadata_exists = false;
     bool metadata_valid = false;
     bool metadata_version_mismatch = false;
@@ -182,7 +183,16 @@ RuntimeEvidence inspect_runtime(const std::filesystem::path& runtime_directory)
 {
     RuntimeEvidence evidence;
     const auto metadata_path = server_metadata_path(runtime_directory);
-    evidence.metadata_exists = std::filesystem::exists(metadata_path);
+    std::error_code metadata_error;
+    evidence.metadata_exists
+        = std::filesystem::exists(metadata_path, metadata_error);
+    if (metadata_error)
+    {
+        evidence.inspection_error
+            = "Unable to inspect the Draxul server runtime directory: "
+            + metadata_error.message();
+        return evidence;
+    }
     if (const auto metadata = read_bounded_json(metadata_path))
     {
         if (metadata->contains("version")
@@ -242,9 +252,16 @@ RuntimeEvidence inspect_runtime(const std::filesystem::path& runtime_directory)
 
     const uint64_t now = current_unix_time_ms();
     std::error_code iteration_error;
-    if (!std::filesystem::is_directory(runtime_directory, iteration_error)
-        || iteration_error)
+    if (!std::filesystem::is_directory(runtime_directory, iteration_error))
+    {
+        if (iteration_error)
+        {
+            evidence.inspection_error
+                = "Unable to inspect the Draxul server runtime directory: "
+                + iteration_error.message();
+        }
         return evidence;
+    }
     for (std::filesystem::directory_iterator it(runtime_directory, iteration_error);
         !iteration_error && it != std::filesystem::directory_iterator();
         it.increment(iteration_error))
@@ -292,6 +309,12 @@ RuntimeEvidence inspect_runtime(const std::filesystem::path& runtime_directory)
             std::error_code remove_error;
             std::filesystem::remove(it->path(), remove_error);
         }
+    }
+    if (iteration_error)
+    {
+        evidence.inspection_error
+            = "Unable to inspect the Draxul server runtime directory: "
+            + iteration_error.message();
     }
     return evidence;
 }
@@ -430,6 +453,14 @@ std::string make_server_client_id()
 ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
 {
     const RuntimeEvidence evidence = inspect_runtime(options.runtime_directory);
+    if (!evidence.inspection_error.empty())
+    {
+        return {
+            .state = ServerProbeState::LaunchFailed,
+            .error_code = "runtime_unavailable",
+            .error_message = evidence.inspection_error,
+        };
+    }
     if (!evidence.metadata_exists)
         return unavailable_result(evidence, "endpoint_unavailable",
             "No Draxul server endpoint is published.");
@@ -524,6 +555,7 @@ ServerProbeResult ServerClient::ensure(const ServerEnsureOptions& options)
     ServerProbeResult current = probe(effective);
     if (current.ready()
         || current.state == ServerProbeState::Incompatible
+        || current.error_code == "runtime_unavailable"
         || !options.launch_if_missing)
     {
         return current;
@@ -553,7 +585,8 @@ ServerProbeResult ServerClient::ensure(const ServerEnsureOptions& options)
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
         current = probe(effective);
         if (current.ready()
-            || current.state == ServerProbeState::Incompatible)
+            || current.state == ServerProbeState::Incompatible
+            || current.error_code == "runtime_unavailable")
         {
             return current;
         }

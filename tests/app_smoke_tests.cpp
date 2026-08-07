@@ -626,6 +626,33 @@ TEST_CASE("app smoke: queued window resize updates the host viewport", "[app_smo
     app.shutdown();
 }
 
+TEST_CASE("app smoke: rendering pauses while minimized and resumes after restore", "[app_smoke]")
+{
+    const std::string font = bundled_font_path();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    g_last_fake_renderer = nullptr;
+    g_last_fake_window = nullptr;
+    App app(make_smoke_options());
+    REQUIRE(app.initialize());
+    REQUIRE(g_last_fake_renderer != nullptr);
+    REQUIRE(g_last_fake_window != nullptr);
+
+    g_last_fake_renderer->reset();
+    g_last_fake_window->minimized_ = true;
+    REQUIRE_FALSE(app.run_smoke_test(std::chrono::milliseconds(20)));
+    CHECK(g_last_fake_renderer->begin_frame_calls == 0);
+    CHECK(g_last_fake_renderer->end_frame_calls == 0);
+
+    g_last_fake_window->minimized_ = false;
+    REQUIRE(app.run_smoke_test(std::chrono::milliseconds(100)));
+    CHECK(g_last_fake_renderer->begin_frame_calls == 1);
+    CHECK(g_last_fake_renderer->end_frame_calls == 1);
+
+    app.shutdown();
+}
+
 TEST_CASE("app smoke: shutdown after successful init is clean", "[app_smoke]")
 {
     const std::string font = bundled_font_path();

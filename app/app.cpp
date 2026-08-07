@@ -2165,6 +2165,12 @@ void App::rebuild_render_tree()
 bool App::render_frame()
 {
     PERF_MEASURE();
+    // A minimized Vulkan surface is not drawable. In particular, rebuilding
+    // or presenting its swapchain can enter unstable platform-driver paths.
+    // Preserve the request so the restored window paints immediately.
+    if (window_->is_minimized())
+        return false;
+
     // Consume the current request up front so any nested request_frame() calls
     // made during this frame schedule a follow-up frame instead of being
     // cleared at the end of the render.
@@ -2301,7 +2307,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         }
         input_dispatcher_.set_host(active_pane_manager().focused_host());
 
-        if (frame_requested_)
+        if (frame_requested_ && !window_->is_minimized())
         {
             render_frame();
             return running_;
@@ -2355,6 +2361,10 @@ void App::refresh_system_resource_snapshot(std::chrono::steady_clock::time_point
 void App::on_resize(int pixel_w, int pixel_h)
 {
     PERF_MEASURE();
+    // Some platforms report a zero-sized drawable while minimizing. Keep the
+    // last valid layout and let the restore event/safety-net supply its size.
+    if (pixel_w <= 0 || pixel_h <= 0)
+        return;
     if (pixel_w == last_pixel_w_ && pixel_h == last_pixel_h_)
         return;
     pending_window_resize_ = std::pair{ pixel_w, pixel_h };
