@@ -365,6 +365,17 @@ set_tests_properties(draxul-do-py-tests
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
 
+add_test(
+    NAME draxul-review-skill-py-tests
+    COMMAND ${Python3_EXECUTABLE} -m unittest tests.review_skill_tests
+)
+set_tests_properties(draxul-review-skill-py-tests
+    PROPERTIES
+        LABELS "unit;python"
+        TIMEOUT 120
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+
 if(DRAXUL_ENABLE_SATVIEW)
     add_test(
         NAME draxul-satview-catalog-py-tests
@@ -419,6 +430,7 @@ add_dependencies(draxul-tests
     draxul-client-link-isolation
     draxul-server-link-isolation
 )
+
 target_compile_definitions(draxul-test-core PRIVATE
     DRAXUL_EXECUTABLE_PATH="$<TARGET_FILE:draxul>"
 )

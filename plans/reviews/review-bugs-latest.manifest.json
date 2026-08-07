@@ -1,0 +1,60 @@
+{
+  "finished_at": "2026-08-07T15:58:45.710118+00:00",
+  "kind": "review",
+  "name": "review-bugs",
+  "prompt": "D:\\dev\\Draxul\\plans\\prompts\\review_bugs.md",
+  "reviewers": [
+    {
+      "company": "xai",
+      "duration_seconds": 361.625,
+      "error": "",
+      "fallback_reason": "",
+      "model": "grok-4.5",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs\\20260807T153949Z-review-bugs-90b8bd63\\reports\\xai.grok.grok-4-5.md",
+      "requested": "grok",
+      "sandbox_fallback": "",
+      "sha256": "df28420ec1ed3d3dd0dde0ea08e9362898b6092d9211ddd338ecaf0d22787f09",
+      "status": "passed",
+      "transport": "grok",
+      "version": "grok 1.0.0 (3cd0d0cbce) [stable]"
+    },
+    {
+      "company": "openai",
+      "duration_seconds": 1079.203,
+      "error": "",
+      "fallback_reason": "",
+      "model": "gpt-5.6-sol",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs\\20260807T153949Z-review-bugs-90b8bd63\\reports\\openai.codex.gpt-5-6-sol.md",
+      "requested": "codex",
+      "sandbox_fallback": "Windows sandbox failed to create a child process with error 1312; retried without the OS sandbox inside the disposable repository snapshot. The review-only prompt and snapshot boundary remained in force.",
+      "sha256": "1eb77ab308e45c44ebbb8d49d5ff09f92fb9c7f4a0b3d622a4dcf2db71260a1b",
+      "status": "passed",
+      "transport": "codex",
+      "version": "codex-cli 0.146.1"
+    },
+    {
+      "company": "anthropic",
+      "duration_seconds": 898.296,
+      "error": "",
+      "fallback_reason": "",
+      "model": "opus",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs\\20260807T153949Z-review-bugs-90b8bd63\\reports\\anthropic.claude.opus.md",
+      "requested": "claude",
+      "sandbox_fallback": "",
+      "sha256": "f7894a9c786028121381e4de862ad3218eae117ae3795d07e48a08827d29c04c",
+      "status": "passed",
+      "transport": "claude",
+      "version": "2.1.224 (Claude Code)"
+    }
+  ],
+  "run_id": "20260807T153949Z-review-bugs-90b8bd63",
+  "schema_version": 1,
+  "started_at": "2026-08-07T15:39:49.775159+00:00",
+  "status": "complete"
+}

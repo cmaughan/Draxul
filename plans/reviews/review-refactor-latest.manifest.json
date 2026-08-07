@@ -1,0 +1,60 @@
+{
+  "finished_at": "2026-08-07T13:24:00.555637+00:00",
+  "kind": "review",
+  "name": "review-refactor",
+  "prompt": "D:\\dev\\Draxul\\plans\\prompts\\review_refactor.md",
+  "reviewers": [
+    {
+      "company": "xai",
+      "duration_seconds": 266.922,
+      "error": "",
+      "fallback_reason": "",
+      "model": "grok-4.5",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs\\20260807T130818Z-review-refactor-f8bc8848\\reports\\xai.grok.grok-4-5.md",
+      "requested": "grok",
+      "sandbox_fallback": "",
+      "sha256": "d16d3a8ee6b8b046c228881e9dc959853347083023bc3395e833a2033c7a1dd1",
+      "status": "passed",
+      "transport": "grok",
+      "version": "grok 0.2.118 (1e1687c1cf) [stable]"
+    },
+    {
+      "company": "openai",
+      "duration_seconds": 880.922,
+      "error": "",
+      "fallback_reason": "",
+      "model": "gpt-5.6-sol",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs\\20260807T130818Z-review-refactor-f8bc8848\\reports\\openai.codex.gpt-5-6-sol.md",
+      "requested": "codex",
+      "sandbox_fallback": "Windows sandbox failed to create a child process with error 1312; retried without the OS sandbox inside the disposable repository snapshot. The review-only prompt and snapshot boundary remained in force.",
+      "sha256": "b9e2214540b5738287c27448c4d9d3bafbba949410694804a8af541610a3c77b",
+      "status": "passed",
+      "transport": "codex",
+      "version": "codex-cli 0.146.1"
+    },
+    {
+      "company": "anthropic",
+      "duration_seconds": 877.234,
+      "error": "",
+      "fallback_reason": "",
+      "model": "opus",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs\\20260807T130818Z-review-refactor-f8bc8848\\reports\\anthropic.claude.opus.md",
+      "requested": "claude",
+      "sandbox_fallback": "",
+      "sha256": "2bd0a70290d4dc333863692ded1c080571cfb2617fba05445c5951b050d702d2",
+      "status": "passed",
+      "transport": "claude",
+      "version": "2.1.224 (Claude Code)"
+    }
+  ],
+  "run_id": "20260807T130818Z-review-refactor-f8bc8848",
+  "schema_version": 1,
+  "started_at": "2026-08-07T13:08:18.643134+00:00",
+  "status": "complete"
+}

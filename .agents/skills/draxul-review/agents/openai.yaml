@@ -1,0 +1,4 @@
+interface:
+  display_name: "Draxul Multi-AI Review"
+  short_description: "Run and synthesize independent AI code reviews"
+  default_prompt: "Use $draxul-review to run independent code reviews from three AI companies."

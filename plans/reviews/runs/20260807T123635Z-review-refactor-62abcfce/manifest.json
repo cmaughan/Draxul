@@ -1,0 +1,60 @@
+{
+  "finished_at": "2026-08-07T12:51:29.224994+00:00",
+  "kind": "review",
+  "name": "review-refactor",
+  "prompt": "D:\\dev\\Draxul\\plans\\prompts\\review_refactor.md",
+  "reviewers": [
+    {
+      "company": "xai",
+      "duration_seconds": 299.5,
+      "error": "",
+      "fallback_reason": "",
+      "model": "grok-4.5",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs\\20260807T123635Z-review-refactor-62abcfce\\reports\\xai.grok.grok-4-5.md",
+      "requested": "grok",
+      "sandbox_fallback": "",
+      "sha256": "2baf8000088f54dac3237a84e14cb8358733df2f6c2e4b07cb7885dcda7ed4ff",
+      "status": "passed",
+      "transport": "grok",
+      "version": "grok 0.2.118 (1e1687c1cf) [stable]"
+    },
+    {
+      "company": "openai",
+      "duration_seconds": 172.016,
+      "error": "",
+      "fallback_reason": "",
+      "model": "gpt-5.6-sol",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs\\20260807T123635Z-review-refactor-62abcfce\\reports\\openai.codex.gpt-5-6-sol.md",
+      "requested": "codex",
+      "sandbox_fallback": "Windows elevated sandbox failed to create a process with error 1312; retried with the unelevated Windows sandbox while retaining read-only mode.",
+      "sha256": "0ef1a41b8589eac37bd3c0b52334f3616c34203b3b58b538e534304019dce50e",
+      "status": "passed",
+      "transport": "codex",
+      "version": "codex-cli 0.146.1"
+    },
+    {
+      "company": "anthropic",
+      "duration_seconds": 838.422,
+      "error": "",
+      "fallback_reason": "",
+      "model": "opus",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs\\20260807T123635Z-review-refactor-62abcfce\\reports\\anthropic.claude.opus.md",
+      "requested": "claude",
+      "sandbox_fallback": "",
+      "sha256": "783536ea6d46bfda2dfb2928af8db9677a55aa9f7ce592710e8bae5227f14e81",
+      "status": "passed",
+      "transport": "claude",
+      "version": "2.1.224 (Claude Code)"
+    }
+  ],
+  "run_id": "20260807T123635Z-review-refactor-62abcfce",
+  "schema_version": 1,
+  "started_at": "2026-08-07T12:36:35.399928+00:00",
+  "status": "complete"
+}
