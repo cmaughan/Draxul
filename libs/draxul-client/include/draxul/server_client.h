@@ -73,6 +73,17 @@ std::filesystem::path server_metadata_path(
     const std::filesystem::path& runtime_directory);
 std::string make_server_client_id();
 
+#ifdef _WIN32
+// Windows locks a running executable against linker replacement. The shared
+// server therefore runs from a sibling copy while draxul.exe remains free for
+// normal UI rebuilds. These helpers also let the server's tray surface route
+// UI launches back to the client executable.
+std::filesystem::path windows_server_helper_executable(
+    const std::filesystem::path& client_executable);
+std::filesystem::path windows_client_executable(
+    const std::filesystem::path& current_executable);
+#endif
+
 class ServerClient
 {
 public:

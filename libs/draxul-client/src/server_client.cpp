@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <iterator>
 #include <limits>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <random>
@@ -73,6 +74,70 @@ std::optional<std::string> process_start_token(HANDLE process)
         = (static_cast<uint64_t>(created.dwHighDateTime) << 32)
         | created.dwLowDateTime;
     return std::to_string(value);
+}
+
+bool prepare_windows_server_helper(
+    const std::filesystem::path& client_executable,
+    std::filesystem::path& server_executable,
+    std::string& error)
+{
+    server_executable
+        = windows_server_helper_executable(client_executable);
+    if (server_executable == client_executable)
+        return true;
+
+    static std::mutex helper_refresh_mutex;
+    const std::lock_guard lock(helper_refresh_mutex);
+    std::error_code source_size_error;
+    std::error_code helper_size_error;
+    std::error_code source_time_error;
+    std::error_code helper_time_error;
+    const auto source_size = std::filesystem::file_size(
+        client_executable, source_size_error);
+    const auto helper_size = std::filesystem::file_size(
+        server_executable, helper_size_error);
+    const auto source_time = std::filesystem::last_write_time(
+        client_executable, source_time_error);
+    const auto helper_time = std::filesystem::last_write_time(
+        server_executable, helper_time_error);
+    if (!source_size_error && !helper_size_error
+        && !source_time_error && !helper_time_error
+        && source_size == helper_size
+        && source_time == helper_time)
+    {
+        return true;
+    }
+
+    const std::wstring temporary_name
+        = server_executable.wstring() + L".tmp-"
+        + std::to_wstring(GetCurrentProcessId()) + L"-"
+        + std::to_wstring(GetCurrentThreadId());
+    const std::filesystem::path temporary(temporary_name);
+    if (!CopyFileW(client_executable.wstring().c_str(),
+            temporary.wstring().c_str(), FALSE))
+    {
+        error = "Unable to stage the Windows Draxul server helper (error "
+            + std::to_string(GetLastError()) + ").";
+        return false;
+    }
+    if (!MoveFileExW(temporary.wstring().c_str(),
+            server_executable.wstring().c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        const DWORD move_error = GetLastError();
+        DeleteFileW(temporary.wstring().c_str());
+        error = "Unable to refresh the Windows Draxul server helper (error "
+            + std::to_string(move_error)
+            + "). Stop the existing server and retry.";
+        return false;
+    }
+    if (!source_time_error)
+    {
+        std::error_code timestamp_error;
+        std::filesystem::last_write_time(
+            server_executable, source_time, timestamp_error);
+    }
+    return true;
 }
 #endif
 
@@ -439,6 +504,31 @@ std::filesystem::path server_metadata_path(
     return control_metadata_path(runtime_directory,
         namespaced_control_id(kServerControlId, runtime_directory));
 }
+
+#ifdef _WIN32
+std::filesystem::path windows_server_helper_executable(
+    const std::filesystem::path& client_executable)
+{
+    if (_wcsicmp(client_executable.filename().c_str(),
+            L"draxul-server.exe") == 0)
+    {
+        return client_executable;
+    }
+    return client_executable.parent_path()
+        / "draxul-server.exe";
+}
+
+std::filesystem::path windows_client_executable(
+    const std::filesystem::path& current_executable)
+{
+    if (_wcsicmp(current_executable.filename().c_str(),
+            L"draxul-server.exe") != 0)
+    {
+        return current_executable;
+    }
+    return current_executable.parent_path() / "draxul.exe";
+}
+#endif
 
 std::string make_server_client_id()
 {
@@ -927,7 +1017,14 @@ bool ServerClient::launch_detached(
         return false;
     }
 #ifdef _WIN32
-    const std::wstring executable = executable_path.wstring();
+    std::filesystem::path server_executable;
+    if (!prepare_windows_server_helper(
+            executable_path, server_executable, error))
+    {
+        return false;
+    }
+    const std::wstring executable
+        = server_executable.wstring();
     std::wstring command = quote_windows_argument(executable)
         + L" --server --server-runtime-dir "
         + quote_windows_argument(runtime_directory.wstring());

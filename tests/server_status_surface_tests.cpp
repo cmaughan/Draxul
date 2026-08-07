@@ -1,8 +1,28 @@
 #include <catch2/catch_test_macros.hpp>
+#include <draxul/server_client.h>
 
 #include "server_status_surface.h"
 #ifdef __APPLE__
 #include "macos_server_status_surface.h"
+#endif
+
+#ifdef _WIN32
+TEST_CASE("Windows server helper leaves the client executable independent",
+    "[server][status-surface][lifecycle]")
+{
+    const std::filesystem::path client
+        = "D:/build/Release/draxul.exe";
+    const auto helper
+        = draxul::windows_server_helper_executable(client);
+    CHECK(helper
+        == "D:/build/Release/draxul-server.exe");
+    CHECK(draxul::windows_server_helper_executable(helper)
+        == helper);
+    CHECK(draxul::windows_client_executable(helper)
+        == client);
+    CHECK(draxul::windows_client_executable(client)
+        == client);
+}
 #endif
 
 using namespace draxul;

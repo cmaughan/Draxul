@@ -47,6 +47,11 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   existing server when reopened. The dialog tries graceful shutdown first and offers
   Force Stop only if that attempt fails. `server_status`, `open_server_log`, and
   `stop_server` expose the matching UI operations through the command palette.
+- On Windows the server runs from a sibling `draxul-server.exe` copy that is refreshed
+  only when a server is started. The UI executable therefore remains replaceable while
+  the server is running, so normal development builds can relink `draxul.exe` without
+  first shutting down persistent terminal Sessions. macOS uses the corresponding nested
+  helper executable inside the application bundle.
 - Graceful shutdown refuses to stop a server with live terminals unless the action is
   explicitly confirmed. CLI shutdown therefore uses `--shutdown-server --yes`, while
   `--force-stop-server --yes` is reserved for an unresponsive server. Incompatible

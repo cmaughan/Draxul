@@ -320,6 +320,10 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
             .executable_path
             = draxul::macos_client_executable(
                 current_executable),
+#elif defined(_WIN32)
+            .executable_path
+            = draxul::windows_client_executable(
+                current_executable),
 #else
             .executable_path = current_executable,
 #endif
@@ -625,6 +629,37 @@ static int draxul_main(std::vector<std::string> args)
                 "Could not start the Draxul server helper.\n");
             return 1;
         }
+    }
+#endif
+#ifdef _WIN32
+    // Never leave the long-lived server inside draxul.exe: Windows prevents
+    // the linker from replacing a running image during ordinary UI rebuilds.
+    if (parsed.server
+        && draxul::windows_server_helper_executable(
+               current_executable)
+            != current_executable)
+    {
+        std::string launch_error;
+        if (!draxul::ServerClient::launch_detached({
+                .runtime_directory
+                = server_runtime_dir(parsed),
+                .executable_path = current_executable,
+                .terminal_shell_kind
+                = parsed.server_shell_kind,
+                .terminal_command
+                = parsed.server_command,
+                .terminal_working_directory
+                = parsed.server_working_dir,
+                .terminal_scrollback_lines
+                = parsed.server_scrollback_lines,
+            }, launch_error))
+        {
+            std::fprintf(stderr,
+                "Could not start the Draxul server helper: %s\n",
+                launch_error.c_str());
+            return 1;
+        }
+        return 0;
     }
 #endif
     if (parsed.server || parsed.server_status
