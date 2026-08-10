@@ -1008,9 +1008,9 @@ TEST_CASE("shared topology stores and updates client-local preview descriptors",
         .client_source_path = "kanban/pending/two.md",
     };
     REQUIRE(service.handle(
-                "topology.command",
-                topology_command_to_json(update))
-                .ok);
+                       "topology.command",
+                       topology_command_to_json(update))
+            .ok);
     const TopologyPane& updated = service.snapshot()
                                       .spaces.front()
                                       .tabs.front()
@@ -1579,6 +1579,18 @@ TEST_CASE("server client classifies absent starting stale and crashed runtimes",
                       .dump();
     }
     REQUIRE(ServerClient::probe(options).state == ServerProbeState::Crashed);
+}
+
+TEST_CASE("server discovery treats a missing runtime directory as absent",
+    "[server][discovery][recovery]")
+{
+    TempDir temp("draxul-server-missing-runtime");
+    const auto runtime = temp.path / "config" / "runtime" / "server-v1";
+    REQUIRE_FALSE(std::filesystem::exists(runtime));
+
+    const auto probe = ServerClient::probe(probe_options(runtime));
+    CHECK(probe.state == ServerProbeState::Absent);
+    CHECK(probe.error_code == "endpoint_unavailable");
 }
 
 TEST_CASE("server discovery reports runtime inspection failures without throwing",
