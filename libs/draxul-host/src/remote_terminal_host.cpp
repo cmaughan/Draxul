@@ -186,6 +186,7 @@ public:
     Impl(RemoteTerminalHost& owner, RemoteTerminalHostOptions options)
         : owner_(owner)
         , options_(std::move(options))
+        , suspend_available_(options_.presentation_suspend_supported)
     {
     }
 
@@ -448,6 +449,23 @@ public:
         options_.terminal_id = std::move(terminal_id);
     }
 
+    void set_presentation_visible(bool visible)
+    {
+        if (presentation_visible_.exchange(visible) == visible)
+            return;
+        if (!visible)
+        {
+            std::lock_guard guard(mutex_);
+            published_state_.reset();
+        }
+        command_wake_.notify_one();
+    }
+
+    bool presentation_visible() const noexcept
+    {
+        return presentation_visible_;
+    }
+
 private:
     bool execute_command(
         const RemoteHostCommand& command, std::string& error)
@@ -483,7 +501,13 @@ private:
         scroll_offset_ = 0;
         scrollback_total_ = 0;
         scrollback_page_.reset();
-        publish_projection();
+        if (presentation_visible_)
+            publish_projection();
+        else
+        {
+            client_->take_grid_update();
+            client_->take_clipboard_write();
+        }
         DRAXUL_LOG_INFO(LogCategory::App,
             "Remote terminal client %s attached to the server terminal",
             options_.client_id.c_str());
@@ -541,6 +565,7 @@ private:
     {
         bool terminal_removed = false;
         bool attached = false;
+        bool suspended = false;
         while (!stopping_ && !terminal_removed)
         {
             if (!attached)
@@ -574,10 +599,28 @@ private:
             }
 
             std::deque<RemoteHostCommand> commands;
+            bool presentation_visible = true;
             {
                 std::unique_lock lock(mutex_);
-                command_wake_.wait_for(lock, kRemotePollInterval,
-                    [this] { return stopping_ || !commands_.empty(); });
+                if (suspended && !presentation_visible_
+                    && commands_.empty())
+                {
+                    command_wake_.wait(lock, [this] {
+                        return stopping_ || presentation_visible_
+                            || !commands_.empty();
+                    });
+                }
+                else
+                {
+                    command_wake_.wait_for(lock, kRemotePollInterval,
+                        [this] {
+                            return stopping_ || !commands_.empty()
+                                || (suspend_available_
+                                    && presentation_visible_
+                                        == presentation_suspended_);
+                        });
+                }
+                presentation_visible = presentation_visible_;
                 for (size_t count = 0;
                      count < kRemoteCommandsPerPoll && !commands_.empty();
                      ++count)
@@ -588,6 +631,112 @@ private:
             }
             if (stopping_)
                 break;
+
+            if (suspended
+                && (presentation_visible || !commands.empty()))
+            {
+                std::string error;
+                if (client_->resume(error))
+                {
+                    suspended = false;
+                    presentation_suspended_ = false;
+                    options_.recovery->note_connected(
+                        recovery_channel());
+                    scroll_offset_ = 0;
+                    scrollback_total_ = 0;
+                    scrollback_page_.reset();
+                    if (presentation_visible_)
+                        publish_projection();
+                    else
+                    {
+                        client_->take_grid_update();
+                        client_->take_clipboard_write();
+                    }
+                }
+                else
+                {
+                    std::string error_code
+                        = client_->last_error_code();
+                    if (error_code == "not_attached")
+                    {
+                        if (recover_attachment(error))
+                        {
+                            attached = true;
+                            suspended = false;
+                            presentation_suspended_ = false;
+                            continue;
+                        }
+                        error_code = client_->last_error_code();
+                    }
+                    if (is_removed_remote_terminal(error_code))
+                    {
+                        terminal_removed = true;
+                        break;
+                    }
+                    if (needs_identity_refresh(error_code))
+                    {
+                        std::string refresh_error;
+                        if (!refresh_epoch(refresh_error))
+                            error = std::move(refresh_error);
+                        attached = false;
+                        suspended = false;
+                        presentation_suspended_ = false;
+                        continue;
+                    }
+                    const auto delay
+                        = note_recoverable_failure(error_code, error);
+                    wait_for_retry(delay);
+                    continue;
+                }
+            }
+
+            if (!suspended && !presentation_visible
+                && commands.empty() && suspend_available_)
+            {
+                std::string error;
+                if (client_->suspend(
+                        error, next_remote_request_id()))
+                {
+                    suspended = true;
+                    presentation_suspended_ = true;
+                    options_.recovery->note_connected(
+                        recovery_channel());
+                    client_->take_grid_update();
+                    client_->take_clipboard_write();
+                    continue;
+                }
+                const std::string error_code
+                    = client_->last_error_code();
+                if (error_code == "unknown_method")
+                {
+                    suspend_available_ = false;
+                    DRAXUL_LOG_INFO(LogCategory::App,
+                        "Remote terminal presentation suspension is unavailable; retaining foreground polling");
+                }
+                else if (error_code == "not_attached")
+                {
+                    attached = false;
+                    continue;
+                }
+                else if (is_removed_remote_terminal(error_code))
+                {
+                    terminal_removed = true;
+                    break;
+                }
+                else if (is_transient_remote_error(error_code)
+                    || is_resynchronizing_client_error(error_code))
+                {
+                    const auto delay
+                        = note_recoverable_failure(error_code, error);
+                    wait_for_retry(delay);
+                    continue;
+                }
+                else
+                {
+                    suspend_available_ = false;
+                    publish_error_once(error_code, error);
+                }
+            }
 
             bool retry_batch = false;
             for (size_t command_index = 0;
@@ -678,6 +827,9 @@ private:
             if (stopping_ || terminal_removed)
                 break;
             if (retry_batch)
+                continue;
+
+            if (!presentation_visible_ && suspend_available_)
                 continue;
 
             bool changed = false;
@@ -786,7 +938,13 @@ private:
                         scrollback_page_.reset();
                     }
                 }
-                publish_projection();
+                if (presentation_visible_)
+                    publish_projection();
+                else
+                {
+                    client_->take_grid_update();
+                    client_->take_clipboard_write();
+                }
             }
         }
 
@@ -839,26 +997,26 @@ private:
             .clipboard_write = client_->take_clipboard_write(),
             .attach_latency = client_->last_attach_latency(),
         };
+        std::lock_guard guard(mutex_);
+        if (!presentation_visible_)
+            return;
+        if (published_state_)
         {
-            std::lock_guard guard(mutex_);
-            if (published_state_)
+            // The protocol projection has already advanced past the
+            // pending state's sequence. Preserve every unconsumed grid
+            // mutation by publishing the latest projection as a full
+            // update; otherwise the next poll can ACK cells the UI never
+            // observed.
+            if (published_state_->grid_update)
+                state.grid_update = full_grid_update(state.snapshot);
+            if (!state.clipboard_write
+                && published_state_->clipboard_write)
             {
-                // The protocol projection has already advanced past the
-                // pending state's sequence. Preserve every unconsumed grid
-                // mutation by publishing the latest projection as a full
-                // update; otherwise the next poll can ACK cells the UI never
-                // observed.
-                if (published_state_->grid_update)
-                    state.grid_update = full_grid_update(state.snapshot);
-                if (!state.clipboard_write
-                    && published_state_->clipboard_write)
-                {
-                    state.clipboard_write
-                        = std::move(published_state_->clipboard_write);
-                }
+                state.clipboard_write
+                    = std::move(published_state_->clipboard_write);
             }
-            published_state_ = std::move(state);
         }
+        published_state_ = std::move(state);
         std::lock_guard owner_guard(owner_callback_mutex_);
         if (stopping_)
             return;
@@ -955,6 +1113,9 @@ private:
     std::atomic<bool> running_ = false;
     std::atomic<bool> stopping_ = false;
     std::atomic<bool> reaper_started_ = false;
+    std::atomic<bool> presentation_visible_ = true;
+    std::atomic<bool> presentation_suspended_ = false;
+    std::atomic<bool> suspend_available_ = false;
     mutable std::mutex mutex_;
     std::mutex owner_callback_mutex_;
     std::mutex worker_exit_mutex_;
@@ -1210,6 +1371,16 @@ void RemoteTerminalHost::pump()
         callbacks().push_toast(1, error);
         last_error_ = std::move(error);
     }
+}
+
+void RemoteTerminalHost::set_presentation_visible(bool visible)
+{
+    impl_->set_presentation_visible(visible);
+}
+
+bool RemoteTerminalHost::requires_periodic_wake() const
+{
+    return impl_->presentation_visible() && is_running();
 }
 
 void RemoteTerminalHost::on_config_reloaded(
@@ -1859,6 +2030,8 @@ std::string RemoteTerminalHost::current_working_directory() const
 std::optional<std::chrono::steady_clock::time_point>
 RemoteTerminalHost::next_deadline() const
 {
+    if (!impl_->presentation_visible())
+        return std::nullopt;
     const auto remote_deadline
         = std::chrono::steady_clock::now() + kRemotePollInterval;
     const auto base_deadline = GridHostBase::next_deadline();

@@ -187,6 +187,7 @@ private:
         const AgentProjection& agent);
     void rebuild_agent_definitions();
     bool close_dead_panes();
+    void update_host_presentation_visibility();
     void rebuild_render_tree();
     bool render_frame();
     // The `print_pane` action: request a frame capture, then crop the focused

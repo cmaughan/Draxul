@@ -353,6 +353,51 @@ bool RemoteTerminalClient::attach(std::string& error)
     return true;
 }
 
+bool RemoteTerminalClient::suspend(
+    std::string& error, uint64_t request_id)
+{
+    auto params = client_params();
+    if (request_id != 0)
+        params["request_id"] = request_id;
+    nlohmann::json result;
+    return request(method("suspend"), std::move(params), result, error);
+}
+
+bool RemoteTerminalClient::resume(std::string& error)
+{
+    const auto started_at = std::chrono::steady_clock::now();
+    nlohmann::json result;
+    if (!request(method("resume"), client_params(), result, error))
+        return false;
+    std::string parse_error;
+    auto attach = remote_terminal_attach_from_json(result, parse_error);
+    if (!attach)
+    {
+        last_error_code_ = "invalid_resume";
+        error = std::move(parse_error);
+        return false;
+    }
+    const std::string expected_epoch = options_.recovery
+        ? options_.recovery->server_epoch()
+        : options_.expected_server_epoch;
+    if (!expected_epoch.empty()
+        && attach->state.version.server_epoch != expected_epoch)
+    {
+        last_error_code_ = "stale_epoch";
+        error = "Resumed server epoch does not match the negotiated server.";
+        return false;
+    }
+    if (!projection_.attach(*attach, error))
+    {
+        last_error_code_ = "invalid_resume";
+        return false;
+    }
+    last_attach_latency_
+        = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - started_at);
+    return true;
+}
+
 bool RemoteTerminalClient::poll(bool& changed, std::string& error)
 {
     changed = false;

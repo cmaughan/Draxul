@@ -23,6 +23,9 @@ struct RemoteTerminalServiceOptions
     std::string terminal_id;
     std::string name;
     std::string preferred_controller_client_id;
+    std::chrono::milliseconds loop_latency_warning_threshold{
+        std::chrono::milliseconds(100)
+    };
     std::function<void(uint64_t)> prepare_restart_generation;
 };
 
@@ -58,6 +61,7 @@ private:
         std::deque<std::shared_ptr<const EncodedEvent>> events;
         size_t queued_bytes = 0;
         bool needs_resync = false;
+        bool suspended = false;
     };
 
     bool read_client_id(
@@ -82,6 +86,8 @@ private:
     void publish_runtime_updates(bool terminal_changed);
 
     ControlMethodResult attach(const nlohmann::json& params);
+    ControlMethodResult suspend(const nlohmann::json& params);
+    ControlMethodResult resume(const nlohmann::json& params);
     ControlMethodResult poll(const nlohmann::json& params);
     ControlMethodResult input(const nlohmann::json& params);
     ControlMethodResult resize(const nlohmann::json& params);
@@ -113,6 +119,10 @@ private:
     uint64_t resyncs_ = 0;
     uint64_t degraded_frames_ = 0;
     uint64_t oversized_queue_events_ = 0;
+    uint64_t suspension_count_ = 0;
+    uint64_t resume_count_ = 0;
+    uint64_t avoided_delta_encodes_ = 0;
+    uint64_t suppressed_clipboard_events_ = 0;
     uint64_t scrollback_requests_ = 0;
     uint64_t scrollback_rows_served_ = 0;
     uint64_t loop_latency_warnings_ = 0;

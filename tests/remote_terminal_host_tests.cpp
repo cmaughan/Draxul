@@ -986,6 +986,7 @@ TEST_CASE("remote terminal hosts recover in place after a long server restart",
                 .terminal_id = std::string(
                     kServerShellTerminalId),
                 .recovery = recovery,
+                .presentation_suspend_supported = true,
             });
 
     {
@@ -1003,6 +1004,23 @@ TEST_CASE("remote terminal hosts recover in place after a long server restart",
                        "remote controller")
                 != std::string::npos;
         }));
+        first_host->set_presentation_visible(false);
+        bool suspended = false;
+        for (int attempt = 0; attempt < 300; ++attempt)
+        {
+            const auto metrics = ControlClient::request(
+                namespaced_control_id(kServerControlId, temp.path),
+                temp.path, "terminal.metrics");
+            REQUIRE(metrics.ok);
+            if (metrics.result["suspended_subscribers"] == 1)
+            {
+                suspended = true;
+                break;
+            }
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(10));
+        }
+        REQUIRE(suspended);
         first_server.request_stop();
     }
 
@@ -1029,6 +1047,7 @@ TEST_CASE("remote terminal hosts recover in place after a long server restart",
         REQUIRE(second_server.start().disposition
             == ServerStartDisposition::Started);
         ServerRunGuard second_run(second_server);
+        first_host->set_presentation_visible(true);
         REQUIRE(pump_until(*first_host, [&] {
             return recovery->server_epoch()
                     == "restart-second"
@@ -1170,6 +1189,209 @@ TEST_CASE("remote terminal host renders shared state and can take control",
         < static_cast<size_t>(host.grid_cols() * host.grid_rows()));
     REQUIRE(observer.poll(changed, error));
     REQUIRE(changed);
+
+    host.shutdown();
+}
+
+TEST_CASE("hidden remote terminal host suspends presentation and resumes with current state",
+    "[host][remote-terminal][suspend]")
+{
+    TempDir temp("draxul-remote-host-suspend");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "host-suspend-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard server_run(server);
+
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TextService text_service;
+    TextServiceConfig text_config;
+    text_config.font_path = bundled_font_path();
+    REQUIRE(text_service.initialize(
+        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+
+    RecordingHostCallbacks callbacks;
+    RemoteTerminalHost host({
+        .runtime_directory = temp.path,
+        .client_id = "hidden-render-client",
+        .server_epoch = "host-suspend-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = std::string(kServerShellTerminalId),
+        .presentation_suspend_supported = true,
+    });
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .launch_options = {
+            .kind = HostKind::RemoteTerminal,
+        },
+        .initial_viewport = {
+            .pixel_size = { 320, 160 },
+            .grid_size = { 20, 5 },
+        },
+        .display_ppi = 96.0f,
+    };
+    REQUIRE(host.initialize(context, callbacks));
+    REQUIRE(pump_until(host, [&] {
+        return host.status_text().find("controller")
+            != std::string::npos;
+    }));
+    REQUIRE(renderer.last_handle != nullptr);
+
+    host.set_presentation_visible(false);
+    bool suspended = false;
+    nlohmann::json metrics;
+    for (int attempt = 0; attempt < 300; ++attempt)
+    {
+        const auto response = ControlClient::request(
+            namespaced_control_id(kServerControlId, temp.path), temp.path,
+            "terminal.metrics");
+        REQUIRE(response.ok);
+        metrics = response.result;
+        if (metrics["active_subscribers"] == 0
+            && metrics["suspended_subscribers"] == 1)
+        {
+            suspended = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(suspended);
+
+    host.pump();
+    const int hidden_frame_requests = callbacks.request_frame_calls.load();
+    const int hidden_window_wakes = callbacks.wake_window_calls.load();
+    const size_t hidden_cell_updates
+        = renderer.last_handle->total_cell_updates();
+
+    RemoteTerminalClient writer({
+        .runtime_directory = temp.path,
+        .client_id = "hidden-render-client",
+        .expected_server_epoch = "host-suspend-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = std::string(kServerShellTerminalId),
+    });
+    std::string error;
+#ifdef _WIN32
+    const std::string command
+        = "Write-Output '__HIDDEN_HOST_READY__'\r";
+#else
+    const std::string command
+        = "printf '__HIDDEN_HOST_READY__\\n'\r";
+#endif
+    REQUIRE(writer.send_input(command, error, 1));
+
+    bool avoided_delta = false;
+    for (int attempt = 0; attempt < 300; ++attempt)
+    {
+        const auto response = ControlClient::request(
+            namespaced_control_id(kServerControlId, temp.path), temp.path,
+            "terminal.metrics");
+        REQUIRE(response.ok);
+        metrics = response.result;
+        if (metrics["avoided_delta_encodes"].get<uint64_t>() > 0)
+        {
+            avoided_delta = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(avoided_delta);
+    host.pump();
+    CHECK(callbacks.request_frame_calls.load() == hidden_frame_requests);
+    CHECK(callbacks.wake_window_calls.load() == hidden_window_wakes);
+    CHECK(renderer.last_handle->total_cell_updates()
+        == hidden_cell_updates);
+    CHECK_FALSE(host.next_deadline().has_value());
+
+#ifdef _WIN32
+    host.on_text_input({
+        .text = "1..20 | ForEach-Object { Write-Output (\"__HIDDEN_{0:D2}__\" -f $_) }\r",
+    });
+#else
+    host.on_text_input({
+        .text = "for i in $(seq 1 20); do printf '__HIDDEN_%02d__\\n' \"$i\"; done\r",
+    });
+#endif
+    bool command_completed_while_hidden = false;
+    for (int attempt = 0; attempt < 300; ++attempt)
+    {
+        const auto response = ControlClient::request(
+            namespaced_control_id(kServerControlId, temp.path), temp.path,
+            "terminal.metrics");
+        REQUIRE(response.ok);
+        if (response.result["resumes"].get<uint64_t>() >= 1
+            && response.result["suspensions"].get<uint64_t>() >= 2
+            && response.result["suspended_subscribers"] == 1)
+        {
+            command_completed_while_hidden = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(command_completed_while_hidden);
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+
+    auto hidden_viewport = context.initial_viewport;
+    hidden_viewport.pixel_size = { 480, 224 };
+    hidden_viewport.grid_size = { 30, 7 };
+    host.set_viewport(hidden_viewport);
+    bool resized_while_hidden = false;
+    for (int attempt = 0; attempt < 300; ++attempt)
+    {
+        const auto response = ControlClient::request(
+            namespaced_control_id(kServerControlId, temp.path), temp.path,
+            "terminal.metrics");
+        REQUIRE(response.ok);
+        if (response.result["resumes"].get<uint64_t>() >= 2
+            && response.result["suspensions"].get<uint64_t>() >= 3
+            && response.result["suspended_subscribers"] == 1)
+        {
+            resized_while_hidden = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(resized_while_hidden);
+
+    host.set_presentation_visible(true);
+    REQUIRE(pump_until(host, [&] {
+        const auto response = ControlClient::request(
+            namespaced_control_id(kServerControlId, temp.path), temp.path,
+            "terminal.metrics");
+        return response.ok
+            && response.result["active_subscribers"] == 1
+            && response.result["suspended_subscribers"] == 0
+            && host.grid_cols() == 30
+            && host.grid_rows() == 7
+            && renderer.last_handle->total_cell_updates()
+                >= hidden_cell_updates
+                    + static_cast<size_t>(
+                        host.grid_cols() * host.grid_rows());
+    }));
+    CHECK(host.next_deadline().has_value());
+    CHECK(callbacks.request_frame_calls.load() > hidden_frame_requests);
+    CHECK(callbacks.wake_window_calls.load() > hidden_window_wakes);
+
+    RemoteTerminalClient observer({
+        .runtime_directory = temp.path,
+        .client_id = "hidden-state-observer",
+        .expected_server_epoch = "host-suspend-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = std::string(kServerShellTerminalId),
+    });
+    REQUIRE(observer.attach(error));
+    CHECK(observer.projection().snapshot().cols == host.grid_cols());
+    CHECK(observer.projection().snapshot().rows == host.grid_rows());
+    CHECK(observer.projection().version().sequence > 0);
+    RemoteTerminalScrollbackPage scrollback;
+    REQUIRE(observer.read_scrollback(1, 5, scrollback, error));
+    CHECK(scrollback.total_rows > 0);
+    REQUIRE(scrollback.snapshot.has_value());
+    CHECK(scrollback.snapshot->cols == host.grid_cols());
 
     host.shutdown();
 }

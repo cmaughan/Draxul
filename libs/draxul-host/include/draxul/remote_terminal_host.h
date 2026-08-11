@@ -25,6 +25,7 @@ struct RemoteTerminalHostOptions
     std::string method_prefix = "fake";
     std::string terminal_id;
     std::shared_ptr<ClientRecoveryState> recovery;
+    bool presentation_suspend_supported = false;
 };
 
 class RemoteTerminalHost final : public GridHostBase
@@ -39,6 +40,8 @@ public:
     std::string init_error() const override;
     std::string init_error_code() const override;
     void pump() override;
+    void set_presentation_visible(bool visible) override;
+    bool requires_periodic_wake() const override;
     void on_config_reloaded(const HostReloadConfig& config) override;
     void on_focus_gained() override;
     void on_focus_lost() override;

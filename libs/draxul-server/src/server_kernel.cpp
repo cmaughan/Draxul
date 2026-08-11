@@ -50,6 +50,16 @@ namespace
 
 constexpr size_t kFatalListenerFailureCount = 8;
 constexpr size_t kCompletedAgentMutationLimit = 1024;
+constexpr auto kAgentRefreshInterval
+    = std::chrono::seconds(1);
+
+struct ServerLoopWakeState
+{
+    std::mutex mutex;
+    std::condition_variable condition;
+    std::atomic<bool> control_work_pending = false;
+    std::atomic<bool> terminal_output_pending = false;
+};
 
 std::string terminal_display_name(
     const ServerTerminalRuntimeOptions& options)
@@ -268,6 +278,7 @@ const std::vector<std::string>& server_capabilities()
         "session-rename-v1",
         "status",
         "terminal-metrics-v1",
+        "terminal-presentation-suspend-v1",
         "terminal-scrollback-v1",
         "terminal-uncompressed-v1",
         "topology-v1",
@@ -506,7 +517,8 @@ public:
     std::atomic<bool> started = false;
     std::atomic<bool> stop_requested = false;
     mutable std::mutex mutex;
-    std::condition_variable wake;
+    std::shared_ptr<ServerLoopWakeState> loop_wake
+        = std::make_shared<ServerLoopWakeState>();
     std::unordered_map<std::string, ClientRegistration> clients;
     std::unordered_map<std::string,
         std::unordered_set<std::string>>
@@ -716,6 +728,16 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
         : std::string(name);
     runtime_options->resource_budget
         = terminal_resource_budget;
+    const std::weak_ptr<ServerLoopWakeState> weak_loop_wake
+        = loop_wake;
+    runtime_options->on_output_available
+        = [weak_loop_wake] {
+              if (const auto state = weak_loop_wake.lock())
+              {
+                  if (!state->terminal_output_pending.exchange(true))
+                      state->condition.notify_one();
+              }
+          };
     auto runtime = std::make_unique<ServerTerminalRuntime>(
         std::move(*runtime_options));
     ServerTerminalRuntime* runtime_ptr = runtime.get();
@@ -728,6 +750,9 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
             .name = display_name,
             .preferred_controller_client_id
             = std::move(preferred_controller_client_id),
+            .loop_latency_warning_threshold
+            = options.idle_wait_interval
+                + std::chrono::milliseconds(100),
             .prepare_restart_generation
             = [runtime_ptr](uint64_t generation) {
                   runtime_ptr->set_environment_value(
@@ -1921,7 +1946,13 @@ ServerStartResult ServerKernel::Impl::start()
     if (!control.start(
             namespaced_control_id(kServerControlId, options.runtime_directory),
             options.runtime_directory,
-            [this]() { wake.notify_all(); }, &error, metadata))
+            [weak_loop_wake = std::weak_ptr(loop_wake)]() {
+                if (const auto state = weak_loop_wake.lock())
+                {
+                    state->control_work_pending = true;
+                    state->condition.notify_one();
+                }
+            }, &error, metadata))
     {
         remove_starting_marker();
         if (control.endpoint_in_use())
@@ -3313,7 +3344,11 @@ void ServerKernel::Impl::refresh_agents(
                     },
                     .runtime_running = running,
                     .exit_code = endpoint.runtime->exit_code(),
-                    .process_observation = running ? endpoint.runtime->capture_agent_process_observation() : std::nullopt,
+                    .process_observation
+                    = running && !pane.agent
+                        ? endpoint.runtime
+                              ->capture_agent_process_observation()
+                        : std::nullopt,
                     .terminal_observation = running ? endpoint.runtime->capture_agent_observation(12, 8 * 1024) : std::nullopt,
                 });
             }
@@ -3344,6 +3379,7 @@ int ServerKernel::Impl::run_until_stopped()
     int eviction_strikes = 0;
     while (!stop_requested)
     {
+        loop_wake->terminal_output_pending = false;
         // Retire when this process is no longer the PUBLISHED server. Without
         // this, a server whose metadata was wiped or replaced ran forever —
         // invisible to clients, unreachable by the CLI, tray icon its only
@@ -3508,6 +3544,7 @@ int ServerKernel::Impl::run_until_stopped()
             recent_listener_failures = 0;
         }
         collect_checkpoint_results();
+        loop_wake->control_work_pending = false;
         control.process_pending(
             [this](const ControlRequest& request) {
                 return handle_request(request);
@@ -3535,7 +3572,7 @@ int ServerKernel::Impl::run_until_stopped()
                         session_id.c_str());
                 }
                 session->next_agent_refresh_at
-                    = now + std::chrono::milliseconds(500);
+                    = now + kAgentRefreshInterval;
             }
         }
         if (options.session_checkpoint_interval.count() > 0)
@@ -3568,9 +3605,16 @@ int ServerKernel::Impl::run_until_stopped()
                     = now + options.session_checkpoint_interval;
             }
         }
-        std::unique_lock lock(mutex);
-        wake.wait_for(lock, std::chrono::milliseconds(25),
-            [this] { return stop_requested.load(); });
+        const auto idle_wait = recent_listener_failures > 0
+            ? std::chrono::milliseconds(25)
+            : options.idle_wait_interval;
+        std::unique_lock lock(loop_wake->mutex);
+        loop_wake->condition.wait_for(lock, idle_wait,
+            [this] {
+                return stop_requested.load()
+                    || loop_wake->control_work_pending.load()
+                    || loop_wake->terminal_output_pending.load();
+            });
     }
     control.process_pending(
         [this](const ControlRequest& request) {
@@ -3637,7 +3681,7 @@ int ServerKernel::Impl::run_until_stopped()
 void ServerKernel::Impl::request_stop()
 {
     stop_requested = true;
-    wake.notify_all();
+    loop_wake->condition.notify_all();
 }
 
 void ServerKernel::Impl::stop()

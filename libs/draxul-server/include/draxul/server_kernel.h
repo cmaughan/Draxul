@@ -47,6 +47,12 @@ struct ServerKernelOptions
     std::chrono::milliseconds client_activity_timeout{
         std::chrono::seconds(10)
     };
+    // Upper bound for an otherwise-idle server-loop wait. Control requests
+    // and terminal output wake the loop immediately; tests may lengthen this
+    // to prove a wake path without relying on a narrow timing threshold.
+    std::chrono::milliseconds idle_wait_interval{
+        std::chrono::seconds(1)
+    };
     // How often the kernel verifies it is still the PUBLISHED server. A
     // server whose metadata was removed or replaced (wiped runtime dir, a
     // newer server claiming the endpoint) used to run forever — invisible to

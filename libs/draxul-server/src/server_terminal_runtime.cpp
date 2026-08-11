@@ -302,7 +302,10 @@ bool ServerTerminalRuntime::start_process(std::string& error)
     }
     for (const auto& [command, args] : candidates)
     {
-        if (process_->spawn(command, args, working_directory, grid_.cols(), grid_.rows(), [] {}, options_.environment))
+        if (process_->spawn(command, args, working_directory,
+                grid_.cols(), grid_.rows(),
+                options_.on_output_available,
+                options_.environment))
         {
             try
             {
@@ -361,7 +364,9 @@ bool ServerTerminalRuntime::start_process(std::string& error)
             return false;
         }
     }
-    if (process_->spawn(command, args, working_directory, [] {}, grid_.cols(), grid_.rows(), true, options_.environment))
+    if (process_->spawn(command, args, working_directory,
+            options_.on_output_available, grid_.cols(), grid_.rows(),
+            true, options_.environment))
     {
         try
         {

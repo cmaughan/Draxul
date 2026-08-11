@@ -582,6 +582,7 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             "session-delete-v1",
             "status",
             "terminal-metrics-v1",
+            "terminal-presentation-suspend-v1",
             "terminal-scrollback-v1",
             "terminal-uncompressed-v1",
             "topology-v1",

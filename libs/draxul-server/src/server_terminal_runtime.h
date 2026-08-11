@@ -13,6 +13,7 @@
 #endif
 
 #include <memory>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -47,6 +48,7 @@ struct ServerTerminalRuntimeOptions
     std::vector<std::string> args;
     std::string working_directory;
     std::vector<std::pair<std::string, std::string>> environment;
+    std::function<void()> on_output_available;
     int scrollback_capacity = ScrollbackBuffer::kDefaultCapacity;
     std::shared_ptr<ServerTerminalResourceBudget> resource_budget;
 };

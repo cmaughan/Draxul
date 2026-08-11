@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/process_util.h>
@@ -422,6 +423,208 @@ std::string process_executable_name(DWORD process_id)
     return narrow_utf8(path);
 }
 
+constexpr auto kAgentProcessChangeDebounce
+    = std::chrono::seconds(1);
+constexpr auto kAgentProcessPresentReconcile
+    = std::chrono::seconds(5);
+constexpr auto kAgentProcessMissingReconcile
+    = std::chrono::seconds(30);
+constexpr DWORD kAgentObserverPollCeilingMs = 1000;
+
+struct NativeProcessBasicInformation
+{
+    NTSTATUS exit_status = 0;
+    PVOID peb_base_address = nullptr;
+    ULONG_PTR affinity_mask = 0;
+    LONG base_priority = 0;
+    ULONG_PTR unique_process_id = 0;
+    ULONG_PTR inherited_from_unique_process_id = 0;
+};
+
+uint64_t process_parent_id(DWORD process_id)
+{
+    HANDLE process = OpenProcess(
+        PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process_id);
+    if (!process)
+        return 0;
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    auto* query_info = ntdll
+        ? reinterpret_cast<NtQueryInformationProcessFn>(
+              GetProcAddress(ntdll, "NtQueryInformationProcess"))
+        : nullptr;
+    NativeProcessBasicInformation basic = {};
+    ULONG returned = 0;
+    const bool ok = query_info
+        && query_info(process, ProcessBasicInformation, &basic,
+               sizeof(basic), &returned)
+            >= 0;
+    CloseHandle(process);
+    return ok
+        ? static_cast<uint64_t>(
+              basic.inherited_from_unique_process_id)
+        : 0;
+}
+
+void append_agent_process(
+    AgentProcessObservation& observation, DWORD process_id)
+{
+    std::string executable = process_executable_name(process_id);
+    if (executable.empty())
+        return;
+    std::vector<std::string> arguments;
+    std::string hint;
+    read_process_arguments_and_hint(
+        process_id, &arguments, &hint);
+    observation.processes.push_back({
+        .process_id = process_id,
+        .parent_process_id = process_parent_id(process_id),
+        .executable = std::move(executable),
+        .arguments = std::move(arguments),
+        .agent_hint = std::move(hint),
+    });
+}
+
+std::vector<DWORD> job_process_ids(HANDLE job)
+{
+    if (!job)
+        return {};
+    size_t capacity = 16;
+    for (int attempt = 0; attempt < 8; ++attempt)
+    {
+        const size_t bytes
+            = sizeof(JOBOBJECT_BASIC_PROCESS_ID_LIST)
+            + (capacity - 1) * sizeof(ULONG_PTR);
+        std::vector<std::byte> storage(bytes);
+        auto* list = reinterpret_cast<
+            JOBOBJECT_BASIC_PROCESS_ID_LIST*>(storage.data());
+        if (QueryInformationJobObject(job,
+                JobObjectBasicProcessIdList, list,
+                static_cast<DWORD>(storage.size()), nullptr))
+        {
+            std::vector<DWORD> result;
+            result.reserve(list->NumberOfProcessIdsInList);
+            for (DWORD index = 0;
+                 index < list->NumberOfProcessIdsInList; ++index)
+            {
+                result.push_back(static_cast<DWORD>(
+                    list->ProcessIdList[index]));
+            }
+            return result;
+        }
+        if (GetLastError() != ERROR_MORE_DATA)
+            return {};
+        capacity = std::max<size_t>(
+            capacity * 2, list->NumberOfAssignedProcesses + 8);
+    }
+    return {};
+}
+
+AgentProcessObservation capture_job_processes(
+    HANDLE job, DWORD root_process_id)
+{
+    AgentProcessObservation observation;
+    observation.captured_at = std::chrono::steady_clock::now();
+    observation.foreground_reliable = false;
+    auto process_ids = job_process_ids(job);
+    if (process_ids.empty() && root_process_id != 0)
+        process_ids.push_back(root_process_id);
+    for (DWORD process_id : process_ids)
+    {
+        if (observation.processes.size() >= 128)
+            break;
+        append_agent_process(observation, process_id);
+    }
+    return observation;
+}
+
+AgentProcessObservation capture_process_tree(DWORD root_process_id)
+{
+    AgentProcessObservation observation;
+    observation.captured_at = std::chrono::steady_clock::now();
+    observation.foreground_reliable = false;
+    HANDLE snapshot
+        = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE)
+        return observation;
+
+    struct ProcessEntry
+    {
+        DWORD process_id = 0;
+        DWORD parent_process_id = 0;
+    };
+    std::vector<ProcessEntry> entries;
+    std::unordered_map<DWORD, DWORD> parents;
+    PROCESSENTRY32W entry = {};
+    entry.dwSize = sizeof(entry);
+    if (Process32FirstW(snapshot, &entry))
+    {
+        do
+        {
+            entries.push_back(
+                { entry.th32ProcessID,
+                    entry.th32ParentProcessID });
+            parents[entry.th32ProcessID]
+                = entry.th32ParentProcessID;
+        } while (entries.size() < 4096
+            && Process32NextW(snapshot, &entry));
+    }
+    CloseHandle(snapshot);
+
+    const auto belongs_to_tree
+        = [&](DWORD process_id) {
+              for (size_t depth = 0;
+                   depth < 64 && process_id != 0; ++depth)
+              {
+                  if (process_id == root_process_id)
+                      return true;
+                  const auto parent = parents.find(process_id);
+                  if (parent == parents.end()
+                      || parent->second == process_id)
+                      break;
+                  process_id = parent->second;
+              }
+              return false;
+          };
+    for (const ProcessEntry& process : entries)
+    {
+        if (!belongs_to_tree(process.process_id))
+            continue;
+        if (observation.processes.size() >= 128)
+            break;
+        append_agent_process(observation, process.process_id);
+    }
+    return observation;
+}
+
+AgentProcessObservation capture_agent_processes(
+    HANDLE job, DWORD root_process_id)
+{
+    if (!job)
+        return capture_process_tree(root_process_id);
+
+    auto observation
+        = capture_job_processes(job, root_process_id);
+    if (discover_agent_process(observation))
+        return observation;
+
+    // A shell can be inside a nested or breakaway-capable job while a child it
+    // launches is not assigned to our ConPTY job. Keep job notifications and
+    // PID queries as the fast path, but reconcile the descendant tree so those
+    // processes cannot disappear from agent discovery.
+    auto descendants = capture_process_tree(root_process_id);
+    for (auto& process : descendants.processes)
+    {
+        const bool already_present = std::ranges::any_of(
+            observation.processes,
+            [&process](const AgentProcessInfo& existing) {
+                return existing.process_id == process.process_id;
+            });
+        if (!already_present)
+            observation.processes.push_back(std::move(process));
+    }
+    return observation;
+}
+
 } // namespace
 
 ConPtyProcess::~ConPtyProcess()
@@ -525,7 +728,8 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
     // ConPTY child creation is supposed to use the pseudoconsole attribute with
     // EXTENDED_STARTUPINFO_PRESENT. CREATE_NO_WINDOW severs the child from the
     // console environment that ConPTY is trying to provide.
-    const DWORD creation_flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT;
+    const DWORD creation_flags = EXTENDED_STARTUPINFO_PRESENT
+        | CREATE_UNICODE_ENVIRONMENT;
     std::vector<wchar_t> environment_block = build_environment_block(environment);
     DRAXUL_LOG_DEBUG(LogCategory::App,
         "ConPTY spawn request: command='%s' resolved='%s' cwd='%s' cols=%d rows=%d flags=0x%08lx",
@@ -582,14 +786,40 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
     {
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION job_limits = {};
         job_limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        if (!SetInformationJobObject(
-                job_, JobObjectExtendedLimitInformation, &job_limits, sizeof(job_limits))
-            || !AssignProcessToJobObject(job_, proc_info_.hProcess))
+        bool job_ready = SetInformationJobObject(
+            job_, JobObjectExtendedLimitInformation,
+            &job_limits, sizeof(job_limits));
+        if (job_ready)
+        {
+            agent_completion_port_ = CreateIoCompletionPort(
+                INVALID_HANDLE_VALUE, nullptr, 0, 1);
+            if (agent_completion_port_)
+            {
+                JOBOBJECT_ASSOCIATE_COMPLETION_PORT association = {
+                    this, agent_completion_port_
+                };
+                if (!SetInformationJobObject(job_,
+                        JobObjectAssociateCompletionPortInformation,
+                        &association, sizeof(association)))
+                {
+                    CloseHandle(agent_completion_port_);
+                    agent_completion_port_ = nullptr;
+                }
+            }
+            job_ready = AssignProcessToJobObject(
+                job_, proc_info_.hProcess);
+        }
+        if (!job_ready)
         {
             DRAXUL_LOG_WARN(LogCategory::App,
                 "ConPTY failed to attach child pid=%lu to cleanup job (error=%lu); using direct termination fallback",
                 static_cast<unsigned long>(proc_info_.dwProcessId),
                 static_cast<unsigned long>(GetLastError()));
+            if (agent_completion_port_)
+            {
+                CloseHandle(agent_completion_port_);
+                agent_completion_port_ = nullptr;
+            }
             CloseHandle(job_);
             job_ = nullptr;
         }
@@ -620,6 +850,7 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
 void ConPtyProcess::shutdown()
 {
     PERF_MEASURE();
+    stop_agent_observer();
     reader_running_ = false;
     writes_stopping_ = true;
     output_space_.notify_all();
@@ -683,6 +914,16 @@ void ConPtyProcess::shutdown()
         CloseHandle(job_);
         job_ = nullptr;
     }
+    if (agent_completion_port_)
+    {
+        CloseHandle(agent_completion_port_);
+        agent_completion_port_ = nullptr;
+    }
+    {
+        std::lock_guard lock(agent_observation_mutex_);
+        cached_agent_process_observation_.reset();
+    }
+    agent_activity_generation_ = 0;
     attribute_storage_.clear();
 
     std::scoped_lock lock(output_mutex_);
@@ -737,71 +978,124 @@ ConPtyProcess::foreground_process_observation() const
 {
     if (!is_running() || proc_info_.dwProcessId == 0)
         return std::nullopt;
+    ensure_agent_observer_started();
+    std::lock_guard lock(agent_observation_mutex_);
+    return cached_agent_process_observation_;
+}
 
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE)
-        return std::nullopt;
+void ConPtyProcess::ensure_agent_observer_started() const
+{
+    std::lock_guard start_lock(agent_observer_start_mutex_);
+    if (agent_observer_thread_.joinable()
+        || proc_info_.dwProcessId == 0)
+        return;
+    agent_observer_running_ = true;
+    agent_observer_thread_
+        = std::thread([this] { agent_observer_main(); });
+}
 
-    struct ProcessEntry
+void ConPtyProcess::stop_agent_observer()
+{
+    std::lock_guard start_lock(agent_observer_start_mutex_);
+    agent_observer_running_ = false;
+    agent_observer_wake_.notify_all();
+    if (agent_completion_port_)
     {
-        DWORD process_id = 0;
-        DWORD parent_process_id = 0;
-    };
-    std::vector<ProcessEntry> entries;
-    std::unordered_map<DWORD, DWORD> parents;
-    PROCESSENTRY32W entry = {};
-    entry.dwSize = sizeof(entry);
-    if (Process32FirstW(snapshot, &entry))
-    {
-        do
-        {
-            entries.push_back({ entry.th32ProcessID, entry.th32ParentProcessID });
-            parents[entry.th32ProcessID] = entry.th32ParentProcessID;
-        } while (entries.size() < 4096 && Process32NextW(snapshot, &entry));
+        PostQueuedCompletionStatus(
+            agent_completion_port_, 0, 0, nullptr);
     }
-    CloseHandle(snapshot);
+    if (agent_observer_thread_.joinable())
+        agent_observer_thread_.join();
+}
 
-    const DWORD root = proc_info_.dwProcessId;
-    const auto belongs_to_tree = [&](DWORD process_id) {
-        for (size_t depth = 0; depth < 64 && process_id != 0; ++depth)
+void ConPtyProcess::agent_observer_main() const
+{
+    bool dirty = true;
+    bool agent_present = false;
+    uint64_t observed_activity
+        = agent_activity_generation_.load();
+    auto refresh_at = std::chrono::steady_clock::now();
+    auto reconcile_at = refresh_at;
+    while (agent_observer_running_)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        const auto deadline = dirty
+            ? std::min(refresh_at, reconcile_at)
+            : reconcile_at;
+        const auto remaining = deadline > now
+            ? std::chrono::duration_cast<std::chrono::milliseconds>(
+                  deadline - now)
+            : std::chrono::milliseconds::zero();
+        const DWORD wait_ms = static_cast<DWORD>(std::clamp<int64_t>(
+            remaining.count(), 0, kAgentObserverPollCeilingMs));
+
+        bool process_changed = false;
+        if (agent_completion_port_)
         {
-            if (process_id == root)
-                return true;
-            const auto parent = parents.find(process_id);
-            if (parent == parents.end() || parent->second == process_id)
-                break;
-            process_id = parent->second;
+            DWORD message = 0;
+            ULONG_PTR completion_key = 0;
+            LPOVERLAPPED process_id = nullptr;
+            if (GetQueuedCompletionStatus(agent_completion_port_,
+                    &message, &completion_key, &process_id, wait_ms)
+                && completion_key
+                    == reinterpret_cast<ULONG_PTR>(this))
+            {
+                process_changed
+                    = message == JOB_OBJECT_MSG_NEW_PROCESS
+                    || message == JOB_OBJECT_MSG_EXIT_PROCESS
+                    || message
+                        == JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS;
+            }
         }
-        return false;
-    };
-
-    AgentProcessObservation observation;
-    observation.captured_at = std::chrono::steady_clock::now();
-    // ConPTY does not expose a portable foreground process-group query.
-    // Descendant membership is useful but remains explicitly fallible evidence.
-    observation.foreground_reliable = false;
-    for (const ProcessEntry& process : entries)
-    {
-        if (!belongs_to_tree(process.process_id))
-            continue;
-        std::string executable = process_executable_name(process.process_id);
-        if (executable.empty())
-            continue;
-        std::vector<std::string> arguments;
-        std::string hint;
-        read_process_arguments_and_hint(
-            process.process_id, &arguments, &hint);
-        observation.processes.push_back({
-            .process_id = process.process_id,
-            .parent_process_id = process.parent_process_id,
-            .executable = std::move(executable),
-            .arguments = std::move(arguments),
-            .agent_hint = std::move(hint),
-        });
-        if (observation.processes.size() >= 128)
+        else
+        {
+            std::unique_lock lock(agent_observer_wait_mutex_);
+            agent_observer_wake_.wait_for(lock,
+                std::chrono::milliseconds(wait_ms), [this] {
+                    return !agent_observer_running_.load();
+                });
+        }
+        if (!agent_observer_running_)
             break;
+
+        const auto after_wait = std::chrono::steady_clock::now();
+        const uint64_t activity
+            = agent_activity_generation_.load();
+        if (process_changed
+            || (!agent_present
+                && activity != observed_activity))
+        {
+            if (!dirty)
+            {
+                dirty = true;
+                refresh_at
+                    = after_wait + kAgentProcessChangeDebounce;
+            }
+            observed_activity = activity;
+        }
+        if ((!dirty || after_wait < refresh_at)
+            && after_wait < reconcile_at)
+        {
+            continue;
+        }
+
+        AgentProcessObservation observation
+            = capture_agent_processes(
+                job_, proc_info_.dwProcessId);
+        agent_present
+            = discover_agent_process(observation).has_value();
+        {
+            std::lock_guard lock(agent_observation_mutex_);
+            cached_agent_process_observation_
+                = std::move(observation);
+        }
+        dirty = false;
+        observed_activity = activity;
+        reconcile_at = after_wait
+            + (agent_present
+                    ? kAgentProcessPresentReconcile
+                    : kAgentProcessMissingReconcile);
     }
-    return observation;
 }
 
 bool ConPtyProcess::resize(int cols, int rows)
@@ -890,6 +1184,8 @@ void ConPtyProcess::reader_main()
             output_chunks_.emplace_back(buffer, buffer + bytes_read);
             output_bytes_ += bytes_read;
         }
+        ++agent_activity_generation_;
+        agent_observer_wake_.notify_one();
 
         if (on_output_available_)
             on_output_available_();

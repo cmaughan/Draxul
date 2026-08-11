@@ -212,6 +212,15 @@ public:
     {
         // Default no-op; only hosts with cached config-driven state override this.
     }
+    virtual void set_presentation_visible(bool /*visible*/)
+    {
+        // Default no-op. Server-backed presentation hosts may suspend delivery
+        // while their tab or Space is not projected by this window.
+    }
+    virtual bool requires_periodic_wake() const
+    {
+        return is_running();
+    }
     virtual void pump() = 0;
     virtual void draw(IFrameContext& /*frame*/)
     {

@@ -648,6 +648,33 @@ private:
 
 } // namespace
 
+TEST_CASE("queued control work wakes an otherwise idle server loop",
+    "[server][control][latency]")
+{
+    TempDir temp("draxul-server-control-wake");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .idle_wait_interval = std::chrono::seconds(5),
+        .epoch_override = "control-wake-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(100));
+    const auto started = std::chrono::steady_clock::now();
+    const auto response = ControlClient::request(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, "server.status");
+    const auto elapsed
+        = std::chrono::steady_clock::now() - started;
+    REQUIRE(response.ok);
+    CHECK(elapsed < std::chrono::seconds(1));
+
+    run_guard.join();
+}
+
 TEST_CASE("server-wide terminal allocation cap rejects topology growth",
     "[server][topology][remote-terminal][resource-bounds]")
 {
@@ -1195,6 +1222,9 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
                 "real-remote-terminal")
         != probe.welcome->capabilities.end());
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
+                "terminal-presentation-suspend-v1")
+        != probe.welcome->capabilities.end());
+    REQUIRE(std::ranges::find(probe.welcome->capabilities,
                 "multi-terminal-v1")
         != probe.welcome->capabilities.end());
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
@@ -1473,7 +1503,8 @@ TEST_CASE("server releases expired terminal leases",
     CHECK_FALSE(terminal.resize(
         kRemoteTerminalMaxColumns + 1, 10, error));
     CHECK(terminal.last_error_code() == "invalid_resize");
-    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    REQUIRE(terminal.suspend(error, 1));
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     bool changed = false;
     CHECK_FALSE(terminal.poll(changed, error));
     CHECK(terminal.last_error_code() == "not_attached");
@@ -2260,15 +2291,19 @@ TEST_CASE("server-owned shell discovery converges in two agent clients",
     INFO(error);
 
 #ifdef _WIN32
+    REQUIRE(wait_for_text(terminal, "PS ", error));
     const auto source
         = std::filesystem::path(
               std::getenv("SystemRoot"))
-        / "System32" / "ping.exe";
+        / "System32" / "cmd.exe";
     const auto fake_agent = temp.path / "codex.exe";
     std::filesystem::copy_file(source, fake_agent);
-    const std::string command = "& '"
+    const std::string command
+        = "Write-Output ('__CODEX_' + 'TEST_STARTED__'); "
+          "Start-Process -FilePath '"
         + fake_agent.string()
-        + "' -t 127.0.0.1\r";
+        + "' -ArgumentList '/Q','/C',"
+          "'ping -t 127.0.0.1 >nul' -NoNewWindow\r";
 #else
     const auto fake_agent = temp.path / "codex";
     std::filesystem::create_symlink(
@@ -2277,6 +2312,10 @@ TEST_CASE("server-owned shell discovery converges in two agent clients",
         + fake_agent.string() + "' 30\r";
 #endif
     REQUIRE(terminal.send_input(command, error));
+#ifdef _WIN32
+    REQUIRE(wait_for_text(
+        terminal, "__CODEX_TEST_STARTED__", error));
+#endif
 
     AgentClient first({
         .runtime_directory = temp.path,
@@ -2288,7 +2327,11 @@ TEST_CASE("server-owned shell discovery converges in two agent clients",
     });
     REQUIRE(first.refresh(error));
     REQUIRE(second.refresh(error));
-    REQUIRE(wait_for_agent(first, "codex", error));
+    const bool discovered_agent
+        = wait_for_agent(first, "codex", error);
+    INFO("terminal screen:\n"
+        << snapshot_text(terminal.projection().snapshot()));
+    REQUIRE(discovered_agent);
     INFO(error);
     bool changed = false;
     for (int attempt = 0;
@@ -3116,6 +3159,129 @@ TEST_CASE("server-owned shell exposes bounded client-independent scrollback page
     REQUIRE(metrics.result["scrollback_rows_served"].get<uint64_t>() >= 13);
     REQUIRE_FALSE(metrics.result.contains("text"));
     REQUIRE_FALSE(metrics.result.contains("cells"));
+
+    run_guard.join();
+}
+
+TEST_CASE("suspended remote terminal presentation avoids deltas and resumes from a snapshot",
+    "[server][remote-terminal][suspend]")
+{
+    TempDir temp("draxul-real-remote-suspend");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    auto client = remote_client(
+        temp.path, "suspend-controller", "fixed-epoch", "terminal");
+    std::string error;
+    REQUIRE(client.attach(error));
+    REQUIRE(client.projection().is_controller("suspend-controller"));
+    REQUIRE(client.resize(40, 8, error, 1));
+    const auto version_before_suspend = client.projection().version();
+    REQUIRE(client.suspend(error, 2));
+
+    auto metrics = ControlClient::request(
+        namespaced_control_id(kServerControlId, temp.path), temp.path,
+        "terminal.metrics");
+    REQUIRE(metrics.ok);
+    REQUIRE(metrics.result["active_subscribers"] == 0);
+    REQUIRE(metrics.result["suspended_subscribers"] == 1);
+    REQUIRE(metrics.result["suspensions"] == 1);
+
+#ifdef _WIN32
+    const std::string command
+        = "1..40 | ForEach-Object { Write-Output (\"__SUSPEND_{0:D2}__\" -f $_); Start-Sleep -Milliseconds 25 }\r";
+#else
+    const std::string command
+        = "for i in $(seq 1 40); do printf '__SUSPEND_%02d__\\n' \"$i\"; sleep 0.025; done\r";
+#endif
+    REQUIRE(client.send_input(command, error, 3));
+
+    bool avoided_delta = false;
+    for (int attempt = 0; attempt < 200; ++attempt)
+    {
+        metrics = ControlClient::request(
+            namespaced_control_id(kServerControlId, temp.path), temp.path,
+            "terminal.metrics");
+        REQUIRE(metrics.ok);
+        if (metrics.result["avoided_delta_encodes"].get<uint64_t>() > 32)
+        {
+            avoided_delta = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(avoided_delta);
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+
+    bool changed = false;
+    REQUIRE_FALSE(client.poll(changed, error));
+    REQUIRE(client.last_error_code() == "suspended");
+    REQUIRE(client.resume(error));
+    REQUIRE(client.projection().is_controller("suspend-controller"));
+    REQUIRE(client.projection().version().sequence
+        > version_before_suspend.sequence);
+
+    auto verifier = remote_client(
+        temp.path, "suspend-verifier", "fixed-epoch", "terminal");
+    REQUIRE(verifier.attach(error));
+    bool converged = false;
+    for (int attempt = 0; attempt < 200; ++attempt)
+    {
+        bool client_changed = false;
+        bool verifier_changed = false;
+        REQUIRE(client.poll(client_changed, error));
+        REQUIRE(verifier.poll(verifier_changed, error));
+        if (client.projection().version()
+                == verifier.projection().version()
+            && terminal_semantic_digest(client.projection().snapshot())
+                == terminal_semantic_digest(
+                    verifier.projection().snapshot()))
+        {
+            converged = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(converged);
+
+    metrics = ControlClient::request(
+        namespaced_control_id(kServerControlId, temp.path), temp.path,
+        "terminal.metrics");
+    REQUIRE(metrics.ok);
+    REQUIRE(metrics.result["active_subscribers"] == 2);
+    REQUIRE(metrics.result["suspended_subscribers"] == 0);
+    REQUIRE(metrics.result["resumes"] == 1);
+
+    auto observer = remote_client(
+        temp.path, "suspend-observer", "fixed-epoch", "terminal");
+    REQUIRE(observer.attach(error));
+    REQUIRE(client.suspend(error, 4));
+#ifdef _WIN32
+    const std::string observer_command
+        = "Write-Output '__ACTIVE_OBSERVER_READY__'\r";
+#else
+    const std::string observer_command
+        = "printf '__ACTIVE_OBSERVER_READY__\\n'\r";
+#endif
+    REQUIRE(client.send_input(observer_command, error, 5));
+    REQUIRE(wait_for_text(observer, "__ACTIVE_OBSERVER_READY__", error));
+    INFO(error);
+    metrics = ControlClient::request(
+        namespaced_control_id(kServerControlId, temp.path), temp.path,
+        "terminal.metrics");
+    REQUIRE(metrics.ok);
+    REQUIRE(metrics.result["active_subscribers"] == 2);
+    REQUIRE(metrics.result["suspended_subscribers"] == 1);
+    REQUIRE(observer.take_control(error, 6));
+    REQUIRE(observer.poll(changed, error));
+    REQUIRE(observer.projection().is_controller("suspend-observer"));
+    REQUIRE(client.resume(error));
+    REQUIRE_FALSE(client.projection().is_controller(
+        "suspend-controller"));
 
     run_guard.join();
 }
@@ -4611,6 +4777,35 @@ TEST_CASE("remote terminal forwards OSC 52 clipboard writes without tracing cont
         << (clipboard ? *clipboard : "<no clipboard event>"));
     REQUIRE(clipboard.has_value());
     REQUIRE(*clipboard == "remote clipboard");
+
+    REQUIRE(client.suspend(error, 1));
+#ifdef _WIN32
+    const std::string hidden_command
+        = "[Console]::Write([char]27 + ']52;c;aGlkZGVuIGNsaXBib2FyZA==' + [char]7)\r";
+#else
+    const std::string hidden_command
+        = "printf '\\033]52;c;aGlkZGVuIGNsaXBib2FyZA==\\007'\r";
+#endif
+    REQUIRE(client.send_input(hidden_command, error, 2));
+    bool suppressed = false;
+    for (int attempt = 0; attempt < 300; ++attempt)
+    {
+        const auto metrics = ControlClient::request(
+            namespaced_control_id(kServerControlId, temp.path), temp.path,
+            "terminal.metrics");
+        REQUIRE(metrics.ok);
+        if (metrics.result["suppressed_clipboard_events"]
+                .get<uint64_t>()
+            > 0)
+        {
+            suppressed = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(suppressed);
+    REQUIRE(client.resume(error));
+    CHECK_FALSE(client.take_clipboard_write().has_value());
 
     run_guard.join();
 }

@@ -63,11 +63,15 @@ public:
 
 private:
     void reader_main();
+    void ensure_agent_observer_started() const;
+    void stop_agent_observer();
+    void agent_observer_main() const;
 
     HANDLE input_write_ = INVALID_HANDLE_VALUE;
     HANDLE output_read_ = INVALID_HANDLE_VALUE;
     PROCESS_INFORMATION proc_info_ = {};
     HANDLE job_ = nullptr;
+    HANDLE agent_completion_port_ = nullptr;
     HPCON pty_ = nullptr;
     std::vector<unsigned char> attribute_storage_;
     std::thread reader_thread_;
@@ -80,6 +84,15 @@ private:
     size_t output_bytes_ = 0;
     std::function<void()> on_output_available_;
     mutable std::optional<int> last_exit_code_;
+    mutable std::mutex agent_observer_start_mutex_;
+    mutable std::mutex agent_observation_mutex_;
+    mutable std::mutex agent_observer_wait_mutex_;
+    mutable std::condition_variable agent_observer_wake_;
+    mutable std::thread agent_observer_thread_;
+    mutable std::atomic<bool> agent_observer_running_{ false };
+    mutable std::atomic<uint64_t> agent_activity_generation_{ 0 };
+    mutable std::optional<AgentProcessObservation>
+        cached_agent_process_observation_;
 };
 
 } // namespace draxul

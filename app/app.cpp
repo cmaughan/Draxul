@@ -2131,6 +2131,7 @@ bool App::close_dead_panes()
 
 void App::rebuild_render_tree()
 {
+    update_host_presentation_visibility();
     render_root_ = RenderNode{};
     render_root_.tag = "root";
 
@@ -2160,6 +2161,26 @@ void App::rebuild_render_tree()
     // Toast notifications (topmost layer).
     if (toast_host_)
         render_root_.children.push_back({ toast_host_.get(), true, "toast", {} });
+}
+
+void App::update_host_presentation_visibility()
+{
+    const SpaceId active_space_id
+        = space_controller_.active_space_id();
+    for (const auto& space : space_controller_.spaces())
+    {
+        const int active_tab_id = space->id == active_space_id
+            ? space->tab_controller.active_tab_id()
+            : -1;
+        for (auto& tab : space->tab_controller.tabs())
+        {
+            const bool visible = tab->id == active_tab_id;
+            tab->pane_manager.for_each_host(
+                [visible](LeafId, IHost& host) {
+                    host.set_presentation_visible(visible);
+                });
+        }
+    }
 }
 
 bool App::render_frame()
@@ -2906,7 +2927,8 @@ int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wa
                 {
                     deadline = host_deadline;
                 }
-                any_host_running = any_host_running || host.is_running();
+                any_host_running = any_host_running
+                    || host.requires_periodic_wake();
             });
         }
     }

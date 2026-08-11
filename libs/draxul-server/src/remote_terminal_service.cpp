@@ -16,8 +16,6 @@ namespace
 
 constexpr size_t kPollPayloadBudget
     = kControlMaxMessageBytes - 64 * 1024;
-constexpr auto kLoopLatencyWarningThreshold
-    = std::chrono::milliseconds(100);
 constexpr size_t kCompletedMutationLimit = 1024;
 
 bool read_int64(const nlohmann::json& value, int64_t& result)
@@ -126,6 +124,10 @@ ControlMethodResult RemoteTerminalService::handle(
     const std::string suffix(method.substr(options_.method_prefix.size() + 1));
     if (suffix == "attach")
         return attach(params);
+    if (suffix == "suspend")
+        return suspend(params);
+    if (suffix == "resume")
+        return resume(params);
     if (suffix == "poll")
         return poll(params);
     if (suffix == "input")
@@ -382,13 +384,36 @@ void RemoteTerminalService::broadcast(const RemoteTerminalEvent& event)
 {
     if (subscribers_.empty())
         return;
+    const bool any_active = std::ranges::any_of(
+        subscribers_, [](const auto& entry) {
+            return !entry.second.suspended;
+        });
+    if (!any_active)
+    {
+        if (event.kind == RemoteTerminalEventKind::Delta)
+            ++avoided_delta_encodes_;
+        if (event.kind == RemoteTerminalEventKind::Clipboard)
+            ++suppressed_clipboard_events_;
+        return;
+    }
+    if (event.kind == RemoteTerminalEventKind::Clipboard)
+    {
+        const auto controller
+            = subscribers_.find(controller_client_id_);
+        if (controller == subscribers_.end()
+            || controller->second.suspended)
+        {
+            ++suppressed_clipboard_events_;
+            return;
+        }
+    }
     const auto encoded = encode_event(event, false);
     if (!encoded)
         return;
     for (auto& [client_id, subscriber] : subscribers_)
     {
         (void)client_id;
-        if (subscriber.needs_resync)
+        if (subscriber.suspended || subscriber.needs_resync)
             continue;
         if (encoded->bytes > kRemoteTerminalSubscriberQueueByteLimit
             || subscriber.events.size() >= kRemoteTerminalQueueLimit
@@ -474,6 +499,104 @@ ControlMethodResult RemoteTerminalService::attach(
     return ControlMethodResult::success(remote_terminal_attach_to_json(result));
 }
 
+ControlMethodResult RemoteTerminalService::suspend(
+    const nlohmann::json& params)
+{
+    std::string client_id;
+    if (!read_client_id(params, client_id))
+    {
+        return ControlMethodResult::error(
+            "invalid_client", "A valid client_id is required.");
+    }
+    std::string mutation;
+    if (!mutation_key(params, "suspend", mutation))
+    {
+        return ControlMethodResult::error(
+            "invalid_request_id", "A valid request_id is required.");
+    }
+    if (auto cached = cached_mutation(mutation))
+        return *cached;
+    const auto found = subscribers_.find(client_id);
+    if (found == subscribers_.end())
+    {
+        return ControlMethodResult::error(
+            "not_attached", "Attach to the terminal before suspending it.");
+    }
+    auto& subscriber = found->second;
+    const bool changed = !subscriber.suspended;
+    subscriber.events.clear();
+    subscriber.queued_bytes = 0;
+    subscriber.needs_resync = true;
+    subscriber.suspended = true;
+    if (changed)
+        ++suspension_count_;
+    return remember_mutation(std::move(mutation),
+        ControlMethodResult::success({
+            { "suspended", true },
+            { "controller_retained",
+                controller_client_id_ == client_id },
+        }));
+}
+
+ControlMethodResult RemoteTerminalService::resume(
+    const nlohmann::json& params)
+{
+    std::string client_id;
+    if (!read_client_id(params, client_id))
+    {
+        return ControlMethodResult::error(
+            "invalid_client", "A valid client_id is required.");
+    }
+    std::string error;
+    if (!ensure_runtime_started(error))
+    {
+        return ControlMethodResult::error(
+            "process_start_failed", std::move(error));
+    }
+    auto [found, inserted]
+        = subscribers_.try_emplace(client_id);
+    auto& subscriber = found->second;
+    const bool changed = inserted || subscriber.suspended;
+    subscriber.events.clear();
+    subscriber.queued_bytes = 0;
+    subscriber.needs_resync = false;
+    subscriber.suspended = false;
+    if (changed)
+        ++resume_count_;
+    if (controller_client_id_.empty()
+        && (preferred_controller_client_id_.empty()
+            || preferred_controller_client_id_ == client_id))
+    {
+        controller_client_id_ = client_id;
+        preferred_controller_client_id_.clear();
+        broadcast(make_controller_event());
+        subscriber.events.clear();
+        subscriber.queued_bytes = 0;
+    }
+    const auto state = encode_event(snapshot_event(), true);
+    if (!state)
+    {
+        return ControlMethodResult::error(
+            "frame_too_large",
+            "The terminal snapshot exceeds the transport frame budget.");
+    }
+    snapshot_bytes_ += state->bytes;
+    RemoteTerminalAttach result{
+        .pane = {
+            .pane_id = options_.pane_id,
+            .terminal_id = options_.terminal_id,
+            .name = options_.name,
+            .execution_domain = "server_terminal",
+            .process_id = runtime_.process_id(),
+            .process_running = runtime_.is_running(),
+            .exit_code = runtime_.exit_code(),
+        },
+        .state = state->event,
+    };
+    return ControlMethodResult::success(
+        remote_terminal_attach_to_json(result));
+}
+
 ControlMethodResult RemoteTerminalService::poll(
     const nlohmann::json& params)
 {
@@ -502,6 +625,11 @@ ControlMethodResult RemoteTerminalService::poll(
     }
 
     auto& delivery = found->second;
+    if (delivery.suspended)
+    {
+        return ControlMethodResult::error(
+            "suspended", "Resume the terminal before polling it.");
+    }
     nlohmann::json events = nlohmann::json::array();
     if (requested.generation != generation_ || delivery.needs_resync)
     {
@@ -854,6 +982,11 @@ ControlMethodResult RemoteTerminalService::read_scrollback(
 
 ControlMethodResult RemoteTerminalService::metrics() const
 {
+    const size_t active_subscribers
+        = static_cast<size_t>(std::ranges::count_if(
+            subscribers_, [](const auto& entry) {
+                return !entry.second.suspended;
+            }));
     return ControlMethodResult::success({
         { "sanitized", true },
         { "snapshot_frames", snapshot_frames_ },
@@ -872,6 +1005,14 @@ ControlMethodResult RemoteTerminalService::metrics() const
         { "degraded_frames", degraded_frames_ },
         { "oversized_queue_events", oversized_queue_events_ },
         { "subscribers", subscribers_.size() },
+        { "active_subscribers", active_subscribers },
+        { "suspended_subscribers",
+            subscribers_.size() - active_subscribers },
+        { "suspensions", suspension_count_ },
+        { "resumes", resume_count_ },
+        { "avoided_delta_encodes", avoided_delta_encodes_ },
+        { "suppressed_clipboard_events",
+            suppressed_clipboard_events_ },
         { "scrollback_requests", scrollback_requests_ },
         { "scrollback_rows_served", scrollback_rows_served_ },
         { "max_loop_interval_ms", max_loop_interval_ms_ },
@@ -891,14 +1032,15 @@ void RemoteTerminalService::pump()
             max_loop_interval_ms_,
             static_cast<uint64_t>(std::max<int64_t>(
                 0, interval.count())));
-        if (interval > kLoopLatencyWarningThreshold)
+        if (interval
+            > options_.loop_latency_warning_threshold)
         {
             ++loop_latency_warnings_;
             DRAXUL_LOG_WARN(LogCategory::App,
                 "Server terminal loop interval was %lld ms (threshold %lld ms)",
                 static_cast<long long>(interval.count()),
                 static_cast<long long>(
-                    kLoopLatencyWarningThreshold.count()));
+                    options_.loop_latency_warning_threshold.count()));
         }
     }
     last_pump_at_ = now;

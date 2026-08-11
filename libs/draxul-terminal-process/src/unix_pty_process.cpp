@@ -354,6 +354,7 @@ bool UnixPtyProcess::spawn(const std::string& command, const std::vector<std::st
 void UnixPtyProcess::shutdown()
 {
     PERF_MEASURE();
+    stop_agent_observer();
     reader_running_ = false;
     output_space_.notify_all();
 
@@ -452,6 +453,12 @@ void UnixPtyProcess::shutdown()
     std::scoped_lock lock(output_mutex_);
     output_chunks_.clear();
     output_bytes_ = 0;
+    {
+        std::lock_guard observation_lock(
+            agent_observation_mutex_);
+        cached_agent_process_observation_.reset();
+    }
+    agent_activity_generation_ = 0;
 }
 
 void UnixPtyProcess::request_close()
@@ -498,10 +505,17 @@ UnixPtyProcess::foreground_process_observation() const
     update_exit_status();
     if (pid_ <= 0 || master_fd_ < 0)
         return std::nullopt;
-    const pid_t foreground_group = tcgetpgrp(master_fd_);
+    ensure_agent_observer_started();
+    std::lock_guard lock(agent_observation_mutex_);
+    return cached_agent_process_observation_;
+}
+
+std::optional<AgentProcessObservation>
+UnixPtyProcess::capture_agent_process_observation_now(
+    pid_t foreground_group) const
+{
     if (foreground_group <= 0)
         return std::nullopt;
-
     AgentProcessObservation observation;
     observation.captured_at = std::chrono::steady_clock::now();
     observation.foreground_reliable = true;
@@ -602,6 +616,100 @@ UnixPtyProcess::foreground_process_observation() const
     }
 #endif
     return observation;
+}
+
+void UnixPtyProcess::ensure_agent_observer_started() const
+{
+    std::lock_guard start_lock(agent_observer_start_mutex_);
+    if (agent_observer_thread_.joinable()
+        || pid_ <= 0 || master_fd_ < 0)
+        return;
+    agent_observer_running_ = true;
+    agent_observer_thread_
+        = std::thread([this] { agent_observer_main(); });
+}
+
+void UnixPtyProcess::stop_agent_observer()
+{
+    std::lock_guard start_lock(agent_observer_start_mutex_);
+    agent_observer_running_ = false;
+    agent_observer_wake_.notify_all();
+    if (agent_observer_thread_.joinable())
+        agent_observer_thread_.join();
+}
+
+void UnixPtyProcess::agent_observer_main() const
+{
+    constexpr auto change_debounce
+        = std::chrono::seconds(1);
+    constexpr auto present_reconcile
+        = std::chrono::seconds(5);
+    constexpr auto missing_reconcile
+        = std::chrono::seconds(30);
+    constexpr auto foreground_check
+        = std::chrono::seconds(1);
+
+    pid_t observed_group = -1;
+    uint64_t observed_activity
+        = agent_activity_generation_.load();
+    bool dirty = true;
+    bool agent_present = false;
+    auto refresh_at = std::chrono::steady_clock::now();
+    auto reconcile_at = refresh_at;
+    bool first_probe = true;
+    while (agent_observer_running_)
+    {
+        if (!first_probe)
+        {
+            std::unique_lock lock(agent_observer_wait_mutex_);
+            agent_observer_wake_.wait_for(
+                lock, foreground_check, [this] {
+                    return !agent_observer_running_.load();
+                });
+        }
+        first_probe = false;
+        if (!agent_observer_running_)
+            break;
+
+        const auto now = std::chrono::steady_clock::now();
+        const pid_t foreground_group
+            = master_fd_ >= 0 ? tcgetpgrp(master_fd_) : -1;
+        const uint64_t activity
+            = agent_activity_generation_.load();
+        if (foreground_group != observed_group
+            || (!agent_present && activity != observed_activity))
+        {
+            if (observed_group < 0)
+                refresh_at = now;
+            else if (!dirty)
+                refresh_at = now + change_debounce;
+            dirty = true;
+            observed_group = foreground_group;
+            observed_activity = activity;
+        }
+        if ((!dirty || now < refresh_at)
+            && now < reconcile_at)
+        {
+            continue;
+        }
+
+        auto observation
+            = capture_agent_process_observation_now(
+                foreground_group);
+        agent_present = observation
+            && discover_agent_process(*observation).has_value();
+        {
+            std::lock_guard lock(agent_observation_mutex_);
+            cached_agent_process_observation_
+                = std::move(observation);
+        }
+        dirty = false;
+        observed_activity = activity;
+        reconcile_at = now
+            + (agent_present
+                    ? present_reconcile
+                    : missing_reconcile);
+    }
 }
 
 bool UnixPtyProcess::resize(int cols, int rows) const
@@ -710,6 +818,8 @@ void UnixPtyProcess::reader_main()
                 output_chunks_.emplace_back(buffer.data(), buffer.data() + bytes_read);
                 output_bytes_ += chunk_bytes;
             }
+            ++agent_activity_generation_;
+            agent_observer_wake_.notify_one();
 
             if (on_output_available_)
                 on_output_available_();

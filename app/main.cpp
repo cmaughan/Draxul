@@ -1073,6 +1073,12 @@ static int draxul_main(std::vector<std::string> args)
                 ? "terminal"
                 : "fake",
             .recovery = options.client_recovery,
+            .presentation_suspend_supported
+            = options.server_connection
+                && std::ranges::find(
+                       options.server_connection->capabilities,
+                       "terminal-presentation-suspend-v1")
+                    != options.server_connection->capabilities.end(),
         };
         options.host_factory = [remote_options](draxul::HostKind kind) {
             if (kind == draxul::HostKind::RemoteTerminal)

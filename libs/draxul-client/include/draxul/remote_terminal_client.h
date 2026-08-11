@@ -59,6 +59,8 @@ public:
     explicit RemoteTerminalClient(RemoteTerminalClientOptions options);
 
     bool attach(std::string& error);
+    bool suspend(std::string& error, uint64_t request_id = 0);
+    bool resume(std::string& error);
     bool poll(bool& changed, std::string& error);
     bool send_input(std::string_view text, std::string& error,
         uint64_t request_id = 0);

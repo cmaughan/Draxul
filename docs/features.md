@@ -149,11 +149,19 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   without stopping a live pane. Unexpected poll failures reattach with bounded
   backoff, while a scrollback failure simply returns that client to live.
 - Hello negotiation explicitly advertises scrollback, sanitized metrics, and the
-  current uncompressed frame fallback. `terminal.metrics` reports counts, encoded
-  bytes, delta density, queue count/byte limits, pressure/resyncs, oversized events,
-  degraded frames, and scrollback service volume without terminal text; the client
-  records its attach/reconnect latency. Unknown additive terminal event kinds are
-  counted and skipped, while malformed known events still trigger bounded recovery.
+  current uncompressed frame fallback. Negotiated presentation suspension stops
+  terminal polling, delta encoding, hidden-grid publication, frame requests, and
+  periodic UI wakeups for panes outside the active tab and Space while their
+  server-owned processes, terminal cores, scrollback, topology, and controller claims
+  remain live. Reactivating a tab resumes from one authoritative full snapshot. OSC 52
+  clipboard writes produced while the controlling presentation is suspended are
+  intentionally discarded rather than replayed into the foreground later.
+  `terminal.metrics` reports active and suspended subscribers, suspension/resume and
+  avoided-encoding totals, suppressed clipboard events, counts, encoded bytes, delta
+  density, queue count/byte limits, pressure/resyncs, oversized events, degraded
+  frames, and scrollback service volume without terminal text; the client records its
+  attach/reconnect latency. Unknown additive terminal event kinds are counted and
+  skipped, while malformed known events still trigger bounded recovery.
 - `topology-v1` is the first Slice 6 checkpoint. The headless server now owns a
   renderer-neutral Session/Space/tab/pane/split snapshot with monotonic revisions.
   Mutations are optimistic and idempotent, and multiple clients can poll to the same
@@ -364,10 +372,22 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
   `unknown`. The Agents rail shows semantic state and client-local attention.
   `explain_agent_state` reports only sanitized evidence, never captured text.
 - Codex and Claude started manually inside ordinary shell panes are discovered
-  best-effort by the server. Unix uses the PTY foreground process group; Windows
-  uses the ConPTY descendant tree. Detection sees through structured launchers
-  and accepts `DRAXUL_AGENT=codex|claude` as an explicit hint. Inferred rows are
-  not given durable native-session references.
+  best-effort by the server. Process inspection runs outside the server's
+  terminal/control loop and publishes a cached observation at one-second
+  projection cadence. Unix uses the PTY foreground process group, re-probing on
+  group/output changes with slow reconciliation. Windows uses each ConPTY's Job
+  Object process notifications, coalesces changes for one second, and queries
+  that job's current PIDs. A background descendant-tree reconciliation covers
+  nested-job and breakaway children that Windows does not report through the
+  ConPTY job. Reconciliation runs every five seconds while an inferred agent is
+  present or every thirty seconds otherwise. Managed panes skip process
+  discovery because their identity is authoritative. Detection sees through
+  structured launchers and accepts `DRAXUL_AGENT=codex|claude` as an explicit
+  hint. Inferred rows are not given durable native-session references.
+- Terminal output and queued control work wake the server loop immediately;
+  otherwise it sleeps for up to one second between housekeeping passes. This
+  removes the old 25 ms control delay and polling cadence without delaying
+  interactive terminal publication.
 - The shared server exposes its authenticated same-user local control endpoint.
   The headless topology/terminal commands above provide bounded discovery and
   manipulation by stable route ID and Session; structured agent operations

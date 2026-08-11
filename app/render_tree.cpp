@@ -50,7 +50,7 @@ bool walk_any_running(const RenderNode& node)
 {
     if (!node.visible)
         return false;
-    if (node.host && node.host->is_running())
+    if (node.host && node.host->requires_periodic_wake())
         return true;
     for (const auto& child : node.children)
     {
