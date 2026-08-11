@@ -8,7 +8,8 @@ $ErrorActionPreference = 'Stop'
 function Invoke-Draxul {
     param(
         [string[]]$Arguments,
-        [string]$StandardInput = ''
+        [string]$StandardInput = '',
+        [int]$TimeoutMilliseconds = 20000
     )
     $start = [System.Diagnostics.ProcessStartInfo]::new()
     $start.FileName = $Executable
@@ -26,9 +27,15 @@ function Invoke-Draxul {
         $process.StandardInput.Write($StandardInput)
         $process.StandardInput.Close()
     }
-    $stdout = $process.StandardOutput.ReadToEnd()
-    $stderr = $process.StandardError.ReadToEnd()
-    $process.WaitForExit()
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit($TimeoutMilliseconds)) {
+        $process.Kill()
+        $process.WaitForExit()
+        throw "draxul $($Arguments -join ' ') timed out after $TimeoutMilliseconds ms"
+    }
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
     if ($process.ExitCode -ne 0) {
         throw "draxul $($Arguments -join ' ') failed ($($process.ExitCode)): $stderr"
     }
@@ -38,6 +45,8 @@ function Invoke-Draxul {
 $runtime = Join-Path ([System.IO.Path]::GetTempPath()) (
     'draxul-topology-cli-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $runtime | Out-Null
+$serverPid = $null
+$endpointPath = $null
 
 $layout = @{
     name = 'Automation'
@@ -70,18 +79,29 @@ $layout = @{
 
 try {
     Invoke-Draxul @('--server', '--server-runtime-dir', $runtime) | Out-Null
-    $endpoint = $null
     for ($attempt = 0; $attempt -lt 120; ++$attempt) {
         $endpoint = Get-ChildItem -LiteralPath $runtime `
             -Filter '*.control.json' -File -ErrorAction SilentlyContinue |
             Select-Object -First 1
         if ($endpoint) {
-            break
+            try {
+                $metadata = Get-Content -LiteralPath $endpoint.FullName -Raw |
+                    ConvertFrom-Json
+                if ($metadata.state -eq 'ready' -and $metadata.server_pid) {
+                    $endpointPath = $endpoint.FullName
+                    $serverPid = [int]$metadata.server_pid
+                    break
+                }
+            }
+            catch {
+                # The server publishes through an atomic rename, but tolerate a
+                # transient read while antivirus/indexing observes the file.
+            }
         }
         Start-Sleep -Milliseconds 100
     }
-    if (-not $endpoint) {
-        throw 'The isolated Draxul server did not publish its endpoint.'
+    if (-not $endpointPath) {
+        throw 'The isolated Draxul server did not publish a ready endpoint.'
     }
 
     $before = @(Invoke-Draxul @(
@@ -157,5 +177,27 @@ finally {
     }
     catch {
         Write-Warning "Could not stop isolated test server: $_"
+    }
+    if ($serverPid) {
+        try {
+            Wait-Process -Id $serverPid -Timeout 10 -ErrorAction Stop
+        }
+        catch {
+            $survivor = Get-CimInstance Win32_Process `
+                -Filter "ProcessId = $serverPid" -ErrorAction SilentlyContinue
+            $isExpectedServer = $survivor `
+                -and $survivor.Name -eq 'draxul-server.exe' `
+                -and $survivor.CommandLine -like "*$runtime*"
+            if ($isExpectedServer) {
+                Stop-Process -Id $serverPid -Force -ErrorAction Stop
+                Write-Warning "Force-stopped isolated test server PID $serverPid after graceful shutdown timed out."
+            }
+            elseif ($survivor) {
+                throw "Refused to stop reused or unexpected PID $serverPid after isolated-server shutdown timed out."
+            }
+        }
+    }
+    if ($endpointPath -and (Test-Path -LiteralPath $endpointPath)) {
+        throw "The isolated server endpoint survived shutdown: $endpointPath"
     }
 }

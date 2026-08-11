@@ -89,11 +89,30 @@ void ensure_valid_standard_io()
         stderr, STD_ERROR_HANDLE, "w");
 }
 
+bool standard_handle_is_redirected(DWORD standard_handle)
+{
+    const HANDLE handle = GetStdHandle(standard_handle);
+    if (handle == nullptr || handle == INVALID_HANDLE_VALUE)
+        return false;
+    const DWORD type = GetFileType(handle);
+    return type == FILE_TYPE_PIPE || type == FILE_TYPE_DISK;
+}
+
 void ensure_console_io(bool allow_alloc_console)
 {
     static bool configured = false;
     if (configured)
         return;
+
+    // ProcessStartInfo, CI runners, and other agents commonly launch the
+    // WIN32 executable with redirected pipes. Attaching to a real (possibly
+    // hidden) parent console must not replace those routes with CONIN$/CONOUT$.
+    const bool redirected_stdin
+        = standard_handle_is_redirected(STD_INPUT_HANDLE);
+    const bool redirected_stdout
+        = standard_handle_is_redirected(STD_OUTPUT_HANDLE);
+    const bool redirected_stderr
+        = standard_handle_is_redirected(STD_ERROR_HANDLE);
 
     if (!GetConsoleWindow())
     {
@@ -104,9 +123,12 @@ void ensure_console_io(bool allow_alloc_console)
     if (GetConsoleWindow())
     {
         FILE* stream = nullptr;
-        freopen_s(&stream, "CONOUT$", "w", stdout);
-        freopen_s(&stream, "CONOUT$", "w", stderr);
-        freopen_s(&stream, "CONIN$", "r", stdin);
+        if (!redirected_stdout)
+            freopen_s(&stream, "CONOUT$", "w", stdout);
+        if (!redirected_stderr)
+            freopen_s(&stream, "CONOUT$", "w", stderr);
+        if (!redirected_stdin)
+            freopen_s(&stream, "CONIN$", "r", stdin);
         SetConsoleOutputCP(CP_UTF8);
         SetConsoleCP(CP_UTF8);
         configured = true;

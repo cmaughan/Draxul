@@ -19,7 +19,7 @@ available while every Draxul UI is detached from a remote Session.
 - [x] Official session-reference updates work with no GPU client attached.
 - [x] Focused automated, full Debug, Release core/app, Release link/smoke, and
       executable-level headless gates pass.
-- [ ] The manual two-client managed-agent detach/status/reconnect demonstration
+- [x] The manual two-client managed-agent detach/status/reconnect demonstration
       passes.
 
 ## Rollback
@@ -69,7 +69,13 @@ falling back to an app-owned shell/agent runtime.
 - Automated Slice 8 acceptance passes all Debug core/app shards, all Release
   core/app shards, exact Release link/smoke, two projection clients, no-UI
   launch/report/restart, cold restore, and executable-level
-  status/list/shutdown. The manual two-window managed-agent script remains.
+  status/list/shutdown.
+- The manual two-window gate now passes against an isolated real server: both
+  UI processes projected the same five-terminal topology, one UI detached while
+  a pane was added and replaced in place by a managed Codex agent, the surviving
+  UI reconciled the new terminal, the detached agent remained `running`/`idle`,
+  and the reconnected UI attached all five current terminals while server status
+  returned to two connected clients.
 - The public headless CLI now exposes the server-owned Space/tab/pane/split
   topology, terminal run/send/keys/read/output-wait operations, stable route
   context inside every server shell, declarative atomic layout creation, and
