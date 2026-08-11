@@ -1,0 +1,4 @@
+interface:
+  display_name: "Draxul"
+  short_description: "Control Draxul Spaces, tabs, panes, and agents"
+  default_prompt: "Use $draxul to create and control a headless Draxul workspace."
