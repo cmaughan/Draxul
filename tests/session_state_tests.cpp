@@ -167,12 +167,16 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     pane_layout.panes.push_back({
         .leaf_id = right,
         .launch = {
-            .kind = HostKind::PowerShell,
+            .kind = HostKind::Plugin,
             .command = "pwsh",
             .args = { "-NoProfile" },
             .working_dir = "D:/right",
             .source_path = "",
             .startup_commands = { "echo right" },
+            .client_plugin_id
+                = "dev.draxul.spinning-triangle",
+            .client_plugin_config_json
+                = R"({"paused":true,"initial_angle":0.5})",
         },
         .pane_name = "right",
         .pane_id = "pane-right",
@@ -249,7 +253,7 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     const std::string saved_text{
         std::istreambuf_iterator<char>(saved_file), std::istreambuf_iterator<char>()
     };
-    CHECK(saved_text.find("version = 3") != std::string::npos);
+    CHECK(saved_text.find("version = 4") != std::string::npos);
     CHECK(saved_text.find("active_space_id") != std::string::npos);
     CHECK(saved_text.find("next_space_id") != std::string::npos);
     CHECK(saved_text.find("[[spaces]]") != std::string::npos);
@@ -269,7 +273,7 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     REQUIRE(load_error.empty());
     REQUIRE(loaded->session_id == "workbench");
     REQUIRE(loaded->session_name == "workbench");
-    REQUIRE(loaded->version == 3);
+    REQUIRE(loaded->version == 4);
     REQUIRE(loaded->active_space_id == 11);
     REQUIRE(loaded->next_space_id == 12);
     REQUIRE(loaded->spaces.size() == 2);
@@ -304,6 +308,10 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     CHECK(loaded_tab.pane_layout.panes[1].pane_name == "right");
     CHECK(loaded_tab.pane_layout.panes[1].pane_id == "pane-right");
     CHECK(loaded_tab.pane_layout.panes[1].launch.args == (std::vector<std::string>{ "-NoProfile" }));
+    CHECK(loaded_tab.pane_layout.panes[1].launch.client_plugin_id
+        == "dev.draxul.spinning-triangle");
+    CHECK(loaded_tab.pane_layout.panes[1].launch.client_plugin_config_json
+        == R"({"paused":true,"initial_angle":0.5})");
     REQUIRE(loaded_tab.pane_layout.panes[1].agent);
     CHECK(loaded_tab.pane_layout.panes[1].agent->kind == "codex");
     CHECK(loaded_tab.pane_layout.panes[1].agent->display_name == "Codex");
@@ -344,7 +352,7 @@ TEST_CASE("session state: historical v1 fixture decodes through pure codec",
 
     REQUIRE(decoded);
     REQUIRE(error.empty());
-    CHECK(decoded->version == 3);
+    CHECK(decoded->version == 4);
     CHECK(decoded->session_id == "historical");
     CHECK(decoded->session_name == "Historical Session");
     CHECK(decoded->active_space_id == kDefaultSpaceId);
@@ -369,7 +377,7 @@ TEST_CASE("session state: historical v1 fixture decodes through pure codec",
     CHECK(restored_tree.focused() == 1);
 }
 
-TEST_CASE("session state: v2 snapshots migrate to the current in-memory model",
+TEST_CASE("session state: v3 snapshots migrate to the current in-memory model",
     "[session_state][migration]")
 {
     SessionSnapshot state = make_single_pane_session_snapshot();
@@ -377,14 +385,14 @@ TEST_CASE("session state: v2 snapshots migrate to the current in-memory model",
     auto encoded = encode_session_state(state, &error);
     REQUIRE(encoded);
     REQUIRE(error.empty());
-    const auto version = encoded->find("version = 3");
+    const auto version = encoded->find("version = 4");
     REQUIRE(version != std::string::npos);
-    encoded->replace(version, std::string("version = 3").size(), "version = 2");
+    encoded->replace(version, std::string("version = 4").size(), "version = 3");
 
     auto decoded = decode_session_state(*encoded, &error);
     REQUIRE(decoded);
     CHECK(error.empty());
-    CHECK(decoded->version == 3);
+    CHECK(decoded->version == 4);
     REQUIRE(decoded->spaces.size() == 1);
     REQUIRE(decoded->spaces[0].tabs.size() == 1);
     REQUIRE(decoded->spaces[0].tabs[0].pane_layout.panes.size() == 1);

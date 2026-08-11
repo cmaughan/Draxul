@@ -4,6 +4,7 @@
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/toml_support.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -35,6 +36,7 @@ namespace
 constexpr int kSessionStateVersionV1 = 1;
 constexpr int kSessionStateVersionV2 = 2;
 constexpr int kSessionStateVersionV3 = 3;
+constexpr int kSessionStateVersionV4 = 4;
 constexpr size_t kMaxSessionStateBytes = 4 * 1024 * 1024;
 constexpr size_t kMaxSpaces = 64;
 constexpr size_t kMaxTabsPerSpace = 128;
@@ -43,6 +45,30 @@ constexpr size_t kMaxTreeDepth = 64;
 constexpr size_t kMaxShortTextBytes = 512;
 constexpr size_t kMaxCommandTextBytes = 8192;
 constexpr size_t kMaxStringListEntries = 256;
+
+bool valid_plugin_id(std::string_view value)
+{
+    return !value.empty() && value.size() <= 128
+        && std::all_of(value.begin(), value.end(),
+            [](unsigned char ch) {
+                return std::islower(ch) || std::isdigit(ch)
+                    || ch == '.' || ch == '_' || ch == '-';
+            });
+}
+
+bool valid_plugin_config(std::string_view value)
+{
+    if (value.empty())
+        return true;
+    try
+    {
+        return nlohmann::json::parse(value).is_object();
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
 
 struct LegacySessionSnapshotV1
 {
@@ -242,6 +268,13 @@ toml::table serialize_pane_layout(const SessionPaneLayoutSnapshot& state)
         if (!pane.launch.client_host_kind.empty())
             pane_table.insert_or_assign(
                 "client_host_kind", pane.launch.client_host_kind);
+        if (!pane.launch.client_plugin_id.empty())
+            pane_table.insert_or_assign(
+                "client_plugin_id", pane.launch.client_plugin_id);
+        if (!pane.launch.client_plugin_config_json.empty())
+            pane_table.insert_or_assign(
+                "client_plugin_config_json",
+                pane.launch.client_plugin_config_json);
         if (!pane.launch.companion_owner_pane_id.empty())
             pane_table.insert_or_assign(
                 "companion_owner_pane_id",
@@ -363,6 +396,14 @@ std::optional<SessionPaneLayoutSnapshot> parse_pane_layout(
         pane.launch.client_host_kind
             = toml_support::get_string(
                   *pane_table, "client_host_kind")
+                  .value_or("");
+        pane.launch.client_plugin_id
+            = toml_support::get_string(
+                  *pane_table, "client_plugin_id")
+                  .value_or("");
+        pane.launch.client_plugin_config_json
+            = toml_support::get_string(
+                  *pane_table, "client_plugin_config_json")
                   .value_or("");
         pane.launch.companion_owner_pane_id
             = toml_support::get_string(
@@ -613,6 +654,12 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
                     pane.launch.client_host_kind,
                     kMaxShortTextBytes, "client host kind", error)
                 || !validate_text_limit(
+                    pane.launch.client_plugin_id,
+                    kMaxShortTextBytes, "client plugin id", error)
+                || !validate_text_limit(
+                    pane.launch.client_plugin_config_json,
+                    kMaxCommandTextBytes, "client plugin config", error)
+                || !validate_text_limit(
                     pane.launch.companion_owner_pane_id,
                     kMaxShortTextBytes, "companion owner pane id", error)
                 || !validate_text_limit(
@@ -621,6 +668,25 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
                 || !validate_string_list(
                     pane.launch.startup_commands, "startup commands", error))
             {
+                return false;
+            }
+            if (pane.launch.kind == HostKind::Plugin)
+            {
+                if (!valid_plugin_id(
+                        pane.launch.client_plugin_id)
+                    || !valid_plugin_config(
+                        pane.launch.client_plugin_config_json))
+                {
+                    if (error)
+                        *error = "Session plugin descriptor is invalid.";
+                    return false;
+                }
+            }
+            else if (!pane.launch.client_plugin_id.empty()
+                || !pane.launch.client_plugin_config_json.empty())
+            {
+                if (error)
+                    *error = "Non-plugin pane contains plugin launch data.";
                 return false;
             }
             if (pane.agent
@@ -694,7 +760,7 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
 
 bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* error)
 {
-    if (state.version != kSessionStateVersionV3)
+    if (state.version != kSessionStateVersionV4)
     {
         if (error)
             *error = "Unsupported session state version.";
@@ -771,7 +837,7 @@ bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* e
 SessionSnapshot migrate_v1_to_v2(LegacySessionSnapshotV1 legacy)
 {
     SessionSnapshot state;
-    state.version = kSessionStateVersionV3;
+    state.version = kSessionStateVersionV4;
     state.session_id = std::move(legacy.session_id);
     state.session_name = std::move(legacy.session_name);
     state.active_space_id = kDefaultSpaceId;
@@ -845,7 +911,7 @@ std::optional<SessionSnapshot> decode_v2_document(
     const toml::table& document, std::string* error)
 {
     SessionSnapshot state;
-    state.version = kSessionStateVersionV3;
+    state.version = kSessionStateVersionV4;
     state.session_id = toml_support::get_string(document, "session_id").value_or("default");
     state.session_name = toml_support::get_string(document, "session_name").value_or(
         state.session_id);
@@ -1024,6 +1090,8 @@ std::optional<SessionSnapshot> decode_session_state(
         return decode_v2_document(*document, error);
     case kSessionStateVersionV3:
         return decode_v2_document(*document, error);
+    case kSessionStateVersionV4:
+        return decode_v2_document(*document, error);
     default:
         if (error)
             *error = "Unsupported session state version.";
@@ -1041,7 +1109,7 @@ std::optional<std::string> encode_session_state(
     {
         const std::string normalized_id = state.session_id.empty() ? "default" : state.session_id;
         toml::table document;
-        document.insert_or_assign("version", kSessionStateVersionV3);
+        document.insert_or_assign("version", kSessionStateVersionV4);
         document.insert_or_assign("session_id", normalized_id);
         document.insert_or_assign(
             "session_name", state.session_name.empty() ? normalized_id : state.session_name);

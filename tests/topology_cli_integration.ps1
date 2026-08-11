@@ -72,6 +72,17 @@ $layout = @{
                     direction = 'down'
                     ratio = 0.4
                 }
+                @{
+                    name = 'Triangle'
+                    alias = 'triangle'
+                    split_from = 'logs'
+                    direction = 'right'
+                    plugin_id = 'dev.draxul.spinning-triangle'
+                    plugin_config = @{
+                        paused = $true
+                        initial_angle = 0.5
+                    }
+                }
             )
         }
     )
@@ -123,8 +134,49 @@ try {
     $panes = @(Invoke-Draxul @(
         'pane', 'list', '--space', $applied.created_id, '--json',
         '--server-runtime-dir', $runtime) | ConvertFrom-Json)
-    if ($panes.Count -ne 3 -or -not $applied.aliases.tests) {
+    if ($panes.Count -ne 4 -or -not $applied.aliases.tests) {
         throw 'The applied layout does not contain the expected panes and aliases.'
+    }
+    $triangle = $panes | Where-Object id -eq $applied.aliases.triangle
+    if (-not $triangle -or $triangle.domain -ne 'client_local' `
+        -or $triangle.client_host_kind -ne 'plugin' `
+        -or $triangle.client_plugin_id -ne 'dev.draxul.spinning-triangle' `
+        -or $triangle.terminal_id) {
+        throw ('Declarative plugin pane allocated a terminal or lost its descriptor: ' `
+            + ($triangle | ConvertTo-Json -Depth 5 -Compress))
+    }
+
+    $pluginList = @(Invoke-Draxul @('plugin', 'list', '--json') |
+        ConvertFrom-Json)
+    if (-not ($pluginList | Where-Object id -eq 'dev.draxul.spinning-triangle')) {
+        throw 'Bundled plugin was not discoverable through plugin list.'
+    }
+
+    $pluginTab = Invoke-Draxul @(
+        'tab', 'create', '--space', $applied.created_id,
+        '--name', 'Plugin Tab', '--plugin', 'dev.draxul.spinning-triangle',
+        '--plugin-config', '{"paused":true}', '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    $pluginTabState = Invoke-Draxul @(
+        'tab', 'get', $pluginTab.created_id, '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    if ($pluginTabState.panes.Count -ne 1 `
+        -or $pluginTabState.panes[0].terminal_id `
+        -or $pluginTabState.panes[0].client_plugin_id -ne 'dev.draxul.spinning-triangle') {
+        throw 'Plugin tab creation did not preserve a terminal-free plugin pane.'
+    }
+
+    $pluginSplit = Invoke-Draxul @(
+        'pane', 'split', $applied.aliases.shell, '--direction', 'right',
+        '--plugin', 'dev.draxul.spinning-triangle',
+        '--plugin-config', '{"paused":true}', '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    $pluginSplitState = Invoke-Draxul @(
+        'pane', 'get', $pluginSplit.created_id, '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    if ($pluginSplitState.terminal_id `
+        -or $pluginSplitState.client_plugin_id -ne 'dev.draxul.spinning-triangle') {
+        throw 'Plugin pane split allocated a terminal or lost its descriptor.'
     }
 
     $marker = "DRAXUL-CONTEXT:$($applied.created_id):$($applied.aliases.workers):$($applied.aliases.shell)"
@@ -163,8 +215,8 @@ try {
     $splits = @(Invoke-Draxul @(
         'split', 'list', '--tab', $applied.aliases.workers, '--json',
         '--server-runtime-dir', $runtime) | ConvertFrom-Json)
-    if ($splits.Count -ne 2) {
-        throw 'Pane movement did not preserve a valid three-pane split tree.'
+    if ($splits.Count -ne 4) {
+        throw 'Pane movement did not preserve a valid five-pane split tree.'
     }
 
     Write-Output "Topology CLI integration passed: $($applied.created_id)"

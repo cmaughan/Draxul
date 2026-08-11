@@ -14,6 +14,8 @@ namespace draxul
 class UnavailableHost final : public GridHostBase
 {
 public:
+    explicit UnavailableHost(std::string detail = {})
+        : detail_(std::move(detail)) {}
     void shutdown() override;
     bool is_running() const override;
     std::string init_error() const override;
@@ -33,6 +35,7 @@ private:
 
     bool running_ = false;
     std::string message_;
+    std::string detail_;
 };
 
 } // namespace draxul

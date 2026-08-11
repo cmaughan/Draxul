@@ -781,10 +781,14 @@ TEST_CASE("restored child topology identities are scoped by their parents",
         result.pane_layout.panes.push_back({
             .leaf_id = 0,
             .launch = {
-                .kind = HostKind::Kanban,
+                .kind = HostKind::Plugin,
                 .working_dir = "D:/work",
                 .source_path = "custom-board",
-                .client_host_kind = "kanban",
+                .client_host_kind = "plugin",
+                .client_plugin_id
+                    = "dev.draxul.spinning-triangle",
+                .client_plugin_config_json
+                    = R"({"paused":true})",
             },
             .pane_name = "Pane",
             .pane_id = "pane-0",
@@ -852,6 +856,16 @@ TEST_CASE("restored child topology identities are scoped by their parents",
               .panes[0]
               .client_source_path
         == "custom-board");
+    CHECK(rerestored->topology.spaces[0]
+              .tabs[0]
+              .panes[0]
+              .client_plugin_id
+        == "dev.draxul.spinning-triangle");
+    CHECK(rerestored->topology.spaces[0]
+              .tabs[0]
+              .panes[0]
+              .client_plugin_config_json
+        == R"({"paused":true})");
 }
 
 TEST_CASE("oversized truecolour hyperlink snapshots degrade within frame budget",
@@ -1046,6 +1060,61 @@ TEST_CASE("shared topology stores and updates client-local preview descriptors",
         == "kanban/pending/two.md");
     CHECK(updated.companion_owner_pane_id
         == owner_pane_id);
+}
+
+TEST_CASE("shared topology creates terminal-free plugin panes and validates descriptors",
+    "[server][topology][client_local][plugin]")
+{
+    int terminal_allocations = 0;
+    TopologyService service("client-local-plugin", {
+        .create_server_terminal
+        = [&terminal_allocations](
+              const ServerTerminalTopologyLaunch&,
+              std::string&) -> std::optional<std::string> {
+            return "terminal-"
+                + std::to_string(++terminal_allocations);
+        },
+    });
+    const int allocations_before = terminal_allocations;
+    const auto& space = service.snapshot().spaces.front();
+    const auto& tab = space.tabs.front();
+    TopologyCommand split{
+        .client_id = "plugin-client",
+        .command_id = "plugin-split",
+        .expected_revision = service.snapshot().revision,
+        .kind = TopologyCommandKind::SplitPane,
+        .space_id = space.space_id,
+        .tab_id = tab.tab_id,
+        .pane_id = tab.panes.front().pane_id,
+        .direction = TopologySplitDirection::Vertical,
+        .pane_domain = TopologyPaneDomain::ClientLocal,
+        .client_host_kind = "plugin",
+        .client_plugin_id
+            = "dev.draxul.spinning-triangle",
+        .client_plugin_config_json
+            = R"({"paused":true})",
+    };
+    const auto response = service.handle(
+        "topology.command", topology_command_to_json(split));
+    REQUIRE(response.ok);
+    CHECK(terminal_allocations == allocations_before);
+    const auto& plugin = service.snapshot().spaces.front()
+                             .tabs.front().panes.back();
+    CHECK(plugin.domain == TopologyPaneDomain::ClientLocal);
+    CHECK(plugin.terminal_id.empty());
+    CHECK(plugin.client_plugin_id
+        == "dev.draxul.spinning-triangle");
+
+    TopologyCommand invalid = split;
+    invalid.command_id = "plugin-invalid";
+    invalid.expected_revision = service.snapshot().revision;
+    invalid.client_plugin_config_json = "[]";
+    const uint64_t revision_before = service.snapshot().revision;
+    const auto rejected = service.handle(
+        "topology.command", topology_command_to_json(invalid));
+    CHECK_FALSE(rejected.ok);
+    CHECK(service.snapshot().revision == revision_before);
+    CHECK(terminal_allocations == allocations_before);
 }
 
 TEST_CASE("restored topology removes the legacy generated server shell name",

@@ -26,6 +26,7 @@ enum class HostKind
     Markdown,
     Kanban,
     Score,
+    Plugin,
     Count,
 };
 
@@ -43,6 +44,7 @@ inline constexpr std::array kAllHostKinds = {
     HostKind::Markdown,
     HostKind::Kanban,
     HostKind::Score,
+    HostKind::Plugin,
 };
 static_assert(kAllHostKinds.size()
     == static_cast<size_t>(HostKind::Count),
@@ -78,6 +80,8 @@ inline const char* to_string(HostKind kind)
         return "kanban";
     case HostKind::Score:
         return "score";
+    case HostKind::Plugin:
+        return "plugin";
     case HostKind::Count:
         break;
     }
@@ -105,6 +109,7 @@ inline constexpr bool is_server_owned_shell_host(HostKind kind)
     case HostKind::Markdown:
     case HostKind::Kanban:
     case HostKind::Score:
+    case HostKind::Plugin:
         return false;
     case HostKind::Count:
         return false;

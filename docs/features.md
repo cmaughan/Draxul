@@ -25,6 +25,36 @@ PowerShell on Windows). Explicit self-contained product windows advertise only
 the client-owned hosts they can create.
 Host names, aliases, platform support, test-only status, and split/new-tab visibility come from the registered provider metadata. Optional hosts that are not built are therefore absent from the command palette and rejected explicitly by `--host`; the hidden `nanovg-demo` provider remains directly launchable by the render harness.
 
+### Native GPU pane plugins
+
+Draxul can host trusted, client-local native plugins in a pane or an entire tab.
+Plugins are discovered at startup from `%APPDATA%/draxul/plugins` and
+`<exe>/plugins` on Windows, or `~/Library/Application Support/draxul/plugins`
+and the app bundle's `Contents/PlugIns` on macOS. Each immediate child directory
+contains a `plugin.toml` manifest and a platform DLL/dylib. User plugins override
+bundled plugins with the same stable ID; installing or replacing one requires a UI
+restart.
+
+The server stores only the stable plugin ID and bounded JSON configuration. Each
+attached UI loads its own installed module, so an unavailable or incompatible
+plugin leaves the shared pane intact and shows an actionable placeholder. The
+versioned C ABI in `libs/draxul-plugin/include/draxul/plugin_api.h` supplies
+Vulkan or Metal command-buffer access without transferring swapchain, submission,
+or presentation ownership. Hidden tabs and Spaces stop plugin animation deadlines.
+
+```text
+draxul plugin list --json
+draxul plugin get <plugin-id> --json
+draxul pane split <pane-id> --direction right --plugin <plugin-id> \
+  [--plugin-config <json>] --json
+draxul tab create --space <space-id> --name <name> --plugin <plugin-id> \
+  [--plugin-config <json>] --json
+```
+
+The bundled `dev.draxul.spinning-triangle` module is a real dynamically loaded
+Vulkan/Metal sample. Its configuration accepts `speed_radians_per_second`,
+`initial_angle`, and `paused`; Space toggles pause and left-click reverses it.
+
 ---
 
 ## Shared Terminal Server

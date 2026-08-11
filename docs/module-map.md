@@ -101,12 +101,13 @@ does not rebuild or extend the universal value-type archive.
 | `libs/draxul-performance/` | Runtime timing collection and the `PERF_MEASURE` instrumentation API |
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
+| `libs/draxul-plugin/` | Trusted native plugin SDK, manifest discovery, platform dynamic loading, ABI/identity validation, and process-lifetime module cache |
 | `libs/draxul-agent/` | Neutral agent identity/profile/runtime values plus bundled, versioned terminal-status and process-discovery evaluators |
 | `libs/draxul-session-model/` | Renderer-free durable Session/Space/tab/pane snapshot values, validation, versioned TOML codec, and transactional file replacement shared by the app and server |
 | `libs/draxul-control/` | Versioned, authenticated local Session control transport and client (Windows named pipe; Unix-domain socket elsewhere) |
 | `libs/draxul-protocol/` | Renderer- and transport-neutral server hello/status, versioned topology and sanitized agent-projection values, plus terminal pane, snapshot, delta, controller, clipboard, paged-scrollback, and diagnostic values |
 | `libs/draxul-client/` | Singleton discovery/launch/status/shutdown plus renderer-free remote-terminal and sanitized-agent polling, acknowledged/coalesced Session delivery, and `TopologyProjection`, which owns remote/local Space-tab-pane identities, stable leaf/split projection, structural signatures, divider-node mapping, and topology command activation bookkeeping behind the app's thin controller/PaneManager adapters; also owns the scrollback-page client, attach-latency metric, and headless probe API |
-| `libs/draxul-server/` | Headless server kernel, authoritative revisioned/idempotent topology service, Session-scoped agent discovery, sanitized status projection, profile-resolved managed-agent launch/restore, headless agent inspection/input/restart control, and epoch/runtime-pinned native-session reporting, server-owned periodic/graceful v3 Session checkpoint and cold restore, deterministic fake terminal plus a stable-ID registry of lazy real server-owned shell runtimes, semantic scrollback, per-terminal controller leases, sanitized transport metrics, bounded per-client terminal event queues, and serialized control event loop; deliberately has no window, renderer, host, or product dependency |
+| `libs/draxul-server/` | Headless server kernel, authoritative revisioned/idempotent topology service, Session-scoped agent discovery, sanitized status projection, profile-resolved managed-agent launch/restore, headless agent inspection/input/restart control, and epoch/runtime-pinned native-session reporting, server-owned periodic/graceful v4 Session checkpoint and cold restore, deterministic fake terminal plus a stable-ID registry of lazy real server-owned shell runtimes, semantic scrollback, per-terminal controller leases, sanitized transport metrics, bounded per-client terminal event queues, and serialized control event loop; deliberately has no window, renderer, host, or product dependency |
 | `libs/draxul-terminal-core/` | Renderer-, window-, and process-free VT state machine, semantic full/dirty/cell snapshots, terminal identity/limits, alternate-screen state, attributes, and reusable scrollback storage |
 | `libs/draxul-terminal-process/` | UI-free PTY/ConPTY process adapters owned by server terminal runtimes |
 
@@ -115,6 +116,9 @@ These targets must not depend on product modules. Configure-time checks in
 `draxul-host` dependencies needed by its public and implementation headers.
 `draxul-host` privately consumes `draxul-client` for the `RemoteTerminalHost`
 renderer adapter, including client-local viewport/selection/mouse/paste behavior.
+It also owns the generic `PluginHost` and its Vulkan/Metal render-pass adapters;
+plugin modules remain dynamically linked and are never product dependencies of the
+server. The bundled spinning-triangle sample lives under `plugins/`.
 The process adapter, client, and server libraries remain free of host, window,
 renderer, font, SDL, and product dependencies.
 

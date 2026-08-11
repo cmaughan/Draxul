@@ -129,6 +129,8 @@ nlohmann::json pane_to_json(const TopologyPane& pane)
         { "client_working_directory",
             pane.client_working_directory },
         { "client_source_path", pane.client_source_path },
+        { "client_plugin_id", pane.client_plugin_id },
+        { "client_plugin_config_json", pane.client_plugin_config_json },
         { "companion_owner_pane_id",
             pane.companion_owner_pane_id },
         { "server_working_directory",
@@ -164,6 +166,12 @@ bool read_pane(const nlohmann::json& value, TopologyPane& pane)
         || (value.contains("client_source_path")
             && !read_string(value, "client_source_path",
                 pane.client_source_path, true))
+        || (value.contains("client_plugin_id")
+            && !read_string(value, "client_plugin_id",
+                pane.client_plugin_id, true))
+        || (value.contains("client_plugin_config_json")
+            && !read_string(value, "client_plugin_config_json",
+                pane.client_plugin_config_json, true))
         || (value.contains("companion_owner_pane_id")
             && !read_string(value, "companion_owner_pane_id",
                 pane.companion_owner_pane_id, true)))
@@ -555,6 +563,8 @@ nlohmann::json topology_command_to_json(
         { "client_working_directory",
             command.client_working_directory },
         { "client_source_path", command.client_source_path },
+        { "client_plugin_id", command.client_plugin_id },
+        { "client_plugin_config_json", command.client_plugin_config_json },
         { "companion_owner_pane_id",
             command.companion_owner_pane_id },
         { "server_working_directory",
@@ -600,6 +610,10 @@ std::optional<TopologyCommand> topology_command_from_json(
             command.client_working_directory)
         || !read_optional_string(
             "client_source_path", command.client_source_path)
+        || !read_optional_string(
+            "client_plugin_id", command.client_plugin_id)
+        || !read_optional_string(
+            "client_plugin_config_json", command.client_plugin_config_json)
         || !read_optional_string(
             "companion_owner_pane_id",
             command.companion_owner_pane_id)

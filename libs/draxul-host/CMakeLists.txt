@@ -4,6 +4,7 @@ add_library(draxul-host
     src/host_registry.cpp
     src/local_terminal_host.cpp
     src/mouse_reporter.cpp
+    src/plugin_host.cpp
     src/nvim_host.cpp
     src/remote_terminal_host.cpp
     src/selection_manager.cpp
@@ -12,12 +13,23 @@ add_library(draxul-host
     src/unavailable_host.cpp
 )
 
+if(APPLE)
+    target_sources(draxul-host PRIVATE src/plugin_render_pass_metal.mm)
+else()
+    target_sources(draxul-host PRIVATE src/plugin_render_pass_vk.cpp)
+    target_link_libraries(draxul-host PRIVATE
+        Vulkan::Vulkan
+        GPUOpen::VulkanMemoryAllocator
+    )
+endif()
+
 target_include_directories(draxul-host PUBLIC include)
 
 target_link_libraries(draxul-host PUBLIC
     draxul-agent
     draxul-grid
     draxul-host-identity
+    draxul-plugin
     draxul-nvim
     draxul-renderer
     draxul-runtime-support

@@ -12,4 +12,5 @@ target_link_libraries(draxul-session-model PUBLIC
 target_link_libraries(draxul-session-model PRIVATE
     draxul-config
     draxul-performance
+    nlohmann_json::nlohmann_json
 )

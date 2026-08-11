@@ -51,6 +51,10 @@ public:
     virtual void end_frame() = 0;
     virtual void resize(int pixel_w, int pixel_h) = 0;
     virtual void set_default_background(Color bg) = 0;
+    // Synchronize outstanding GPU work before externally-owned render
+    // resources are destroyed. Dynamic plugin teardown uses this conservative
+    // v1 boundary; ordinary hosts should not call it per frame.
+    virtual void wait_idle() {}
 };
 
 // ---------------------------------------------------------------------------

@@ -15,6 +15,25 @@
 namespace draxul
 {
 
+namespace
+{
+
+GuiLaunchTarget parse_launch_target(std::string_view value)
+{
+    constexpr std::string_view prefix = "plugin:";
+    if (value.starts_with(prefix))
+    {
+        return {
+            .host_kind = HostKind::Plugin,
+            .plugin_id = std::string(value.substr(prefix.size())),
+            .plugin_config_json = "{}",
+        };
+    }
+    return { .host_kind = parse_host_kind(value) };
+}
+
+} // namespace
+
 GuiActionHandler::GuiActionHandler(Deps deps)
     : deps_(std::move(deps))
 {
@@ -235,14 +254,14 @@ void GuiActionHandler::split_vertical(std::string_view args) const
 {
     PERF_MEASURE();
     if (deps_.on_split_vertical)
-        deps_.on_split_vertical(parse_host_kind(args));
+        deps_.on_split_vertical(parse_launch_target(args));
 }
 
 void GuiActionHandler::split_horizontal(std::string_view args) const
 {
     PERF_MEASURE();
     if (deps_.on_split_horizontal)
-        deps_.on_split_horizontal(parse_host_kind(args));
+        deps_.on_split_horizontal(parse_launch_target(args));
 }
 
 void GuiActionHandler::toggle_host_ui() const
@@ -339,7 +358,7 @@ void GuiActionHandler::resize_pane_down() const
 void GuiActionHandler::new_tab(std::string_view args) const
 {
     if (deps_.on_new_tab)
-        deps_.on_new_tab(parse_host_kind(args));
+        deps_.on_new_tab(parse_launch_target(args));
 }
 
 void GuiActionHandler::close_tab() const

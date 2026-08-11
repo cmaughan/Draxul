@@ -20,6 +20,8 @@ struct TopologyCliCommand
     std::string name;
     std::string root_directory;
     std::string working_directory;
+    std::string plugin_id;
+    std::string plugin_config_json;
     std::string text;
     std::string direction = "right";
     float ratio = 0.5f;

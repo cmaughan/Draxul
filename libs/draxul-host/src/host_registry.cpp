@@ -70,6 +70,11 @@ HostProviderMetadata default_metadata(HostKind kind)
     case HostKind::Score:
         metadata.display_name = "ScoreView";
         break;
+    case HostKind::Plugin:
+        metadata.display_name = "Plugin";
+        metadata.palette_visible = false;
+        metadata.launch_contexts = HostLaunchContext::None;
+        break;
     case HostKind::Count:
         break;
     }

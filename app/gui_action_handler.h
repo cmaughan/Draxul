@@ -16,6 +16,13 @@ class IHost;
 class IImGuiHost;
 struct AppConfig;
 
+struct GuiLaunchTarget
+{
+    std::optional<HostKind> host_kind;
+    std::string plugin_id;
+    std::string plugin_config_json;
+};
+
 // Handles named GUI actions: font_increase, font_decrease, font_reset, copy, paste,
 // toggle_diagnostics. App owns an instance and calls execute() when a keybinding fires.
 class GuiActionHandler
@@ -35,8 +42,8 @@ public:
         std::function<void()> on_panel_toggled; // refresh layout, set viewport, update panel, request_frame
         std::function<void()> on_config_changed; // persist config when save_user_config is enabled
         std::function<void()> on_open_file_dialog; // show the native file-open dialog
-        std::function<void(std::optional<HostKind>)> on_split_vertical; // create a vertical split
-        std::function<void(std::optional<HostKind>)> on_split_horizontal; // create a horizontal split
+        std::function<void(GuiLaunchTarget)> on_split_vertical; // create a vertical split
+        std::function<void(GuiLaunchTarget)> on_split_horizontal; // create a horizontal split
         std::function<void()> on_command_palette; // toggle command palette
         std::function<void()> on_quit; // close the application
         std::function<void()> on_server_status; // show shared server status
@@ -66,7 +73,7 @@ public:
         std::function<void()> on_resize_pane_right; // grow focused pane horizontally
         std::function<void()> on_resize_pane_up; // shrink focused pane vertically
         std::function<void()> on_resize_pane_down; // grow focused pane vertically
-        std::function<void(std::optional<HostKind>)> on_new_tab; // create a new tab
+        std::function<void(GuiLaunchTarget)> on_new_tab; // create a new tab
         std::function<void()> on_close_tab; // close the active tab
         std::function<void()> on_next_tab; // switch to the next tab
         std::function<void()> on_prev_tab; // switch to the previous tab

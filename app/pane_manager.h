@@ -75,6 +75,8 @@ public:
     // If host_kind_override is set, it overrides the AppOptions host_kind.
     bool create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
         std::optional<HostKind> host_kind_override = std::nullopt);
+    bool create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
+        HostLaunchOptions launch);
 
     // Splits the focused leaf in the given direction and launches a new host.
     // Returns the new leaf's ID, or kInvalidLeaf on failure.

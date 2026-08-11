@@ -54,6 +54,7 @@ ServerTopologyMutationRoute::Deps server_deps(
             commands.push_back(std::move(command));
             return true;
         },
+        .client_plugin_panes_supported = true,
         .platform_default_host_kind = HostKind::PowerShell,
     };
 }
@@ -217,6 +218,36 @@ TEST_CASE("server topology route preserves client-local launch descriptors",
         == "kanban/pending/card.md");
     CHECK(commands[0].companion_owner_pane_id == "pane-3");
     CHECK(commands[0].ratio == Catch::Approx(2.0f / 3.0f));
+}
+
+TEST_CASE("server topology route requires plugin capability before enqueue",
+    "[app][topology][mutation_route][plugin]")
+{
+    std::vector<TopologyCommand> commands;
+    auto deps = server_deps(commands);
+    deps.client_plugin_panes_supported = false;
+    ServerTopologyMutationRoute route(std::move(deps));
+    TopologyMutation plugin
+        = targeted(TopologyMutationKind::SplitPane);
+    plugin.host_kind = HostKind::Plugin;
+    plugin.plugin_id = "dev.draxul.spinning-triangle";
+    plugin.plugin_config_json = R"({"paused":false})";
+
+    const auto result = route.mutate(plugin);
+    CHECK_FALSE(result.accepted());
+    CHECK(result.error.find("restart the server")
+        != std::string::npos);
+    CHECK(commands.empty());
+
+    deps = server_deps(commands);
+    ServerTopologyMutationRoute supported(std::move(deps));
+    REQUIRE(supported.mutate(plugin).accepted());
+    REQUIRE(commands.size() == 1);
+    CHECK(commands[0].client_host_kind == "plugin");
+    CHECK(commands[0].client_plugin_id
+        == "dev.draxul.spinning-triangle");
+    CHECK(commands[0].client_plugin_config_json
+        == R"({"paused":false})");
 }
 
 TEST_CASE("server route keeps client-local restart on the client",

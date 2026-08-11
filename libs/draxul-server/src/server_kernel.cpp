@@ -283,6 +283,7 @@ const std::vector<std::string>& server_capabilities()
         "terminal-uncompressed-v1",
         "topology-v1",
         "topology-control-v2",
+        "client-plugin-pane-v1",
     };
     return capabilities;
 }

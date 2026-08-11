@@ -146,6 +146,29 @@ TEST_CASE("topology projection rejects invalid split graphs without an App",
         == "Server tab contains an invalid split tree.");
 }
 
+TEST_CASE("topology projection preserves plugin launch identity and config",
+    "[client][topology][projection][plugin]")
+{
+    TopologyProjection projection;
+    TopologyTab remote = split_tab();
+    remote.panes[1].client_host_kind = "plugin";
+    remote.panes[1].client_plugin_id
+        = "dev.draxul.spinning-triangle";
+    remote.panes[1].client_plugin_config_json
+        = R"({"paused":true,"initial_angle":0.5})";
+    std::string error;
+    const auto projected = projection.project_tab(
+        remote, kInvalidLeaf, HostKind::PowerShell, error);
+    REQUIRE(projected);
+    REQUIRE(projected->layout.panes.size() == 2);
+    const auto& launch = projected->layout.panes[1].launch;
+    CHECK(launch.kind == HostKind::Plugin);
+    CHECK(launch.client_plugin_id
+        == "dev.draxul.spinning-triangle");
+    CHECK(launch.client_plugin_config_json
+        == R"({"paused":true,"initial_angle":0.5})");
+}
+
 TEST_CASE("topology projection releases command activations in revision order",
     "[client][topology][projection][command]")
 {

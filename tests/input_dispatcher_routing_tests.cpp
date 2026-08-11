@@ -952,7 +952,9 @@ struct ChordE2ESetup
 
         GuiActionHandler::Deps ah_deps;
         ah_deps.ui_panel = &panel;
-        ah_deps.on_split_vertical = [this](std::optional<HostKind>) { ++split_vertical_calls; };
+        ah_deps.on_split_vertical = [this](GuiLaunchTarget) {
+            ++split_vertical_calls;
+        };
         action_handler = std::make_unique<GuiActionHandler>(std::move(ah_deps));
 
         InputDispatcher::Deps deps;

@@ -93,6 +93,23 @@ ServerTopologyMutationRoute::reject_unresolved(
 TopologyMutationResult ServerTopologyMutationRoute::mutate(
     const TopologyMutation& mutation)
 {
+    const bool requests_plugin
+        = !mutation.plugin_id.empty()
+        || mutation.host_kind == HostKind::Plugin;
+    if (requests_plugin
+        && !deps_.client_plugin_panes_supported)
+    {
+        return TopologyMutationResult::rejected(
+            "The running Draxul server is too old for plugin panes. "
+            "Stop and restart the server with this Draxul build, then retry.");
+    }
+    if (mutation.host_kind == HostKind::Plugin
+        && mutation.plugin_id.empty())
+    {
+        return TopologyMutationResult::rejected(
+            "Plugin pane launch is missing a plugin id.");
+    }
+
     const auto resolve_space = [&]() {
         return deps_.resolve_space
             ? deps_.resolve_space(mutation.space_id)
@@ -144,10 +161,11 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
         const auto space = resolve_space();
         if (!space)
             return reject_unresolved("Space");
-        const HostKind kind = mutation.host_kind.value_or(
+        const HostKind kind = !mutation.plugin_id.empty()
+            ? HostKind::Plugin : mutation.host_kind.value_or(
             deps_.platform_default_host_kind);
         const bool server_terminal
-            = !mutation.host_kind
+            = mutation.plugin_id.empty() && !mutation.host_kind
             || is_server_owned_shell_host(kind);
         command = {
             .kind = TopologyCommandKind::CreateTab,
@@ -168,6 +186,9 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
             .client_source_path = server_terminal
                 ? std::string{}
                 : mutation.source_path.string(),
+            .client_plugin_id = mutation.plugin_id,
+            .client_plugin_config_json
+                = mutation.plugin_config_json,
         };
         break;
     }
@@ -206,7 +227,9 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
                     == TopologyMutationKind::DuplicatePane
             ? std::optional<HostKind>(
                   deps_.platform_default_host_kind)
-            : mutation.host_kind;
+            : !mutation.plugin_id.empty()
+                ? std::optional<HostKind>(HostKind::Plugin)
+                : mutation.host_kind;
         const HostKind kind = requested_kind.value_or(
             deps_.platform_default_host_kind);
         const bool server_terminal
@@ -236,6 +259,9 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
             .client_source_path = server_terminal
                 ? std::string{}
                 : mutation.source_path.string(),
+            .client_plugin_id = mutation.plugin_id,
+            .client_plugin_config_json
+                = mutation.plugin_config_json,
             .companion_owner_pane_id
                 = !server_terminal
                     && mutation.companion_pane
@@ -263,6 +289,9 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
                 = mutation.working_directory.string(),
             .client_source_path
                 = mutation.source_path.string(),
+            .client_plugin_id = mutation.plugin_id,
+            .client_plugin_config_json
+                = mutation.plugin_config_json,
         };
         break;
     }

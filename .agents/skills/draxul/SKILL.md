@@ -71,6 +71,8 @@ draxul space close <space-id> --json
 draxul tab list --space <space-id> --json
 draxul tab get <tab-id> --json
 draxul tab create --space <space-id> [--name <name>] [--cwd <path>] --json
+draxul tab create --space <space-id> --name <name> --plugin <plugin-id> \
+  [--plugin-config <json>] --json
 draxul tab rename <tab-id> --name <name> --json
 draxul tab move <tab-id> --delta <-1|1> --json
 draxul tab close <tab-id> --json
@@ -89,6 +91,9 @@ draxul pane list [--space <id>] [--tab <id>] --json
 draxul pane get <pane-id|--current> --json
 draxul pane split <pane-id|--current> \
   --direction <left|right|up|down> [--ratio <0.1..0.9>] [--cwd <path>] --json
+draxul pane split <pane-id|--current> \
+  --direction <left|right|up|down> --plugin <plugin-id> \
+  [--plugin-config <json>] [--ratio <0.1..0.9>] --json
 draxul pane rename <pane-id> --name <name> --json
 draxul pane restart <pane-id> --json
 draxul pane close <pane-id> --json
@@ -108,7 +113,24 @@ closing and recreating a live pane: that loses process state and changes route
 semantics.
 
 Headless terminal operations apply only to `server_terminal` panes. A
-`client_local` Nvim, Markdown, Kanban, or product pane requires its owning UI.
+`client_local` Nvim, Markdown, Kanban, product, or plugin pane requires its owning
+UI for rendering and input. Plugin panes are still created and inspected through
+the server, and must have an empty `terminal_id`.
+
+## Native GPU plugins
+
+Inspect client-local installations without contacting the server:
+
+```text
+draxul plugin list --json
+draxul plugin get <plugin-id> --json
+```
+
+Plugin IDs are stable lowercase identifiers. `--plugin-config` must be a bounded
+JSON object. Creating a plugin pane or tab stores the ID/config in shared topology;
+every attached UI resolves it against its own installation. A missing plugin is
+therefore not a reason to delete or recreate the pane: the UI displays a placeholder
+until it restarts with a compatible plugin installed.
 
 ## Drive terminal processes
 
@@ -179,6 +201,14 @@ Example schema:
           "split_from": "tests",
           "direction": "down",
           "ratio": 0.4
+        },
+        {
+          "name": "Triangle",
+          "alias": "triangle",
+          "plugin_id": "dev.draxul.spinning-triangle",
+          "plugin_config": { "paused": true, "initial_angle": 0.5 },
+          "split_from": "logs",
+          "direction": "right"
         }
       ]
     }
@@ -197,8 +227,10 @@ Rules:
 - Validation and dry-run do not mutate the server.
 - Apply is atomic for topology and terminal allocation and returns an `aliases`
   map from caller names to stable IDs.
-- A layout creates shells; it does not embed commands or agent launches. Use the
-  returned aliases with `pane run` and `agent start` afterward.
+- A pane defines either shell fields such as `cwd`, or `plugin_id` with an optional
+  JSON-object `plugin_config`; the two forms are mutually exclusive.
+- A layout does not embed commands or agent launches. Use returned shell aliases
+  with `pane run` and `agent start` afterward.
 
 ## Launch and supervise agents
 

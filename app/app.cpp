@@ -914,7 +914,7 @@ void App::wire_gui_actions()
     gui_deps.config = &config_;
     gui_deps.on_font_changed = [this]() { apply_font_metrics(); };
     gui_deps.on_open_file_dialog = [this]() { window_->show_open_file_dialog(); };
-    gui_deps.on_split_vertical = [this](std::optional<HostKind> kind) {
+    gui_deps.on_split_vertical = [this](GuiLaunchTarget target) {
         TopologyMutationResult result = mutate_topology({
             .kind = TopologyMutationKind::SplitPane,
             .space_id
@@ -924,14 +924,17 @@ void App::wire_gui_actions()
             = active_pane_manager().focused_leaf(),
             .direction
             = TopologySplitDirection::Vertical,
-            .host_kind = kind,
+            .host_kind = target.host_kind,
+            .plugin_id = std::move(target.plugin_id),
+            .plugin_config_json
+            = std::move(target.plugin_config_json),
         });
         if (!result.accepted())
         {
             push_toast(2, result.error.empty() ? "Failed to spawn split pane." : result.error);
         }
     };
-    gui_deps.on_split_horizontal = [this](std::optional<HostKind> kind) {
+    gui_deps.on_split_horizontal = [this](GuiLaunchTarget target) {
         TopologyMutationResult result = mutate_topology({
             .kind = TopologyMutationKind::SplitPane,
             .space_id
@@ -941,7 +944,10 @@ void App::wire_gui_actions()
             = active_pane_manager().focused_leaf(),
             .direction
             = TopologySplitDirection::Horizontal,
-            .host_kind = kind,
+            .host_kind = target.host_kind,
+            .plugin_id = std::move(target.plugin_id),
+            .plugin_config_json
+            = std::move(target.plugin_config_json),
         });
         if (!result.accepted())
         {
@@ -1253,11 +1259,21 @@ void App::wire_gui_actions()
     gui_deps.on_resize_pane_right = [resize_pane]() { resize_pane(FocusDirection::Right); };
     gui_deps.on_resize_pane_up = [resize_pane]() { resize_pane(FocusDirection::Up); };
     gui_deps.on_resize_pane_down = [resize_pane]() { resize_pane(FocusDirection::Down); };
-    gui_deps.on_new_tab = [this](std::optional<HostKind> kind) {
+    gui_deps.on_new_tab = [this](GuiLaunchTarget target) {
         const int pw = window_->width_pixels();
         const int th = diagnostics_host_->layout().terminal_height;
-        int id = add_tab(pw, th, kind);
-        if (id >= 0)
+        TopologyMutationResult result = mutate_topology({
+            .kind = TopologyMutationKind::CreateTab,
+            .space_id = space_controller_.active_space_id(),
+            .name = "Tab",
+            .host_kind = target.host_kind,
+            .plugin_id = std::move(target.plugin_id),
+            .plugin_config_json
+            = std::move(target.plugin_config_json),
+            .pixel_width = pw,
+            .pixel_height = th,
+        });
+        if (result.accepted())
         {
             // Set the font on the new host so ImGui uses the app's font, not the default.
             if (IHost* h = active_pane_manager().host())
@@ -1268,6 +1284,12 @@ void App::wire_gui_actions()
             refresh_app_shell_layout();
             input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
+        }
+        else
+        {
+            push_toast(2, result.error.empty()
+                    ? "Failed to create tab."
+                    : result.error);
         }
     };
     gui_deps.on_close_tab = [this]() {
@@ -3785,6 +3807,12 @@ void App::initialize_topology_mutation_route()
               return apply_local_topology_mutation(
                   mutation);
           };
+    server_deps.client_plugin_panes_supported
+        = options_.server_connection
+        && std::ranges::find(
+               options_.server_connection->capabilities,
+               "client-plugin-pane-v1")
+            != options_.server_connection->capabilities.end();
     server_deps.platform_default_host_kind
         = PaneManager::platform_default_split_host_kind();
 
@@ -3932,11 +3960,30 @@ App::apply_local_topology_mutation(
         if (!space)
             return TopologyMutationResult::rejected(
                 "Active Space could not be resolved.");
-        const int id = space->tab_controller.add_tab(
-            *this, mutation.pixel_width,
-            mutation.pixel_height,
-            make_pane_manager_deps(space),
-            mutation.host_kind);
+        int id = -1;
+        if (!mutation.plugin_id.empty())
+        {
+            HostLaunchOptions launch;
+            launch.kind = HostKind::Plugin;
+            launch.client_host_kind = "plugin";
+            launch.client_plugin_id = mutation.plugin_id;
+            launch.client_plugin_config_json
+                = mutation.plugin_config_json.empty()
+                ? "{}" : mutation.plugin_config_json;
+            id = space->tab_controller.add_tab(
+                *this, mutation.pixel_width,
+                mutation.pixel_height,
+                make_pane_manager_deps(space),
+                std::move(launch));
+        }
+        else
+        {
+            id = space->tab_controller.add_tab(
+                *this, mutation.pixel_width,
+                mutation.pixel_height,
+                make_pane_manager_deps(space),
+                mutation.host_kind);
+        }
         if (id < 0)
         {
             const std::string error
@@ -4014,12 +4061,28 @@ App::apply_local_topology_mutation(
         }
         else
         {
-            new_leaf = mutation.host_kind
-                ? panes.split_focused(
-                      direction, *mutation.host_kind,
-                      *this)
-                : panes.split_focused(
-                      direction, *this);
+            if (!mutation.plugin_id.empty())
+            {
+                HostLaunchOptions launch;
+                launch.kind = HostKind::Plugin;
+                launch.client_host_kind = "plugin";
+                launch.client_plugin_id
+                    = mutation.plugin_id;
+                launch.client_plugin_config_json
+                    = mutation.plugin_config_json.empty()
+                    ? "{}" : mutation.plugin_config_json;
+                new_leaf = panes.split_focused(
+                    direction, std::move(launch), *this);
+            }
+            else
+            {
+                new_leaf = mutation.host_kind
+                    ? panes.split_focused(
+                          direction, *mutation.host_kind,
+                          *this)
+                    : panes.split_focused(
+                          direction, *this);
+            }
         }
         if (new_leaf == kInvalidLeaf)
         {

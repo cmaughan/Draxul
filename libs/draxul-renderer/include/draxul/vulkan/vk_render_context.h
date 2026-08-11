@@ -24,7 +24,12 @@ public:
         int w, int h, int viewport_x = 0, int viewport_y = 0, int viewport_w = 0, int viewport_h = 0,
         VkImage swapchain_image = VK_NULL_HANDLE, VkImageView swapchain_image_view = VK_NULL_HANDLE,
         VkFormat swapchain_format = VK_FORMAT_UNDEFINED,
-        VkQueue graphics_queue = VK_NULL_HANDLE, uint32_t graphics_queue_family = 0)
+        VkQueue graphics_queue = VK_NULL_HANDLE, uint32_t graphics_queue_family = 0,
+        VkInstance instance = VK_NULL_HANDLE,
+        VkRenderPass continuation_render_pass = VK_NULL_HANDLE,
+        VkFramebuffer continuation_framebuffer = VK_NULL_HANDLE,
+        VkFormat depth_format = VK_FORMAT_UNDEFINED,
+        uint64_t target_generation = 0)
         : cmd_(cmd)
         , physical_device_(physical_device)
         , device_(device)
@@ -43,6 +48,11 @@ public:
         , swapchain_format_(swapchain_format)
         , graphics_queue_(graphics_queue)
         , graphics_queue_family_(graphics_queue_family)
+        , instance_(instance)
+        , continuation_render_pass_(continuation_render_pass)
+        , continuation_framebuffer_(continuation_framebuffer)
+        , depth_format_(depth_format)
+        , target_generation_(target_generation)
     {
     }
 
@@ -114,6 +124,11 @@ public:
     {
         return graphics_queue_family_;
     }
+    VkInstance instance() const { return instance_; }
+    VkRenderPass continuation_render_pass() const { return continuation_render_pass_; }
+    VkFramebuffer continuation_framebuffer() const { return continuation_framebuffer_; }
+    VkFormat depth_format() const { return depth_format_; }
+    uint64_t target_generation() const { return target_generation_; }
     uint32_t frame_index() const override
     {
         return frame_index_;
@@ -142,6 +157,11 @@ private:
     VkFormat swapchain_format_ = VK_FORMAT_UNDEFINED;
     VkQueue graphics_queue_ = VK_NULL_HANDLE;
     uint32_t graphics_queue_family_ = 0;
+    VkInstance instance_ = VK_NULL_HANDLE;
+    VkRenderPass continuation_render_pass_ = VK_NULL_HANDLE;
+    VkFramebuffer continuation_framebuffer_ = VK_NULL_HANDLE;
+    VkFormat depth_format_ = VK_FORMAT_UNDEFINED;
+    uint64_t target_generation_ = 0;
 };
 
 } // namespace draxul

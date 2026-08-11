@@ -52,6 +52,8 @@ struct TopologyMutation
     TopologySplitDirection direction
         = TopologySplitDirection::Vertical;
     std::optional<HostKind> host_kind;
+    std::string plugin_id;
+    std::string plugin_config_json;
     bool companion_pane = false;
     float ratio = 0.5f;
     float ratio_delta = 0.0f;
@@ -148,6 +150,7 @@ public:
         std::function<TopologyMutationResult(
             const TopologyMutation&)>
             apply_client_local;
+        bool client_plugin_panes_supported = false;
         HostKind platform_default_host_kind = HostKind::PowerShell;
     };
 

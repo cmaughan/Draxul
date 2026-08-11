@@ -62,6 +62,8 @@ PaneManager::SavedLaunchOptions save_launch_options(const HostLaunchOptions& lau
     saved.startup_commands = launch.startup_commands;
     saved.remote_terminal_id = launch.remote_terminal_id;
     saved.client_host_kind = launch.client_host_kind;
+    saved.client_plugin_id = launch.client_plugin_id;
+    saved.client_plugin_config_json = launch.client_plugin_config_json;
     saved.companion_owner_pane_id
         = launch.companion_owner_pane_id;
     saved.pty_capture_file = launch.pty_capture_file;
@@ -80,6 +82,8 @@ HostLaunchOptions restore_launch_options(const PaneManager::SavedLaunchOptions& 
     launch.startup_commands = saved.startup_commands;
     launch.remote_terminal_id = saved.remote_terminal_id;
     launch.client_host_kind = saved.client_host_kind;
+    launch.client_plugin_id = saved.client_plugin_id;
+    launch.client_plugin_config_json = saved.client_plugin_config_json;
     launch.companion_owner_pane_id
         = saved.companion_owner_pane_id;
     launch.pty_capture_file = saved.pty_capture_file;
@@ -143,6 +147,36 @@ bool PaneManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     std::optional<HostKind> host_kind_override)
 {
     PERF_MEASURE();
+    HostLaunchOptions launch;
+    launch.kind = host_kind_override.value_or(deps_.options->host_kind);
+    const bool inherit_host_specific_options = !host_kind_override || *host_kind_override == deps_.options->host_kind;
+    if (inherit_host_specific_options)
+    {
+        launch.command = deps_.options->host_command;
+        launch.args = deps_.options->host_args;
+        launch.source_path = deps_.options->host_source_path;
+        launch.client_plugin_id = deps_.options->host_plugin_id;
+        launch.client_plugin_config_json
+            = deps_.options->host_plugin_config_json;
+        if (launch.kind == HostKind::Plugin)
+            launch.client_host_kind = "plugin";
+        launch.startup_commands = deps_.options->startup_commands;
+    }
+    launch.working_dir = deps_.default_working_dir.empty()
+        ? deps_.options->host_working_dir
+        : deps_.default_working_dir;
+    launch.enable_ligatures = deps_.config->enable_ligatures;
+    apply_terminal_config(launch, *deps_.config);
+    if (deps_.options)
+        apply_global_host_options(launch, *deps_.options);
+
+    return create(callbacks, pixel_w, pixel_h, std::move(launch));
+}
+
+bool PaneManager::create(IHostCallbacks& callbacks, int pixel_w,
+    int pixel_h, HostLaunchOptions launch)
+{
+    PERF_MEASURE();
     error_.clear();
     if (deps_.before_host_destroyed)
     {
@@ -164,27 +198,13 @@ bool PaneManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     next_runtime_generation_ = 1;
     next_pane_serial_ = 1;
 
-    LeafId root_id = tree_.reset(pixel_w, pixel_h);
-
-    HostLaunchOptions launch;
-    launch.kind = host_kind_override.value_or(deps_.options->host_kind);
-    const bool inherit_host_specific_options = !host_kind_override || *host_kind_override == deps_.options->host_kind;
-    if (inherit_host_specific_options)
-    {
-        launch.command = deps_.options->host_command;
-        launch.args = deps_.options->host_args;
-        launch.source_path = deps_.options->host_source_path;
-        launch.startup_commands = deps_.options->startup_commands;
-    }
-    launch.working_dir = deps_.default_working_dir.empty()
-        ? deps_.options->host_working_dir
-        : deps_.default_working_dir;
+    const LeafId root_id = tree_.reset(pixel_w, pixel_h);
     launch.enable_ligatures = deps_.config->enable_ligatures;
     apply_terminal_config(launch, *deps_.config);
     if (deps_.options)
         apply_global_host_options(launch, *deps_.options);
-
-    return create_host_for_leaf(root_id, callbacks, std::move(launch), true);
+    return create_host_for_leaf(root_id, callbacks,
+        std::move(launch), true);
 }
 
 LeafId PaneManager::split_focused(SplitDirection dir, IHostCallbacks& callbacks)
@@ -864,6 +884,10 @@ bool PaneManager::reconcile_projected_layout(
                 != pane->second->launch.remote_terminal_id
             || launch->second.client_host_kind
                 != pane->second->launch.client_host_kind
+            || launch->second.client_plugin_id
+                != pane->second->launch.client_plugin_id
+            || launch->second.client_plugin_config_json
+                != pane->second->launch.client_plugin_config_json
             || (source_changed
                 && launch->second.kind
                     != HostKind::Markdown))
@@ -1321,7 +1345,7 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
     // Save launch options before moving them into the context.
     HostLaunchOptions saved_launch = launch;
 
-    if (HostContext context{
+    HostContext context{
             .window = deps_.window,
             .grid_renderer = &grid_renderer,
             .text_service = deps_.text_service,
@@ -1332,14 +1356,26 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
             .owner_lifetime = deps_.owner_lifetime,
             .display_ppi = display_ppi,
         };
-        !new_host->initialize(context, callbacks))
+    if (!new_host->initialize(context, callbacks))
     {
-        pane_ids_.erase(id);
         error_ = new_host->init_error();
         error_code_ = new_host->init_error_code();
         if (error_.empty())
             error_ = "Failed to initialize the selected host.";
-        return false;
+        if (saved_launch.kind != HostKind::Plugin)
+        {
+            pane_ids_.erase(id);
+            return false;
+        }
+
+        new_host->shutdown();
+        new_host = std::make_unique<UnavailableHost>(error_);
+        context.launch_options = saved_launch;
+        if (!new_host->initialize(context, callbacks))
+        {
+            pane_ids_.erase(id);
+            return false;
+        }
     }
 
     if (deps_.text_service)

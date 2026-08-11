@@ -144,6 +144,8 @@ endif()
 add_subdirectory(libs/draxul-performance)
 add_subdirectory(libs/draxul-host-identity)
 add_subdirectory(libs/draxul-types)
+add_subdirectory(libs/draxul-plugin)
+add_subdirectory(plugins/spinning-triangle)
 add_subdirectory(libs/draxul-bmp)
 add_subdirectory(libs/draxul-http)
 add_subdirectory(libs/draxul-window)
@@ -184,7 +186,7 @@ draxul_check_dependency_boundaries()
 
 # Apply sanitizers/coverage to all draxul library targets (not FetchContent deps)
 foreach(_draxul_lib
-    draxul-performance draxul-types draxul-bmp draxul-http draxul-window draxul-renderer draxul-ui
+    draxul-performance draxul-types draxul-plugin draxul-bmp draxul-http draxul-window draxul-renderer draxul-ui
     draxul-font draxul-grid draxul-nvim
     draxul-terminal-core draxul-terminal-process
     draxul-config draxul-session-model draxul-protocol draxul-control draxul-client draxul-server
@@ -337,6 +339,7 @@ target_link_libraries(draxul-app PUBLIC
     draxul-gui
     draxul-nvim
     draxul-host
+    draxul-plugin
     draxul-nanovg
 )
 target_link_libraries(draxul-app PRIVATE draxul-performance)
@@ -379,6 +382,38 @@ target_link_libraries(draxul PRIVATE
     draxul-performance
     draxul-server
 )
+add_dependencies(draxul draxul-spinning-triangle)
+if(APPLE)
+    set(DRAXUL_TRIANGLE_PLUGIN_STAGE
+        "$<TARGET_BUNDLE_DIR:draxul>/Contents/PlugIns/dev.draxul.spinning-triangle")
+else()
+    set(DRAXUL_TRIANGLE_PLUGIN_STAGE
+        "$<TARGET_FILE_DIR:draxul>/plugins/dev.draxul.spinning-triangle")
+endif()
+add_custom_command(TARGET draxul POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "${DRAXUL_TRIANGLE_PLUGIN_STAGE}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/plugins/spinning-triangle/plugin.toml"
+        "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/plugin.toml"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:draxul-spinning-triangle>"
+        "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/$<TARGET_FILE_NAME:draxul-spinning-triangle>"
+    VERBATIM)
+if(APPLE)
+    add_custom_command(TARGET draxul POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${TRIANGLE_METALLIB}"
+            "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.metallib")
+else()
+    add_custom_command(TARGET draxul POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${TRIANGLE_VERTEX_SPV}"
+            "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.vert.spv"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${TRIANGLE_FRAGMENT_SPV}"
+            "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.frag.spv")
+endif()
 if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul PRIVATE draxul-megacity)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_MEGACITY)

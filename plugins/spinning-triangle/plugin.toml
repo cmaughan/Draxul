@@ -1,0 +1,11 @@
+schema_version = 1
+id = "dev.draxul.spinning-triangle"
+name = "Spinning Triangle"
+version = "0.1.0"
+abi_version = 1
+
+[platform.windows]
+library = "draxul-spinning-triangle.dll"
+
+[platform.macos]
+library = "draxul-spinning-triangle.dylib"

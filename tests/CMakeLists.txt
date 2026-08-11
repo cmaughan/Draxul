@@ -42,6 +42,7 @@ set(DRAXUL_APP_TEST_SOURCES
     grid_host_null_handle_tests.cpp
     gui_action_handler_tests.cpp
     pane_manager_tests.cpp
+    plugin_manager_tests.cpp
     host_provider_availability_tests.cpp
     http_weather_tests.cpp
     input_dispatcher_routing_tests.cpp
@@ -278,6 +279,50 @@ target_link_libraries(draxul-test-app PRIVATE
     draxul-kanban
 )
 target_compile_definitions(draxul-test-app PRIVATE DRAXUL_TEST_REGISTER_APP_HOSTS)
+
+add_library(draxul-plugin-fixture MODULE fixtures/plugin_fixture.cpp)
+target_include_directories(draxul-plugin-fixture PRIVATE
+    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
+set_target_properties(draxul-plugin-fixture PROPERTIES PREFIX "")
+
+add_library(draxul-plugin-fixture-bad-abi MODULE fixtures/plugin_fixture.cpp)
+target_include_directories(draxul-plugin-fixture-bad-abi PRIVATE
+    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
+target_compile_definitions(draxul-plugin-fixture-bad-abi PRIVATE
+    DRAXUL_FIXTURE_REJECT_ABI)
+set_target_properties(draxul-plugin-fixture-bad-abi PROPERTIES PREFIX "")
+
+add_library(draxul-plugin-fixture-wrong-id MODULE fixtures/plugin_fixture.cpp)
+target_include_directories(draxul-plugin-fixture-wrong-id PRIVATE
+    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
+target_compile_definitions(draxul-plugin-fixture-wrong-id PRIVATE
+    DRAXUL_FIXTURE_PLUGIN_ID="dev.draxul.wrong")
+set_target_properties(draxul-plugin-fixture-wrong-id PROPERTIES PREFIX "")
+
+add_library(draxul-plugin-fixture-unsupported MODULE fixtures/plugin_fixture.cpp)
+target_include_directories(draxul-plugin-fixture-unsupported PRIVATE
+    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
+target_compile_definitions(draxul-plugin-fixture-unsupported PRIVATE
+    DRAXUL_FIXTURE_BACKENDS=0)
+set_target_properties(draxul-plugin-fixture-unsupported PROPERTIES PREFIX "")
+
+add_library(draxul-plugin-fixture-no-symbol MODULE
+    fixtures/plugin_fixture_no_symbol.cpp)
+set_target_properties(draxul-plugin-fixture-no-symbol PROPERTIES PREFIX "")
+
+add_dependencies(draxul-test-app
+    draxul-plugin-fixture
+    draxul-plugin-fixture-bad-abi
+    draxul-plugin-fixture-wrong-id
+    draxul-plugin-fixture-unsupported
+    draxul-plugin-fixture-no-symbol)
+target_compile_definitions(draxul-test-app PRIVATE
+    DRAXUL_FIXTURE_VALID_PATH="$<TARGET_FILE:draxul-plugin-fixture>"
+    DRAXUL_FIXTURE_BAD_ABI_PATH="$<TARGET_FILE:draxul-plugin-fixture-bad-abi>"
+    DRAXUL_FIXTURE_WRONG_ID_PATH="$<TARGET_FILE:draxul-plugin-fixture-wrong-id>"
+    DRAXUL_FIXTURE_UNSUPPORTED_PATH="$<TARGET_FILE:draxul-plugin-fixture-unsupported>"
+    DRAXUL_FIXTURE_NO_SYMBOL_PATH="$<TARGET_FILE:draxul-plugin-fixture-no-symbol>"
+)
 if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul-test-app PRIVATE draxul-megacity)
     target_compile_definitions(draxul-test-app PRIVATE DRAXUL_ENABLE_MEGACITY)

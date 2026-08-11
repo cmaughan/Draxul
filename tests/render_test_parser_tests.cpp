@@ -192,6 +192,29 @@ TEST_CASE("render test parser: host fields parse for powershell scenarios", "[re
     std::filesystem::remove_all(dir, ec);
 }
 
+TEST_CASE("render test parser: plugin identity and configuration flow to app options",
+    "[render][plugin]")
+{
+    const auto dir = std::filesystem::temp_directory_path()
+        / "draxul-render-test-parser-plugin";
+    const auto path = dir / "plugin.toml";
+    write_text_file(path,
+        "host = \"plugin\"\n"
+        "plugin_id = \"dev.draxul.spinning-triangle\"\n"
+        "plugin_config_json = '{\"paused\":true}'\n"
+        "commands = [\"\"]\n");
+    std::string error;
+    const auto scenario = draxul::load_render_test_scenario(path, &error);
+    REQUIRE(scenario);
+    CHECK(scenario->host_kind == draxul::HostKind::Plugin);
+    const auto options = scenario->make_app_options();
+    CHECK(options.host_plugin_id
+        == "dev.draxul.spinning-triangle");
+    CHECK(options.host_plugin_config_json == R"({"paused":true})");
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
 TEST_CASE("render test parser: json_escape_string escapes double quotes and backslashes", "[render]")
 {
     INFO("plain passthrough");

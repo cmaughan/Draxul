@@ -20,7 +20,9 @@ public:
     MetalRenderContext(id<MTLCommandBuffer> cmd, id<MTLRenderCommandEncoder> encoder,
         uint32_t frame_index, uint32_t buffered_frame_count,
         int w, int h, int vx, int vy, int vw, int vh,
-        id<MTLDevice> device = nil, id<MTLTexture> drawable_texture = nil)
+        id<MTLDevice> device = nil, id<MTLTexture> drawable_texture = nil,
+        MTLRenderPassDescriptor* continuation_descriptor = nil,
+        uint64_t target_generation = 0)
         : cmd_(cmd)
         , encoder_(encoder)
         , frame_index_(frame_index)
@@ -33,6 +35,8 @@ public:
         , vh_(vh)
         , device_(device)
         , drawable_texture_(drawable_texture)
+        , continuation_descriptor_(continuation_descriptor)
+        , target_generation_(target_generation)
     {
     }
 
@@ -53,6 +57,11 @@ public:
     {
         return drawable_texture_;
     }
+    MTLRenderPassDescriptor* continuation_render_pass_descriptor() const
+    {
+        return continuation_descriptor_;
+    }
+    uint64_t target_generation() const { return target_generation_; }
 
     int width() const override
     {
@@ -100,6 +109,8 @@ private:
     int vh_;
     id<MTLDevice> device_;
     id<MTLTexture> drawable_texture_;
+    MTLRenderPassDescriptor* continuation_descriptor_;
+    uint64_t target_generation_ = 0;
 };
 
 } // namespace draxul

@@ -39,6 +39,8 @@ struct TopologyPane
     std::string client_host_kind;
     std::string client_working_directory;
     std::string client_source_path;
+    std::string client_plugin_id;
+    std::string client_plugin_config_json;
     // Set for client-local companion panes such as a Kanban card preview.
     // The value is the durable topology pane id of the owning pane.
     std::string companion_owner_pane_id;
@@ -141,6 +143,8 @@ struct TopologyCommand
     std::string client_host_kind;
     std::string client_working_directory;
     std::string client_source_path;
+    std::string client_plugin_id;
+    std::string client_plugin_config_json;
     std::string companion_owner_pane_id;
     std::string server_working_directory;
 

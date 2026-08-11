@@ -43,6 +43,7 @@ public:
         return padding_;
     }
     void set_default_background(Color bg) override;
+    void wait_idle() override;
 
 private:
     struct RetiredGridSlotResources
@@ -128,6 +129,7 @@ private:
     bool main_render_pass_started_ = false;
     bool chunk_has_work_ = false;
     uint32_t current_chunk_index_ = 0;
+    uint64_t target_generation_ = 1;
 };
 
 } // namespace draxul

@@ -18,6 +18,8 @@
 #include <draxul/client_recovery.h>
 #include <draxul/config_document.h>
 #include <draxul/host_registry.h>
+#include <draxul/plugin_host.h>
+#include <draxul/plugin_manager.h>
 #include <draxul/kanban/kanban_host.h>
 #include <draxul/log.h>
 #include <draxul/markdown/markdown_host.h>
@@ -726,6 +728,8 @@ static int draxul_main(std::vector<std::string> args)
     auto& host_registry = draxul::HostProviderRegistry::global();
     host_registry.clear();
     draxul::register_builtin_host_providers(host_registry);
+    const auto plugin_manager = draxul::PluginManager::discover_default();
+    draxul::register_plugin_host_provider(host_registry, plugin_manager);
     if (shared_server)
     {
         draxul::register_server_shell_host_metadata(

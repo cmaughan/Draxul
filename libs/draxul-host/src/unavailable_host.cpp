@@ -41,8 +41,12 @@ std::string UnavailableHost::status_text() const
 bool UnavailableHost::initialize_host()
 {
     const std::string& kind = launch_options().client_host_kind;
-    message_ = (kind.empty() ? std::string("Host") : kind)
-        + " not available in this build";
+    const std::string subject = !launch_options().client_plugin_id.empty()
+        ? "Plugin " + launch_options().client_plugin_id
+        : (kind.empty() ? std::string("Host") : kind);
+    message_ = detail_.empty()
+        ? subject + " not available in this build"
+        : subject + ": " + detail_;
     running_ = true;
     render_message();
     return true;

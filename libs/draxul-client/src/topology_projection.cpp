@@ -139,6 +139,8 @@ TopologyProjection::project_tab(const TopologyTab& remote,
                   << pane.client_host_kind << ':'
                   << pane.client_working_directory << ':'
                   << pane.client_source_path << ':'
+                  << pane.client_plugin_id << ':'
+                  << pane.client_plugin_config_json << ':'
                   << pane.companion_owner_pane_id << ';';
     }
     projection.structural_signature = signature.str();
@@ -288,6 +290,14 @@ TopologyProjection::project_tab(const TopologyTab& remote,
                 .client_host_kind
                 = pane.domain == TopologyPaneDomain::ClientLocal
                 ? pane.client_host_kind
+                : std::string{},
+                .client_plugin_id
+                = pane.domain == TopologyPaneDomain::ClientLocal
+                ? pane.client_plugin_id
+                : std::string{},
+                .client_plugin_config_json
+                = pane.domain == TopologyPaneDomain::ClientLocal
+                ? pane.client_plugin_config_json
                 : std::string{},
                 .companion_owner_pane_id
                 = pane.domain == TopologyPaneDomain::ClientLocal

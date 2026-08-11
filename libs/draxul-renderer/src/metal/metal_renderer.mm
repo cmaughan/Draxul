@@ -495,11 +495,22 @@ void MetalRenderer::update_atlas_region(int x, int y, int w, int h, const uint8_
 void MetalRenderer::resize(int pixel_w, int pixel_h)
 {
     PERF_MEASURE();
+    if (pixel_w_ != pixel_w || pixel_h_ != pixel_h)
+        ++target_generation_;
     pixel_w_ = pixel_w;
     pixel_h_ = pixel_h;
     layer_.get().drawableSize = CGSizeMake(pixel_w, pixel_h);
     depth_texture_.reset();
     ensure_depth_texture();
+}
+
+void MetalRenderer::wait_idle()
+{
+    if (!command_queue_)
+        return;
+    id<MTLCommandBuffer> command = [command_queue_.get() commandBuffer];
+    [command commit];
+    [command waitUntilCompleted];
 }
 
 std::pair<int, int> MetalRenderer::cell_size_pixels() const
@@ -953,8 +964,13 @@ bool MetalRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewpo
     const int vh = viewport.height > 0 ? viewport.height : pixel_h_;
 
     id<MTLTexture> drawable_tex = current_drawable_.get() ? [current_drawable_.get() texture] : nil;
+    MTLRenderPassDescriptor* continuation = [MTLRenderPassDescriptor renderPassDescriptor];
+    continuation.colorAttachments[0].texture = drawable_tex;
+    continuation.colorAttachments[0].loadAction = MTLLoadActionLoad;
+    continuation.colorAttachments[0].storeAction = MTLStoreActionStore;
     MetalRenderContext prepass_ctx(active_command_buffer_.get(), nil, current_frame_, MAX_FRAMES_IN_FLIGHT,
-        pixel_w_, pixel_h_, vx, vy, vw, vh, device_.get(), drawable_tex);
+        pixel_w_, pixel_h_, vx, vy, vw, vh, device_.get(), drawable_tex,
+        continuation, target_generation_);
     pass.record_prepass(prepass_ctx);
 
     // A prepass may have rendered directly to the drawable (e.g. NanoVG creates
@@ -983,7 +999,8 @@ bool MetalRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewpo
     [active_encoder_.get() setScissorRect:pass_scissor];
 
     MetalRenderContext ctx(active_command_buffer_.get(), active_encoder_.get(), current_frame_, MAX_FRAMES_IN_FLIGHT,
-        pixel_w_, pixel_h_, vx, vy, vw, vh, device_.get(), drawable_tex);
+        pixel_w_, pixel_h_, vx, vy, vw, vh, device_.get(), drawable_tex,
+        nil, target_generation_);
     pass.record(ctx);
     chunk_has_work_ = true;
     return true;

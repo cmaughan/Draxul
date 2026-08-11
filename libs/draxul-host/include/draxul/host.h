@@ -40,6 +40,8 @@ struct HostLaunchOptions
     // populated even when this build cannot parse the kind, allowing an
     // inert placeholder to preserve and later reconcile the foreign pane.
     std::string client_host_kind;
+    std::string client_plugin_id;
+    std::string client_plugin_config_json;
     // Durable launch data for client-local panes projected from shared
     // topology. These let every UI reconstruct the same local host.
     std::string companion_owner_pane_id;

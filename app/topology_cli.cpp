@@ -1,6 +1,7 @@
 #include "topology_cli.h"
 
 #include <draxul/config_document.h>
+#include <draxul/plugin_manager.h>
 #include <draxul/control_plane.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/server_client.h>
@@ -17,6 +18,7 @@
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include <stdexcept>
 #include <thread>
 
 namespace draxul
@@ -28,7 +30,7 @@ namespace
 std::string usage()
 {
     return
-        "Usage: draxul <space|tab|pane|split|layout> <command> [target] [options]\n"
+        "Usage: draxul <space|tab|pane|split|layout|plugin> <command> [target] [options]\n"
         "Run 'draxul --help' for the complete command list.";
 }
 
@@ -50,6 +52,8 @@ bool is_topology_verb(std::string_view noun, std::string_view verb)
         return verb == "list" || verb == "set" || verb == "equalize";
     if (noun == "layout")
         return verb == "validate" || verb == "apply";
+    if (noun == "plugin")
+        return verb == "list" || verb == "get";
     return false;
 }
 
@@ -58,6 +62,8 @@ bool requires_target(std::string_view noun, std::string_view verb)
     if (verb == "get" || verb == "rename" || verb == "close")
         return true;
     if (noun == "layout")
+        return true;
+    if (noun == "plugin" && verb == "get")
         return true;
     if (noun == "pane"
         && (verb == "split" || verb == "swap" || verb == "restart"
@@ -426,7 +432,7 @@ ParseTopologyCliResult parse_topology_cli(
     if (args.size() < 2
         || (args[1] != "space" && args[1] != "tab"
             && args[1] != "pane" && args[1] != "split"
-            && args[1] != "layout"))
+            && args[1] != "layout" && args[1] != "plugin"))
     {
         return parsed;
     }
@@ -593,6 +599,35 @@ ParseTopologyCliResult parse_topology_cli(
             }
             command.working_directory = *value;
         }
+        else if (option == "--plugin")
+        {
+            const auto value = take_value();
+            if (!value || !PluginManager::valid_plugin_id(*value))
+            {
+                parsed.error = "--plugin requires a valid plugin id.";
+                return parsed;
+            }
+            command.plugin_id = *value;
+        }
+        else if (option == "--plugin-config")
+        {
+            const auto value = take_value();
+            try
+            {
+                const auto config = value ? nlohmann::json::parse(*value)
+                                          : nlohmann::json{};
+                if (!config.is_object())
+                    throw std::runtime_error("not an object");
+                command.plugin_config_json = config.dump();
+                if (command.plugin_config_json.size() > kTopologyMaxTextBytes)
+                    throw std::runtime_error("too large");
+            }
+            catch (...)
+            {
+                parsed.error = "--plugin-config requires a bounded JSON object.";
+                return parsed;
+            }
+        }
         else if (option == "--text" || option == "--command")
         {
             const auto value = take_value();
@@ -731,6 +766,24 @@ ParseTopologyCliResult parse_topology_cli(
         parsed.error = "pane move requires --target <pane-id>.";
         return parsed;
     }
+    if (!command.plugin_config_json.empty() && command.plugin_id.empty())
+    {
+        parsed.error = "--plugin-config requires --plugin.";
+        return parsed;
+    }
+    if (!command.plugin_id.empty()
+        && !((noun == "pane" && verb == "split")
+            || (noun == "tab" && verb == "create")))
+    {
+        parsed.error = "--plugin is supported by pane split and tab create.";
+        return parsed;
+    }
+    if (!command.plugin_id.empty()
+        && !command.working_directory.empty())
+    {
+        parsed.error = "--cwd and --plugin are mutually exclusive.";
+        return parsed;
+    }
     if (noun == "layout" && verb == "validate")
         command.dry_run = true;
     parsed.command = std::move(command);
@@ -739,6 +792,50 @@ ParseTopologyCliResult parse_topology_cli(
 
 int run_topology_cli(const TopologyCliCommand& command)
 {
+    if (command.noun == "plugin")
+    {
+        const auto manager = PluginManager::discover_default();
+        nlohmann::json output = nlohmann::json::array();
+        for (const auto& manifest : manager->manifests())
+        {
+            if (command.verb == "get" && manifest.id != command.target_id)
+                continue;
+            nlohmann::json entry = {
+                { "id", manifest.id },
+                { "name", manifest.name },
+                { "version", manifest.version },
+                { "abi_version", manifest.abi_version },
+                { "library", manifest.library_path.string() },
+                { "user_installed", manifest.user_installed },
+                { "available", manifest.error.empty() },
+                { "error", manifest.error },
+            };
+            if (command.verb == "get" && manifest.error.empty())
+            {
+                std::string load_error;
+                const auto loaded = manager->load(
+                    manifest.id, load_error);
+                entry["available"] = static_cast<bool>(loaded);
+                entry["error"] = load_error;
+                if (loaded)
+                {
+                    entry["supported_backends"]
+                        = loaded->api().supported_backends;
+                }
+            }
+            output.push_back(std::move(entry));
+        }
+        if (command.verb == "get")
+        {
+            if (output.empty())
+                return print_error("plugin_not_found", "Plugin was not found.", command.json);
+            print_result(output.front(), command.json);
+        }
+        else
+            print_result(output, command.json);
+        return 0;
+    }
+
     const auto runtime = runtime_directory(command);
     const std::string probe_client_id = make_server_client_id();
     const auto probe = ServerClient::probe({
@@ -763,6 +860,16 @@ int run_topology_cli(const TopologyCliCommand& command)
     {
         return print_error("unsupported_server",
             "The running Draxul server predates headless topology control; stop it and retry with this build.",
+            command.json);
+    }
+    const bool plugin_mutation = !command.plugin_id.empty();
+    if (plugin_mutation
+        && std::ranges::find(probe.welcome->capabilities,
+               "client-plugin-pane-v1")
+            == probe.welcome->capabilities.end())
+    {
+        return print_error("unsupported_server",
+            "The running Draxul server does not support plugin panes.",
             command.json);
     }
     std::string disconnect_error;
@@ -1099,6 +1206,15 @@ int run_topology_cli(const TopologyCliCommand& command)
             mutation.server_working_directory
                 = command.working_directory;
             mutation.pane_domain = TopologyPaneDomain::ServerTerminal;
+            if (!command.plugin_id.empty())
+            {
+                mutation.pane_domain = TopologyPaneDomain::ClientLocal;
+                mutation.client_host_kind = "plugin";
+                mutation.client_plugin_id = command.plugin_id;
+                mutation.client_plugin_config_json
+                    = command.plugin_config_json.empty()
+                    ? "{}" : command.plugin_config_json;
+            }
         }
         else
         {
@@ -1140,6 +1256,15 @@ int run_topology_cli(const TopologyCliCommand& command)
             mutation.server_working_directory
                 = command.working_directory;
             mutation.pane_domain = TopologyPaneDomain::ServerTerminal;
+            if (!command.plugin_id.empty())
+            {
+                mutation.pane_domain = TopologyPaneDomain::ClientLocal;
+                mutation.client_host_kind = "plugin";
+                mutation.client_plugin_id = command.plugin_id;
+                mutation.client_plugin_config_json
+                    = command.plugin_config_json.empty()
+                    ? "{}" : command.plugin_config_json;
+            }
         }
         else if (command.verb == "rename")
             mutation.kind = TopologyCommandKind::RenamePane;

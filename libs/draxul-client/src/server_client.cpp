@@ -587,6 +587,7 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             "terminal-uncompressed-v1",
             "topology-v1",
             "topology-control-v2",
+            "client-plugin-pane-v1",
         },
     };
     const auto response = ControlClient::request(

@@ -68,6 +68,7 @@ public:
         return padding_;
     }
     void set_default_background(Color bg) override;
+    void wait_idle() override;
 
 private:
     class FrameContext;
@@ -138,6 +139,7 @@ private:
     bool active_encoder_has_depth_ = false;
     bool chunk_has_work_ = false;
     bool submitted_chunk_ = false;
+    uint64_t target_generation_ = 1;
 };
 
 } // namespace draxul

@@ -83,6 +83,8 @@ struct AppOptions
     std::string host_command;
     std::vector<std::string> host_args;
     std::string host_source_path;
+    std::string host_plugin_id;
+    std::string host_plugin_config_json;
     std::vector<std::string> startup_commands;
     std::string host_working_dir;
     std::string pty_capture_file;

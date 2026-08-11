@@ -205,6 +205,8 @@ AppOptions RenderTestScenario::make_app_options() const
     options.host_kind = host_kind;
     options.host_command = host_command;
     options.host_args = host_args;
+    options.host_plugin_id = plugin_id;
+    options.host_plugin_config_json = plugin_config_json;
     options.startup_commands = commands;
     return options;
 }
@@ -271,6 +273,11 @@ std::optional<RenderTestScenario> load_render_test_scenario(const std::filesyste
         for (auto& entry : *host_args)
             scenario.host_args.push_back(expand_placeholders(entry, scenario_dir));
     }
+    if (auto plugin_id = toml_support::get_string(*document, "plugin_id"))
+        scenario.plugin_id = *plugin_id;
+    if (auto plugin_config = toml_support::get_string(
+            *document, "plugin_config_json"))
+        scenario.plugin_config_json = *plugin_config;
     if (auto nvim_args = toml_support::get_string_array(*document, "nvim_args"))
     {
         scenario.host_args.clear();

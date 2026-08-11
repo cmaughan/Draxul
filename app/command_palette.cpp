@@ -9,6 +9,7 @@
 #include <draxul/events.h>
 #include <draxul/host_kind.h>
 #include <draxul/host_registry.h>
+#include <draxul/plugin_manager.h>
 #include <draxul/keybinding_parser.h>
 #include <unordered_set>
 
@@ -71,6 +72,7 @@ void CommandPalette::open()
     static const std::unordered_set<std::string_view> kTabIndexActions = {
         "activate_tab",
     };
+    const auto plugins = PluginManager::discover_default();
 
     for (auto name : GuiActionHandler::action_names())
     {
@@ -99,6 +101,14 @@ void CommandPalette::open()
                     && supports_launch_context(provider.launch_contexts, context))
                 {
                     all_actions_.push_back(std::string(name) + " " + provider.canonical_cli_name);
+                }
+            }
+            for (const auto& manifest : plugins->manifests())
+            {
+                if (manifest.error.empty())
+                {
+                    all_actions_.push_back(std::string(name)
+                        + " plugin:" + manifest.id);
                 }
             }
         }

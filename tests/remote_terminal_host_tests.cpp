@@ -1388,9 +1388,21 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
     CHECK(observer.projection().snapshot().rows == host.grid_rows());
     CHECK(observer.projection().version().sequence > 0);
     RemoteTerminalScrollbackPage scrollback;
-    REQUIRE(observer.read_scrollback(1, 5, scrollback, error));
-    CHECK(scrollback.total_rows > 0);
-    REQUIRE(scrollback.snapshot.has_value());
+    bool scrollback_ready = false;
+    for (int attempt = 0; attempt < 300; ++attempt)
+    {
+        REQUIRE(observer.read_scrollback(
+            1, 5, scrollback, error));
+        if (scrollback.total_rows > 0
+            && scrollback.snapshot.has_value())
+        {
+            scrollback_ready = true;
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(10));
+    }
+    REQUIRE(scrollback_ready);
     CHECK(scrollback.snapshot->cols == host.grid_cols());
 
     host.shutdown();

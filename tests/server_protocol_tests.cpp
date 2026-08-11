@@ -370,6 +370,10 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
                                 .client_host_kind = "nvim",
                                 .client_working_directory = "D:/dev/Draxul",
                                 .client_source_path = "notes/readme.md",
+                                .client_plugin_id
+                                    = "dev.draxul.spinning-triangle",
+                                .client_plugin_config_json
+                                    = R"({"paused":true})",
                                 .companion_owner_pane_id = "pane-1",
                             },
                         },
@@ -412,6 +416,10 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
         .client_host_kind = "platform_default",
         .client_working_directory = "D:/dev/Draxul",
         .client_source_path = "notes/readme.md",
+        .client_plugin_id
+            = "dev.draxul.spinning-triangle",
+        .client_plugin_config_json
+            = R"({"paused":true})",
         .companion_owner_pane_id = "pane-1",
     };
     const auto decoded_command = topology_command_from_json(

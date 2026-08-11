@@ -662,6 +662,7 @@ bool VkRenderer::recreate_frame_resources()
             return false;
     }
 
+    ++target_generation_;
     return true;
 }
 void VkRenderer::set_atlas_texture(const uint8_t* data, int w, int h)
@@ -684,6 +685,12 @@ void VkRenderer::resize(int pixel_w, int pixel_h)
     pixel_w_ = pixel_w;
     pixel_h_ = pixel_h;
     framebuffer_resized_ = true;
+}
+
+void VkRenderer::wait_idle()
+{
+    if (ctx_.device() != VK_NULL_HANDLE)
+        vkDeviceWaitIdle(ctx_.device());
 }
 
 std::pair<int, int> VkRenderer::cell_size_pixels() const
@@ -1149,7 +1156,10 @@ bool VkRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewport&
         static_cast<int>(ctx_.swapchain().extent.width), static_cast<int>(ctx_.swapchain().extent.height),
         vx, vy, vw, vh,
         ctx_.swapchain().images[current_image_], ctx_.swapchain().image_views[current_image_],
-        ctx_.swapchain().format, ctx_.graphics_queue(), ctx_.graphics_queue_family());
+        ctx_.swapchain().format, ctx_.graphics_queue(), ctx_.graphics_queue_family(),
+        ctx_.instance(), ctx_.load_render_pass(),
+        ctx_.swapchain().framebuffers[current_image_],
+        ctx_.swapchain().depth_format, target_generation_);
     pass.record_prepass(prepass_ctx);
 
     if (main_render_pass_started_)
@@ -1197,7 +1207,11 @@ bool VkRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewport&
     VkRenderContext ctx(active_cmd_buffer_, ctx_.physical_device(), ctx_.device(), ctx_.allocator(), ctx_.render_pass(),
         current_frame_, MAX_FRAMES_IN_FLIGHT,
         static_cast<int>(ctx_.swapchain().extent.width), static_cast<int>(ctx_.swapchain().extent.height),
-        vx, vy, vw, vh);
+        vx, vy, vw, vh, VK_NULL_HANDLE, VK_NULL_HANDLE,
+        VK_FORMAT_UNDEFINED, VK_NULL_HANDLE, 0,
+        ctx_.instance(), ctx_.load_render_pass(),
+        ctx_.swapchain().framebuffers[current_image_],
+        ctx_.swapchain().depth_format, target_generation_);
     pass.record(ctx);
     chunk_has_work_ = true;
     return true;

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cctype>
 #include <cmath>
 #include <nlohmann/json.hpp>
 #include <numeric>
@@ -103,6 +104,31 @@ bool detach_leaf(TopologyTab& tab, std::string_view pane_id)
 bool valid_name(std::string_view value)
 {
     return !value.empty() && value.size() <= kTopologyMaxTextBytes;
+}
+
+bool valid_plugin_id(std::string_view value)
+{
+    return !value.empty() && value.size() <= 128
+        && std::ranges::all_of(value, [](unsigned char ch) {
+               return std::islower(ch) || std::isdigit(ch)
+                   || ch == '.' || ch == '_' || ch == '-';
+           });
+}
+
+bool valid_plugin_config(std::string_view value)
+{
+    if (value.empty())
+        return true;
+    if (value.size() > kTopologyMaxTextBytes)
+        return false;
+    try
+    {
+        return nlohmann::json::parse(value).is_object();
+    }
+    catch (...)
+    {
+        return false;
+    }
 }
 
 std::string command_key(const TopologyCommand& command)
@@ -263,6 +289,8 @@ ControlMethodResult TopologyService::apply_layout(
         std::string alias;
         std::string cwd;
         std::string split_from;
+        std::string plugin_id;
+        std::string plugin_config_json;
         TopologySplitDirection direction
             = TopologySplitDirection::Vertical;
         bool place_before = false;
@@ -312,8 +340,9 @@ ControlMethodResult TopologyService::apply_layout(
             const auto pane_alias = bounded_string(pane_value, "alias", true);
             const auto cwd = bounded_string(pane_value, "cwd");
             const auto split_from = bounded_string(pane_value, "split_from");
+            const auto plugin_id = bounded_string(pane_value, "plugin_id");
             if (!pane_name || !pane_alias || pane_alias->empty()
-                || !cwd || !split_from
+                || !cwd || !split_from || !plugin_id
                 || !remember_alias(*pane_alias))
             {
                 return ControlMethodResult::error(
@@ -325,7 +354,23 @@ ControlMethodResult TopologyService::apply_layout(
                 .alias = *pane_alias,
                 .cwd = *cwd,
                 .split_from = *split_from,
+                .plugin_id = *plugin_id,
             };
+            if (!pane.plugin_id.empty())
+            {
+                if (!pane.cwd.empty() || !valid_plugin_id(pane.plugin_id))
+                    return ControlMethodResult::error("invalid_layout", "Plugin panes require a valid plugin_id and cannot specify cwd.");
+                if (pane_value.contains("plugin_config"))
+                {
+                    if (!pane_value["plugin_config"].is_object())
+                        return ControlMethodResult::error("invalid_layout", "plugin_config must be an object.");
+                    pane.plugin_config_json = pane_value["plugin_config"].dump();
+                    if (!valid_plugin_config(pane.plugin_config_json))
+                        return ControlMethodResult::error("invalid_layout", "plugin_config exceeds the topology text limit.");
+                }
+                else
+                    pane.plugin_config_json = "{}";
+            }
             if (pane_index > 0)
             {
                 const std::string direction
@@ -404,7 +449,14 @@ ControlMethodResult TopologyService::apply_layout(
         .kind = TopologyCommandKind::CreateSpace,
         .name = *name,
         .root_directory = *root,
-        .pane_domain = TopologyPaneDomain::ServerTerminal,
+        .pane_domain = plans.front().panes.front().plugin_id.empty()
+            ? TopologyPaneDomain::ServerTerminal
+            : TopologyPaneDomain::ClientLocal,
+        .client_host_kind = plans.front().panes.front().plugin_id.empty()
+            ? std::string{} : std::string("plugin"),
+        .client_plugin_id = plans.front().panes.front().plugin_id,
+        .client_plugin_config_json
+            = plans.front().panes.front().plugin_config_json,
         .server_working_directory = plans.front().panes.front().cwd,
     };
     if (!apply(create_space, created, error_code, error))
@@ -432,7 +484,14 @@ ControlMethodResult TopologyService::apply_layout(
                 .kind = TopologyCommandKind::CreateTab,
                 .space_id = created_space_id,
                 .name = plan.name,
-                .pane_domain = TopologyPaneDomain::ServerTerminal,
+                .pane_domain = plan.panes.front().plugin_id.empty()
+                    ? TopologyPaneDomain::ServerTerminal
+                    : TopologyPaneDomain::ClientLocal,
+                .client_host_kind = plan.panes.front().plugin_id.empty()
+                    ? std::string{} : std::string("plugin"),
+                .client_plugin_id = plan.panes.front().plugin_id,
+                .client_plugin_config_json
+                    = plan.panes.front().plugin_config_json,
                 .server_working_directory = plan.panes.front().cwd,
             };
             if (!apply(create_tab, tab_id, error_code, error))
@@ -464,7 +523,14 @@ ControlMethodResult TopologyService::apply_layout(
                 .direction = pane.direction,
                 .ratio = pane.ratio,
                 .place_before = pane.place_before,
-                .pane_domain = TopologyPaneDomain::ServerTerminal,
+                .pane_domain = pane.plugin_id.empty()
+                    ? TopologyPaneDomain::ServerTerminal
+                    : TopologyPaneDomain::ClientLocal,
+                .client_host_kind = pane.plugin_id.empty()
+                    ? std::string{} : std::string("plugin"),
+                .client_plugin_id = pane.plugin_id,
+                .client_plugin_config_json
+                    = pane.plugin_config_json,
                 .server_working_directory = pane.cwd,
             };
             std::string pane_id;
@@ -885,6 +951,20 @@ bool TopologyService::apply(const TopologyCommand& command,
         return false;
     };
 
+    if (!command.client_plugin_id.empty()
+        && (command.client_host_kind != "plugin"
+            || !valid_plugin_id(command.client_plugin_id)
+            || !valid_plugin_config(command.client_plugin_config_json)))
+    {
+        return reject("invalid_plugin",
+            "Plugin panes require a valid plugin id and object configuration.");
+    }
+    if (command.client_host_kind == "plugin"
+        && command.client_plugin_id.empty())
+    {
+        return reject("invalid_plugin", "Plugin pane id is required.");
+    }
+
     if (command.kind == TopologyCommandKind::CreateSpace)
     {
         if (snapshot_.spaces.size() >= kTopologyMaxSpaces)
@@ -931,6 +1011,8 @@ bool TopologyService::apply(const TopologyCommand& command,
             pane.client_host_kind.clear();
             pane.client_working_directory.clear();
             pane.client_source_path.clear();
+            pane.client_plugin_id.clear();
+            pane.client_plugin_config_json.clear();
             pane.companion_owner_pane_id.clear();
             pane.server_working_directory
                 = command.server_working_directory.empty()
@@ -944,6 +1026,9 @@ bool TopologyService::apply(const TopologyCommand& command,
                 = command.client_working_directory;
             pane.client_source_path
                 = command.client_source_path;
+            pane.client_plugin_id = command.client_plugin_id;
+            pane.client_plugin_config_json
+                = command.client_plugin_config_json;
         }
         created_id = space.space_id;
         snapshot_.spaces.push_back(std::move(space));
@@ -1021,6 +1106,8 @@ bool TopologyService::apply(const TopologyCommand& command,
             pane.client_host_kind.clear();
             pane.client_working_directory.clear();
             pane.client_source_path.clear();
+            pane.client_plugin_id.clear();
+            pane.client_plugin_config_json.clear();
             pane.companion_owner_pane_id.clear();
             pane.server_working_directory
                 = command.server_working_directory.empty()
@@ -1034,6 +1121,9 @@ bool TopologyService::apply(const TopologyCommand& command,
                 = command.client_working_directory;
             pane.client_source_path
                 = command.client_source_path;
+            pane.client_plugin_id = command.client_plugin_id;
+            pane.client_plugin_config_json
+                = command.client_plugin_config_json;
         }
         created_id = tab.tab_id;
         space->tabs.push_back(std::move(tab));
@@ -1118,6 +1208,14 @@ bool TopologyService::apply(const TopologyCommand& command,
         pane->client_working_directory
             = command.client_working_directory;
         pane->client_source_path = command.client_source_path;
+        if (!command.client_plugin_id.empty()
+            && command.client_plugin_id != pane->client_plugin_id)
+        {
+            return reject("plugin_id_mismatch",
+                "Client-local plugin id cannot be changed in place.");
+        }
+        pane->client_plugin_config_json
+            = command.client_plugin_config_json;
         return true;
     }
     if (command.kind == TopologyCommandKind::SwapPane)
@@ -1262,6 +1360,9 @@ bool TopologyService::apply(const TopologyCommand& command,
             .client_working_directory
                 = command.client_working_directory,
             .client_source_path = command.client_source_path,
+            .client_plugin_id = command.client_plugin_id,
+            .client_plugin_config_json
+                = command.client_plugin_config_json,
             .companion_owner_pane_id
                 = command.companion_owner_pane_id,
             .server_working_directory
@@ -1304,6 +1405,8 @@ bool TopologyService::apply(const TopologyCommand& command,
             pane.client_host_kind.clear();
             pane.client_working_directory.clear();
             pane.client_source_path.clear();
+            pane.client_plugin_id.clear();
+            pane.client_plugin_config_json.clear();
             pane.companion_owner_pane_id.clear();
         }
         else

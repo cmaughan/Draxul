@@ -61,6 +61,28 @@ int TabController::add_tab(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     return id;
 }
 
+int TabController::add_tab(IHostCallbacks& callbacks, int pixel_w,
+    int pixel_h, PaneManager::Deps pane_manager_deps,
+    HostLaunchOptions launch)
+{
+    auto tab = std::make_unique<Tab>(next_tab_id_++,
+        std::move(pane_manager_deps));
+    if (!tab->pane_manager.create(callbacks, pixel_w, pixel_h,
+            std::move(launch)))
+    {
+        last_error_ = tab->pane_manager.error();
+        return -1;
+    }
+
+    tab->initialized = true;
+    set_default_tab_name(*tab);
+    const int id = tab->id;
+    tabs_.push_back(std::move(tab));
+    activate_tab(id);
+    last_error_.clear();
+    return id;
+}
+
 int TabController::add_projected_tab(
     PaneManager::Deps pane_manager_deps)
 {

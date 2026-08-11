@@ -154,6 +154,9 @@ std::optional<TabSnapshot> capture_tab(
             saved.launch.working_dir
                 = pane.client_working_directory;
             saved.launch.source_path = pane.client_source_path;
+            saved.launch.client_plugin_id = pane.client_plugin_id;
+            saved.launch.client_plugin_config_json
+                = pane.client_plugin_config_json;
             saved.launch.companion_owner_pane_id
                 = pane.companion_owner_pane_id;
         }
@@ -298,6 +301,10 @@ std::optional<TopologyTab> restore_tab(
                 = pane.launch.working_dir;
             restored.client_source_path
                 = pane.launch.source_path;
+            restored.client_plugin_id
+                = pane.launch.client_plugin_id;
+            restored.client_plugin_config_json
+                = pane.launch.client_plugin_config_json;
             restored.companion_owner_pane_id
                 = pane.launch.companion_owner_pane_id;
         }
