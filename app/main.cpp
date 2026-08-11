@@ -5,6 +5,7 @@
 #include "control_cli.h"
 #include "server_status_surface.h"
 #include "session_id.h"
+#include "topology_cli.h"
 #ifdef __APPLE__
 #include "macos_server_status_surface.h"
 #include <unistd.h>
@@ -557,6 +558,22 @@ static int draxul_main(std::vector<std::string> args)
     if (integration_cli.command)
         return draxul::run_integration_cli(
             *integration_cli.command);
+
+    const auto topology_cli
+        = draxul::parse_topology_cli(args);
+#ifdef _WIN32
+    if (topology_cli.recognized)
+        ensure_console_io(true);
+#endif
+    if (topology_cli.error)
+    {
+        std::fprintf(
+            stderr, "%s\n", topology_cli.error->c_str());
+        return 2;
+    }
+    if (topology_cli.command)
+        return draxul::run_topology_cli(
+            *topology_cli.command);
 
     const auto control_cli = draxul::parse_control_cli(args);
 #ifdef _WIN32

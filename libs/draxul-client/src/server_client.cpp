@@ -574,6 +574,7 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             "fake-remote-terminal",
             "graceful-shutdown",
             "managed-agent-v1",
+            "managed-agent-v2",
             "multi-terminal-v1",
             "named-sessions-v1",
             "ordered-terminal-events",
@@ -584,6 +585,7 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             "terminal-scrollback-v1",
             "terminal-uncompressed-v1",
             "topology-v1",
+            "topology-control-v2",
         },
     };
     const auto response = ControlClient::request(

@@ -1,0 +1,161 @@
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$Executable
+)
+
+$ErrorActionPreference = 'Stop'
+
+function Invoke-Draxul {
+    param(
+        [string[]]$Arguments,
+        [string]$StandardInput = ''
+    )
+    $start = [System.Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $Executable
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    if ($StandardInput) {
+        $start.RedirectStandardInput = $true
+    }
+    foreach ($argument in $Arguments) {
+        $start.ArgumentList.Add($argument)
+    }
+    $process = [System.Diagnostics.Process]::Start($start)
+    if ($StandardInput) {
+        $process.StandardInput.Write($StandardInput)
+        $process.StandardInput.Close()
+    }
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0) {
+        throw "draxul $($Arguments -join ' ') failed ($($process.ExitCode)): $stderr"
+    }
+    return $stdout
+}
+
+$runtime = Join-Path ([System.IO.Path]::GetTempPath()) (
+    'draxul-topology-cli-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $runtime | Out-Null
+
+$layout = @{
+    name = 'Automation'
+    alias = 'space'
+    root_directory = (Split-Path -Parent (Split-Path -Parent $Executable))
+    tabs = @(
+        @{
+            name = 'Workers'
+            alias = 'workers'
+            panes = @(
+                @{ name = 'Shell'; alias = 'shell' }
+                @{
+                    name = 'Tests'
+                    alias = 'tests'
+                    split_from = 'shell'
+                    direction = 'right'
+                    ratio = 0.6
+                }
+                @{
+                    name = 'Logs'
+                    alias = 'logs'
+                    split_from = 'tests'
+                    direction = 'down'
+                    ratio = 0.4
+                }
+            )
+        }
+    )
+} | ConvertTo-Json -Depth 10 -Compress
+
+try {
+    Invoke-Draxul @('--server', '--server-runtime-dir', $runtime) | Out-Null
+    $endpoint = $null
+    for ($attempt = 0; $attempt -lt 120; ++$attempt) {
+        $endpoint = Get-ChildItem -LiteralPath $runtime `
+            -Filter '*.control.json' -File -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($endpoint) {
+            break
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    if (-not $endpoint) {
+        throw 'The isolated Draxul server did not publish its endpoint.'
+    }
+
+    $before = @(Invoke-Draxul @(
+        'space', 'list', '--json', '--server-runtime-dir', $runtime) |
+        ConvertFrom-Json)
+    $validation = Invoke-Draxul @(
+        'layout', 'validate', '-', '--json',
+        '--server-runtime-dir', $runtime) $layout | ConvertFrom-Json
+    $afterValidation = @(Invoke-Draxul @(
+        'space', 'list', '--json', '--server-runtime-dir', $runtime) |
+        ConvertFrom-Json)
+    if (-not $validation.valid -or $before.Count -ne $afterValidation.Count) {
+        throw 'Layout validation mutated the server or did not report valid.'
+    }
+
+    $applied = Invoke-Draxul @(
+        'layout', 'apply', '-', '--json',
+        '--server-runtime-dir', $runtime) $layout | ConvertFrom-Json
+    $panes = @(Invoke-Draxul @(
+        'pane', 'list', '--space', $applied.created_id, '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json)
+    if ($panes.Count -ne 3 -or -not $applied.aliases.tests) {
+        throw 'The applied layout does not contain the expected panes and aliases.'
+    }
+
+    $marker = "DRAXUL-CONTEXT:$($applied.created_id):$($applied.aliases.workers):$($applied.aliases.shell)"
+    $contextCommand = 'Write-Output ("DRAXUL-CONTEXT:" + ' +
+        '$env:DRAXUL_SPACE_ID + ":" + $env:DRAXUL_TAB_ID + ":" + ' +
+        '$env:DRAXUL_PANE_ID)'
+    Invoke-Draxul @(
+        'pane', 'run', $applied.aliases.shell, '--command', $contextCommand,
+        '--json', '--server-runtime-dir', $runtime) | Out-Null
+    $waited = Invoke-Draxul @(
+        'pane', 'wait-output', $applied.aliases.shell, '--text', $marker,
+        '--timeout', '15s', '--json', '--server-runtime-dir', $runtime) |
+        ConvertFrom-Json
+    if ($waited.text -notlike "*$marker*") {
+        throw 'The pane process did not receive its stable Draxul route context.'
+    }
+
+    $quotedExecutable = $Executable.Replace("'", "''")
+    $currentCommand = "& '$quotedExecutable' pane get --current --json"
+    Invoke-Draxul @(
+        'pane', 'run', $applied.aliases.shell, '--command', $currentCommand,
+        '--json', '--server-runtime-dir', $runtime) | Out-Null
+    $currentMarker = '"id": "' + $applied.aliases.shell + '"'
+    $current = Invoke-Draxul @(
+        'pane', 'wait-output', $applied.aliases.shell,
+        '--text', $currentMarker, '--timeout', '15s', '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    if ($current.text -notlike "*$currentMarker*") {
+        throw '--current did not resolve the enclosing pane without explicit routing.'
+    }
+
+    Invoke-Draxul @(
+        'pane', 'move', $applied.aliases.logs,
+        '--target', $applied.aliases.shell, '--direction', 'left',
+        '--json', '--server-runtime-dir', $runtime) | Out-Null
+    $splits = @(Invoke-Draxul @(
+        'split', 'list', '--tab', $applied.aliases.workers, '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json)
+    if ($splits.Count -ne 2) {
+        throw 'Pane movement did not preserve a valid three-pane split tree.'
+    }
+
+    Write-Output "Topology CLI integration passed: $($applied.created_id)"
+}
+finally {
+    try {
+        Invoke-Draxul @(
+            '--shutdown-server', '--yes',
+            '--server-runtime-dir', $runtime) | Out-Null
+    }
+    catch {
+        Write-Warning "Could not stop isolated test server: $_"
+    }
+}

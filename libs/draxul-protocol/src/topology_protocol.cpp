@@ -423,6 +423,8 @@ std::string_view to_string(TopologyCommandKind kind)
         return "move_tab";
     case TopologyCommandKind::SplitPane:
         return "split_pane";
+    case TopologyCommandKind::MovePane:
+        return "move_pane";
     case TopologyCommandKind::UpdateClientPane:
         return "update_client_pane";
     case TopologyCommandKind::ClosePane:
@@ -460,6 +462,8 @@ std::optional<TopologyCommandKind> parse_topology_command_kind(
         return TopologyCommandKind::MoveTab;
     if (value == "split_pane")
         return TopologyCommandKind::SplitPane;
+    if (value == "move_pane")
+        return TopologyCommandKind::MovePane;
     if (value == "update_client_pane")
         return TopologyCommandKind::UpdateClientPane;
     if (value == "close_pane")
@@ -543,6 +547,7 @@ nlohmann::json topology_command_to_json(
         { "root_directory", command.root_directory },
         { "direction", to_string(command.direction) },
         { "ratio", command.ratio },
+        { "place_before", command.place_before },
         { "move_delta", command.move_delta },
         { "pane_domain", to_string(command.pane_domain) },
         { "terminal_id", command.terminal_id },
@@ -552,6 +557,8 @@ nlohmann::json topology_command_to_json(
         { "client_source_path", command.client_source_path },
         { "companion_owner_pane_id",
             command.companion_owner_pane_id },
+        { "server_working_directory",
+            command.server_working_directory },
     };
 }
 
@@ -595,7 +602,10 @@ std::optional<TopologyCommand> topology_command_from_json(
             "client_source_path", command.client_source_path)
         || !read_optional_string(
             "companion_owner_pane_id",
-            command.companion_owner_pane_id))
+            command.companion_owner_pane_id)
+        || !read_optional_string(
+            "server_working_directory",
+            command.server_working_directory))
     {
         error = "Invalid optional topology command text.";
         return std::nullopt;
@@ -613,6 +623,15 @@ std::optional<TopologyCommand> topology_command_from_json(
             error = "Invalid topology command move delta.";
             return std::nullopt;
         }
+    }
+    if (value.contains("place_before"))
+    {
+        if (!value["place_before"].is_boolean())
+        {
+            error = "Invalid topology command placement.";
+            return std::nullopt;
+        }
+        command.place_before = value["place_before"].get<bool>();
     }
     const auto parsed_kind = parse_topology_command_kind(kind);
     if (!parsed_kind)

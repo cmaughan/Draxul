@@ -107,6 +107,7 @@ enum class TopologyCommandKind
     CloseTab,
     MoveTab,
     SplitPane,
+    MovePane,
     UpdateClientPane,
     ClosePane,
     RenamePane,
@@ -131,6 +132,9 @@ struct TopologyCommand
     std::string root_directory;
     TopologySplitDirection direction = TopologySplitDirection::Vertical;
     float ratio = 0.5f;
+    // For split-like operations, insert the new or moved pane before the
+    // target leaf (left/up) instead of after it (right/down).
+    bool place_before = false;
     int move_delta = 0;
     TopologyPaneDomain pane_domain = TopologyPaneDomain::ClientLocal;
     std::string terminal_id;
@@ -138,6 +142,7 @@ struct TopologyCommand
     std::string client_working_directory;
     std::string client_source_path;
     std::string companion_owner_pane_id;
+    std::string server_working_directory;
 
     bool operator==(const TopologyCommand&) const = default;
 };

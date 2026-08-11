@@ -70,3 +70,9 @@ falling back to an app-owned shell/agent runtime.
   core/app shards, exact Release link/smoke, two projection clients, no-UI
   launch/report/restart, cold restore, and executable-level
   status/list/shutdown. The manual two-window managed-agent script remains.
+- The public headless CLI now exposes the server-owned Space/tab/pane/split
+  topology, terminal run/send/keys/read/output-wait operations, stable route
+  context inside every server shell, declarative atomic layout creation, and
+  managed-agent in-place pane replacement. These commands target the same
+  authoritative projection used by attached UIs; the existing manual
+  two-window managed-agent demonstration remains outstanding.

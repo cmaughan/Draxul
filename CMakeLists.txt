@@ -309,6 +309,7 @@ add_library(draxul-app
     app/space_controller.cpp
     app/split_tree.cpp
     app/tab_controller.cpp
+    app/topology_cli.cpp
     app/topology_mutation_route.cpp
     ${DRAXUL_APP_PLATFORM_SOURCES}
 )
@@ -555,6 +556,19 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
+    if(WIN32)
+        find_program(DRAXUL_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
+        if(DRAXUL_POWERSHELL_EXECUTABLE)
+            add_test(NAME draxul-topology-cli-integration
+                COMMAND ${DRAXUL_POWERSHELL_EXECUTABLE}
+                    -NoProfile -ExecutionPolicy Bypass
+                    -File ${CMAKE_SOURCE_DIR}/tests/topology_cli_integration.ps1
+                    -Executable $<TARGET_FILE:draxul>)
+            set_tests_properties(draxul-topology-cli-integration
+                PROPERTIES LABELS "integration;smoke" TIMEOUT 45)
+        endif()
+    endif()
+
     find_program(NVIM_EXECUTABLE nvim)
     if(NVIM_EXECUTABLE)
         if(WIN32)

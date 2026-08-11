@@ -27,9 +27,13 @@ struct ControlCliCommand
     std::string agent_instance_id;
     std::string server_epoch;
     std::string server_runtime_directory;
+    std::string route_space_id;
+    std::string route_tab_id;
+    std::string route_pane_id;
     std::string reference_kind = "id";
     std::string reference_value;
     std::optional<int> space_id;
+    bool replace_pane = false;
     bool json = false;
 };
 

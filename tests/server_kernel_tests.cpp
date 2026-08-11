@@ -903,7 +903,7 @@ TEST_CASE("topology ratio storms retain only bounded command outcomes",
 {
     uint64_t next_terminal = 1;
     TopologyService service("cache-test", {
-                                              .create_server_terminal = [&next_terminal](std::string_view, std::string_view, std::string&) -> std::optional<std::string> {
+                                              .create_server_terminal = [&next_terminal](const ServerTerminalTopologyLaunch&, std::string&) -> std::optional<std::string> {
                                                   return "cache-terminal-"
                                                       + std::to_string(next_terminal++);
                                               },

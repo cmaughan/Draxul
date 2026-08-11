@@ -179,6 +179,34 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   acknowledges successful application by server epoch and revision; failed
   projections retry, coalesce to the newest snapshot, preserve input routing,
   and report a persistent apply error only once.
+- **Headless topology and terminal control**: `draxul.exe` talks directly to the
+  shared server for Space, tab, pane, split, terminal, and declarative-layout
+  operations; no Draxul window is required. Mutations update the same
+  server-authoritative topology projected by every attached UI. Commands accept
+  `--session <id>`, `--server-runtime-dir <path>`, and `--json`. Server shells
+  inherit `DRAXUL_SESSION_ID`, `DRAXUL_SPACE_ID`, `DRAXUL_TAB_ID`,
+  `DRAXUL_PANE_ID`, `DRAXUL_TERMINAL_ID`, and `DRAXUL_SERVER_RUNTIME_DIR`, so an
+  agent inside a pane can use `--current` and can omit its inherited Session and
+  runtime route.
+
+  | Area | Commands |
+  |------|----------|
+  | Spaces | `space list`, `space get/create/rename/close` |
+  | Tabs | `tab list/get/create/rename/close`, `tab move --delta -1|1` |
+  | Panes | `pane list/get/split/rename/close/restart/swap`, `pane move --target <pane> --direction <left|right|up|down>` |
+  | Splits | `split list`, `split set --ratio <0.1..0.9>`, `split equalize` |
+  | Terminal processes | `pane run --command <text>`, `pane send --text <text>`, `pane keys <keys...>`, `pane read`, `pane wait-output --text <text> --timeout <duration>` |
+  | Managed agents | `agent start <profile> --space/--tab/--pane [--replace]`, `agent prompt`, `agent keys`, `agent get/list/explain/wait/restart`; `--replace` converts the selected server-terminal pane in place and preserves its pane ID |
+  | Declarative layouts | `layout validate <file|->`, `layout apply <file|-> [--dry-run]` |
+
+  Layout JSON creates one Space atomically. It contains `name`, optional `alias`
+  and `root_directory`, plus non-empty `tabs`; each tab contains a name, optional
+  alias, and panes. Every pane has a unique `alias` and may set `name` and `cwd`.
+  Panes after the first may set `split_from` to an earlier pane alias,
+  `direction` (`left`, `right`, `up`, or `down`), and `ratio`. Validation performs
+  no mutation. Apply returns an `aliases` object mapping caller-chosen names to
+  durable server IDs; allocation failure destroys terminals created by the
+  request and restores the pre-request topology before returning an error.
 
 ---
 
@@ -341,10 +369,12 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
   and accepts `DRAXUL_AGENT=codex|claude` as an explicit hint. Inferred rows are
   not given durable native-session references.
 - The shared server exposes its authenticated same-user local control endpoint.
-  `draxul space list/get`, `agent list/get/explain`, and `pane read` provide
-  bounded inspection by Session ID; structured agent operations start, restart,
-  send bounded input, and wait on a pinned runtime generation. Sanitized events
-  never include terminal text.
+  The headless topology/terminal commands above provide bounded discovery and
+  manipulation by stable route ID and Session; structured agent operations
+  start (including in-place pane replacement), restart, prompt, send bounded
+  keys, and wait on a pinned runtime generation. Sanitized agent events never
+  include terminal text; terminal text is available only through explicit pane
+  reads and output waits.
 - Shared server Sessions expose the sanitized Agents projection to every
   attached UI. Agent focus and attention acknowledgement remain local to each
   window. `agent list/get/explain/wait/restart/send-text/send-keys` and bounded

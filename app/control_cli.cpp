@@ -3,9 +3,12 @@
 #include <draxul/config_document.h>
 #include <draxul/control_plane.h>
 #include <draxul/server_client.h>
+#include <draxul/topology_client.h>
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <filesystem>
 #include <nlohmann/json.hpp>
@@ -137,6 +140,7 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
     const std::string noun = args[1];
     const std::string verb = args[2];
     size_t position = 3;
+    bool session_explicit = false;
 
     if (noun == "space" && verb == "list")
         command.method = "space.list";
@@ -156,7 +160,8 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         command.method = "agent.focus";
     else if (noun == "agent" && verb == "restart")
         command.method = "agent.restart";
-    else if (noun == "agent" && verb == "send")
+    else if (noun == "agent"
+        && (verb == "send" || verb == "prompt"))
         command.method = "agent.send_text";
     else if (noun == "agent" && verb == "keys")
         command.method = "agent.send_keys";
@@ -204,6 +209,7 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
                 return parsed;
             }
             command.session_id = args[position++];
+            session_explicit = true;
         }
         else if (args[position] == "--server-runtime-dir")
         {
@@ -273,15 +279,39 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         {
             if (++position >= args.size())
             {
-                parsed.error = "--space requires an integer id.";
+                parsed.error = "--space requires an id.";
                 return parsed;
             }
-            command.space_id = parse_int(args[position++]);
-            if (!command.space_id)
+            command.route_space_id = args[position++];
+            if (command.route_space_id.empty())
             {
-                parsed.error = "--space requires an integer id.";
+                parsed.error = "--space requires an id.";
                 return parsed;
             }
+            command.space_id = parse_int(command.route_space_id);
+        }
+        else if (args[position] == "--tab")
+        {
+            if (++position >= args.size() || args[position].empty())
+            {
+                parsed.error = "--tab requires an id.";
+                return parsed;
+            }
+            command.route_tab_id = args[position++];
+        }
+        else if (args[position] == "--pane")
+        {
+            if (++position >= args.size() || args[position].empty())
+            {
+                parsed.error = "--pane requires an id.";
+                return parsed;
+            }
+            command.route_pane_id = args[position++];
+        }
+        else if (args[position] == "--replace")
+        {
+            command.replace_pane = true;
+            ++position;
         }
         else if (args[position] == "--text")
         {
@@ -452,6 +482,52 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
                        "--agent, --integration-version, --sequence, and --session-ref.";
         return parsed;
     }
+    if (command.replace_pane && command.method != "agent.start")
+    {
+        parsed.error = "--replace is only valid for agent start.";
+        return parsed;
+    }
+    if (command.method == "agent.start")
+    {
+        if (command.route_space_id.empty())
+        {
+            if (const char* value = std::getenv("DRAXUL_SPACE_ID");
+                value && *value)
+                command.route_space_id = value;
+        }
+        if (command.route_tab_id.empty())
+        {
+            if (const char* value = std::getenv("DRAXUL_TAB_ID");
+                value && *value)
+                command.route_tab_id = value;
+        }
+        if (command.route_pane_id.empty())
+        {
+            if (const char* value = std::getenv("DRAXUL_PANE_ID");
+                value && *value)
+                command.route_pane_id = value;
+        }
+        if (command.replace_pane
+            && command.route_pane_id.empty())
+        {
+            parsed.error
+                = "agent start --replace requires --pane <pane-id> or an enclosing Draxul pane context.";
+            return parsed;
+        }
+    }
+    if (command.server_runtime_directory.empty())
+    {
+        if (const char* value
+            = std::getenv("DRAXUL_SERVER_RUNTIME_DIR");
+            value && *value)
+            command.server_runtime_directory = value;
+    }
+    if (!session_explicit)
+    {
+        if (const char* value = std::getenv("DRAXUL_SESSION_ID");
+            value && *value)
+            command.session_id = value;
+    }
     parsed.command = std::move(command);
     return parsed;
 }
@@ -474,8 +550,17 @@ int run_control_cli(const ControlCliCommand& command)
         params["args"] = command.arguments;
         if (!command.working_directory.empty())
             params["cwd"] = command.working_directory;
-        if (command.space_id)
+        if (command.space_id
+            && !command.route_space_id.starts_with("space-"))
             params["space_id"] = *command.space_id;
+        else if (!command.route_space_id.empty())
+            params["space_id"] = command.route_space_id;
+        if (!command.route_tab_id.empty())
+            params["tab_id"] = command.route_tab_id;
+        if (!command.route_pane_id.empty())
+            params["pane_id"] = command.route_pane_id;
+        if (command.replace_pane)
+            params["replace_pane"] = true;
     }
     else if (command.method == "agent.focus"
         || command.method == "agent.restart")
@@ -546,9 +631,86 @@ int run_control_cli(const ControlCliCommand& command)
         || command.method == "pane.read"
         || command.method
             == "pane.report_agent_session";
+    if (command.replace_pane)
+    {
+        if (!params.contains("space_id")
+            || !params.contains("tab_id"))
+        {
+            TopologyClient topology({
+                .runtime_directory = server_runtime,
+                .client_id = make_server_client_id(),
+                .session_id = command.session_id,
+            });
+            std::string topology_error;
+            if (!topology.refresh(topology_error))
+            {
+                std::fprintf(stderr,
+                    "server_unavailable: %s\n",
+                    topology_error.c_str());
+                return 1;
+            }
+            bool found = false;
+            for (const auto& space : topology.snapshot().spaces)
+            {
+                for (const auto& tab : space.tabs)
+                {
+                    if (std::ranges::any_of(tab.panes,
+                            [&](const TopologyPane& pane) {
+                                return pane.pane_id
+                                    == command.route_pane_id;
+                            }))
+                    {
+                        params["space_id"] = space.space_id;
+                        params["tab_id"] = tab.tab_id;
+                        found = true;
+                        break;
+                    }
+                }
+                if (found)
+                    break;
+            }
+            if (!found)
+            {
+                std::fprintf(stderr,
+                    "pane_not_found: The replacement pane was not found.\n");
+                return 1;
+            }
+        }
+        const std::string probe_client_id
+            = make_server_client_id();
+        const auto probe = ServerClient::probe({
+            .runtime_directory = server_runtime,
+            .client_id = probe_client_id,
+            .launch_if_missing = false,
+        });
+        if (!probe.ready())
+        {
+            std::fprintf(stderr, "%s: %s\n",
+                probe.error_code.empty()
+                    ? "server_unavailable"
+                    : probe.error_code.c_str(),
+                probe.error_message.empty()
+                    ? "The Draxul server is unavailable."
+                    : probe.error_message.c_str());
+            return 1;
+        }
+        if (std::ranges::find(probe.welcome->capabilities,
+                "managed-agent-v2")
+            == probe.welcome->capabilities.end())
+        {
+            std::fprintf(stderr,
+                "unsupported_server: The running Draxul server predates in-place agent launch; stop it and retry with this build.\n");
+            return 1;
+        }
+        std::string disconnect_error;
+        ServerClient::disconnect(server_runtime,
+            probe_client_id, disconnect_error,
+            probe.welcome->connection_token);
+    }
     bool using_global_server
         = supports_headless_server
-        && !command.server_runtime_directory.empty();
+        && (!command.server_runtime_directory.empty()
+            || command.replace_pane);
     const auto request
         = [&](const nlohmann::json& request_params) {
               if (!using_global_server)

@@ -258,6 +258,7 @@ const std::vector<std::string>& server_capabilities()
         "fake-remote-terminal",
         "graceful-shutdown",
         "managed-agent-v1",
+        "managed-agent-v2",
         "multi-terminal-v1",
         "named-sessions-v1",
         "ordered-terminal-events",
@@ -270,6 +271,7 @@ const std::vector<std::string>& server_capabilities()
         "terminal-scrollback-v1",
         "terminal-uncompressed-v1",
         "topology-v1",
+        "topology-control-v2",
     };
     return capabilities;
 }
@@ -431,9 +433,16 @@ public:
     bool read_session_id(const nlohmann::json& params,
         std::string& session_id, std::string& error) const;
     std::optional<std::string> create_server_terminal(
-        std::string_view session_id, std::string_view pane_id,
-        std::string_view name,
+        std::string_view session_id,
+        const ServerTerminalTopologyLaunch& launch,
         std::string& error);
+    ServerTerminalRuntimeOptions server_terminal_runtime_options(
+        std::string_view session_id,
+        std::string_view space_id,
+        std::string_view tab_id,
+        std::string_view pane_id,
+        std::string_view terminal_id,
+        std::string_view working_directory) const;
     bool create_server_terminal_with_id(std::string_view session_id,
         std::string terminal_id,
         std::string_view pane_id, std::string_view name,
@@ -1003,9 +1012,12 @@ bool ServerKernel::Impl::initialize_session(
     const std::string stable_session_id = session.session_id;
     TopologyServiceCallbacks callbacks{
         .create_server_terminal
-        = [this, stable_session_id](std::string_view pane_id,
-              std::string_view name, std::string& callback_error) { return create_server_terminal(stable_session_id,
-                                                                        pane_id, name, callback_error); },
+        = [this, stable_session_id](
+              const ServerTerminalTopologyLaunch& launch,
+              std::string& callback_error) {
+              return create_server_terminal(
+                  stable_session_id, launch, callback_error);
+          },
         .destroy_server_terminal
         = [this, stable_session_id](std::string_view terminal_id) { destroy_server_terminal(
                                                                         stable_session_id, terminal_id); },
@@ -1108,6 +1120,19 @@ bool ServerKernel::Impl::initialize_session(
                             error.clear();
                         }
                     }
+                    if (!runtime_options)
+                    {
+                        runtime_options
+                            = server_terminal_runtime_options(
+                                stable_session_id,
+                                space.space_id,
+                                tab.tab_id,
+                                pane.pane_id,
+                                pane.terminal_id,
+                                pane.server_working_directory.empty()
+                                    ? space.root_directory
+                                    : pane.server_working_directory);
+                    }
                     bool created
                         = create_server_terminal_with_id(
                             stable_session_id,
@@ -1128,7 +1153,16 @@ bool ServerKernel::Impl::initialize_session(
                                 stable_session_id,
                                 pane.terminal_id,
                                 pane.pane_id, pane.name,
-                                error);
+                                error,
+                                server_terminal_runtime_options(
+                                    stable_session_id,
+                                    space.space_id,
+                                    tab.tab_id,
+                                    pane.pane_id,
+                                    pane.terminal_id,
+                                    pane.server_working_directory.empty()
+                                        ? space.root_directory
+                                        : pane.server_working_directory));
                     }
                     if (!created)
                     {
@@ -1147,16 +1181,32 @@ bool ServerKernel::Impl::initialize_session(
     }
     else
     {
-        if (!create_server_terminal_with_id(stable_session_id,
-                std::string(kServerShellTerminalId),
-                kServerShellPaneId, {}, error))
-        {
-            session.terminals.clear();
-            return false;
-        }
         session.topology_service
             = std::make_unique<TopologyService>(
-                stable_session_id, std::move(callbacks));
+                stable_session_id, callbacks);
+        const TopologySnapshot& initial
+            = session.topology_service->snapshot();
+        const TopologySpace& initial_space
+            = initial.spaces.front();
+        const TopologyTab& initial_tab
+            = initial_space.tabs.front();
+        const TopologyPane& initial_pane
+            = initial_tab.panes.front();
+        if (!create_server_terminal_with_id(stable_session_id,
+                std::string(kServerShellTerminalId),
+                kServerShellPaneId, {}, error,
+                server_terminal_runtime_options(
+                    stable_session_id,
+                    initial_space.space_id,
+                    initial_tab.tab_id,
+                    initial_pane.pane_id,
+                    initial_pane.terminal_id,
+                    initial_space.root_directory)))
+        {
+            session.terminals.clear();
+            session.topology_service.reset();
+            return false;
+        }
     }
     session.next_checkpoint_at = std::chrono::steady_clock::now()
         + options.session_checkpoint_interval;
@@ -2072,7 +2122,8 @@ ControlMethodResult ServerKernel::Impl::handle_request(
     }
     if (request.method == "topology.snapshot"
         || request.method == "topology.poll"
-        || request.method == "topology.command")
+        || request.method == "topology.command"
+        || request.method == "topology.layout_apply")
     {
         std::string session_id;
         std::string session_error;
@@ -2228,6 +2279,17 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                 .restore_policy
                 = definition->restore_policy,
             };
+            if (request.params.contains("replace_pane"))
+            {
+                if (!request.params["replace_pane"].is_boolean())
+                {
+                    return ControlMethodResult::error(
+                        "invalid_params",
+                        "'replace_pane' must be a boolean.");
+                }
+                launch.replace_target_pane
+                    = request.params["replace_pane"].get<bool>();
+            }
             if (request.params.contains("client_id"))
             {
                 if (!request.params["client_id"].is_string()
@@ -2987,8 +3049,8 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
 
 std::optional<std::string>
 ServerKernel::Impl::create_server_terminal(
-    std::string_view session_id, std::string_view pane_id,
-    std::string_view name,
+    std::string_view session_id,
+    const ServerTerminalTopologyLaunch& launch,
     std::string& error)
 {
     const auto found = sessions.find(std::string(session_id));
@@ -3001,12 +3063,59 @@ ServerKernel::Impl::create_server_terminal(
     const std::string terminal_id
         = "terminal-"
         + std::to_string(session.next_terminal_serial++);
+    auto runtime_options = server_terminal_runtime_options(
+        session_id, launch.space_id, launch.tab_id,
+        launch.pane_id, terminal_id,
+        launch.working_directory);
     if (!create_server_terminal_with_id(
-            session_id, terminal_id, pane_id, name, error))
+            session_id, terminal_id, launch.pane_id,
+            launch.name, error, std::move(runtime_options)))
     {
         return std::nullopt;
     }
     return terminal_id;
+}
+
+ServerTerminalRuntimeOptions
+ServerKernel::Impl::server_terminal_runtime_options(
+    std::string_view session_id,
+    std::string_view space_id,
+    std::string_view tab_id,
+    std::string_view pane_id,
+    std::string_view terminal_id,
+    std::string_view working_directory) const
+{
+    auto environment = options.terminal_environment;
+    const auto set_environment
+        = [&environment](std::string key, std::string value) {
+              const auto existing = std::ranges::find(
+                  environment, key,
+                  &std::pair<std::string, std::string>::first);
+              if (existing == environment.end())
+                  environment.emplace_back(std::move(key), std::move(value));
+              else
+                  existing->second = std::move(value);
+          };
+    set_environment("DRAXUL_ENV", "1");
+    set_environment("DRAXUL_SESSION_ID", std::string(session_id));
+    set_environment("DRAXUL_SPACE_ID", std::string(space_id));
+    set_environment("DRAXUL_TAB_ID", std::string(tab_id));
+    set_environment("DRAXUL_PANE_ID", std::string(pane_id));
+    set_environment("DRAXUL_TERMINAL_ID", std::string(terminal_id));
+    set_environment("DRAXUL_SERVER_EPOCH", epoch_value);
+    set_environment("DRAXUL_RUNTIME_GENERATION", "1");
+    set_environment("DRAXUL_SERVER_RUNTIME_DIR",
+        options.runtime_directory.string());
+    return {
+        .shell_kind = options.terminal_shell_kind,
+        .command = options.terminal_command,
+        .args = options.terminal_args,
+        .working_directory = working_directory.empty()
+            ? options.terminal_working_directory
+            : std::string(working_directory),
+        .environment = std::move(environment),
+        .scrollback_capacity = options.terminal_scrollback_lines,
+    };
 }
 
 std::optional<std::string>

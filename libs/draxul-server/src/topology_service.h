@@ -25,13 +25,25 @@ struct ManagedAgentTopologyLaunch
     std::string preferred_controller_client_id;
     std::vector<std::string> additional_args;
     bool replace_default_args = false;
+    // Replace the target server terminal in-place instead of creating a
+    // sibling split. This keeps the pane's stable topology identity.
+    bool replace_target_pane = false;
+    std::string working_directory;
+};
+
+struct ServerTerminalTopologyLaunch
+{
+    std::string space_id;
+    std::string tab_id;
+    std::string pane_id;
+    std::string name;
     std::string working_directory;
 };
 
 struct TopologyServiceCallbacks
 {
     std::function<std::optional<std::string>(
-        std::string_view pane_id, std::string_view name,
+        const ServerTerminalTopologyLaunch& launch,
         std::string& error)>
         create_server_terminal;
     std::function<void(std::string_view terminal_id)>
@@ -95,6 +107,8 @@ private:
         const nlohmann::json& params) const;
     ControlMethodResult poll(const nlohmann::json& params) const;
     ControlMethodResult command(const nlohmann::json& params);
+    ControlMethodResult apply_layout(
+        const nlohmann::json& params);
     bool apply(const TopologyCommand& command, std::string& created_id,
         std::string& error_code, std::string& error);
 
