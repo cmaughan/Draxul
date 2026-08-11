@@ -12,10 +12,14 @@ Allow a pane or full tab to move into a new OS window and later rejoin without r
 
 - [ ] Land platform callback lifetime item 10 and TabController item 22.
 - [ ] Introduce `AppWindowContext` owning one `IWindow`, renderer/frame context, overlays, input dispatcher, DPI state, and a set of tabs.
-- [ ] Move host/session ownership above individual windows so transferring a tab does not recreate processes.
+- [x] Shell process and Session ownership already live above windows in the
+  shared server.
+- [ ] Give each window an independent client projection/renderer and transfer
+  only presentation/focus ownership; server terminal ids stay unchanged.
 - [ ] Phase 1: detach/rejoin an entire tab; keep pane detachment disabled.
 - [ ] Phase 2: move a leaf/subtree between tab trees using a transactional split-tree transfer.
-- [ ] Define focus, active tab, close-last-window, process-lifetime, and file-backed session serialization semantics.
+- [ ] Define client-local focus, active tab, close-last-window, detach, and
+  server topology mutation semantics.
 - [ ] Create independent Vulkan swapchains/Metal views per window while sharing only resources whose device/lifetime contract permits it.
 - [ ] Add commands and visible destinations; support failure rollback if the second window/renderer cannot initialize.
 

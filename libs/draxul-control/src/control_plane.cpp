@@ -1,5 +1,6 @@
 #include <draxul/control_plane.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cctype>
@@ -16,6 +17,8 @@
 #include <random>
 #include <sstream>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -32,6 +35,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <poll.h>
+#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -46,6 +50,65 @@ namespace
 
 constexpr auto kIoTimeout = std::chrono::seconds(5);
 
+#ifdef _WIN32
+bool create_current_user_security_descriptor(
+    PSECURITY_DESCRIPTOR& descriptor, std::string& error,
+    bool inherit_to_children = false)
+{
+    descriptor = nullptr;
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+    {
+        error = "Unable to open the current Windows user token.";
+        return false;
+    }
+
+    DWORD token_bytes = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &token_bytes);
+    if (token_bytes == 0)
+    {
+        CloseHandle(token);
+        error = "Unable to size the current Windows user identity.";
+        return false;
+    }
+    std::vector<BYTE> token_buffer(token_bytes);
+    if (!GetTokenInformation(token, TokenUser, token_buffer.data(),
+            token_bytes, &token_bytes))
+    {
+        CloseHandle(token);
+        error = "Unable to read the current Windows user identity.";
+        return false;
+    }
+    CloseHandle(token);
+
+    const auto* token_user
+        = reinterpret_cast<const TOKEN_USER*>(token_buffer.data());
+    LPWSTR sid_text = nullptr;
+    if (!ConvertSidToStringSidW(token_user->User.Sid, &sid_text))
+    {
+        error = "Unable to encode the current Windows user identity.";
+        return false;
+    }
+    const std::wstring ace_flags
+        = inherit_to_children ? L"OICI" : L"";
+    // OWNER RIGHTS follows the object's default owner, which is commonly the
+    // Administrators group for an elevated process. Bind the private endpoint
+    // to TokenUser instead so elevated and standard processes for the same
+    // Windows account share one runtime without granting access to other users.
+    const std::wstring sddl
+        = L"D:P(A;" + ace_flags + L";GA;;;SY)(A;" + ace_flags
+        + L";GA;;;" + std::wstring(sid_text) + L")";
+    LocalFree(sid_text);
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.c_str(), SDDL_REVISION_1, &descriptor, nullptr))
+    {
+        error = "Unable to create the current-user security descriptor.";
+        return false;
+    }
+    return true;
+}
+#endif
+
 uint64_t fnv1a(std::string_view text)
 {
     uint64_t hash = 14695981039346656037ull;
@@ -55,6 +118,21 @@ uint64_t fnv1a(std::string_view text)
         hash *= 1099511628211ull;
     }
     return hash;
+}
+
+// The bind()-constrained variant of session_key. sockaddr_un::sun_path is 104
+// bytes on macOS and the full <hash>-<slug> key under
+// ".../Application Support/draxul/runtime/server-v1/" already exceeded it for
+// an ordinary home directory (named pipes have no such limit, which is why
+// this only surfaced on macOS). The socket keeps the collision-resistant hash
+// only; the human-readable slug stays on the metadata/lock filenames, which
+// are open()ed rather than bound. Clients never derive this name — they read
+// the endpoint string from the metadata document.
+std::string endpoint_key(std::string_view session_id)
+{
+    std::ostringstream out;
+    out << std::hex << fnv1a(session_id);
+    return out.str();
 }
 
 std::string session_key(std::string_view session_id)
@@ -75,6 +153,30 @@ std::string session_key(std::string_view session_id)
     std::ostringstream out;
     out << std::hex << fnv1a(session_id) << "-" << slug;
     return out.str();
+}
+
+std::string normalized_runtime_key(
+    const std::filesystem::path& runtime_directory)
+{
+    std::error_code path_error;
+    auto normalized = std::filesystem::weakly_canonical(
+        runtime_directory, path_error);
+    if (path_error)
+    {
+        path_error.clear();
+        normalized = std::filesystem::absolute(
+            runtime_directory, path_error);
+        if (path_error)
+            normalized = runtime_directory;
+    }
+    std::string value = normalized.lexically_normal().generic_string();
+#ifdef _WIN32
+    std::transform(value.begin(), value.end(), value.begin(),
+        [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+#endif
+    return value;
 }
 
 std::string random_token()
@@ -163,6 +265,15 @@ nlohmann::json response_json(
     return response;
 }
 
+std::string dump_wire_json(const nlohmann::json& value)
+{
+    // Terminal cell text ultimately comes from arbitrary PTY bytes. The
+    // terminal core sanitizes it, but replacement mode keeps a malformed
+    // payload from escaping a subsystem and terminating a listener thread.
+    return value.dump(-1, ' ', false,
+        nlohmann::detail::error_handler_t::replace);
+}
+
 ControlMethodResult parse_request(std::string_view bytes,
     std::string_view expected_token,
     ControlRequest& request)
@@ -180,20 +291,21 @@ ControlMethodResult parse_request(std::string_view bytes,
     if (envelope.value("version", 0) != kControlProtocolVersion)
         return ControlMethodResult::error(
             "unsupported_version", "Unsupported control protocol version.");
-    if (!envelope.contains("token") || !envelope["token"].is_string()
-        || envelope["token"].get_ref<const std::string&>() != expected_token)
-    {
-        return ControlMethodResult::error("authentication_failed", "Authentication failed.");
-    }
     if (!envelope.contains("id") || !envelope["id"].is_string()
         || envelope["id"].get_ref<const std::string&>().empty()
         || envelope["id"].get_ref<const std::string&>().size() > 64)
     {
         return ControlMethodResult::error("invalid_request", "Request id is invalid.");
     }
-    // Preserve the correlation id for all subsequent validation errors so
-    // clients receive the actual protocol error instead of an id mismatch.
+    // Preserve the correlation id even for authentication failures. This lets
+    // a client distinguish a stale cached token after a server restart and
+    // safely retry after re-reading current-user-only endpoint metadata.
     request.id = envelope["id"].get<std::string>();
+    if (!envelope.contains("token") || !envelope["token"].is_string()
+        || envelope["token"].get_ref<const std::string&>() != expected_token)
+    {
+        return ControlMethodResult::error("authentication_failed", "Authentication failed.");
+    }
     if (!envelope.contains("method") || !envelope["method"].is_string()
         || envelope["method"].get_ref<const std::string&>().empty()
         || envelope["method"].get_ref<const std::string&>().size() > 64)
@@ -205,30 +317,55 @@ ControlMethodResult parse_request(std::string_view bytes,
         return ControlMethodResult::error("invalid_request", "Request params must be an object.");
 
     request.params = envelope.value("params", nlohmann::json::object());
+    if (envelope.contains("timeout_ms"))
+    {
+        if (!envelope["timeout_ms"].is_number_integer())
+        {
+            return ControlMethodResult::error(
+                "invalid_request", "Request timeout is invalid.");
+        }
+        const int64_t timeout_ms
+            = envelope["timeout_ms"].get<int64_t>();
+        constexpr int64_t maximum_timeout_ms
+            = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::hours(1))
+                  .count();
+        if (timeout_ms <= 0
+            || timeout_ms > maximum_timeout_ms)
+        {
+            return ControlMethodResult::error(
+                "invalid_request", "Request timeout is out of range.");
+        }
+        request.expires_at = std::chrono::steady_clock::now()
+            + std::chrono::milliseconds(timeout_ms);
+    }
     return ControlMethodResult::success(nullptr);
 }
 
-bool write_owner_only_file(
+bool write_current_user_file(
     const std::filesystem::path& path, std::string_view contents, std::string& error)
 {
+    std::filesystem::path temporary = path;
+    temporary += ".tmp-" + random_token();
 #ifdef _WIN32
     PSECURITY_DESCRIPTOR descriptor = nullptr;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"D:P(A;;GA;;;SY)(A;;GA;;;OW)",
-            SDDL_REVISION_1, &descriptor, nullptr))
+    if (!create_current_user_security_descriptor(descriptor, error))
     {
-        error = "Unable to create control metadata security descriptor.";
+        error = "Unable to create control metadata security descriptor: "
+            + error;
         return false;
     }
     SECURITY_ATTRIBUTES attributes{
         sizeof(SECURITY_ATTRIBUTES), descriptor, FALSE
     };
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, &attributes,
-        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0,
+        &attributes, CREATE_NEW,
+        FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_WRITE_THROUGH,
+        nullptr);
     LocalFree(descriptor);
     if (file == INVALID_HANDLE_VALUE)
     {
-        error = "Unable to create control metadata file.";
+        error = "Unable to create temporary control metadata file.";
         return false;
     }
     DWORD written = 0;
@@ -239,13 +376,39 @@ bool write_owner_only_file(
         && FlushFileBuffers(file);
     CloseHandle(file);
     if (!ok)
+    {
+        DeleteFileW(temporary.c_str());
         error = "Unable to write control metadata file.";
-    return ok;
+        return false;
+    }
+    if (!MoveFileExW(temporary.c_str(), path.c_str(),
+            MOVEFILE_REPLACE_EXISTING
+                | MOVEFILE_WRITE_THROUGH))
+    {
+        DeleteFileW(temporary.c_str());
+        error = "Unable to atomically replace control metadata file.";
+        return false;
+    }
+    return true;
 #else
-    const int fd = ::open(path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0600);
+    int flags = O_CREAT | O_EXCL | O_WRONLY;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+#ifdef O_NOFOLLOW
+    flags |= O_NOFOLLOW;
+#endif
+    const int fd = ::open(temporary.c_str(), flags, 0600);
     if (fd < 0)
     {
-        error = "Unable to create control metadata file.";
+        error = "Unable to create temporary control metadata file.";
+        return false;
+    }
+    if (::fchmod(fd, 0600) != 0)
+    {
+        ::close(fd);
+        ::unlink(temporary.c_str());
+        error = "Unable to secure temporary control metadata file.";
         return false;
     }
     size_t offset = 0;
@@ -255,6 +418,7 @@ bool write_owner_only_file(
         if (written <= 0)
         {
             ::close(fd);
+            ::unlink(temporary.c_str());
             error = "Unable to write control metadata file.";
             return false;
         }
@@ -263,10 +427,62 @@ bool write_owner_only_file(
     const bool ok = ::fsync(fd) == 0;
     ::close(fd);
     if (!ok)
+    {
+        ::unlink(temporary.c_str());
         error = "Unable to flush control metadata file.";
-    return ok;
+        return false;
+    }
+    if (::rename(temporary.c_str(), path.c_str()) != 0)
+    {
+        ::unlink(temporary.c_str());
+        error = "Unable to atomically replace control metadata file.";
+        return false;
+    }
+    const auto parent = path.parent_path().empty()
+        ? std::filesystem::path(".")
+        : path.parent_path();
+    int directory_flags = O_RDONLY;
+#ifdef O_DIRECTORY
+    directory_flags |= O_DIRECTORY;
+#endif
+#ifdef O_CLOEXEC
+    directory_flags |= O_CLOEXEC;
+#endif
+    const int directory
+        = ::open(parent.c_str(), directory_flags);
+    if (directory < 0 || ::fsync(directory) != 0)
+    {
+        if (directory >= 0)
+            ::close(directory);
+        error = "Unable to flush the control metadata directory.";
+        return false;
+    }
+    ::close(directory);
+    return true;
 #endif
 }
+
+#ifdef _WIN32
+bool apply_current_user_security(
+    const std::filesystem::path& path, std::string& error)
+{
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (!create_current_user_security_descriptor(
+            descriptor, error, true))
+    {
+        return false;
+    }
+    const bool secured = SetFileSecurityW(path.c_str(),
+                             DACL_SECURITY_INFORMATION
+                                 | PROTECTED_DACL_SECURITY_INFORMATION,
+                             descriptor)
+        != FALSE;
+    LocalFree(descriptor);
+    if (!secured)
+        error = "Unable to secure the control runtime path.";
+    return secured;
+}
+#endif
 
 bool read_metadata(const std::filesystem::path& path,
     std::string& endpoint, std::string& token, std::string& error)
@@ -300,7 +516,89 @@ bool read_metadata(const std::filesystem::path& path,
     return true;
 }
 
+struct CachedMetadata
+{
+    std::string endpoint;
+    std::string token;
+    std::chrono::steady_clock::time_point expires_at;
+};
+
+std::mutex& metadata_cache_mutex()
+{
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::unordered_map<std::string, CachedMetadata>& metadata_cache()
+{
+    static std::unordered_map<std::string, CachedMetadata> cache;
+    return cache;
+}
+
+bool read_cached_metadata(const std::filesystem::path& path,
+    std::string& endpoint, std::string& token, std::string& error)
+{
+    const std::string key = path.lexically_normal().generic_string();
+    const auto now = std::chrono::steady_clock::now();
+    {
+        std::lock_guard guard(metadata_cache_mutex());
+        const auto found = metadata_cache().find(key);
+        if (found != metadata_cache().end()
+            && found->second.expires_at > now)
+        {
+            endpoint = found->second.endpoint;
+            token = found->second.token;
+            return true;
+        }
+    }
+    if (!read_metadata(path, endpoint, token, error))
+        return false;
+    {
+        std::lock_guard guard(metadata_cache_mutex());
+        metadata_cache()[key] = {
+            .endpoint = endpoint,
+            .token = token,
+            .expires_at = now + std::chrono::seconds(1),
+        };
+    }
+    return true;
+}
+
+void invalidate_cached_metadata(const std::filesystem::path& path)
+{
+    const std::string key = path.lexically_normal().generic_string();
+    std::lock_guard guard(metadata_cache_mutex());
+    metadata_cache().erase(key);
+}
+
 #ifdef _WIN32
+
+bool await_overlapped_io(HANDLE handle, OVERLAPPED& overlapped,
+    DWORD& transferred, DWORD initial_error)
+{
+    if (initial_error != ERROR_IO_PENDING)
+    {
+        SetLastError(initial_error);
+        return false;
+    }
+    const DWORD wait = WaitForSingleObject(overlapped.hEvent,
+        static_cast<DWORD>(kIoTimeout.count() * 1000));
+    if (wait == WAIT_OBJECT_0)
+        return GetOverlappedResult(
+            handle, &overlapped, &transferred, FALSE);
+
+    // The OVERLAPPED structure and caller's data buffer must outlive the I/O.
+    // Returning directly on timeout left both stack objects available for
+    // reuse while the kernel could still complete the pending operation.
+    const DWORD error
+        = wait == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError();
+    CancelIoEx(handle, &overlapped);
+    WaitForSingleObject(overlapped.hEvent, INFINITE);
+    DWORD ignored = 0;
+    GetOverlappedResult(handle, &overlapped, &ignored, FALSE);
+    SetLastError(error);
+    return false;
+}
 
 bool read_exact(HANDLE handle, void* data, size_t size)
 {
@@ -314,16 +612,16 @@ bool read_exact(HANDLE handle, void* data, size_t size)
         DWORD read = 0;
         BOOL ok = ReadFile(handle, static_cast<char*>(data) + offset,
             static_cast<DWORD>(size - offset), &read, &overlapped);
-        if (!ok && GetLastError() == ERROR_IO_PENDING)
-        {
-            ok = WaitForSingleObject(overlapped.hEvent,
-                     static_cast<DWORD>(kIoTimeout.count() * 1000))
-                    == WAIT_OBJECT_0
-                && GetOverlappedResult(handle, &overlapped, &read, FALSE);
-        }
+        if (!ok)
+            ok = await_overlapped_io(
+                handle, overlapped, read, GetLastError());
+        const DWORD io_error = ok ? ERROR_SUCCESS : GetLastError();
         CloseHandle(overlapped.hEvent);
         if (!ok || read == 0)
+        {
+            SetLastError(ok ? ERROR_BROKEN_PIPE : io_error);
             return false;
+        }
         offset += read;
     }
     return true;
@@ -341,16 +639,16 @@ bool write_exact(HANDLE handle, const void* data, size_t size)
         DWORD written = 0;
         BOOL ok = WriteFile(handle, static_cast<const char*>(data) + offset,
             static_cast<DWORD>(size - offset), &written, &overlapped);
-        if (!ok && GetLastError() == ERROR_IO_PENDING)
-        {
-            ok = WaitForSingleObject(overlapped.hEvent,
-                     static_cast<DWORD>(kIoTimeout.count() * 1000))
-                    == WAIT_OBJECT_0
-                && GetOverlappedResult(handle, &overlapped, &written, FALSE);
-        }
+        if (!ok)
+            ok = await_overlapped_io(
+                handle, overlapped, written, GetLastError());
+        const DWORD io_error = ok ? ERROR_SUCCESS : GetLastError();
         CloseHandle(overlapped.hEvent);
         if (!ok || written == 0)
+        {
+            SetLastError(ok ? ERROR_BROKEN_PIPE : io_error);
             return false;
+        }
         offset += written;
     }
     return true;
@@ -365,8 +663,10 @@ bool read_exact(int fd, void* data, size_t size)
     {
         const ssize_t read = ::recv(fd, static_cast<char*>(data) + offset,
             size - offset, 0);
+        if (read < 0 && errno == EINTR)
+            continue; // a delivered signal must not corrupt a frame
         if (read <= 0)
-            return false;
+            return false; // peer closed, or SO_RCVTIMEO genuinely expired
         offset += static_cast<size_t>(read);
     }
     return true;
@@ -379,6 +679,8 @@ bool write_exact(int fd, const void* data, size_t size)
     {
         const ssize_t written = ::send(fd,
             static_cast<const char*>(data) + offset, size - offset, 0);
+        if (written < 0 && errno == EINTR)
+            continue;
         if (written <= 0)
             return false;
         offset += static_cast<size_t>(written);
@@ -409,6 +711,230 @@ bool write_frame(Handle handle, std::string_view bytes)
     const auto prefix = frame_prefix(bytes.size());
     return write_exact(handle, prefix.data(), prefix.size())
         && write_exact(handle, bytes.data(), bytes.size());
+}
+
+using ControlDeadline = std::chrono::steady_clock::time_point;
+
+std::chrono::milliseconds remaining_time(ControlDeadline deadline)
+{
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= deadline)
+        return std::chrono::milliseconds(0);
+    return std::max(std::chrono::milliseconds(1),
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - now));
+}
+
+#ifdef _WIN32
+
+bool await_client_io(HANDLE handle, OVERLAPPED& overlapped,
+    DWORD& transferred, DWORD initial_error,
+    ControlDeadline deadline)
+{
+    if (initial_error != ERROR_IO_PENDING)
+    {
+        SetLastError(initial_error);
+        return false;
+    }
+    const auto remaining = remaining_time(deadline);
+    const DWORD wait = WaitForSingleObject(overlapped.hEvent,
+        static_cast<DWORD>(remaining.count()));
+    if (wait == WAIT_OBJECT_0)
+        return GetOverlappedResult(
+            handle, &overlapped, &transferred, FALSE);
+
+    const DWORD error
+        = wait == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError();
+    CancelIoEx(handle, &overlapped);
+    WaitForSingleObject(overlapped.hEvent, INFINITE);
+    DWORD ignored = 0;
+    GetOverlappedResult(handle, &overlapped, &ignored, FALSE);
+    SetLastError(error);
+    return false;
+}
+
+bool client_read_exact(HANDLE handle, void* data, size_t size,
+    ControlDeadline deadline)
+{
+    size_t offset = 0;
+    while (offset < size)
+    {
+        if (remaining_time(deadline).count() == 0)
+        {
+            SetLastError(ERROR_TIMEOUT);
+            return false;
+        }
+        OVERLAPPED overlapped{};
+        overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (!overlapped.hEvent)
+            return false;
+        DWORD read = 0;
+        BOOL ok = ReadFile(handle, static_cast<char*>(data) + offset,
+            static_cast<DWORD>(size - offset), &read, &overlapped);
+        if (!ok)
+        {
+            ok = await_client_io(
+                handle, overlapped, read, GetLastError(), deadline);
+        }
+        const DWORD io_error = ok ? ERROR_SUCCESS : GetLastError();
+        CloseHandle(overlapped.hEvent);
+        if (!ok || read == 0)
+        {
+            SetLastError(ok ? ERROR_BROKEN_PIPE : io_error);
+            return false;
+        }
+        offset += read;
+    }
+    return true;
+}
+
+bool client_write_exact(HANDLE handle, const void* data, size_t size,
+    ControlDeadline deadline)
+{
+    size_t offset = 0;
+    while (offset < size)
+    {
+        if (remaining_time(deadline).count() == 0)
+        {
+            SetLastError(ERROR_TIMEOUT);
+            return false;
+        }
+        OVERLAPPED overlapped{};
+        overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (!overlapped.hEvent)
+            return false;
+        DWORD written = 0;
+        BOOL ok = WriteFile(handle,
+            static_cast<const char*>(data) + offset,
+            static_cast<DWORD>(size - offset), &written, &overlapped);
+        if (!ok)
+        {
+            ok = await_client_io(handle, overlapped, written,
+                GetLastError(), deadline);
+        }
+        const DWORD io_error = ok ? ERROR_SUCCESS : GetLastError();
+        CloseHandle(overlapped.hEvent);
+        if (!ok || written == 0)
+        {
+            SetLastError(ok ? ERROR_BROKEN_PIPE : io_error);
+            return false;
+        }
+        offset += written;
+    }
+    return true;
+}
+
+#else
+
+bool wait_for_socket(
+    int fd, short events, ControlDeadline deadline)
+{
+    while (true)
+    {
+        const auto remaining = remaining_time(deadline);
+        if (remaining.count() == 0)
+        {
+            errno = ETIMEDOUT;
+            return false;
+        }
+        pollfd descriptor{ fd, events, 0 };
+        const int ready = ::poll(&descriptor, 1,
+            static_cast<int>(remaining.count()));
+        if (ready > 0)
+            return (descriptor.revents
+                       & (events | POLLERR | POLLHUP))
+                != 0;
+        if (ready == 0)
+        {
+            errno = ETIMEDOUT;
+            return false;
+        }
+        if (errno != EINTR)
+            return false;
+    }
+}
+
+bool client_read_exact(int fd, void* data, size_t size,
+    ControlDeadline deadline)
+{
+    size_t offset = 0;
+    while (offset < size)
+    {
+        if (!wait_for_socket(fd, POLLIN, deadline))
+            return false;
+        const ssize_t read = ::recv(fd,
+            static_cast<char*>(data) + offset,
+            size - offset, 0);
+        if (read > 0)
+        {
+            offset += static_cast<size_t>(read);
+            continue;
+        }
+        if (read < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
+        {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+bool client_write_exact(int fd, const void* data, size_t size,
+    ControlDeadline deadline)
+{
+    size_t offset = 0;
+    while (offset < size)
+    {
+        if (!wait_for_socket(fd, POLLOUT, deadline))
+            return false;
+        const ssize_t written = ::send(fd,
+            static_cast<const char*>(data) + offset,
+            size - offset, 0);
+        if (written > 0)
+        {
+            offset += static_cast<size_t>(written);
+            continue;
+        }
+        if (written < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
+        {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+#endif
+
+template <typename Handle>
+bool client_read_frame(Handle handle, std::string& bytes,
+    ControlDeadline deadline)
+{
+    std::array<uint8_t, 4> prefix{};
+    if (!client_read_exact(
+            handle, prefix.data(), prefix.size(), deadline))
+    {
+        return false;
+    }
+    const size_t size = frame_size(prefix);
+    if (size == 0 || size > kControlMaxMessageBytes)
+        return false;
+    bytes.resize(size);
+    return client_read_exact(
+        handle, bytes.data(), bytes.size(), deadline);
+}
+
+template <typename Handle>
+bool client_write_frame(Handle handle, std::string_view bytes,
+    ControlDeadline deadline)
+{
+    if (bytes.empty() || bytes.size() > kControlMaxMessageBytes)
+        return false;
+    const auto prefix = frame_prefix(bytes.size());
+    return client_write_exact(
+               handle, prefix.data(), prefix.size(), deadline)
+        && client_write_exact(
+            handle, bytes.data(), bytes.size(), deadline);
 }
 
 } // namespace
@@ -443,16 +969,34 @@ public:
     {
         ControlRequest request;
         std::promise<ControlMethodResult> response;
+        std::atomic<bool> completed = false;
+        std::atomic<bool> cancelled = false;
+
+        bool complete(ControlMethodResult result)
+        {
+            bool expected = false;
+            if (!completed.compare_exchange_strong(expected, true))
+                return false;
+            response.set_value(std::move(result));
+            return true;
+        }
     };
 
     bool start(std::string new_session_id,
         std::filesystem::path new_runtime_directory,
         std::function<void()> wake,
-        std::string* error);
+        std::string* error,
+        nlohmann::json metadata_extra);
     void stop();
     void run(std::stop_token stop_token);
     void process_pending(const Handler& handler);
     ControlMethodResult dispatch(ControlRequest request);
+    void complete_pending(const std::shared_ptr<Pending>& pending,
+        ControlMethodResult result);
+#ifndef _WIN32
+    bool acquire_endpoint_lock(std::string* error);
+    void release_endpoint_lock();
+#endif
     // The listener is only established on the worker thread, so start() waits
     // for this before reporting. Empty string = listening; non-empty = the
     // reason it could not. First report wins; later calls are ignored.
@@ -466,13 +1010,20 @@ public:
     std::function<void()> wake_main_thread;
     std::jthread thread;
     std::atomic<bool> active = false;
+    std::atomic<bool> stopping = false;
     std::mutex queue_mutex;
     std::deque<std::shared_ptr<Pending>> queue;
+    std::unordered_set<std::shared_ptr<Pending>> pending_requests;
     std::mutex startup_mutex;
     std::condition_variable startup_changed;
     std::optional<std::string> startup_result;
     bool owns_endpoint = false;
     std::atomic<bool> endpoint_in_use = false;
+    std::atomic<uint32_t> listener_error = 0;
+#ifndef _WIN32
+    std::filesystem::path endpoint_lock_path;
+    int endpoint_lock = -1;
+#endif
 };
 
 void ControlServer::Impl::report_startup(std::string result)
@@ -486,10 +1037,79 @@ void ControlServer::Impl::report_startup(std::string result)
     startup_changed.notify_all();
 }
 
+#ifndef _WIN32
+bool ControlServer::Impl::acquire_endpoint_lock(std::string* error)
+{
+    endpoint_lock_path
+        = runtime_directory / (session_key(session_id) + ".control.lock");
+
+    int descriptor = -1;
+    do
+    {
+        descriptor = ::open(endpoint_lock_path.c_str(),
+            O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    } while (descriptor < 0 && errno == EINTR);
+
+    if (descriptor < 0 && errno == EEXIST)
+    {
+        do
+        {
+            descriptor = ::open(
+                endpoint_lock_path.c_str(), O_RDWR | O_CLOEXEC);
+        } while (descriptor < 0 && errno == EINTR);
+    }
+    if (descriptor < 0)
+    {
+        if (error)
+            *error = "Unable to open the control endpoint lock.";
+        return false;
+    }
+
+    // The lock file is deliberately persistent. Removing it during shutdown
+    // would let a contender lock a newly-created inode while the incumbent
+    // still held the old one. A crashed process releases flock automatically,
+    // so the next launcher can safely reuse the same file.
+    ::fchmod(descriptor, 0600);
+    int lock_result = -1;
+    do
+    {
+        lock_result = ::flock(descriptor, LOCK_EX | LOCK_NB);
+    } while (lock_result != 0 && errno == EINTR);
+    if (lock_result != 0)
+    {
+        const int lock_error = errno;
+        ::close(descriptor);
+        const bool taken = lock_error == EWOULDBLOCK
+            || lock_error == EAGAIN;
+        endpoint_in_use = taken;
+        if (error)
+        {
+            *error = taken
+                ? "Control endpoint is already in use by another Draxul instance."
+                : "Unable to lock the control endpoint.";
+        }
+        return false;
+    }
+
+    endpoint_lock = descriptor;
+    return true;
+}
+
+void ControlServer::Impl::release_endpoint_lock()
+{
+    if (endpoint_lock < 0)
+        return;
+    ::flock(endpoint_lock, LOCK_UN);
+    ::close(endpoint_lock);
+    endpoint_lock = -1;
+}
+#endif
+
 bool ControlServer::Impl::start(std::string new_session_id,
     std::filesystem::path new_runtime_directory,
     std::function<void()> wake,
-    std::string* error)
+    std::string* error,
+    nlohmann::json metadata_extra)
 {
     if (active)
     {
@@ -505,7 +1125,7 @@ bool ControlServer::Impl::start(std::string new_session_id,
 #ifdef _WIN32
     endpoint = R"(\\.\pipe\draxul-control-)" + session_key(session_id);
 #else
-    endpoint = (runtime_directory / (session_key(session_id) + ".sock")).string();
+    endpoint = (runtime_directory / (endpoint_key(session_id) + ".sock")).string();
     sockaddr_un endpoint_address{};
     if (endpoint.size() >= sizeof(endpoint_address.sun_path))
     {
@@ -523,12 +1143,29 @@ bool ControlServer::Impl::start(std::string new_session_id,
             *error = "Unable to create control runtime directory.";
         return false;
     }
-#ifndef _WIN32
+#ifdef _WIN32
+    std::string directory_security_error;
+    if (!apply_current_user_security(
+            runtime_directory, directory_security_error))
+    {
+        if (error)
+            *error = std::move(directory_security_error);
+        return false;
+    }
+#else
     ::chmod(runtime_directory.c_str(), 0700);
 #endif
 
-    active = true;
     endpoint_in_use = false;
+    listener_error = 0;
+    owns_endpoint = false;
+    stopping = false;
+#ifndef _WIN32
+    if (!acquire_endpoint_lock(error))
+        return false;
+#endif
+
+    active = true;
     {
         std::lock_guard<std::mutex> guard(startup_mutex);
         startup_result.reset();
@@ -558,15 +1195,15 @@ bool ControlServer::Impl::start(std::string new_session_id,
     // Publish the token only now. Writing it before the listener was claimed
     // meant a second instance overwrote a live server's credentials, and every
     // CLI request then authenticated against the wrong process.
-    const std::string metadata_bytes = nlohmann::json{
-        { "version", kControlProtocolVersion },
-        { "session_id", session_id },
-        { "endpoint", endpoint },
-        { "token", token },
-    }
-                                           .dump();
+    if (!metadata_extra.is_object())
+        metadata_extra = nlohmann::json::object();
+    metadata_extra["version"] = kControlProtocolVersion;
+    metadata_extra["session_id"] = session_id;
+    metadata_extra["endpoint"] = endpoint;
+    metadata_extra["token"] = token;
+    const std::string metadata_bytes = metadata_extra.dump();
     std::string write_error;
-    if (!write_owner_only_file(metadata, metadata_bytes, write_error))
+    if (!write_current_user_file(metadata, metadata_bytes, write_error))
     {
         if (error)
             *error = std::move(write_error);
@@ -578,6 +1215,25 @@ bool ControlServer::Impl::start(std::string new_session_id,
 
 void ControlServer::Impl::stop()
 {
+    stopping = true;
+    std::vector<std::shared_ptr<Pending>> pending;
+    {
+        std::lock_guard lock(queue_mutex);
+        queue.clear();
+        pending.reserve(pending_requests.size());
+        for (const auto& request : pending_requests)
+            pending.push_back(request);
+        pending_requests.clear();
+    }
+    // Dispatch waits happen on listener threads. Complete every outstanding
+    // promise before joining those listeners, while the main-loop handler is
+    // still guaranteed not to receive another queued request.
+    for (const auto& request : pending)
+    {
+        request->complete(ControlMethodResult::error(
+            "server_stopping", "Control server is stopping."));
+    }
+
     if (thread.joinable())
     {
         thread.request_stop();
@@ -597,30 +1253,80 @@ void ControlServer::Impl::stop()
 #endif
         owns_endpoint = false;
     }
-    std::lock_guard lock(queue_mutex);
-    for (auto& pending : queue)
-    {
-        pending->response.set_value(
-            ControlMethodResult::error("server_stopping", "Control server is stopping."));
-    }
-    queue.clear();
+#ifndef _WIN32
+    release_endpoint_lock();
+#endif
 }
 
 ControlMethodResult ControlServer::Impl::dispatch(ControlRequest request)
 {
+    if (stopping)
+    {
+        return ControlMethodResult::error(
+            "server_stopping", "Control server is stopping.");
+    }
     auto pending = std::make_shared<Pending>();
     pending->request = std::move(request);
+    if (std::chrono::steady_clock::now()
+        >= pending->request.expires_at)
+    {
+        pending->cancelled = true;
+        return ControlMethodResult::error(
+            "deadline_exceeded",
+            "The control request expired before dispatch.");
+    }
     auto response = pending->response.get_future();
     {
         std::lock_guard lock(queue_mutex);
+        if (stopping)
+        {
+            return ControlMethodResult::error(
+                "server_stopping", "Control server is stopping.");
+        }
         queue.push_back(pending);
+        pending_requests.insert(pending);
     }
     if (wake_main_thread)
         wake_main_thread();
-    if (response.wait_for(kIoTimeout) != std::future_status::ready)
-        return ControlMethodResult::error(
-            "main_thread_timeout", "Draxul did not process the request in time.");
+    auto wait_budget
+        = std::chrono::duration_cast<std::chrono::milliseconds>(
+            kIoTimeout);
+    bool waiting_to_request_deadline = false;
+    if (pending->request.expires_at
+        != std::chrono::steady_clock::time_point::max())
+    {
+        const auto request_budget
+            = std::chrono::duration_cast<std::chrono::milliseconds>(
+                pending->request.expires_at
+                - std::chrono::steady_clock::now());
+        waiting_to_request_deadline
+            = request_budget <= wait_budget;
+        wait_budget = std::min(wait_budget, request_budget);
+    }
+    if (wait_budget <= std::chrono::milliseconds::zero()
+        || response.wait_for(wait_budget)
+            != std::future_status::ready)
+    {
+        pending->cancelled = true;
+        auto timeout = ControlMethodResult::error(
+            waiting_to_request_deadline
+                ? "deadline_exceeded"
+                : "main_thread_timeout",
+            waiting_to_request_deadline
+                ? "The control request exceeded its deadline."
+                : "Draxul did not process the request in time.");
+        complete_pending(pending, timeout);
+        return timeout;
+    }
     return response.get();
+}
+
+void ControlServer::Impl::complete_pending(
+    const std::shared_ptr<Pending>& pending, ControlMethodResult result)
+{
+    pending->complete(std::move(result));
+    std::lock_guard lock(queue_mutex);
+    pending_requests.erase(pending);
 }
 
 void ControlServer::Impl::process_pending(const Handler& handler)
@@ -632,6 +1338,19 @@ void ControlServer::Impl::process_pending(const Handler& handler)
     }
     for (auto& item : pending)
     {
+        if (item->cancelled
+            || std::chrono::steady_clock::now()
+                >= item->request.expires_at)
+        {
+            item->cancelled = true;
+            complete_pending(item, ControlMethodResult::error("deadline_exceeded", "The control request exceeded its deadline."));
+            continue;
+        }
+        if (stopping || item->completed)
+        {
+            complete_pending(item, ControlMethodResult::error("server_stopping", "Control server is stopping."));
+            continue;
+        }
         ControlMethodResult result;
         try
         {
@@ -642,7 +1361,7 @@ void ControlServer::Impl::process_pending(const Handler& handler)
             result = ControlMethodResult::error(
                 "internal_error", "The control request failed internally.");
         }
-        item->response.set_value(std::move(result));
+        complete_pending(item, std::move(result));
     }
 }
 
@@ -651,11 +1370,13 @@ void ControlServer::Impl::process_pending(const Handler& handler)
 void ControlServer::Impl::run(std::stop_token stop_token)
 {
     PSECURITY_DESCRIPTOR descriptor = nullptr;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"D:P(A;;GA;;;SY)(A;;GA;;;OW)",
-            SDDL_REVISION_1, &descriptor, nullptr))
+    std::string descriptor_error;
+    if (!create_current_user_security_descriptor(
+            descriptor, descriptor_error))
     {
-        report_startup("Unable to build the control pipe security descriptor.");
+        report_startup(
+            "Unable to build the control pipe security descriptor: "
+            + descriptor_error);
         active = false;
         return;
     }
@@ -663,82 +1384,142 @@ void ControlServer::Impl::run(std::stop_token stop_token)
         sizeof(SECURITY_ATTRIBUTES), descriptor, FALSE
     };
     const std::wstring pipe_name(endpoint.begin(), endpoint.end());
-    bool first_instance = true;
-
-    while (!stop_token.stop_requested())
+    // Claim the name before starting the listener pool. Without
+    // FILE_FLAG_FIRST_PIPE_INSTANCE, a second Draxul process can quietly add
+    // an instance with the same name and race this process for clients.
+    HANDLE initial_pipe = CreateNamedPipeW(pipe_name.c_str(),
+        PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED
+            | FILE_FLAG_FIRST_PIPE_INSTANCE,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT
+            | PIPE_REJECT_REMOTE_CLIENTS,
+        4, static_cast<DWORD>(kControlMaxMessageBytes),
+        static_cast<DWORD>(kControlMaxMessageBytes), 0, &attributes);
+    if (initial_pipe == INVALID_HANDLE_VALUE)
     {
-        // FILE_FLAG_FIRST_PIPE_INSTANCE on the initial create makes a second
-        // Draxul fail deterministically instead of quietly adding an instance
-        // of the same pipe name and racing the first for clients. Later
-        // iterations re-create the listener after a connection is serviced, by
-        // which point this process already owns the name.
-        const DWORD open_mode = PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED
-            | (first_instance ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0u);
-        HANDLE pipe = CreateNamedPipeW(pipe_name.c_str(), open_mode,
-            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-            4, static_cast<DWORD>(kControlMaxMessageBytes),
-            static_cast<DWORD>(kControlMaxMessageBytes), 0, &attributes);
-        if (pipe == INVALID_HANDLE_VALUE)
-        {
-            if (first_instance)
-            {
-                const bool taken = GetLastError() == ERROR_ACCESS_DENIED;
-                endpoint_in_use = taken;
-                report_startup(taken
-                        ? "Control endpoint is already in use by another Draxul instance."
-                        : "Unable to create the control pipe.");
-                active = false;
-            }
-            break;
-        }
-        if (first_instance)
-        {
-            report_startup({});
-            first_instance = false;
-        }
-
-        OVERLAPPED connect{};
-        connect.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        BOOL connected = ConnectNamedPipe(pipe, &connect);
-        if (!connected && GetLastError() == ERROR_PIPE_CONNECTED)
-            connected = TRUE;
-        else if (!connected && GetLastError() == ERROR_IO_PENDING)
-        {
-            while (!stop_token.stop_requested())
-            {
-                const DWORD wait = WaitForSingleObject(connect.hEvent, 100);
-                if (wait == WAIT_OBJECT_0)
-                {
-                    DWORD ignored = 0;
-                    connected = GetOverlappedResult(pipe, &connect, &ignored, FALSE);
-                    break;
-                }
-                if (wait != WAIT_TIMEOUT)
-                    break;
-            }
-        }
-        CloseHandle(connect.hEvent);
-        if (connected && !stop_token.stop_requested())
-        {
-            std::string bytes;
-            ControlRequest request;
-            ControlMethodResult result;
-            if (!read_frame(pipe, bytes))
-                result = ControlMethodResult::error("invalid_frame", "Invalid control frame.");
-            else
-            {
-                result = parse_request(bytes, token, request);
-                if (result.ok)
-                    result = dispatch(request);
-            }
-            const std::string response = response_json(request.id, result).dump();
-            write_frame(pipe, response);
-            FlushFileBuffers(pipe);
-            DisconnectNamedPipe(pipe);
-        }
-        CancelIoEx(pipe, nullptr);
-        CloseHandle(pipe);
+        const DWORD create_error = GetLastError();
+        // ERROR_PIPE_BUSY is returned when the incumbent has already created
+        // every advertised listener instance; it is the same ownership
+        // outcome as ERROR_ACCESS_DENIED from FIRST_PIPE_INSTANCE.
+        const bool taken = create_error == ERROR_ACCESS_DENIED
+            || create_error == ERROR_PIPE_BUSY;
+        endpoint_in_use = taken;
+        report_startup(taken
+                ? "Control endpoint is already in use by another Draxul instance."
+                : "Unable to create the control pipe.");
+        LocalFree(descriptor);
+        active = false;
+        return;
     }
+    report_startup({});
+
+    // A remote terminal client holds its pipe instance while the request is
+    // dispatched to the server's main loop and the response is transferred.
+    // Keeping only one live instance therefore lets a slow poll or a stalled
+    // client starve every other UI. Four independent listeners match the pipe's
+    // advertised instance count and keep observers responsive while another
+    // client is resizing, polling, or disconnecting.
+    auto serve_connections
+        = [this, &attributes, &pipe_name](std::stop_token shared_stop,
+              HANDLE first_pipe, bool keep_first_instance) {
+              HANDLE pipe = first_pipe;
+              while (!shared_stop.stop_requested())
+              {
+                  if (pipe == INVALID_HANDLE_VALUE)
+                  {
+                      pipe = CreateNamedPipeW(pipe_name.c_str(),
+                          PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                          PIPE_TYPE_BYTE | PIPE_READMODE_BYTE
+                              | PIPE_WAIT
+                              | PIPE_REJECT_REMOTE_CLIENTS,
+                          4, static_cast<DWORD>(kControlMaxMessageBytes),
+                          static_cast<DWORD>(kControlMaxMessageBytes),
+                          0, &attributes);
+                      if (pipe == INVALID_HANDLE_VALUE)
+                      {
+                          listener_error = GetLastError();
+                          std::this_thread::sleep_for(
+                              std::chrono::milliseconds(25));
+                          continue;
+                      }
+                  }
+
+                  OVERLAPPED connect{};
+                  connect.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+                  BOOL connected = ConnectNamedPipe(pipe, &connect);
+                  if (!connected && GetLastError() == ERROR_PIPE_CONNECTED)
+                      connected = TRUE;
+                  else if (!connected && GetLastError() == ERROR_IO_PENDING)
+                  {
+                      while (!shared_stop.stop_requested())
+                      {
+                          const DWORD wait
+                              = WaitForSingleObject(connect.hEvent, 100);
+                          if (wait == WAIT_OBJECT_0)
+                          {
+                              DWORD ignored = 0;
+                              connected = GetOverlappedResult(
+                                  pipe, &connect, &ignored, FALSE);
+                              break;
+                          }
+                          if (wait != WAIT_TIMEOUT)
+                              break;
+                      }
+                  }
+                  CloseHandle(connect.hEvent);
+                  if (connected && !shared_stop.stop_requested())
+                  {
+                      std::string bytes;
+                      ControlRequest request;
+                      ControlMethodResult result;
+                      if (!read_frame(pipe, bytes))
+                      {
+                          result = ControlMethodResult::error(
+                              "invalid_frame", "Invalid control frame.");
+                      }
+                      else
+                      {
+                          result = parse_request(bytes, token, request);
+                          if (result.ok)
+                              result = dispatch(request);
+                      }
+                      const std::string response
+                          = dump_wire_json(
+                              response_json(request.id, result));
+                      write_frame(pipe, response);
+                      FlushFileBuffers(pipe);
+                      DisconnectNamedPipe(pipe);
+                  }
+                  CancelIoEx(pipe, nullptr);
+                  if (!keep_first_instance)
+                  {
+                      CloseHandle(pipe);
+                      pipe = INVALID_HANDLE_VALUE;
+                  }
+              }
+              if (pipe != INVALID_HANDLE_VALUE)
+              {
+                  CancelIoEx(pipe, nullptr);
+                  CloseHandle(pipe);
+              }
+          };
+
+    std::vector<std::jthread> additional_listeners;
+    additional_listeners.reserve(3);
+    for (int i = 0; i < 3; ++i)
+    {
+        additional_listeners.emplace_back(
+            [serve_connections, stop_token](std::stop_token) {
+                serve_connections(
+                    stop_token, INVALID_HANDLE_VALUE, false);
+            });
+    }
+    // Reuse the FIRST_PIPE_INSTANCE handle for every connection handled by
+    // this listener. Keeping it open for the worker lifetime prevents a
+    // close/recreate window in which another process could claim the name.
+    serve_connections(stop_token, initial_pipe, true);
+    // The listener closures reference the shared security descriptor. Join
+    // them before releasing it.
+    additional_listeners.clear();
     // Safety net: a stop requested before the first create would otherwise
     // leave start() waiting on a report that never comes.
     report_startup({});
@@ -785,12 +1566,24 @@ void ControlServer::Impl::run(std::stop_token stop_token)
         ::unlink(endpoint.c_str()); // stale: the owner is gone
     }
 
-    if (::bind(server, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0
-        || ::chmod(endpoint.c_str(), 0600) != 0
+    if (::bind(server, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0)
+    {
+        const int bind_error = errno;
+        ::close(server);
+        const bool taken = bind_error == EADDRINUSE;
+        endpoint_in_use = taken;
+        report_startup(taken
+                ? "Control endpoint is already in use by another Draxul instance."
+                : "Unable to bind the control socket.");
+        active = false;
+        return;
+    }
+    if (::chmod(endpoint.c_str(), 0600) != 0
         || ::listen(server, 4) != 0)
     {
         ::close(server);
-        report_startup("Unable to bind the control socket.");
+        ::unlink(endpoint.c_str());
+        report_startup("Unable to prepare the control socket.");
         active = false;
         return;
     }
@@ -798,36 +1591,68 @@ void ControlServer::Impl::run(std::stop_token stop_token)
     const int flags = ::fcntl(server, F_GETFL, 0);
     ::fcntl(server, F_SETFL, flags | O_NONBLOCK);
 
-    while (!stop_token.stop_requested())
-    {
-        pollfd descriptor{ server, POLLIN, 0 };
-        const int ready = ::poll(&descriptor, 1, 100);
-        if (ready <= 0)
-            continue;
-        const int client = ::accept(server, nullptr, nullptr);
-        if (client < 0)
-            continue;
-        timeval timeout{
-            static_cast<long>(kIoTimeout.count()), 0
-        };
-        ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-        ::setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-
-        std::string bytes;
-        ControlRequest request;
-        ControlMethodResult result;
-        if (!read_frame(client, bytes))
-            result = ControlMethodResult::error("invalid_frame", "Invalid control frame.");
-        else
+    // Match the Windows listener pool. A client can occupy a connection for
+    // the full I/O timeout, so one serial accept/read loop lets a stalled UI
+    // starve every observer of the shared server.
+    auto serve_connections = [this, server](std::stop_token shared_stop) {
+        while (!shared_stop.stop_requested())
         {
-            result = parse_request(bytes, token, request);
-            if (result.ok)
-                result = dispatch(request);
+            pollfd descriptor{ server, POLLIN, 0 };
+            const int ready = ::poll(&descriptor, 1, 100);
+            if (ready <= 0)
+                continue;
+            const int client = ::accept(server, nullptr, nullptr);
+            if (client < 0)
+                continue;
+            // BSD/macOS accepted sockets INHERIT the listener's O_NONBLOCK
+            // (Linux does not). With it set, recv() races the client's write:
+            // whenever the request bytes had not landed yet, read_frame got
+            // EAGAIN immediately and the server answered "invalid_frame" for a
+            // perfectly good request — the remote-terminal channel then
+            // retried forever. Clear it so the SO_RCVTIMEO/SO_SNDTIMEO bounds
+            // below govern I/O as designed.
+            const int client_flags = ::fcntl(client, F_GETFL, 0);
+            if (client_flags >= 0 && (client_flags & O_NONBLOCK) != 0)
+                ::fcntl(client, F_SETFL, client_flags & ~O_NONBLOCK);
+            timeval timeout{
+                static_cast<long>(kIoTimeout.count()), 0
+            };
+            ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO,
+                &timeout, sizeof(timeout));
+            ::setsockopt(client, SOL_SOCKET, SO_SNDTIMEO,
+                &timeout, sizeof(timeout));
+
+            std::string bytes;
+            ControlRequest request;
+            ControlMethodResult result;
+            if (!read_frame(client, bytes))
+            {
+                result = ControlMethodResult::error(
+                    "invalid_frame", "Invalid control frame.");
+            }
+            else
+            {
+                result = parse_request(bytes, token, request);
+                if (result.ok)
+                    result = dispatch(request);
+            }
+            const std::string response
+                = dump_wire_json(response_json(request.id, result));
+            write_frame(client, response);
+            ::close(client);
         }
-        const std::string response = response_json(request.id, result).dump();
-        write_frame(client, response);
-        ::close(client);
+    };
+    std::vector<std::jthread> additional_listeners;
+    additional_listeners.reserve(3);
+    for (int i = 0; i < 3; ++i)
+    {
+        additional_listeners.emplace_back(
+            [serve_connections, stop_token](std::stop_token) {
+                serve_connections(stop_token);
+            });
     }
+    serve_connections(stop_token);
+    additional_listeners.clear();
     ::close(server);
     ::unlink(endpoint.c_str());
     active = false;
@@ -848,10 +1673,20 @@ ControlServer::~ControlServer()
 bool ControlServer::start(std::string session_id,
     std::filesystem::path runtime_directory,
     std::function<void()> wake_main_thread,
-    std::string* error)
+    std::string* error,
+    nlohmann::json metadata_extra)
 {
     return impl_->start(std::move(session_id), std::move(runtime_directory),
-        std::move(wake_main_thread), error);
+        std::move(wake_main_thread), error, std::move(metadata_extra));
+}
+
+std::string namespaced_control_id(std::string_view base_id,
+    const std::filesystem::path& runtime_directory)
+{
+    std::ostringstream id;
+    id << base_id << '-' << std::hex
+       << fnv1a(normalized_runtime_key(runtime_directory));
+    return id.str();
 }
 
 void ControlServer::stop()
@@ -867,6 +1702,16 @@ bool ControlServer::running() const
 bool ControlServer::endpoint_in_use() const
 {
     return impl_->endpoint_in_use;
+}
+
+void ControlServer::abandon_endpoint()
+{
+    impl_->owns_endpoint = false;
+}
+
+uint32_t ControlServer::take_listener_error()
+{
+    return impl_->listener_error.exchange(0);
 }
 
 void ControlServer::process_pending(const Handler& handler)
@@ -887,55 +1732,121 @@ const std::filesystem::path& ControlServer::metadata_path() const
 ControlClientResult ControlClient::request(std::string_view session_id,
     const std::filesystem::path& runtime_directory,
     std::string_view method,
-    nlohmann::json params)
+    nlohmann::json params,
+    ControlRequestOptions options)
 {
+    const auto started_at = std::chrono::steady_clock::now();
+    const auto timeout = std::max(
+        std::chrono::milliseconds(1), options.timeout);
+    const auto deadline = started_at + timeout;
+    const auto metadata_path
+        = control_metadata_path(runtime_directory, session_id);
+    if (options.refresh_metadata)
+        invalidate_cached_metadata(metadata_path);
     std::string endpoint;
     std::string token;
     std::string metadata_error;
-    if (!read_metadata(control_metadata_path(runtime_directory, session_id),
+    if (!read_cached_metadata(metadata_path,
             endpoint, token, metadata_error))
     {
         return { false, nullptr, "endpoint_unavailable", std::move(metadata_error) };
     }
 
+    const auto wire_timeout = remaining_time(deadline);
+    if (wire_timeout.count() == 0)
+    {
+        return { false, nullptr, "deadline_exceeded",
+            "The Draxul control request exceeded its deadline." };
+    }
     const std::string id = random_token().substr(0, 16);
-    const std::string request = nlohmann::json{
+    const std::string request_bytes = nlohmann::json{
         { "version", kControlProtocolVersion },
         { "token", token },
         { "id", id },
         { "method", method },
-        { "params", std::move(params) },
+        { "params", params },
+        { "timeout_ms", wire_timeout.count() },
     }
-                                    .dump();
+                                          .dump();
 
     std::string response_bytes;
+    bool deadline_hit = false;
 #ifdef _WIN32
     const std::wstring pipe_name(endpoint.begin(), endpoint.end());
-    if (!WaitNamedPipeW(pipe_name.c_str(),
-            static_cast<DWORD>(kIoTimeout.count() * 1000)))
+    // The server services one connection per named-pipe instance and
+    // immediately creates the next. A concurrent client can arrive in the
+    // small close/recreate gap and see ERROR_FILE_NOT_FOUND even though the
+    // server is healthy. Retry only that gap briefly; WaitNamedPipe retains
+    // the longer I/O timeout for a live but occupied instance.
+    const auto recreate_deadline
+        = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+    HANDLE pipe = INVALID_HANDLE_VALUE;
+    do
     {
+        const auto remaining = remaining_time(deadline);
+        if (remaining.count() == 0)
+            break;
+        if (WaitNamedPipeW(pipe_name.c_str(),
+                static_cast<DWORD>(remaining.count())))
+        {
+            pipe = CreateFileW(pipe_name.c_str(),
+                GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+                FILE_FLAG_OVERLAPPED
+                    | SECURITY_SQOS_PRESENT
+                    | SECURITY_IDENTIFICATION,
+                nullptr);
+            if (pipe != INVALID_HANDLE_VALUE)
+                break;
+        }
+        const DWORD connect_error = GetLastError();
+        if (connect_error != ERROR_FILE_NOT_FOUND
+            && connect_error != ERROR_PIPE_BUSY)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } while (std::chrono::steady_clock::now()
+        < std::min(recreate_deadline, deadline));
+    if (pipe == INVALID_HANDLE_VALUE)
+    {
+        invalidate_cached_metadata(metadata_path);
+        if (!options.refresh_metadata)
+        {
+            return request(session_id, runtime_directory, method,
+                std::move(params),
+                {
+                    .timeout = remaining_time(deadline),
+                    .refresh_metadata = true,
+                });
+        }
+        if (std::chrono::steady_clock::now() >= deadline)
+        {
+            return { false, nullptr, "deadline_exceeded",
+                "The Draxul control request exceeded its deadline." };
+        }
         return { false, nullptr, "endpoint_unavailable",
             "The Draxul Session control pipe is unavailable." };
     }
-    HANDLE pipe = CreateFileW(pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE,
-        0, nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
-    if (pipe == INVALID_HANDLE_VALUE)
-    {
-        return { false, nullptr, "endpoint_unavailable",
-            "Unable to connect to the Draxul Session." };
-    }
-    const bool io_ok = write_frame(pipe, request)
-        && read_frame(pipe, response_bytes);
+    const bool io_ok = client_write_frame(
+                           pipe, request_bytes, deadline)
+        && client_read_frame(pipe, response_bytes, deadline);
+    deadline_hit = std::chrono::steady_clock::now() >= deadline
+        || GetLastError() == ERROR_TIMEOUT;
     CloseHandle(pipe);
 #else
     const int socket_fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
     if (socket_fd < 0)
         return { false, nullptr, "endpoint_unavailable", "Unable to create control socket." };
-    timeval timeout{
-        static_cast<long>(kIoTimeout.count()), 0
-    };
-    ::setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    ::setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    const int socket_flags = ::fcntl(socket_fd, F_GETFL, 0);
+    if (socket_flags < 0
+        || ::fcntl(socket_fd, F_SETFL,
+               socket_flags | O_NONBLOCK)
+            != 0)
+    {
+        ::close(socket_fd);
+        return { false, nullptr, "endpoint_unavailable",
+            "Unable to configure the control socket." };
+    }
     sockaddr_un address{};
     address.sun_family = AF_UNIX;
     if (endpoint.size() >= sizeof(address.sun_path))
@@ -944,13 +1855,51 @@ ControlClientResult ControlClient::request(std::string_view session_id,
         return { false, nullptr, "endpoint_unavailable", "Control socket path is too long." };
     }
     std::memcpy(address.sun_path, endpoint.c_str(), endpoint.size() + 1);
-    const bool connected = ::connect(socket_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
-    const bool io_ok = connected && write_frame(socket_fd, request)
-        && read_frame(socket_fd, response_bytes);
+    bool connected = ::connect(socket_fd,
+                         reinterpret_cast<sockaddr*>(&address),
+                         sizeof(address))
+        == 0;
+    if (!connected && errno == EINPROGRESS
+        && wait_for_socket(socket_fd, POLLOUT, deadline))
+    {
+        int socket_error = 0;
+        socklen_t socket_error_size = sizeof(socket_error);
+        connected = ::getsockopt(socket_fd, SOL_SOCKET, SO_ERROR,
+                        &socket_error, &socket_error_size)
+                == 0
+            && socket_error == 0;
+        if (!connected && socket_error != 0)
+            errno = socket_error;
+    }
+    if (!connected && !options.refresh_metadata)
+    {
+        ::close(socket_fd);
+        invalidate_cached_metadata(metadata_path);
+        return request(session_id, runtime_directory, method,
+            std::move(params),
+            {
+                .timeout = remaining_time(deadline),
+                .refresh_metadata = true,
+            });
+    }
+    const bool io_ok = connected
+        && client_write_frame(
+            socket_fd, request_bytes, deadline)
+        && client_read_frame(socket_fd, response_bytes, deadline);
+    deadline_hit = std::chrono::steady_clock::now() >= deadline
+        || errno == ETIMEDOUT;
     ::close(socket_fd);
 #endif
     if (!io_ok)
+    {
+        invalidate_cached_metadata(metadata_path);
+        if (deadline_hit)
+        {
+            return { false, nullptr, "deadline_exceeded",
+                "The Draxul control request exceeded its deadline." };
+        }
         return { false, nullptr, "io_error", "Control request failed." };
+    }
     if (!depth_within_limit(response_bytes))
         return { false, nullptr, "invalid_response",
             "Control response exceeds the JSON nesting limit." };
@@ -972,12 +1921,24 @@ ControlClientResult ControlClient::request(std::string_view session_id,
         return { true, response.value("result", nlohmann::json{}), {}, {} };
     if (!response.contains("error") || !response["error"].is_object())
         return { false, nullptr, "invalid_response", "Control response is invalid." };
-    return {
+    ControlClientResult result{
         false,
         nullptr,
         response["error"].value("code", "unknown_error"),
         response["error"].value("message", "Control request failed."),
     };
+    if (result.error_code == "authentication_failed"
+        && !options.refresh_metadata)
+    {
+        invalidate_cached_metadata(metadata_path);
+        return request(session_id, runtime_directory, method,
+            std::move(params),
+            {
+                .timeout = remaining_time(deadline),
+                .refresh_metadata = true,
+            });
+    }
+    return result;
 }
 
 } // namespace draxul

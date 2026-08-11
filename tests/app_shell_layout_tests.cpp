@@ -27,9 +27,9 @@ TEST_CASE("App shell partitions sidebar, tab bar, panes, and diagnostics", "[app
     const auto layout = compute_app_shell_layout(base_input());
 
     CHECK(layout.sidebar == AppShellRect{ 0, 0, 200, 700 });
-    CHECK(layout.sidebar_spaces == AppShellRect{ 0, 0, 200, 110 });
-    CHECK(layout.sidebar_section_divider == AppShellRect{ 0, 110, 200, 1 });
-    CHECK(layout.sidebar_agents == AppShellRect{ 0, 111, 200, 589 });
+    CHECK(layout.sidebar_spaces == AppShellRect{ 0, 0, 200, 70 });
+    CHECK(layout.sidebar_section_divider == AppShellRect{ 0, 70, 200, 1 });
+    CHECK(layout.sidebar_agents == AppShellRect{ 0, 71, 200, 629 });
     CHECK(layout.sidebar_divider == AppShellRect{ 200, 0, 4, 700 });
     CHECK(layout.content == AppShellRect{ 204, 0, 996, 700 });
     CHECK(layout.tab_bar == AppShellRect{ 204, 0, 996, 22 });

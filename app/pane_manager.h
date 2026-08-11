@@ -5,6 +5,7 @@
 #include <draxul/agent_model.h>
 #include <draxul/host.h>
 #include <draxul/host_kind.h>
+#include <draxul/session_model.h>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -31,35 +32,9 @@ public:
     static HostKind platform_default_split_host_kind();
     static HostKind split_host_kind_for(HostKind primary_kind);
 
-    struct SavedLaunchOptions
-    {
-        HostKind kind = HostKind::Nvim;
-        std::string command;
-        std::vector<std::string> args;
-        std::string working_dir;
-        std::string source_path;
-        std::vector<std::string> startup_commands;
-        std::string pty_capture_file;
-    };
-
-    struct PaneSnapshot
-    {
-        LeafId leaf_id = kInvalidLeaf;
-        SavedLaunchOptions launch;
-        std::string pane_name;
-        std::string pane_id;
-        std::optional<AgentIdentity> agent;
-        std::optional<AgentSessionRef> agent_session;
-        AgentRestorePolicy restore_policy = AgentRestorePolicy::ResumeIfAvailable;
-    };
-
-    struct PaneLayoutSnapshot
-    {
-        SplitTree::Snapshot tree;
-        std::vector<PaneSnapshot> panes;
-        bool zoomed = false;
-        LeafId zoomed_leaf = kInvalidLeaf;
-    };
+    using SavedLaunchOptions = SessionSavedLaunchOptions;
+    using PaneSnapshot = SessionPaneSnapshot;
+    using PaneLayoutSnapshot = SessionPaneLayoutSnapshot;
 
     struct Deps
     {
@@ -75,6 +50,18 @@ public:
         TextService* text_service = nullptr;
         const float* display_ppi = nullptr;
         std::weak_ptr<void> owner_lifetime;
+        // False when this manager is a projection of server-authoritative
+        // topology. Projection reconciliation can still change the tree,
+        // while local split commands and divider drags cannot diverge it.
+        bool allow_local_layout_mutation = true;
+        // A projected manager remains interactive, but reports the desired
+        // ratio to App so the server can publish the authoritative tree.
+        std::function<void(DividerId, float)>
+            request_projected_divider_ratio;
+        // Called while a host is still alive, immediately before PaneManager
+        // destroys it. This lets non-owning routes such as InputDispatcher
+        // release their pointer safely.
+        std::function<void(IHost*)> before_host_destroyed;
 
         // Converts a PaneDescriptor (pixel region) to a full HostViewport (with cols/rows/padding).
         // Provided by App since it owns the font metrics and UI panel layout.
@@ -136,6 +123,9 @@ public:
     // split so the owner reclaims the space.
     void hide_markdown_preview();
 
+    // Reloads an existing companion preview without changing the split tree.
+    bool refresh_markdown_preview(std::string_view path);
+
     // Whether a companion Markdown preview pane is currently open.
     bool has_markdown_preview() const
     {
@@ -181,13 +171,15 @@ public:
     // Returns the host for a specific leaf.
     IHost* host_for(LeafId id) const;
 
-    // User-set pane name override (WI 128 — pane rename). When non-empty,
-    // ChromeHost displays this in place of the host's status_text() for the
-    // pane status pill. Cleared by passing an empty string. Persisted only
+    // User-set pane name override (WI 128 — pane rename). Cleared by passing
+    // an empty string. Persisted only
     // for the lifetime of the leaf — closing the pane drops the override.
     void set_pane_name(LeafId id, std::string name);
     const std::string& pane_name(LeafId id) const;
     bool has_pane_name(LeafId id) const;
+    // Stable chrome label: user override, host-reported identity, then the
+    // configured host kind's canonical display name.
+    std::string pane_display_name(LeafId id) const;
     const std::string& pane_id(LeafId id) const;
     void set_agent_identity(LeafId id, AgentIdentity identity,
         AgentRestorePolicy restore_policy = AgentRestorePolicy::ResumeIfAvailable);
@@ -224,6 +216,7 @@ public:
     // Nudge a divider by a fixed delta (positive grows the first child).
     // cell_w/cell_h quantize the resulting divider position to cell boundaries.
     void nudge_divider(DividerId id, float delta, int cell_w = 0, int cell_h = 0);
+    std::optional<float> divider_ratio(DividerId id) const;
 
     // Find an ancestor divider above the focused leaf in the given direction.
     DividerId find_focused_ancestor_divider(FocusDirection direction) const;
@@ -245,9 +238,18 @@ public:
     }
     bool has_restorable_shell_session() const;
     bool should_preserve_dead_leaf(LeafId id) const;
+    bool is_server_owned_remote_terminal_leaf(LeafId id) const;
     std::optional<PaneLayoutSnapshot> snapshot_layout() const;
     bool restore_layout(
         IHostCallbacks& callbacks, int pixel_w, int pixel_h, const PaneLayoutSnapshot& state);
+    // Apply an authoritative projected tree while preserving hosts whose
+    // stable leaf identity and launch kind are unchanged. Unlike
+    // restore_layout(), this is suitable for live server topology updates:
+    // splitting or resizing one pane must not restart every surviving
+    // client-local host.
+    bool reconcile_projected_layout(
+        IHostCallbacks& callbacks, int pixel_w, int pixel_h,
+        const PaneLayoutSnapshot& state);
     const SplitTree& tree() const
     {
         return tree_;
@@ -256,6 +258,15 @@ public:
     const std::string& error() const
     {
         return error_;
+    }
+
+    LeafId markdown_preview_leaf() const
+    {
+        return markdown_preview_leaf_;
+    }
+    const std::string& error_code() const
+    {
+        return error_code_;
     }
 
 private:
@@ -278,6 +289,7 @@ private:
         runtime_started_at_;
     uint64_t next_runtime_generation_ = 1;
     std::string error_;
+    std::string error_code_;
     uint64_t next_pane_serial_ = 1;
 
     // Zoom state: when zoomed, the focused pane fills the full window.

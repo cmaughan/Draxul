@@ -20,7 +20,7 @@ std::string encode_terminal_key(const KeyEvent& event, const VtState& vt)
     case SDLK_RETURN:
         return "\r";
     case SDLK_TAB:
-        return "\t";
+        return (event.mod & kModShift) != 0 ? "\x1B[Z" : "\t";
     case SDLK_ESCAPE:
         return "\x1B";
     case SDLK_BACKSPACE:

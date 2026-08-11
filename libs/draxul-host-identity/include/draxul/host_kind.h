@@ -18,6 +18,7 @@ enum class HostKind
     Bash,
     Zsh,
     Wsl,
+    RemoteTerminal,
     MegaCity,
     BioView,
     SatView,
@@ -25,6 +26,7 @@ enum class HostKind
     Markdown,
     Kanban,
     Score,
+    Count,
 };
 
 inline constexpr std::array kAllHostKinds = {
@@ -33,6 +35,7 @@ inline constexpr std::array kAllHostKinds = {
     HostKind::Bash,
     HostKind::Zsh,
     HostKind::Wsl,
+    HostKind::RemoteTerminal,
     HostKind::MegaCity,
     HostKind::BioView,
     HostKind::SatView,
@@ -41,6 +44,9 @@ inline constexpr std::array kAllHostKinds = {
     HostKind::Kanban,
     HostKind::Score,
 };
+static_assert(kAllHostKinds.size()
+    == static_cast<size_t>(HostKind::Count),
+    "Every HostKind must be listed in kAllHostKinds and classified.");
 
 inline const char* to_string(HostKind kind)
 {
@@ -56,6 +62,8 @@ inline const char* to_string(HostKind kind)
         return "zsh";
     case HostKind::Wsl:
         return "wsl";
+    case HostKind::RemoteTerminal:
+        return "remote-terminal";
     case HostKind::MegaCity:
         return "megacity";
     case HostKind::BioView:
@@ -70,14 +78,45 @@ inline const char* to_string(HostKind kind)
         return "kanban";
     case HostKind::Score:
         return "score";
+    case HostKind::Count:
+        break;
     }
     return "nvim";
+}
+
+// Whether this host's runtime belongs in the shared Draxul server. Keep this
+// switch exhaustive: adding a HostKind must force every ownership decision to
+// be reviewed instead of silently falling into a client-local default.
+inline constexpr bool is_server_owned_shell_host(HostKind kind)
+{
+    switch (kind)
+    {
+    case HostKind::PowerShell:
+    case HostKind::Bash:
+    case HostKind::Zsh:
+    case HostKind::Wsl:
+    case HostKind::RemoteTerminal:
+        return true;
+    case HostKind::Nvim:
+    case HostKind::MegaCity:
+    case HostKind::BioView:
+    case HostKind::SatView:
+    case HostKind::NanoVGDemo:
+    case HostKind::Markdown:
+    case HostKind::Kanban:
+    case HostKind::Score:
+        return false;
+    case HostKind::Count:
+        return false;
+    }
+    return false;
 }
 
 inline std::span<const std::string_view> host_kind_aliases(HostKind kind)
 {
     static constexpr std::array<std::string_view, 0> none = {};
     static constexpr std::array powershell = { std::string_view("pwsh") };
+    static constexpr std::array remote_terminal = { std::string_view("remote") };
     static constexpr std::array bioview = { std::string_view("bio") };
     static constexpr std::array satview = { std::string_view("sat") };
     static constexpr std::array nanovg = { std::string_view("nanovg") };
@@ -88,6 +127,8 @@ inline std::span<const std::string_view> host_kind_aliases(HostKind kind)
     {
     case HostKind::PowerShell:
         return powershell;
+    case HostKind::RemoteTerminal:
+        return remote_terminal;
     case HostKind::BioView:
         return bioview;
     case HostKind::SatView:

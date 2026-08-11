@@ -23,6 +23,12 @@ namespace draxul
 // app_config_types.h does not need to include <draxul/text_service.h>.
 inline constexpr float kDefaultFontPointSize = 11.0f;
 
+// The markdown viewer renders proportional prose rather than a terminal grid, so
+// it reads better a point smaller than the terminal font. Applied as an offset
+// from the global font_size whenever [markdown] font_size is not set explicitly.
+inline constexpr float kMarkdownFontPointSizeOffset = 1.0f;
+inline constexpr float kDefaultMarkdownFontPointSize = kDefaultFontPointSize - kMarkdownFontPointSizeOffset;
+
 struct GuiKeybinding
 {
     std::string action;
@@ -59,7 +65,7 @@ struct TerminalConfig
 
 struct MarkdownConfig
 {
-    float font_size = kDefaultFontPointSize;
+    float font_size = kDefaultMarkdownFontPointSize;
     float margin_columns = 2.0f;
 };
 

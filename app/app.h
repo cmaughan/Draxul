@@ -11,6 +11,7 @@
 #include "session_state.h"
 #include "space_controller.h"
 #include "toast_host.h"
+#include "topology_mutation_route.h"
 #include <chrono>
 #include <draxul/app_config.h>
 #include <draxul/app_options.h>
@@ -20,6 +21,8 @@
 #include <draxul/renderer.h>
 #include <draxul/result.h>
 #include <draxul/system_resource_monitor.h>
+#include <draxul/topology_protocol.h>
+#include <draxul/topology_projection.h>
 
 #include "weather_service.h"
 #include <draxul/text_service.h>
@@ -27,6 +30,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace draxul
@@ -35,6 +40,12 @@ namespace draxul
 class MacOsMenu;
 class ControlServer;
 class ControlEventJournal;
+class RemoteSessionClient;
+struct ServerAgentSnapshot;
+struct TopologyCommand;
+struct TopologySnapshot;
+struct TopologyTab;
+enum class TopologySplitDirection;
 struct ControlMethodResult;
 struct ControlRequest;
 
@@ -94,8 +105,6 @@ public:
         return last_render_test_error_;
     }
     void shutdown();
-    Result<std::string, Error> save_session_as(std::string_view name);
-    Result<void, Error> load_session(std::string_view session_id);
     Result<SpaceId, Error> create_space(
         std::string_view name, std::filesystem::path root_directory = {});
     Result<void, Error> activate_space(SpaceId id);
@@ -152,6 +161,7 @@ private:
     bool dispatch_to_nvim_host(std::string_view action, bool keep_focus) override;
     bool show_markdown_preview(std::string_view path) override;
     void hide_markdown_preview() override;
+    bool is_markdown_preview_visible() const override;
     void push_toast(int level, std::string_view message) override;
     void update_diagnostics_panel();
     void refresh_window_layout();
@@ -162,14 +172,19 @@ private:
     // Converts a PaneDescriptor (pixel region from SplitTree) to a full HostViewport.
     HostViewport viewport_from_descriptor(const PaneDescriptor& desc) const;
     void wire_gui_actions();
-    void open_save_session_prompt();
-    void open_load_session_picker();
     void open_new_space_prompt();
     void open_switch_space_picker();
     void open_rename_space_prompt();
+    void open_stop_server_prompt();
+    void show_stop_server_prompt(
+        const struct ServerStatusSnapshot& status);
+    void show_force_stop_server_prompt(
+        std::string graceful_error);
     void open_launch_agent_prompt();
     void open_attach_agent_picker();
     void open_focus_agent_picker();
+    Result<void, Error> restart_agent_runtime(
+        const AgentProjection& agent);
     void rebuild_agent_definitions();
     bool close_dead_panes();
     void rebuild_render_tree();
@@ -192,6 +207,40 @@ private:
     bool restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot& state);
     void process_control_requests();
     ControlMethodResult handle_control_request(const ControlRequest& request);
+    bool initialize_remote_topology();
+    void consume_remote_session_state();
+    bool announce_remote_topology_apply_error(
+        std::string_view error);
+    void apply_remote_command_activation(
+        const TopologyCommand& command,
+        std::string_view created_id);
+    void handle_remote_status_completion(
+        struct RemoteStatusCompletion completion);
+    bool apply_remote_agents(
+        const ServerAgentSnapshot& snapshot,
+        std::string* error = nullptr);
+    bool apply_remote_topology_spaces(
+        const TopologySnapshot& snapshot, std::string* error = nullptr);
+    bool apply_remote_topology_tabs(
+        const TopologySnapshot& snapshot, std::string* error);
+    bool project_remote_tab(const TopologyTab& remote,
+        SpaceId local_space_id, int local_tab_id, std::string* error);
+    void initialize_topology_mutation_route();
+    TopologyMutationResult mutate_topology(
+        TopologyMutation mutation);
+    TopologyMutationResult apply_local_topology_mutation(
+        const TopologyMutation& mutation);
+    std::optional<TopologyPaneDomain>
+        projected_pane_domain(
+            SpaceId local_space_id, int local_tab_id,
+            LeafId local_leaf) const;
+    bool execute_remote_topology_command(
+        TopologyCommand command, std::string& error);
+    void queue_remote_split_ratio(DividerId divider_id, float ratio);
+    void flush_pending_remote_split_ratio();
+    std::optional<std::string> remote_space_id(SpaceId local_id) const;
+    std::optional<std::string> remote_tab_id(
+        SpaceId local_space_id, int local_tab_id) const;
 
     // --- Tab orchestration (collection ownership lives in TabController) ---
     TabController& active_tab_controller();
@@ -276,6 +325,36 @@ private:
     AgentDefinitionRegistry agent_definitions_;
     std::unique_ptr<ControlServer> control_server_;
     std::unique_ptr<ControlEventJournal> control_events_;
+    std::unique_ptr<RemoteSessionClient> remote_session_client_;
+    std::unique_ptr<ITopologyMutationRoute>
+        topology_mutation_route_;
+    TopologySnapshot remote_topology_snapshot_;
+    TopologyProjection topology_projection_;
+    struct PendingTopologyRatio
+    {
+        std::string space_id;
+        std::string tab_id;
+        std::string node_id;
+        float ratio = 0.5f;
+        std::chrono::steady_clock::time_point commit_after;
+    };
+    std::optional<PendingTopologyRatio> pending_topology_ratio_;
+    bool markdown_preview_split_pending_ = false;
+    bool markdown_preview_close_after_create_ = false;
+    std::string pending_markdown_preview_path_;
+    bool topology_poll_error_announced_ = false;
+    bool agent_poll_error_announced_ = false;
+    bool topology_command_error_announced_ = false;
+    bool accept_next_remote_topology_revision_ = false;
+    uint64_t next_server_agent_mutation_id_ = 1;
+    enum class PendingServerStatusAction
+    {
+        ShowStatus,
+        ConfirmStop,
+    };
+    std::unordered_map<uint64_t, PendingServerStatusAction>
+        pending_server_status_actions_;
+    std::string remote_topology_projection_error_code_;
     uint64_t next_agent_instance_serial_ = 1;
     RenderNode render_root_;
     std::vector<uint8_t> atlas_upload_scratch_;

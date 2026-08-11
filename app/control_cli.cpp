@@ -2,10 +2,15 @@
 
 #include <draxul/config_document.h>
 #include <draxul/control_plane.h>
+#include <draxul/server_client.h>
+#include <draxul/topology_client.h>
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
+#include <filesystem>
 #include <nlohmann/json.hpp>
 #include <thread>
 
@@ -18,8 +23,7 @@ namespace
 std::optional<int> parse_int(std::string_view text)
 {
     int result = 0;
-    const auto parsed =
-        std::from_chars(text.data(), text.data() + text.size(), result);
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), result);
     if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size())
         return std::nullopt;
     return result;
@@ -28,8 +32,7 @@ std::optional<int> parse_int(std::string_view text)
 std::optional<uint64_t> parse_uint64(std::string_view text)
 {
     uint64_t result = 0;
-    const auto parsed =
-        std::from_chars(text.data(), text.data() + text.size(), result);
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), result);
     if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size())
         return std::nullopt;
     return result;
@@ -82,13 +85,29 @@ void print_human(const ControlCliCommand& command, const nlohmann::json& result)
         for (const auto& agent : result)
         {
             const auto& route = agent["route"];
-            std::printf("%c %-20s %-10s %-8s space=%d tab=%d pane=%s\n",
+            const auto route_text
+                = [&route](const char* name) {
+                      const auto value = route.find(name);
+                      if (value == route.end())
+                          return std::string("?");
+                      if (value->is_string())
+                          return value->get<std::string>();
+                      if (value->is_number_integer())
+                          return std::to_string(
+                              value->get<int64_t>());
+                      return std::string("?");
+                  };
+            const std::string space
+                = route_text("space_id");
+            const std::string tab
+                = route_text("tab_id");
+            std::printf("%c %-20s %-10s %-8s space=%s tab=%s pane=%s\n",
                 agent.value("focused", false) ? '*' : ' ',
                 agent.value("instance_id", "").c_str(),
                 agent.value("kind", "").c_str(),
                 agent.value("status", "").c_str(),
-                route.value("space_id", -1),
-                route.value("tab_id", -1),
+                space.c_str(),
+                tab.c_str(),
                 route.value("pane_id", "").c_str());
         }
         return;
@@ -121,6 +140,7 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
     const std::string noun = args[1];
     const std::string verb = args[2];
     size_t position = 3;
+    bool session_explicit = false;
 
     if (noun == "space" && verb == "list")
         command.method = "space.list";
@@ -140,7 +160,8 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         command.method = "agent.focus";
     else if (noun == "agent" && verb == "restart")
         command.method = "agent.restart";
-    else if (noun == "agent" && verb == "send")
+    else if (noun == "agent"
+        && (verb == "send" || verb == "prompt"))
         command.method = "agent.send_text";
     else if (noun == "agent" && verb == "keys")
         command.method = "agent.send_keys";
@@ -156,8 +177,7 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         return parsed;
     }
 
-    const bool needs_value =
-        command.method == "space.get" || command.method == "space.focus"
+    const bool needs_value = command.method == "space.get" || command.method == "space.focus"
         || command.method == "agent.get" || command.method == "agent.start"
         || command.method == "agent.focus" || command.method == "agent.restart"
         || command.method == "agent.send_text"
@@ -189,6 +209,47 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
                 return parsed;
             }
             command.session_id = args[position++];
+            session_explicit = true;
+        }
+        else if (args[position] == "--server-runtime-dir")
+        {
+            if (++position >= args.size()
+                || args[position].empty())
+            {
+                parsed.error
+                    = "--server-runtime-dir requires a path.";
+                return parsed;
+            }
+            command.server_runtime_directory
+                = args[position++];
+        }
+        else if (args[position] == "--server-epoch")
+        {
+            if (++position >= args.size()
+                || args[position].empty())
+            {
+                parsed.error = "--server-epoch requires an id.";
+                return parsed;
+            }
+            command.server_epoch = args[position++];
+        }
+        else if (args[position] == "--runtime-generation")
+        {
+            if (++position >= args.size())
+            {
+                parsed.error
+                    = "--runtime-generation requires an integer.";
+                return parsed;
+            }
+            const auto generation
+                = parse_uint64(args[position++]);
+            if (!generation || *generation == 0)
+            {
+                parsed.error
+                    = "--runtime-generation is invalid.";
+                return parsed;
+            }
+            command.runtime_generation = *generation;
         }
         else if (args[position] == "--lines")
         {
@@ -218,15 +279,39 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         {
             if (++position >= args.size())
             {
-                parsed.error = "--space requires an integer id.";
+                parsed.error = "--space requires an id.";
                 return parsed;
             }
-            command.space_id = parse_int(args[position++]);
-            if (!command.space_id)
+            command.route_space_id = args[position++];
+            if (command.route_space_id.empty())
             {
-                parsed.error = "--space requires an integer id.";
+                parsed.error = "--space requires an id.";
                 return parsed;
             }
+            command.space_id = parse_int(command.route_space_id);
+        }
+        else if (args[position] == "--tab")
+        {
+            if (++position >= args.size() || args[position].empty())
+            {
+                parsed.error = "--tab requires an id.";
+                return parsed;
+            }
+            command.route_tab_id = args[position++];
+        }
+        else if (args[position] == "--pane")
+        {
+            if (++position >= args.size() || args[position].empty())
+            {
+                parsed.error = "--pane requires an id.";
+                return parsed;
+            }
+            command.route_pane_id = args[position++];
+        }
+        else if (args[position] == "--replace")
+        {
+            command.replace_pane = true;
+            ++position;
         }
         else if (args[position] == "--text")
         {
@@ -393,10 +478,55 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
             || (command.reference_kind != "id"
                 && command.reference_kind != "path")))
     {
-        parsed.error =
-            "pane report-agent-session requires --agent-instance, --source, "
-            "--agent, --integration-version, --sequence, and --session-ref.";
+        parsed.error = "pane report-agent-session requires --agent-instance, --source, "
+                       "--agent, --integration-version, --sequence, and --session-ref.";
         return parsed;
+    }
+    if (command.replace_pane && command.method != "agent.start")
+    {
+        parsed.error = "--replace is only valid for agent start.";
+        return parsed;
+    }
+    if (command.method == "agent.start")
+    {
+        if (command.route_space_id.empty())
+        {
+            if (const char* value = std::getenv("DRAXUL_SPACE_ID");
+                value && *value)
+                command.route_space_id = value;
+        }
+        if (command.route_tab_id.empty())
+        {
+            if (const char* value = std::getenv("DRAXUL_TAB_ID");
+                value && *value)
+                command.route_tab_id = value;
+        }
+        if (command.route_pane_id.empty())
+        {
+            if (const char* value = std::getenv("DRAXUL_PANE_ID");
+                value && *value)
+                command.route_pane_id = value;
+        }
+        if (command.replace_pane
+            && command.route_pane_id.empty())
+        {
+            parsed.error
+                = "agent start --replace requires --pane <pane-id> or an enclosing Draxul pane context.";
+            return parsed;
+        }
+    }
+    if (command.server_runtime_directory.empty())
+    {
+        if (const char* value
+            = std::getenv("DRAXUL_SERVER_RUNTIME_DIR");
+            value && *value)
+            command.server_runtime_directory = value;
+    }
+    if (!session_explicit)
+    {
+        if (const char* value = std::getenv("DRAXUL_SESSION_ID");
+            value && *value)
+            command.session_id = value;
     }
     parsed.command = std::move(command);
     return parsed;
@@ -420,8 +550,17 @@ int run_control_cli(const ControlCliCommand& command)
         params["args"] = command.arguments;
         if (!command.working_directory.empty())
             params["cwd"] = command.working_directory;
-        if (command.space_id)
+        if (command.space_id
+            && !command.route_space_id.starts_with("space-"))
             params["space_id"] = *command.space_id;
+        else if (!command.route_space_id.empty())
+            params["space_id"] = command.route_space_id;
+        if (!command.route_tab_id.empty())
+            params["tab_id"] = command.route_tab_id;
+        if (!command.route_pane_id.empty())
+            params["pane_id"] = command.route_pane_id;
+        if (command.replace_pane)
+            params["replace_pane"] = true;
     }
     else if (command.method == "agent.focus"
         || command.method == "agent.restart")
@@ -451,12 +590,159 @@ int run_control_cli(const ControlCliCommand& command)
         params["sequence"] = command.sequence;
         params["ref_kind"] = command.reference_kind;
         params["ref_value"] = command.reference_value;
+        if (!command.server_epoch.empty())
+            params["server_epoch"] = command.server_epoch;
+        if (command.runtime_generation != 0)
+        {
+            params["runtime_generation"]
+                = command.runtime_generation;
+        }
+    }
+    const bool mutating_agent_request
+        = command.method == "agent.start"
+        || command.method == "agent.restart"
+        || command.method == "agent.send_text"
+        || command.method == "agent.send_keys";
+    if (mutating_agent_request)
+    {
+        // This key deduplicates retries made against one endpoint. The App
+        // endpoint and the headless server have separate idempotency domains,
+        // so an ambiguous mutation must never fall through from one to the
+        // other.
+        params["request_id"] = make_server_client_id();
     }
 
-    const auto runtime =
-        control_runtime_directory(ConfigDocument::default_path().parent_path());
-    auto result = ControlClient::request(
-        command.session_id, runtime, command.method, params);
+    const auto runtime = control_runtime_directory(ConfigDocument::default_path().parent_path());
+    const auto server_runtime
+        = command.server_runtime_directory.empty()
+        ? server_runtime_directory(
+              ConfigDocument::default_path().parent_path())
+        : std::filesystem::path(
+              command.server_runtime_directory);
+    const bool supports_headless_server
+        = command.method == "agent.list"
+        || command.method == "agent.get"
+        || command.method == "agent.explain"
+        || command.method == "agent.start"
+        || command.method == "agent.restart"
+        || command.method == "agent.send_text"
+        || command.method == "agent.send_keys"
+        || command.method == "agent.wait"
+        || command.method == "pane.read"
+        || command.method
+            == "pane.report_agent_session";
+    if (command.replace_pane)
+    {
+        if (!params.contains("space_id")
+            || !params.contains("tab_id"))
+        {
+            TopologyClient topology({
+                .runtime_directory = server_runtime,
+                .client_id = make_server_client_id(),
+                .session_id = command.session_id,
+            });
+            std::string topology_error;
+            if (!topology.refresh(topology_error))
+            {
+                std::fprintf(stderr,
+                    "server_unavailable: %s\n",
+                    topology_error.c_str());
+                return 1;
+            }
+            bool found = false;
+            for (const auto& space : topology.snapshot().spaces)
+            {
+                for (const auto& tab : space.tabs)
+                {
+                    if (std::ranges::any_of(tab.panes,
+                            [&](const TopologyPane& pane) {
+                                return pane.pane_id
+                                    == command.route_pane_id;
+                            }))
+                    {
+                        params["space_id"] = space.space_id;
+                        params["tab_id"] = tab.tab_id;
+                        found = true;
+                        break;
+                    }
+                }
+                if (found)
+                    break;
+            }
+            if (!found)
+            {
+                std::fprintf(stderr,
+                    "pane_not_found: The replacement pane was not found.\n");
+                return 1;
+            }
+        }
+        const std::string probe_client_id
+            = make_server_client_id();
+        const auto probe = ServerClient::probe({
+            .runtime_directory = server_runtime,
+            .client_id = probe_client_id,
+            .launch_if_missing = false,
+        });
+        if (!probe.ready())
+        {
+            std::fprintf(stderr, "%s: %s\n",
+                probe.error_code.empty()
+                    ? "server_unavailable"
+                    : probe.error_code.c_str(),
+                probe.error_message.empty()
+                    ? "The Draxul server is unavailable."
+                    : probe.error_message.c_str());
+            return 1;
+        }
+        if (std::ranges::find(probe.welcome->capabilities,
+                "managed-agent-v2")
+            == probe.welcome->capabilities.end())
+        {
+            std::fprintf(stderr,
+                "unsupported_server: The running Draxul server predates in-place agent launch; stop it and retry with this build.\n");
+            return 1;
+        }
+        std::string disconnect_error;
+        ServerClient::disconnect(server_runtime,
+            probe_client_id, disconnect_error,
+            probe.welcome->connection_token);
+    }
+    bool using_global_server
+        = supports_headless_server
+        && (!command.server_runtime_directory.empty()
+            || command.replace_pane);
+    const auto request
+        = [&](const nlohmann::json& request_params) {
+              if (!using_global_server)
+              {
+                  auto local = ControlClient::request(
+                      command.session_id, runtime,
+                      command.method, request_params);
+                  if (local.ok
+                      || !supports_headless_server
+                      || (local.error_code
+                              != "endpoint_unavailable"
+                          && (mutating_agent_request
+                              || local.error_code
+                                  != "io_error")))
+                  {
+                      return local;
+                  }
+                  using_global_server = true;
+              }
+              nlohmann::json global_params
+                  = request_params;
+              global_params["session_id"]
+                  = command.session_id.empty()
+                  ? "default"
+                  : command.session_id;
+              return ControlClient::request(
+                  namespaced_control_id(
+                      kServerControlId, server_runtime),
+                  server_runtime, command.method,
+                  std::move(global_params));
+          };
+    auto result = request(params);
     if (result.ok && command.method == "agent.wait")
     {
         const auto deadline = command.timeout_ms > 0
@@ -465,15 +751,13 @@ int run_control_cli(const ControlCliCommand& command)
             : std::chrono::steady_clock::time_point::max();
         if (result.result.contains("agent"))
         {
-            params["runtime_generation"] =
-                result.result["agent"].value("runtime_generation", 0ull);
+            params["runtime_generation"] = result.result["agent"].value("runtime_generation", 0ull);
         }
         while (result.ok && !result.result.value("complete", false)
             && std::chrono::steady_clock::now() < deadline)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            result = ControlClient::request(
-                command.session_id, runtime, command.method, params);
+            result = request(params);
         }
         if (result.ok && !result.result.value("complete", false))
         {

@@ -55,6 +55,9 @@ struct RenameFixture
                 }
             }
         };
+        deps.set_space_name = [this](SpaceId space_id, std::string name) {
+            space_controller.rename_space(space_id, std::move(name));
+        };
         deps.set_pane_name = [this](LeafId leaf, std::string name) {
             if (name.empty())
                 pane_names.erase(leaf);
@@ -70,6 +73,41 @@ struct RenameFixture
     }
 };
 } // namespace
+
+TEST_CASE("ChromeHost Space rename: typing and Enter commits",
+    "[chrome_host][rename][space]")
+{
+    RenameFixture f;
+    const SpaceId space_id
+        = f.space_controller.active_space_id();
+
+    f.host->begin_space_rename(space_id);
+    REQUIRE(f.host->is_editing_space());
+    REQUIRE(f.host->editing_space_id() == space_id);
+
+    REQUIRE(f.host->on_rename_text_input("-work"));
+    REQUIRE(f.host->on_rename_key(SDLK_RETURN));
+    REQUIRE_FALSE(f.host->is_editing_space());
+    REQUIRE(f.space_controller.find_space(space_id)->name
+        == "default-work");
+}
+
+TEST_CASE("ChromeHost Space rename: switching target commits",
+    "[chrome_host][rename][space]")
+{
+    RenameFixture f;
+    const SpaceId space_id
+        = f.space_controller.active_space_id();
+
+    f.host->begin_space_rename(space_id);
+    REQUIRE(f.host->on_rename_text_input("X"));
+    f.host->begin_tab_rename(1);
+
+    REQUIRE(f.host->is_editing_tab());
+    REQUIRE_FALSE(f.host->is_editing_space());
+    REQUIRE(f.space_controller.find_space(space_id)->name
+        == "defaultX");
+}
 
 TEST_CASE("ChromeHost rename: typing and Enter commits", "[chrome_host][rename]")
 {

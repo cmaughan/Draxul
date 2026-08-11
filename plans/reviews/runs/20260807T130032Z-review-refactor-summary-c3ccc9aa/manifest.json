@@ -1,0 +1,30 @@
+{
+  "finished_at": "2026-08-07T13:03:36.837580+00:00",
+  "inputs": [
+    "D:\\dev\\Draxul\\plans\\reviews\\runs\\20260807T124455Z-review-refactor-4f07a378\\reports\\anthropic.claude.opus.md",
+    "D:\\dev\\Draxul\\plans\\reviews\\runs\\20260807T124455Z-review-refactor-4f07a378\\reports\\openai.codex.gpt-5-6-sol.md",
+    "D:\\dev\\Draxul\\plans\\reviews\\runs\\20260807T124455Z-review-refactor-4f07a378\\reports\\xai.grok.grok-4-5.md"
+  ],
+  "kind": "summary",
+  "missing_reviewers": [],
+  "name": "review-refactor",
+  "prompt": "D:\\dev\\Draxul\\plans\\prompts\\consensus_review_refactor.md",
+  "run_id": "20260807T130032Z-review-refactor-summary-c3ccc9aa",
+  "schema_version": 1,
+  "started_at": "2026-08-07T13:00:32.815851+00:00",
+  "status": "complete",
+  "summarizer": {
+    "company": "openai",
+    "duration_seconds": 183.453,
+    "error": "",
+    "fallback_reason": "",
+    "model": "gpt-5.6-sol",
+    "preflight": "passed",
+    "preflight_message": "live response verified",
+    "requested": "codex",
+    "sandbox_fallback": "Windows elevated sandbox failed to create a process with error 1312; retried with the unelevated Windows sandbox while retaining read-only mode.",
+    "status": "passed",
+    "transport": "codex",
+    "version": "codex-cli 0.146.1"
+  }
+}

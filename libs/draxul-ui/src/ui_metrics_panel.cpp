@@ -74,6 +74,33 @@ void render_window_sections(const PanelLayout& layout, const DiagnosticPanelStat
             "you inspect rendering and layout state.");
     }
 
+    if (state.server_connected)
+    {
+        ImGui::SeparatorText("Server");
+        if (begin_metric_table("server_connection"))
+        {
+            metric_label("Connection",
+                "Experimental Slice 2 connection. Terminals still run in this UI process.");
+            ImGui::TextUnformatted("Connected (terminals local)");
+
+            metric_label("PID");
+            ImGui::Text("%llu",
+                static_cast<unsigned long long>(state.server_pid));
+
+            metric_label("Epoch",
+                "Changes whenever the singleton server process restarts.");
+            ImGui::TextUnformatted(state.server_epoch.c_str());
+
+            metric_label("Protocol");
+            ImGui::Text("%d.%d", state.server_protocol_major,
+                state.server_protocol_minor);
+
+            metric_label("Build");
+            ImGui::TextUnformatted(state.server_build_version.c_str());
+            ImGui::EndTable();
+        }
+    }
+
     ImGui::SeparatorText("Dimensions");
     if (begin_metric_table("window_dimensions"))
     {

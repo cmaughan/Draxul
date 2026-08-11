@@ -13,6 +13,7 @@ class HostProviderRegistry;
 
 struct ParsedArgs
 {
+    bool help = false;
     bool want_console = false;
     bool smoke_test = false;
     bool continuous_refresh = false;
@@ -22,6 +23,24 @@ struct ParsedArgs
     bool new_session = false;
     bool rename_session = false;
     bool delete_session = false;
+    bool delete_all_sessions = false;
+    bool server = false;
+    bool server_status = false;
+    bool shutdown_server = false;
+    bool force_stop_server = false;
+    // Internal helper launched by the server tray. It owns native modal UI so
+    // the headless server's event loop can never be blocked by confirmation.
+    bool server_stop_dialog = false;
+    bool confirmed = false;
+    bool experimental_server_client = false;
+    bool experimental_remote_terminal = false;
+    bool experimental_remote_shell = false;
+    bool json_output = false;
+    std::filesystem::path server_runtime_dir;
+    std::string server_shell_kind;
+    std::string server_command;
+    std::filesystem::path server_working_dir;
+    int server_scrollback_lines = 10000;
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
     bool bless_render_test = false;
     bool show_render_test_window = false;
@@ -59,6 +78,8 @@ struct ParseArgsResult
 // without spawning a subprocess. The first element of `args` (program name)
 // is ignored, mirroring argv[0].
 ParseArgsResult parse_args(const std::vector<std::string>& args);
+bool should_use_shared_server(const ParsedArgs& args);
+bool should_bootstrap_experimental_server(const ParsedArgs& args);
 std::optional<std::string> validate_host_provider_availability(
     const ParsedArgs& args, const HostProviderRegistry& registry);
 

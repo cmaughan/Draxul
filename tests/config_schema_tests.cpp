@@ -78,6 +78,7 @@ const std::vector<std::string>& expected_field_keys()
         "chrome.tab_active_fg",
         "chrome.tab_inactive_fg",
         "chrome.space_active_bg",
+        "chrome.agent_active_bg",
         "chrome.tab_active_bg",
         "chrome.tab_inactive_bg",
         "chrome.tab_editing_bg",

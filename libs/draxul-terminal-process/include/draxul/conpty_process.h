@@ -1,0 +1,85 @@
+#pragma once
+
+#include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <draxul/agent_model.h>
+#include <functional>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <utility>
+#include <vector>
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+
+#ifndef HPCON
+using HPCON = HANDLE;
+#endif
+
+#ifndef PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
+#define PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE 0x00020016
+extern "C" HRESULT WINAPI CreatePseudoConsole(COORD size, HANDLE input, HANDLE output, DWORD flags, HPCON* pty);
+extern "C" HRESULT WINAPI ResizePseudoConsole(HPCON pty, COORD size);
+extern "C" void WINAPI ClosePseudoConsole(HPCON pty);
+#endif
+
+namespace draxul
+{
+
+// Spawns a child process inside a Windows Pseudo Console (ConPty) and
+// provides read/write access to it via a background reader thread.
+// Used by PowerShellHost and ShellHost on Windows.
+class ConPtyProcess
+{
+public:
+    ~ConPtyProcess();
+
+    bool spawn(const std::string& command, const std::vector<std::string>& args,
+        const std::string& working_dir, int initial_cols, int initial_rows,
+        std::function<void()> on_output_available,
+        const std::vector<std::pair<std::string, std::string>>& environment = {});
+    void shutdown();
+    void request_close();
+    bool is_running() const;
+    uint64_t process_id() const;
+    std::optional<int> exit_code() const;
+    std::string current_working_directory() const;
+    std::optional<AgentProcessObservation> foreground_process_observation() const;
+    bool resize(int cols, int rows);
+    bool write(std::string_view text);
+    // Prevent a writer thread from entering another synchronous pipe write,
+    // cancelling an already-blocked write if necessary. The caller must join
+    // that writer before shutdown mutates the process handles.
+    void cancel_pending_write(HANDLE writer_thread);
+    std::vector<std::string> drain_output(
+        bool* overflowed = nullptr);
+
+    static constexpr size_t kMaxQueuedOutputBytes = 1024 * 1024;
+
+private:
+    void reader_main();
+
+    HANDLE input_write_ = INVALID_HANDLE_VALUE;
+    HANDLE output_read_ = INVALID_HANDLE_VALUE;
+    PROCESS_INFORMATION proc_info_ = {};
+    HANDLE job_ = nullptr;
+    HPCON pty_ = nullptr;
+    std::vector<unsigned char> attribute_storage_;
+    std::thread reader_thread_;
+    std::atomic<bool> reader_running_{ false };
+    std::atomic<bool> writes_stopping_{ false };
+    std::mutex input_mutex_;
+    std::mutex output_mutex_;
+    std::condition_variable output_space_;
+    std::vector<std::string> output_chunks_;
+    size_t output_bytes_ = 0;
+    std::function<void()> on_output_available_;
+    mutable std::optional<int> last_exit_code_;
+};
+
+} // namespace draxul

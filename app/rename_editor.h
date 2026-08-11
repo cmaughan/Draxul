@@ -13,6 +13,7 @@ namespace draxul
 enum class RenameTarget
 {
     None,
+    Space,
     Tab,
     Pane,
 };
@@ -33,6 +34,7 @@ enum class RenameKey
 struct RenameCommit
 {
     RenameTarget target = RenameTarget::None;
+    int space_id = -1;
     int tab_id = -1;
     LeafId leaf_id = kInvalidLeaf;
     std::string text;
@@ -41,6 +43,7 @@ struct RenameCommit
 struct RenameSnapshot
 {
     RenameTarget target = RenameTarget::None;
+    int space_id = -1;
     int tab_id = -1;
     LeafId leaf_id = kInvalidLeaf;
     std::string_view buffer;
@@ -53,12 +56,15 @@ struct RenameSnapshot
 class RenameEditor
 {
 public:
+    void begin_space(int space_id, std::string initial_text);
     void begin_tab(int tab_id, std::string initial_text);
     void begin_pane(LeafId leaf_id, std::string initial_text);
 
     [[nodiscard]] bool active() const;
+    [[nodiscard]] bool editing_space() const;
     [[nodiscard]] bool editing_tab() const;
     [[nodiscard]] bool editing_pane() const;
+    [[nodiscard]] int space_id() const;
     [[nodiscard]] int tab_id() const;
     [[nodiscard]] LeafId leaf_id() const;
     [[nodiscard]] RenameSnapshot snapshot() const;
@@ -74,6 +80,7 @@ private:
     void touch();
 
     RenameTarget target_ = RenameTarget::None;
+    int space_id_ = -1;
     int tab_id_ = -1;
     LeafId leaf_id_ = kInvalidLeaf;
     std::string buffer_;

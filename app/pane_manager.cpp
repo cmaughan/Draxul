@@ -10,6 +10,7 @@
 #include <draxul/perf_timing.h>
 #include <draxul/renderer.h>
 #include <draxul/text_service.h>
+#include <draxul/unavailable_host.h>
 
 #include <charconv>
 
@@ -18,29 +19,6 @@ namespace draxul
 
 namespace
 {
-
-bool is_terminal_shell_host(HostKind kind)
-{
-    using enum HostKind;
-    switch (kind)
-    {
-    case PowerShell:
-    case Bash:
-    case Zsh:
-    case Wsl:
-        return true;
-    case Nvim:
-    case MegaCity:
-    case BioView:
-    case SatView:
-    case NanoVGDemo:
-    case Markdown:
-    case Kanban:
-    case Score:
-        return false;
-    }
-    return false;
-}
 
 HostKind platform_default_split_host_kind_impl()
 {
@@ -82,6 +60,10 @@ PaneManager::SavedLaunchOptions save_launch_options(const HostLaunchOptions& lau
     saved.working_dir = launch.working_dir;
     saved.source_path = launch.source_path;
     saved.startup_commands = launch.startup_commands;
+    saved.remote_terminal_id = launch.remote_terminal_id;
+    saved.client_host_kind = launch.client_host_kind;
+    saved.companion_owner_pane_id
+        = launch.companion_owner_pane_id;
     saved.pty_capture_file = launch.pty_capture_file;
     return saved;
 }
@@ -96,6 +78,10 @@ HostLaunchOptions restore_launch_options(const PaneManager::SavedLaunchOptions& 
     launch.working_dir = saved.working_dir;
     launch.source_path = saved.source_path;
     launch.startup_commands = saved.startup_commands;
+    launch.remote_terminal_id = saved.remote_terminal_id;
+    launch.client_host_kind = saved.client_host_kind;
+    launch.companion_owner_pane_id
+        = saved.companion_owner_pane_id;
     launch.pty_capture_file = saved.pty_capture_file;
     launch.enable_ligatures = deps.config ? deps.config->enable_ligatures : true;
     if (deps.config)
@@ -148,7 +134,7 @@ HostKind PaneManager::platform_default_split_host_kind()
 
 HostKind PaneManager::split_host_kind_for(HostKind primary_kind)
 {
-    if (is_terminal_shell_host(primary_kind))
+    if (is_server_owned_shell_host(primary_kind))
         return primary_kind;
     return platform_default_split_host_kind_impl();
 }
@@ -158,6 +144,14 @@ bool PaneManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
 {
     PERF_MEASURE();
     error_.clear();
+    if (deps_.before_host_destroyed)
+    {
+        for (const auto& [id, host] : hosts_)
+        {
+            if (host)
+                deps_.before_host_destroyed(host.get());
+        }
+    }
     hosts_.clear();
     launch_options_.clear();
     pane_user_names_.clear();
@@ -196,6 +190,11 @@ bool PaneManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
 LeafId PaneManager::split_focused(SplitDirection dir, IHostCallbacks& callbacks)
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+    {
+        error_ = "This layout is owned by the Draxul server.";
+        return kInvalidLeaf;
+    }
     LeafId focused = tree_.focused();
     if (focused == kInvalidLeaf)
         return kInvalidLeaf;
@@ -218,7 +217,7 @@ LeafId PaneManager::split_focused(SplitDirection dir, IHostCallbacks& callbacks)
         launch.working_dir = deps_.default_working_dir.empty()
             ? deps_.options->host_working_dir
             : deps_.default_working_dir;
-        if (is_terminal_shell_host(primary_kind) && launch.kind == primary_kind)
+        if (is_server_owned_shell_host(primary_kind) && launch.kind == primary_kind)
         {
             launch.command = deps_.options->host_command;
             launch.args = deps_.options->host_args;
@@ -252,6 +251,11 @@ LeafId PaneManager::split_focused(SplitDirection dir, HostKind kind, IHostCallba
 LeafId PaneManager::split_focused(SplitDirection dir, HostLaunchOptions launch, IHostCallbacks& callbacks)
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+    {
+        error_ = "This layout is owned by the Draxul server.";
+        return kInvalidLeaf;
+    }
     LeafId focused = tree_.focused();
     if (focused == kInvalidLeaf)
         return kInvalidLeaf;
@@ -283,6 +287,11 @@ LeafId PaneManager::split_focused(SplitDirection dir, HostLaunchOptions launch, 
 bool PaneManager::close_leaf(LeafId id)
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+    {
+        error_ = "This layout is owned by the Draxul server.";
+        return false;
+    }
     if (tree_.leaf_count() <= 1)
         return false;
 
@@ -307,7 +316,11 @@ bool PaneManager::close_leaf(LeafId id)
 
     // Shut down the host
     if (it->second)
+    {
+        if (deps_.before_host_destroyed)
+            deps_.before_host_destroyed(it->second.get());
         it->second->shutdown();
+    }
     hosts_.erase(it);
     launch_options_.erase(id);
     pane_user_names_.erase(id);
@@ -368,7 +381,11 @@ bool PaneManager::restart_leaf(LeafId id, IHostCallbacks& callbacks)
 
     // Shut down the current host.
     if (it->second)
+    {
+        if (deps_.before_host_destroyed)
+            deps_.before_host_destroyed(it->second.get());
         it->second->shutdown();
+    }
     hosts_.erase(it);
 
     // Relaunch the same host in the same pane slot.
@@ -382,6 +399,11 @@ bool PaneManager::restart_leaf(LeafId id, IHostCallbacks& callbacks)
 bool PaneManager::swap_focused_with_next()
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+    {
+        error_ = "Pane reorder is not enabled for shared topology yet.";
+        return false;
+    }
     LeafId focused = tree_.focused();
     if (focused == kInvalidLeaf)
         return false;
@@ -452,6 +474,11 @@ LeafId PaneManager::show_markdown_preview(
     LeafId owner, float top_ratio, std::string_view path, IHostCallbacks& callbacks)
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+    {
+        error_ = "Markdown preview splits are not enabled for shared topology yet.";
+        return kInvalidLeaf;
+    }
 
     // Already open: just reload the source in place, leaving the split alone.
     if (markdown_preview_leaf_ != kInvalidLeaf)
@@ -504,6 +531,8 @@ LeafId PaneManager::show_markdown_preview(
 void PaneManager::hide_markdown_preview()
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+        return;
     if (markdown_preview_leaf_ == kInvalidLeaf)
         return;
 
@@ -526,6 +555,8 @@ void PaneManager::shutdown()
     {
         if (host)
         {
+            if (deps_.before_host_destroyed)
+                deps_.before_host_destroyed(host.get());
             host->shutdown();
             host.reset();
         }
@@ -552,7 +583,7 @@ bool PaneManager::has_restorable_shell_session() const
     {
         if (!hosts_.contains(id))
             return false;
-        if (!is_terminal_shell_host(launch.kind))
+        if (!is_server_owned_shell_host(launch.kind))
             return false;
     }
 
@@ -567,7 +598,7 @@ bool PaneManager::should_preserve_dead_leaf(LeafId id) const
         return false;
     if (host_it->second->is_running())
         return false;
-    if (is_terminal_shell_host(launch_it->second.kind))
+    if (is_server_owned_shell_host(launch_it->second.kind))
     {
         // Preserve shell panes only if they exited abnormally (non-zero exit
         // code). Clean exits (code 0) and unknown exit codes (race between
@@ -577,6 +608,37 @@ bool PaneManager::should_preserve_dead_leaf(LeafId id) const
     }
     // Non-shell hosts (nvim, megacity) are always preserved when they die.
     return true;
+}
+
+bool PaneManager::refresh_markdown_preview(
+    std::string_view path)
+{
+    if (markdown_preview_leaf_ == kInvalidLeaf)
+        return false;
+    IHost* preview = host_for(markdown_preview_leaf_);
+    if (!preview)
+        return false;
+    if (!preview->dispatch_action(
+            std::string("open_file:") + std::string(path)))
+    {
+        return false;
+    }
+    if (auto launch
+        = launch_options_.find(markdown_preview_leaf_);
+        launch != launch_options_.end())
+    {
+        launch->second.source_path = path;
+    }
+    return true;
+}
+
+bool PaneManager::is_server_owned_remote_terminal_leaf(LeafId id) const
+{
+    if (deps_.allow_local_layout_mutation)
+        return false;
+    const auto launch = launch_options_.find(id);
+    return launch != launch_options_.end()
+        && launch->second.kind == HostKind::RemoteTerminal;
 }
 
 std::optional<PaneManager::PaneLayoutSnapshot> PaneManager::snapshot_layout() const
@@ -738,6 +800,178 @@ bool PaneManager::restore_layout(
     return true;
 }
 
+bool PaneManager::reconcile_projected_layout(
+    IHostCallbacks& callbacks, int pixel_w, int pixel_h,
+    const PaneLayoutSnapshot& state)
+{
+    PERF_MEASURE();
+    error_.clear();
+    error_code_.clear();
+    if (!state.tree.root || state.panes.empty())
+    {
+        error_ = "Projected layout has no panes.";
+        return false;
+    }
+
+    SplitTree candidate;
+    if (!candidate.restore(state.tree, pixel_w, pixel_h))
+    {
+        error_ = "Failed to validate the projected split layout.";
+        return false;
+    }
+
+    std::unordered_map<LeafId, const PaneSnapshot*> projected;
+    for (const PaneSnapshot& pane : state.panes)
+    {
+        if (pane.leaf_id == kInvalidLeaf
+            || !projected.emplace(pane.leaf_id, &pane).second)
+        {
+            error_ = "Projected layout contains duplicate pane identities.";
+            return false;
+        }
+    }
+    bool complete = true;
+    candidate.for_each_leaf(
+        [&](LeafId id, const PaneDescriptor&) {
+            if (!projected.contains(id))
+                complete = false;
+        });
+    if (!complete
+        || candidate.leaf_count()
+            != static_cast<int>(projected.size()))
+    {
+        error_ = "Projected layout panes do not match its split tree.";
+        return false;
+    }
+
+    const auto backup = snapshot_layout();
+    const LeafId old_focus = tree_.focused();
+    std::vector<LeafId> removed;
+    for (const auto& [leaf, host] : hosts_)
+    {
+        const auto pane = projected.find(leaf);
+        const auto launch = launch_options_.find(leaf);
+        const bool source_changed
+            = pane != projected.end()
+            && launch != launch_options_.end()
+            && launch->second.source_path
+                != pane->second->launch.source_path;
+        if (pane == projected.end()
+            || launch == launch_options_.end()
+            || launch->second.kind
+                != pane->second->launch.kind
+            || launch->second.remote_terminal_id
+                != pane->second->launch.remote_terminal_id
+            || launch->second.client_host_kind
+                != pane->second->launch.client_host_kind
+            || (source_changed
+                && launch->second.kind
+                    != HostKind::Markdown))
+        {
+            removed.push_back(leaf);
+        }
+        else if (source_changed && host)
+        {
+            host->dispatch_action(
+                std::string("open_file:")
+                + pane->second->launch.source_path);
+            launch->second.source_path
+                = pane->second->launch.source_path;
+        }
+    }
+    for (const LeafId leaf : removed)
+    {
+        if (auto host = hosts_.find(leaf);
+            host != hosts_.end() && host->second)
+        {
+            if (deps_.before_host_destroyed)
+                deps_.before_host_destroyed(host->second.get());
+            host->second->shutdown();
+        }
+        hosts_.erase(leaf);
+        launch_options_.erase(leaf);
+        pane_user_names_.erase(leaf);
+        pane_ids_.erase(leaf);
+        agent_identities_.erase(leaf);
+        agent_restore_policies_.erase(leaf);
+        agent_session_refs_.erase(leaf);
+        runtime_generations_.erase(leaf);
+        runtime_started_at_.erase(leaf);
+    }
+
+    tree_ = std::move(candidate);
+    zoomed_ = false;
+    zoomed_leaf_ = kInvalidLeaf;
+    markdown_preview_leaf_ = kInvalidLeaf;
+    markdown_preview_owner_ = kInvalidLeaf;
+
+    for (const auto& [leaf, pane] : projected)
+    {
+        pane_ids_[leaf] = pane->pane_id.empty()
+            ? legacy_pane_id_for_leaf(leaf)
+            : pane->pane_id;
+        if (pane->pane_name.empty())
+            pane_user_names_.erase(leaf);
+        else
+            pane_user_names_[leaf] = pane->pane_name;
+
+        if (hosts_.contains(leaf))
+        {
+            launch_options_[leaf].companion_owner_pane_id
+                = pane->launch.companion_owner_pane_id;
+            continue;
+        }
+        HostLaunchOptions launch
+            = restore_launch_options(pane->launch, deps_);
+        if (!create_host_for_leaf(
+                leaf, callbacks, std::move(launch), hosts_.empty()))
+        {
+            const std::string projection_error = error_;
+            const std::string projection_error_code = error_code_;
+            if (backup)
+            {
+                restore_layout(
+                    callbacks, pixel_w, pixel_h, *backup);
+            }
+            error_ = projection_error.empty()
+                ? "Failed to create a projected pane host."
+                : projection_error;
+            error_code_ = projection_error_code;
+            return false;
+        }
+    }
+
+    for (const auto& [leaf, pane] : projected)
+    {
+        if (pane->launch.kind != HostKind::Markdown
+            || pane->launch.companion_owner_pane_id.empty())
+        {
+            continue;
+        }
+        const auto owner = std::find_if(
+            pane_ids_.begin(), pane_ids_.end(),
+            [&](const auto& entry) {
+                return entry.second
+                    == pane->launch.companion_owner_pane_id;
+            });
+        if (owner == pane_ids_.end())
+            continue;
+        markdown_preview_leaf_ = leaf;
+        markdown_preview_owner_ = owner->first;
+        break;
+    }
+
+    if (old_focus != tree_.focused())
+    {
+        if (IHost* old_host = host_for(old_focus))
+            old_host->on_focus_lost();
+        if (IHost* new_host = focused_host())
+            new_host->on_focus_gained();
+    }
+    update_all_viewports();
+    return true;
+}
+
 void PaneManager::set_pane_name(LeafId id, std::string name)
 {
     if (name.empty())
@@ -756,6 +990,47 @@ const std::string& PaneManager::pane_name(LeafId id) const
 bool PaneManager::has_pane_name(LeafId id) const
 {
     return pane_user_names_.find(id) != pane_user_names_.end();
+}
+
+std::string PaneManager::pane_display_name(LeafId id) const
+{
+    if (const auto custom = pane_user_names_.find(id);
+        custom != pane_user_names_.end())
+    {
+        return custom->second;
+    }
+
+    if (const auto host = hosts_.find(id);
+        host != hosts_.end() && host->second)
+    {
+        if (std::string name = host->second->display_name();
+            !name.empty())
+        {
+            return name;
+        }
+    }
+
+    const auto launch = launch_options_.find(id);
+    if (launch == launch_options_.end())
+        return "Pane";
+
+    HostKind kind = launch->second.kind;
+    if (!launch->second.client_host_kind.empty()
+        && launch->second.client_host_kind != "platform_default")
+    {
+        const auto projected
+            = parse_host_kind(launch->second.client_host_kind);
+        if (!projected)
+            return launch->second.client_host_kind;
+        kind = *projected;
+    }
+    if (const auto* metadata
+        = HostProviderRegistry::global().metadata(kind))
+    {
+        if (!metadata->display_name.empty())
+            return metadata->display_name;
+    }
+    return to_string(kind);
 }
 
 const std::string& PaneManager::pane_id(LeafId id) const
@@ -893,6 +1168,9 @@ IHost* PaneManager::host_at_point(int px, int py)
 std::optional<PaneManager::DividerHitInfo> PaneManager::divider_at_point(int px, int py) const
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation
+        && !deps_.request_projected_divider_ratio)
+        return std::nullopt;
     auto result = tree_.hit_test(px, py);
     if (const auto* div_hit = std::get_if<SplitTree::DividerHit>(&result))
         return DividerHitInfo{ div_hit->id, div_hit->direction };
@@ -922,6 +1200,23 @@ void PaneManager::update_divider_from_pixel(DividerId id, int px, int py, int ce
     // through the tree directly rather than recompute_viewports() — the latter
     // would override the chrome reservation with (0, 0) and hide the tab bar.
     const int snap = snap_step_for_divider(tree_, id, cell_w, cell_h);
+    if (!deps_.allow_local_layout_mutation)
+    {
+        if (deps_.request_projected_divider_ratio)
+        {
+            if (const auto ratio
+                = tree_.divider_ratio_from_pixel(id, px, py, snap))
+            {
+                // Projected layouts are still optimistic while the pointer
+                // is moving. App trails this with one authoritative command;
+                // a later server snapshot confirms or corrects the preview.
+                tree_.set_divider_ratio(id, *ratio);
+                update_all_viewports();
+                deps_.request_projected_divider_ratio(id, *ratio);
+            }
+        }
+        return;
+    }
     tree_.update_divider_from_pixel(id, px, py, snap);
     update_all_viewports();
 }
@@ -929,11 +1224,19 @@ void PaneManager::update_divider_from_pixel(DividerId id, int px, int py, int ce
 void PaneManager::nudge_divider(DividerId id, float delta, int cell_w, int cell_h)
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+        return;
     if (zoomed_)
         return;
     const int snap = snap_step_for_divider(tree_, id, cell_w, cell_h);
     tree_.nudge_divider(id, delta, snap);
     update_all_viewports();
+}
+
+std::optional<float> PaneManager::divider_ratio(
+    DividerId id) const
+{
+    return tree_.divider_ratio(id);
 }
 
 DividerId PaneManager::find_focused_ancestor_divider(FocusDirection direction) const
@@ -945,6 +1248,7 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
     HostLaunchOptions launch, bool is_primary)
 {
     PERF_MEASURE();
+    error_code_.clear();
     if (!pane_ids_.contains(id))
     {
         for (;;)
@@ -978,7 +1282,15 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
 
     std::unique_ptr<IHost> new_host;
 
-    if (deps_.options && deps_.options->host_factory)
+    const bool projected_client_host
+        = !launch.client_host_kind.empty()
+        && launch.client_host_kind != "platform_default";
+    if (projected_client_host
+        && !parse_host_kind(launch.client_host_kind))
+    {
+        new_host = std::make_unique<UnavailableHost>();
+    }
+    else if (deps_.options && deps_.options->host_factory)
     {
         new_host = deps_.options->host_factory(launch.kind);
     }
@@ -986,6 +1298,9 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
     {
         new_host = HostProviderRegistry::global().create(launch.kind);
     }
+
+    if (!new_host && projected_client_host)
+        new_host = std::make_unique<UnavailableHost>();
 
     if (!new_host)
     {
@@ -1021,6 +1336,7 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
     {
         pane_ids_.erase(id);
         error_ = new_host->init_error();
+        error_code_ = new_host->init_error_code();
         if (error_.empty())
             error_ = "Failed to initialize the selected host.";
         return false;
@@ -1048,6 +1364,8 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
 void PaneManager::equalize_splits(IHostCallbacks& /*callbacks*/)
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+        return;
     tree_.equalize_splits();
     update_all_viewports();
 }

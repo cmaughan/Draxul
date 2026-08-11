@@ -47,8 +47,7 @@ set(DRAXUL_APP_TEST_SOURCES
     input_dispatcher_routing_tests.cpp
     overlay_allocation_failure_tests.cpp
     pane_status_pill_tests.cpp
-    session_cli_tests.cpp
-    session_listing_tests.cpp
+    server_status_surface_tests.cpp
     session_state_tests.cpp
     space_controller_tests.cpp
     split_tree_tests.cpp
@@ -56,6 +55,7 @@ set(DRAXUL_APP_TEST_SOURCES
     startup_rollback_tests.cpp
     tab_keybinding_roundtrip_tests.cpp
     toast_host_tests.cpp
+    topology_mutation_route_tests.cpp
 )
 file(GLOB DRAXUL_MARKDOWN_KANBAN_TEST_SOURCES CONFIGURE_DEPENDS
     RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
@@ -257,6 +257,9 @@ target_link_libraries(draxul-test-core PRIVATE
     draxul-grid
     draxul-nvim
     draxul-config
+    draxul-client
+    draxul-protocol
+    draxul-server
     draxul-gui
     draxul-runtime-support
     draxul-render-test
@@ -331,7 +334,10 @@ if(DRAXUL_ENABLE_SCOREVIEW)
         draxul-scoreview-host-test-internals
     )
 
-    foreach(scoreview_target draxul-test-scoreview draxul-test-scoreview-host)
+    foreach(scoreview_target
+        draxul-test-app
+        draxul-test-scoreview
+        draxul-test-scoreview-host)
         target_compile_definitions(${scoreview_target} PRIVATE
             DRAXUL_ENABLE_SCOREVIEW
             DRAXUL_VEROVIO_DATA_DIR="${verovio_SOURCE_DIR}/data"
@@ -353,6 +359,17 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} -m unittest tests.do_py_tests
 )
 set_tests_properties(draxul-do-py-tests
+    PROPERTIES
+        LABELS "unit;python"
+        TIMEOUT 120
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+
+add_test(
+    NAME draxul-review-skill-py-tests
+    COMMAND ${Python3_EXECUTABLE} -m unittest tests.review_skill_tests
+)
+set_tests_properties(draxul-review-skill-py-tests
     PROPERTIES
         LABELS "unit;python"
         TIMEOUT 120
@@ -388,8 +405,32 @@ target_link_libraries(draxul-performance-link-isolation PRIVATE draxul-performan
 add_executable(draxul-host-link-isolation link_isolation/host_public_header.cpp)
 target_link_libraries(draxul-host-link-isolation PRIVATE draxul-host)
 
+add_executable(draxul-terminal-core-link-isolation link_isolation/terminal_core_public_header.cpp)
+target_link_libraries(draxul-terminal-core-link-isolation PRIVATE draxul-terminal-core)
+
+add_executable(draxul-terminal-process-link-isolation link_isolation/terminal_process_public_header.cpp)
+target_link_libraries(draxul-terminal-process-link-isolation PRIVATE draxul-terminal-process)
+
+add_executable(draxul-protocol-link-isolation link_isolation/protocol_public_header.cpp)
+target_link_libraries(draxul-protocol-link-isolation PRIVATE draxul-protocol)
+
+add_executable(draxul-client-link-isolation link_isolation/client_public_header.cpp)
+target_link_libraries(draxul-client-link-isolation PRIVATE draxul-client)
+
+add_executable(draxul-server-link-isolation link_isolation/server_public_header.cpp)
+target_link_libraries(draxul-server-link-isolation PRIVATE draxul-server)
+
 add_dependencies(draxul-tests
     draxul-bmp-link-isolation
     draxul-performance-link-isolation
     draxul-host-link-isolation
+    draxul-terminal-core-link-isolation
+    draxul-terminal-process-link-isolation
+    draxul-protocol-link-isolation
+    draxul-client-link-isolation
+    draxul-server-link-isolation
+)
+
+target_compile_definitions(draxul-test-core PRIVATE
+    DRAXUL_EXECUTABLE_PATH="$<TARGET_FILE:draxul>"
 )

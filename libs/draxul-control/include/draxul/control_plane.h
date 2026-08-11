@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -11,7 +13,9 @@ namespace draxul
 {
 
 inline constexpr int kControlProtocolVersion = 1;
-inline constexpr size_t kControlMaxMessageBytes = 256 * 1024;
+// Terminal snapshots also travel over this endpoint in the experimental
+// server/client path. Individual methods apply tighter semantic limits.
+inline constexpr size_t kControlMaxMessageBytes = 8 * 1024 * 1024;
 inline constexpr size_t kControlMaxJsonDepth = 32;
 
 struct ControlRequest
@@ -19,6 +23,10 @@ struct ControlRequest
     std::string id;
     std::string method;
     nlohmann::json params = nlohmann::json::object();
+    // Set from the caller's remaining request budget when decoded. Handlers
+    // do not need to inspect it; ControlServer skips expired queued work.
+    std::chrono::steady_clock::time_point expires_at
+        = std::chrono::steady_clock::time_point::max();
 };
 
 struct ControlMethodResult
@@ -40,10 +48,26 @@ struct ControlClientResult
     std::string error_message;
 };
 
+struct ControlRequestOptions
+{
+    // Bounds the complete connect/write/read exchange. This is deliberately
+    // an absolute request budget rather than a timeout that restarts after
+    // every partial I/O operation.
+    std::chrono::milliseconds timeout = std::chrono::seconds(5);
+    // Internal recovery path for a server that restarted while its metadata
+    // was cached. Normal callers leave this false.
+    bool refresh_metadata = false;
+};
+
 std::filesystem::path control_runtime_directory(
     const std::filesystem::path& config_directory);
 std::filesystem::path control_metadata_path(
     const std::filesystem::path& runtime_directory, std::string_view session_id);
+// Builds a stable per-runtime namespace for global services. This matters on
+// Windows, where the named-pipe namespace is not scoped by the metadata
+// directory, and keeps test runtime overrides isolated from production.
+std::string namespaced_control_id(std::string_view base_id,
+    const std::filesystem::path& runtime_directory);
 
 class ControlServer
 {
@@ -58,7 +82,8 @@ public:
     bool start(std::string session_id,
         std::filesystem::path runtime_directory,
         std::function<void()> wake_main_thread,
-        std::string* error = nullptr);
+        std::string* error = nullptr,
+        nlohmann::json metadata_extra = nlohmann::json::object());
     void stop();
     bool running() const;
     // True when the last start() failed specifically because another live
@@ -66,10 +91,19 @@ public:
     // to tell "someone else is running this Session" apart from "the endpoint
     // could not be created here". Cleared by a successful start().
     bool endpoint_in_use() const;
+    // Returns and clears the most recent listener recreation error. This lets
+    // callers surface transient platform failures without coupling the
+    // transport library to logging.
+    uint32_t take_listener_error();
     void process_pending(const Handler& handler);
 
     const std::string& endpoint() const;
     const std::filesystem::path& metadata_path() const;
+    // Disown the published endpoint files without stopping. For a server that
+    // discovered it was EVICTED (a successor now owns the same path): its
+    // stop() must not unlink the successor's socket or metadata, which live
+    // at the path this instance originally claimed.
+    void abandon_endpoint();
 
 private:
     class Impl;
@@ -82,7 +116,8 @@ public:
     static ControlClientResult request(std::string_view session_id,
         const std::filesystem::path& runtime_directory,
         std::string_view method,
-        nlohmann::json params = nlohmann::json::object());
+        nlohmann::json params = nlohmann::json::object(),
+        ControlRequestOptions options = {});
 };
 
 } // namespace draxul

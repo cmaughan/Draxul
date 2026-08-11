@@ -87,6 +87,10 @@ public:
     virtual void* native_handle() = 0; // NOSONAR cpp:S5008
     virtual std::pair<int, int> size_logical() const = 0;
     virtual std::pair<int, int> size_pixels() const = 0;
+    virtual bool is_minimized() const
+    {
+        return false;
+    }
     virtual int width_pixels() const
     {
         auto [w, h] = size_pixels();

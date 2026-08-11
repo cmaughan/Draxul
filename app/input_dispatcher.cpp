@@ -525,13 +525,17 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
         }
     }
 
-    // Space sidebar click — activate the stable Space id represented by the row.
+    // Space sidebar click — double-click uses the same inline rename editor as
+    // tabs and pane pills; a single click activates the stable Space id.
     if (event.pressed && deps_.router)
     {
         const int space_id = deps_.router->hit_test_space(phys_x, phys_y);
         if (space_id >= 0)
         {
-            deps_.router->activate_space(space_id);
+            if (event.clicks >= 2)
+                deps_.router->begin_space_rename(space_id);
+            else
+                deps_.router->activate_space(space_id);
             return;
         }
     }
@@ -813,6 +817,12 @@ void InputDispatcher::set_host(IHost* host)
     if (deps_.host && deps_.host != host)
         deps_.host->on_focus_lost();
     deps_.host = host;
+}
+
+void InputDispatcher::clear_host_if(const IHost* host)
+{
+    if (deps_.host == host)
+        set_host(nullptr);
 }
 
 void InputDispatcher::connect(IWindow& window)

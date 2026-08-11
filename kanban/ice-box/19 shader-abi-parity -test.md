@@ -80,7 +80,8 @@ cannot make the parity check pass-when-it-should-fail. No dependency on 06 was i
 (largest grid contract, same bg/fg pipeline), then the product modules — NanoVG, then
 Markdown / MegaCity / SatView push-constant + SSBO contracts.
 
-**Relation to `kanban/pending/27` (renderer/module refactor):** this gives 27 a partial
+**Relation to `kanban/done/27 megacity-host-renderer-decomposition -refactor.md`:** this gives
+that renderer/module refactor a partial
 safety net — any refactor that reorders/resizes the grid push-constant block or moves its
 Metal/Vulkan bindings now fails the build (C++ layout) or `[shader_abi]` (bindings/MSL/GLSL)
 instead of silently corrupting positioning/scroll/viewport. Coverage is limited to the

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Draxul AI Preflight"
+  short_description: "Verify Draxul AI reviewer connectivity"
+  default_prompt: "Use $draxul-preflight to verify every configured AI reviewer."

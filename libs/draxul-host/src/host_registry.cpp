@@ -39,6 +39,11 @@ HostProviderMetadata default_metadata(HostKind kind)
         metadata.display_name = "WSL";
         metadata.platforms = { .windows = true, .macos = false, .other_unix = false };
         break;
+    case HostKind::RemoteTerminal:
+        metadata.display_name = "Remote Terminal";
+        metadata.palette_visible = false;
+        metadata.launch_contexts = HostLaunchContext::None;
+        break;
     case HostKind::MegaCity:
         metadata.display_name = "MegaCity";
         break;
@@ -64,6 +69,8 @@ HostProviderMetadata default_metadata(HostKind kind)
         break;
     case HostKind::Score:
         metadata.display_name = "ScoreView";
+        break;
+    case HostKind::Count:
         break;
     }
     return metadata;
@@ -103,6 +110,26 @@ void HostProviderRegistry::register_provider(HostProviderMetadata metadata, Host
         }
     }
     providers_.push_back(Entry{ std::move(metadata), std::move(factory) });
+}
+
+void HostProviderRegistry::register_metadata(HostKind kind)
+{
+    HostProviderMetadata metadata = default_metadata(kind);
+    if (!host_provider_available_on_current_platform(
+            metadata.platforms))
+    {
+        return;
+    }
+    for (auto& entry : providers_)
+    {
+        if (entry.metadata.kind == kind)
+        {
+            entry.metadata = std::move(metadata);
+            return;
+        }
+    }
+    providers_.push_back(
+        Entry{ std::move(metadata), {} });
 }
 
 bool HostProviderRegistry::has(HostKind kind) const

@@ -175,14 +175,38 @@ TEST_CASE("ChromeHost exposes and hit-tests the Space sidebar when multiple Spac
     f.refresh_layout();
     REQUIRE(f.layout.sidebar.w == 200);
 
-    CHECK(f.host->hit_test_space(10, 70) == kDefaultSpaceId);
-    CHECK(f.host->hit_test_space(10, 90) == renderer);
-    CHECK(f.host->hit_test_space(210, 70) == kInvalidSpaceId);
+    CHECK(f.host->hit_test_space(10, 30) == kDefaultSpaceId);
+    CHECK(f.host->hit_test_space(10, 50) == renderer);
+    CHECK(f.host->hit_test_space(210, 30) == kInvalidSpaceId);
 
     const auto [tab_left, tab_right] = f.expected_tab_px_range(0);
     CHECK(f.host->hit_test_tab(tab_left, 10) == 0);
     CHECK(f.host->hit_test_tab(204 + tab_left, 10) == 1);
     CHECK(f.host->hit_test_tab(204 + tab_right, 10) == 0);
+}
+
+TEST_CASE("ChromeHost hit-tests the visible single Space when agents reveal the sidebar",
+    "[chrome_host][spaces][hittest][agents]")
+{
+    TabBarFixture f{ { 1, "alpha" } };
+    HostViewport viewport;
+    viewport.pixel_size = { 800, 600 };
+    f.host->set_viewport(viewport);
+    f.layout = compute_app_shell_layout({
+        .window_width = 800,
+        .window_height = 600,
+        .terminal_height = 600,
+        .cell_width = f.renderer.cell_width_pixels,
+        .cell_height = f.renderer.cell_height_pixels,
+        .preferred_sidebar_columns = 20,
+        .space_count = 1,
+        .show_sidebar = true,
+    });
+    f.host->set_shell_layout(f.layout);
+
+    REQUIRE(f.layout.sidebar_visible);
+    CHECK(f.host->hit_test_space(10, 30)
+        == kDefaultSpaceId);
 }
 
 TEST_CASE("ChromeHost clamps the Space sidebar on narrow viewports", "[chrome_host][spaces]")

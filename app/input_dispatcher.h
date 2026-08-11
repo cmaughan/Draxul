@@ -45,6 +45,7 @@ public:
     virtual void activate_space(int space_id) = 0;
     virtual void activate_agent(int one_based_index) = 0;
     virtual void activate_pane(int one_based_index) = 0;
+    virtual void begin_space_rename(int space_id) = 0;
     virtual void begin_tab_rename(int one_based_index) = 0;
     virtual void begin_pane_rename(LeafId leaf) = 0;
     virtual bool is_editing() = 0;
@@ -114,6 +115,10 @@ public:
 
     // Updates the host pointer (used when focus changes between panes).
     void set_host(IHost* host);
+    // Releases the input route only when it still points at the supplied
+    // host. Owners call this while the host is alive, immediately before
+    // destroying it.
+    void clear_host_if(const IHost* host);
 
     // Updates the pixel scale (called when the display DPI changes).
     void set_pixel_scale(PixelScale scale)

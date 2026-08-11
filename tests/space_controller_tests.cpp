@@ -454,6 +454,143 @@ TEST_CASE("the frame projection is shared per frame while query stays fresh",
     spaces.shutdown_all();
 }
 
+TEST_CASE("server agent projection focuses locally and acknowledges attention",
+    "[agent_controller][agent][server]")
+{
+    SpaceHostHarness harness;
+    SpaceController spaces;
+    Space* default_space
+        = spaces.find_space(kDefaultSpaceId);
+    REQUIRE(default_space != nullptr);
+    REQUIRE(harness.create_initial_tab(*default_space));
+    const int default_tab
+        = default_space->tab_controller.active_tab_id();
+    const LeafId default_leaf
+        = default_space->tab_controller
+              .active_pane_manager()
+              .focused_leaf();
+
+    const SpaceId worker_id
+        = spaces.create_space("worker");
+    Space* worker = spaces.find_space(worker_id);
+    REQUIRE(worker != nullptr);
+    REQUIRE(harness.create_initial_tab(*worker));
+    const int worker_tab
+        = worker->tab_controller.active_tab_id();
+    const LeafId worker_leaf
+        = worker->tab_controller
+              .active_pane_manager()
+              .focused_leaf();
+
+    AgentController agents;
+    agents.set_server_agents({
+        {
+            .space_id = kDefaultSpaceId,
+            .tab_id = default_tab,
+            .leaf_id = default_leaf,
+            .pane_id = "pane-default",
+            .identity = {
+                .kind = "codex",
+                .display_name = "Codex",
+                .instance_id = "server-agent-default",
+                .origin = AgentIdentityOrigin::Discovered,
+            },
+            .lifecycle = AgentLifecycle::Running,
+            .generation = { 1 },
+            .status = AgentStatus::Idle,
+            .status_explanation = {
+                .status = AgentStatus::Idle,
+                .observation_generation = 4,
+            },
+            .running = true,
+        },
+        {
+            .space_id = worker_id,
+            .tab_id = worker_tab,
+            .leaf_id = worker_leaf,
+            .pane_id = "pane-worker",
+            .identity = {
+                .kind = "claude",
+                .display_name = "Claude",
+                .instance_id = "server-agent-worker",
+                .origin = AgentIdentityOrigin::Discovered,
+            },
+            .lifecycle = AgentLifecycle::Running,
+            .generation = { 1 },
+            .status = AgentStatus::Blocked,
+            .status_explanation = {
+                .status = AgentStatus::Blocked,
+                .observation_generation = 5,
+            },
+            .attention = true,
+            .running = true,
+        },
+    });
+
+    auto rows = agents.query(spaces);
+    REQUIRE(rows.size() == 2);
+    CHECK(rows[0].focused);
+    CHECK_FALSE(rows[1].focused);
+    CHECK(rows[1].attention);
+
+    REQUIRE(agents.focus(
+        spaces, "server-agent-worker"));
+    CHECK(spaces.active_space_id() == worker_id);
+    rows = agents.query(spaces);
+    CHECK(rows[1].focused);
+    CHECK_FALSE(rows[1].attention);
+
+    REQUIRE(agents.focus(
+        spaces, "server-agent-default"));
+    rows = agents.query(spaces);
+    CHECK_FALSE(rows[1].focused);
+    CHECK_FALSE(rows[1].attention);
+
+    auto refreshed = rows;
+    refreshed[1].status_explanation.observation_generation = 6;
+    refreshed[1].attention = true;
+    agents.set_server_agents(std::move(refreshed));
+    rows = agents.query(spaces);
+    CHECK(rows[1].attention);
+    const auto stale_before_restart = rows;
+
+    REQUIRE(agents.note_server_agent_restart(
+        "server-agent-worker", { 2 }));
+    rows = agents.query(spaces);
+    REQUIRE(rows.size() == 2);
+    CHECK(rows[1].generation.value == 2);
+    CHECK(rows[1].lifecycle
+        == AgentLifecycle::Starting);
+    CHECK(rows[1].status == AgentStatus::Unknown);
+    CHECK(rows[1].status_authority
+        == AgentStateAuthority::None);
+    CHECK_FALSE(rows[1].attention);
+    CHECK(rows[1].running);
+
+    agents.set_server_agents(stale_before_restart);
+    rows = agents.query(spaces);
+    REQUIRE(rows.size() == 2);
+    CHECK(rows[1].generation.value == 2);
+    CHECK(rows[1].lifecycle
+        == AgentLifecycle::Starting);
+
+    auto caught_up = stale_before_restart;
+    caught_up[1].generation = { 2 };
+    caught_up[1].lifecycle
+        = AgentLifecycle::Running;
+    caught_up[1].status = AgentStatus::Idle;
+    agents.set_server_agents(std::move(caught_up));
+    rows = agents.query(spaces);
+    CHECK(rows[1].generation.value == 2);
+    CHECK(rows[1].lifecycle
+        == AgentLifecycle::Running);
+    CHECK(rows[1].status == AgentStatus::Idle);
+    CHECK_FALSE(agents.note_server_agent_restart(
+        "missing-agent", { 3 }));
+
+    spaces.shutdown_all();
+}
+
 TEST_CASE("agent controller discovers manual agents without persisting identity",
     "[agent_controller][agent][discovery]")
 {

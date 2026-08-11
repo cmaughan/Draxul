@@ -33,6 +33,16 @@ struct HostLaunchOptions
     std::string source_path;
     std::vector<std::string> startup_commands;
     std::vector<std::pair<std::string, std::string>> environment;
+    // Stable server-owned terminal identity used by RemoteTerminalHost.
+    // Empty selects the server's compatibility/default terminal.
+    std::string remote_terminal_id;
+    // Exact server topology descriptor for a client-local pane. This stays
+    // populated even when this build cannot parse the kind, allowing an
+    // inert placeholder to preserve and later reconcile the foreign pane.
+    std::string client_host_kind;
+    // Durable launch data for client-local panes projected from shared
+    // topology. These let every UI reconstruct the same local host.
+    std::string companion_owner_pane_id;
     bool enable_ligatures = true;
     std::string pty_capture_file;
 
@@ -72,7 +82,7 @@ struct HostReloadConfig
     bool smooth_scroll = true;
     float scroll_speed = 1.0f;
     float palette_bg_alpha = 0.9f;
-    float markdown_font_size = 11.0f;
+    float markdown_font_size = 10.0f; // one point below the default terminal font size
     float markdown_margin_columns = 2.0f;
     int selection_max_cells = 65536;
     bool copy_on_select = true;
@@ -153,6 +163,13 @@ public:
     // if one exists. No-op otherwise.
     virtual void hide_markdown_preview() {}
 
+    // Reports whether the active pane manager already contains a companion
+    // Markdown preview. Hosts use this to recover view state after reconnect.
+    virtual bool is_markdown_preview_visible() const
+    {
+        return false;
+    }
+
     // Show a non-blocking toast notification. level: 0=info, 1=warn, 2=error.
     virtual void push_toast(int /*level*/, std::string_view /*message*/) {}
 };
@@ -179,6 +196,12 @@ public:
     virtual void shutdown() = 0;
     virtual bool is_running() const = 0;
     virtual std::string init_error() const = 0;
+    // Optional stable error identity for callers that can recover from a
+    // particular initialization race without matching human-readable text.
+    virtual std::string init_error_code() const
+    {
+        return {};
+    }
 
     virtual void set_viewport(const HostViewport& viewport) = 0;
     virtual void on_font_metrics_changed()
@@ -251,9 +274,15 @@ public:
         return false;
     }
 
-    // One-line status string shown in the per-pane status bar (WI 78). Hosts
-    // override to expose host kind, dimensions, cwd, etc. Returning an empty
-    // string causes the status bar to display a generic placeholder.
+    // Stable user-facing identity for chrome. Runtime diagnostics belong in
+    // status_text() so changing connection state does not rename the pane.
+    virtual std::string display_name() const
+    {
+        return {};
+    }
+
+    // One-line runtime diagnostics exposed by hosts (dimensions, connection
+    // role, cwd, etc.). This is deliberately separate from display_name().
     virtual std::string status_text() const
     {
         return {};

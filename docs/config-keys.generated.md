@@ -41,7 +41,7 @@ Markdown viewer layout and font options.
 
 | Key | Type | Default | Range | Description |
 |-----|------|---------|-------|-------------|
-| `font_size` | float | `11` | 6 .. 72 | Markdown viewer font point size. Defaults to the global font_size when unset. |
+| `font_size` | float | `10` | 6 .. 72 | Markdown viewer font point size. Defaults to the global font_size minus 1pt when unset. |
 | `margin_columns` | float | `2` | 0 .. 24 | Markdown viewer horizontal margin, in text columns. |
 
 ## [chrome]
@@ -54,15 +54,16 @@ UI chrome color theme.
 | `tab_active_fg` | color (#RRGGBB) | `#f5e0dc` |  | Active tab label color. |
 | `tab_inactive_fg` | color (#RRGGBB) | `#cdd6f4` |  | Inactive tab label color. |
 | `space_active_bg` | color (#RRGGBB) | `#89b4fa` |  | Active Space number accent color. |
+| `agent_active_bg` | color (#RRGGBB) | `#cba6f7` |  | Focused or attention Agent number accent color. |
 | `tab_active_bg` | color (#RRGGBB) | `#b93c3c` |  | Active tab background color. |
-| `tab_inactive_bg` | color (#RRGGBB) | `#45475a` |  | Inactive tab background color. |
+| `tab_inactive_bg` | color (#RRGGBB) | `#45475a` |  | Secondary neutral chrome fill for section headers and pane outlines. |
 | `tab_editing_bg` | color (#RRGGBB) | `#8c90af` |  | Tab background while its name is being edited. |
 | `divider` | color (#RRGGBB) | `#78788c` |  | Spaces/Agents section divider color. |
 | `focus_border` | color (#RRGGBB) | `#7b2828` |  | Focused pane border color. |
-| `status_bar_bg` | color (#RRGGBB) | `#45475a` |  | Status bar background color. |
+| `status_bar_bg` | color (#RRGGBB) | `#45475a` |  | Legacy pane status body color retained for config compatibility. |
 | `status_bar_fg` | color (#RRGGBB) | `#cdd6f4` |  | Status bar text color. |
 | `status_focused_accent_bg` | color (#RRGGBB) | `#3ca55f` |  | Status bar accent background for the focused pane. |
-| `status_inactive_accent_bg` | color (#RRGGBB) | `#6e738c` |  | Status bar accent background for inactive panes. |
+| `status_inactive_accent_bg` | color (#RRGGBB) | `#6e738c` |  | Legacy inactive pane accent retained for config compatibility. |
 | `status_editing_bg` | color (#RRGGBB) | `#8c90af` |  | Status bar background while editing. |
 | `resource_pill_bg` | color (#RRGGBB) | `#f9e2af` |  | Resource pill background color. |
 | `resource_pill_fg` | color (#RRGGBB) | `#1a1a1f` |  | Resource pill text color. |

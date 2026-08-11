@@ -7,8 +7,10 @@
 #include <draxul/app_config_types.h>
 #include <draxul/host_kind.h>
 #include <draxul/renderer.h>
+#include <draxul/server_protocol.h>
 #include <draxul/window.h>
 #include <chrono>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -18,6 +20,7 @@
 namespace draxul
 {
 
+class ClientRecoveryState;
 class IHost;
 
 struct AppOptions
@@ -42,6 +45,17 @@ struct AppOptions
     // desktop launches enable this alongside file-backed Session restore;
     // tests and embedded front-ends opt in explicitly.
     bool enable_control_server = false;
+    // Slice 2 only records the experimental server connection. Terminal
+    // ownership remains local until the later terminal-runtime slices.
+    std::optional<ServerWelcome> server_connection;
+    // Shared mutable epoch and per-channel recovery policy for the Session
+    // worker and every projected remote terminal in this UI.
+    std::shared_ptr<ClientRecoveryState> client_recovery;
+    // Slice 6 experimental topology projection. The server owns structural
+    // Space/tab/pane values; the UI keeps its active route and presentation.
+    bool enable_remote_topology = false;
+    std::filesystem::path server_runtime_directory;
+    std::string server_client_id;
     // Request that the renderer skip vblank waiting so a host can drive
     // continuous refresh (3D scenes, animation-heavy hosts). The host kind
     // doesn't matter — any host that wants to render every frame can opt in.

@@ -25,6 +25,7 @@ is (design docs, research, and review output — **not** work items; those live 
 
 | Plan | Status | Notes |
 |------|--------|-------|
+| [server-client-terminal-runtime.md](server-client-terminal-runtime.md) | active | Comprehensive vertical-slice plan for one server-owned terminal/agent runtime, reconnectable GPU clients, deterministic two-client reflection, optional tray/menu-bar status, and a future SSH bridge. |
 | [herdr-agent-harness-research.md](herdr-agent-harness-research.md) | active | Herdr concept research and phased local agent-harness direction; vocabulary, TabController, the in-memory multi-Space lifecycle, app actions, and Spaces rail are implemented. Multi-Space persistence is refined in the focused plan below. |
 | [multi-space-session-persistence.md](multi-space-session-persistence.md) | active | Source-backed v2 plan: save and restore every loaded Space, retain TOML, use transactional partial restore, and derive the Agents list from pane-owned identity. |
 | [app-shell-layout.md](app-shell-layout.md) | implemented | One authoritative root shell layout, a draggable persisted Spaces/sidebar splitter, and Chrome ownership cleanup without putting app chrome into per-tab pane trees. |
@@ -97,3 +98,9 @@ work that has since shipped; kept for provenance.
 |------|--------|-------|
 | [prompts/](prompts/) | active | Reusable prompt templates (consensus/review/architecture-diagram); wired into the workflow — e.g. CLAUDE.md's `come to consensus` runs `prompts/consensus_review.md`. |
 | [reviews/](reviews/) | research | Point-in-time multi-model review outputs and consensus snapshots. Historical evidence — do not treat as current state. |
+
+## Reviews
+
+| Review | Status | Notes |
+|--------|--------|-------|
+| [reviews/2026-07-30-server-client-runtime-review.md](reviews/2026-07-30-server-client-runtime-review.md) | research | Full review of the `codex/server-client-runtime` branch — protocol, server services, clients, transport/bootstrap, and app integration. Evidence behind `kanban/pending/12`-`27`, with severity reasoning and a recommended fix order. |

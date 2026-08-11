@@ -189,13 +189,11 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
                 IHost* host = manager->host_for(leaf);
                 if (!host || descriptor.pixel_size.x <= 0 || descriptor.pixel_size.y <= 0)
                     return;
-                std::string override_name;
-                if (input.show_status && deps_.get_pane_name)
-                    override_name = deps_.get_pane_name(leaf);
                 std::string text;
                 if (input.show_status)
                 {
-                    text = override_name.empty() ? host->status_text() : std::move(override_name);
+                    if (deps_.get_pane_display_name)
+                        text = deps_.get_pane_display_name(leaf);
                     if (!host->is_running() && text.find("[exited]") == std::string::npos)
                     {
                         if (!text.empty())
@@ -224,7 +222,7 @@ int ChromeHost::hit_test_tab(int px, int py) const
 
 SpaceId ChromeHost::hit_test_space(int px, int py) const
 {
-    if (!deps_.space_controller || deps_.space_controller->count() <= 1
+    if (!deps_.space_controller || !shell_layout_.sidebar_visible
         || !deps_.grid_renderer)
         return kInvalidSpaceId;
     return static_cast<SpaceId>(hit_test_chrome(
@@ -276,6 +274,26 @@ void ChromeHost::begin_tab_rename(int tab_index)
         begin_tab_rename_by_id(tab_id);
 }
 
+void ChromeHost::begin_space_rename(SpaceId space_id)
+{
+    if (!deps_.space_controller || space_id == kInvalidSpaceId)
+        return;
+    if (rename_editor_.active()
+        && !(rename_editor_.editing_space()
+            && rename_editor_.space_id() == space_id))
+    {
+        if (auto commit = rename_editor_.commit())
+            apply_rename_commit(std::move(*commit));
+    }
+    if (const Space* space
+        = deps_.space_controller->find_space(space_id))
+    {
+        rename_editor_.begin_space(space_id, space->name);
+        if (deps_.request_frame)
+            deps_.request_frame();
+    }
+}
+
 void ChromeHost::begin_tab_rename_by_id(int tab_id)
 {
     const TabController* controller = active_tabs();
@@ -317,6 +335,16 @@ void ChromeHost::begin_pane_rename(LeafId leaf)
         deps_.request_frame();
 }
 
+bool ChromeHost::is_editing_space() const
+{
+    return rename_editor_.editing_space();
+}
+
+SpaceId ChromeHost::editing_space_id() const
+{
+    return static_cast<SpaceId>(rename_editor_.space_id());
+}
+
 bool ChromeHost::is_editing_tab() const
 {
     return rename_editor_.editing_tab();
@@ -344,7 +372,16 @@ bool ChromeHost::is_editing() const
 
 void ChromeHost::apply_rename_commit(RenameCommit commit)
 {
-    if (commit.target == RenameTarget::Tab)
+    if (commit.target == RenameTarget::Space)
+    {
+        if (!commit.text.empty() && deps_.set_space_name)
+        {
+            deps_.set_space_name(
+                static_cast<SpaceId>(commit.space_id),
+                std::move(commit.text));
+        }
+    }
+    else if (commit.target == RenameTarget::Tab)
     {
         if (!commit.text.empty() && deps_.set_tab_name)
             deps_.set_tab_name(commit.tab_id, std::move(commit.text));

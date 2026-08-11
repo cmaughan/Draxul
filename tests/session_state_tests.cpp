@@ -159,6 +159,7 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
             .working_dir = "D:/left",
             .source_path = "",
             .startup_commands = { "echo left" },
+            .remote_terminal_id = "terminal-stable-left",
         },
         .pane_name = "left",
         .pane_id = "pane-left",
@@ -298,6 +299,8 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     CHECK(loaded_tab.pane_layout.panes[0].pane_name == "left");
     CHECK(loaded_tab.pane_layout.panes[0].pane_id == "pane-left");
     CHECK(loaded_tab.pane_layout.panes[0].launch.working_dir == "D:/left");
+    CHECK(loaded_tab.pane_layout.panes[0].launch.remote_terminal_id
+        == "terminal-stable-left");
     CHECK(loaded_tab.pane_layout.panes[1].pane_name == "right");
     CHECK(loaded_tab.pane_layout.panes[1].pane_id == "pane-right");
     CHECK(loaded_tab.pane_layout.panes[1].launch.args == (std::vector<std::string>{ "-NoProfile" }));

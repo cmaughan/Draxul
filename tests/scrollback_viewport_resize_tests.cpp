@@ -177,3 +177,24 @@ TEST_CASE("scrollback resize: rows pushed before resize remain accessible after 
     REQUIRE(buf.size() == 15);
     REQUIRE(buf.cols() == 40);
 }
+
+TEST_CASE("scrollback storage can degrade and be initialized again",
+    "[scrollback][resource-bounds]")
+{
+    ScrollbackBuffer buf(
+        make_noop_callbacks(80, 24));
+    buf.resize(80);
+    push_rows(buf, 4);
+    REQUIRE(buf.size() == 4);
+    REQUIRE(buf.next_write_slot() != nullptr);
+
+    buf.release_storage();
+    CHECK(buf.cols() == 0);
+    CHECK(buf.size() == 0);
+    CHECK(buf.next_write_slot() == nullptr);
+
+    buf.resize(40);
+    CHECK(buf.cols() == 40);
+    CHECK(buf.size() == 0);
+    CHECK(buf.next_write_slot() != nullptr);
+}

@@ -44,6 +44,7 @@ public:
     std::function<void(int)> activate_space_fn;
     std::function<void(int)> activate_agent_fn;
     std::function<void(int)> activate_pane_fn;
+    std::function<void(int)> begin_space_rename_fn;
 
     IHost* overlay_host() override
     {
@@ -115,6 +116,11 @@ public:
     }
 
     void begin_tab_rename(int) override {}
+    void begin_space_rename(int space_id) override
+    {
+        if (begin_space_rename_fn)
+            begin_space_rename_fn(space_id);
+    }
     void begin_pane_rename(LeafId) override {}
 
     bool is_editing() override
@@ -222,6 +228,26 @@ TEST_CASE("input dispatcher: null keybindings pointer returns no action", "[inpu
     KeyEvent event{ 0, SDLK_C, kModCtrl | kModShift, true };
     auto action = dispatcher.gui_action_for_key_event(event);
     REQUIRE_FALSE(action.has_value());
+}
+
+TEST_CASE("input dispatcher: owner can release only the host being destroyed",
+    "[input_dispatcher][lifetime]")
+{
+    tests::FakeHost selected("selected");
+    tests::FakeHost unrelated("unrelated");
+    InputDispatcher::Deps deps;
+    deps.host = &selected;
+    InputDispatcher dispatcher(std::move(deps));
+
+    dispatcher.clear_host_if(&unrelated);
+    CHECK(selected.focus_lost_calls == 0);
+
+    dispatcher.clear_host_if(&selected);
+    CHECK(selected.focus_lost_calls == 1);
+
+    // The selected host is no longer touched when a replacement is bound.
+    dispatcher.set_host(&unrelated);
+    CHECK(selected.focus_lost_calls == 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -794,6 +820,31 @@ TEST_CASE("Space sidebar clicks activate a Space and do not reach the active hos
     setup.window.on_mouse_button(make_click(10, 70));
 
     CHECK(activated_space == 7);
+    CHECK(setup.host.mouse_button_events.empty());
+}
+
+TEST_CASE("Space sidebar double-click begins inline rename",
+    "[input_dispatcher][spaces][rename]")
+{
+    OverlayE2ESetup setup;
+    setup.overlay_active = false;
+    int renamed_space = -1;
+    int activated_space = -1;
+    setup.router.app_chrome_width_fn = []() { return 200; };
+    setup.router.hit_test_space_fn = [](int x, int y) {
+        return x < 200 && y >= 60 && y < 80 ? 7 : -1;
+    };
+    setup.router.activate_space_fn
+        = [&activated_space](int id) { activated_space = id; };
+    setup.router.begin_space_rename_fn
+        = [&renamed_space](int id) { renamed_space = id; };
+
+    auto double_click = make_click(10, 70);
+    double_click.clicks = 2;
+    setup.window.on_mouse_button(double_click);
+
+    CHECK(renamed_space == 7);
+    CHECK(activated_space == -1);
     CHECK(setup.host.mouse_button_events.empty());
 }
 

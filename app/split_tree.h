@@ -1,6 +1,7 @@
 #pragma once
 
 #include <draxul/pane_descriptor.h>
+#include <draxul/session_model.h>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -8,17 +9,6 @@
 
 namespace draxul
 {
-
-using LeafId = int;
-using DividerId = int;
-constexpr LeafId kInvalidLeaf = -1;
-constexpr DividerId kInvalidDivider = -1;
-
-enum class SplitDirection
-{
-    Vertical,
-    Horizontal
-};
 
 enum class FocusDirection
 {
@@ -42,22 +32,8 @@ public:
         SplitDirection direction = SplitDirection::Vertical;
     };
 
-    struct SnapshotNode
-    {
-        bool is_leaf = true;
-        LeafId leaf_id = kInvalidLeaf;
-        SplitDirection direction = SplitDirection::Vertical;
-        float ratio = 0.5f;
-        std::unique_ptr<SnapshotNode> first;
-        std::unique_ptr<SnapshotNode> second;
-    };
-
-    struct Snapshot
-    {
-        std::unique_ptr<SnapshotNode> root;
-        LeafId focused_id = kInvalidLeaf;
-        LeafId next_leaf_id = 0;
-    };
+    using SnapshotNode = SessionSplitNode;
+    using Snapshot = SessionSplitTreeSnapshot;
 
     struct LeafHit
     {
@@ -109,6 +85,12 @@ public:
     // Set the split ratio for a divider identified by DividerId.
     // Ratio is clamped to [0.1, 0.9].
     void set_divider_ratio(DividerId id, float ratio);
+
+    // Read or calculate a divider ratio without mutating the tree. The pixel
+    // variant uses the same clamping and optional cell snapping as a drag.
+    std::optional<float> divider_ratio(DividerId id) const;
+    std::optional<float> divider_ratio_from_pixel(
+        DividerId id, int px, int py, int snap_step = 0) const;
 
     // Update a divider's ratio from a mouse pixel position. The pixel is mapped
     // to a position within the divider's parent rect along the split axis.

@@ -11,8 +11,8 @@
 #endif
 #include <draxul/text_service.h>
 
-#include <catch2/catch_all.hpp>
 #include <array>
+#include <catch2/catch_all.hpp>
 #include <draxul/log.h>
 #include <fstream>
 
@@ -62,8 +62,8 @@ TEST_CASE("app config parse returns defaults for empty content", "[config]")
     REQUIRE(config.window_height == defaults.window_height);
     INFO("default font_size");
     REQUIRE(config.font_size == defaults.font_size);
-    INFO("default markdown font_size follows global font_size");
-    REQUIRE(config.markdown.font_size == defaults.font_size);
+    INFO("default markdown font_size follows global font_size, one point smaller");
+    REQUIRE(config.markdown.font_size == defaults.font_size - kMarkdownFontPointSizeOffset);
     INFO("default markdown margin starts at two body character widths");
     REQUIRE(config.markdown.margin_columns == 2.0f);
     INFO("default enable_ligatures");
@@ -138,13 +138,23 @@ TEST_CASE("app config parse reads all fields", "[config]")
     REQUIRE(config.markdown.margin_columns == 3.25f);
 }
 
-TEST_CASE("app config markdown font size defaults to global font size when section is absent", "[config]")
+TEST_CASE("app config markdown font size trails global font size when section is absent", "[config]")
 {
     AppConfig config = AppConfig::parse("font_size = 13\n");
 
     REQUIRE(config.font_size == 13.0f);
-    REQUIRE(config.markdown.font_size == 13.0f);
+    REQUIRE(config.markdown.font_size == 12.0f);
     REQUIRE(config.markdown.margin_columns == 2.0f);
+}
+
+TEST_CASE("app config markdown font size honors an explicit section override", "[config]")
+{
+    AppConfig config = AppConfig::parse(
+        "font_size = 13\n"
+        "[markdown]\n"
+        "font_size = 13\n");
+
+    REQUIRE(config.markdown.font_size == 13.0f);
 }
 
 TEST_CASE("gui keybinding parser handles modifier chords and symbolic keys", "[config]")
@@ -1267,7 +1277,7 @@ TEST_CASE("app config complete schema round-trips every scalar and nested table"
     original.markdown.margin_columns = 4.5f;
 
     using ChromeMember = Color ChromeTheme::*;
-    const std::array<ChromeMember, 21> chrome_members = {
+    const std::array<ChromeMember, 22> chrome_members = {
         &ChromeTheme::tab_bar_bg,
         &ChromeTheme::tab_active_fg,
         &ChromeTheme::tab_inactive_fg,
@@ -1289,6 +1299,7 @@ TEST_CASE("app config complete schema round-trips every scalar and nested table"
         &ChromeTheme::weather_pill_bg,
         &ChromeTheme::editing_outline,
         &ChromeTheme::space_active_bg,
+        &ChromeTheme::agent_active_bg,
     };
     for (std::size_t i = 0; i < chrome_members.size(); ++i)
         original.chrome.*chrome_members[i] = color_from_rgb(0x101010u + static_cast<uint32_t>(i * 0x030507u));

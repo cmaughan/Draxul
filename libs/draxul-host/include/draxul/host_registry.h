@@ -74,6 +74,9 @@ class HostProviderRegistry
 public:
     void register_provider(HostKind kind, HostFactory factory);
     void register_provider(HostProviderMetadata metadata, HostFactory factory);
+    // Registers a server-owned launch kind for discovery/CLI/palette use
+    // without linking a client-local factory into the UI executable.
+    void register_metadata(HostKind kind);
     bool has(HostKind kind) const;
     std::unique_ptr<IHost> create(HostKind kind) const;
     const HostProviderMetadata* metadata(HostKind kind) const;
@@ -93,8 +96,11 @@ private:
     std::vector<Entry> providers_;
 };
 
-// Registers the host kinds that ship with the core terminal product
-// (Nvim, shell family, NanoVG demo). Optional modules are not registered here.
+// Registers client-owned built-ins. Server-owned shell kinds are metadata-only
+// and are registered separately so standalone product windows do not advertise
+// shell actions they cannot execute.
 void register_builtin_host_providers(HostProviderRegistry& registry);
+void register_server_shell_host_metadata(
+    HostProviderRegistry& registry);
 
 } // namespace draxul

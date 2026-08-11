@@ -8,20 +8,205 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 
 | Host | Flag | Description |
 |------|------|-------------|
-| Neovim | `--host nvim` (default) | Embeds `nvim --embed` via msgpack-RPC over stdin/stdout pipes |
+| Neovim | `--host nvim` | Embeds `nvim --embed` via msgpack-RPC over stdin/stdout pipes |
 | Markdown | `--host markdown --source <file.md>` | Native Draxul markdown viewer host using the FreeType/HarfBuzz font pipeline, MD4C parsing, variable-height document rows, configurable body text size/margins, restrained styled headings, section indentation, front matter/code/list/table decorations, mouse wheel/PageUp/PageDown/Home/End plus Vim-style `j/k`, `Ctrl+F/B`, `gg`, `G` scrolling, and a draggable proportional scrollbar |
 | Kanban | `--host kanban [--source <folder>]` | Native grid-backed kanban viewer for a `kanban/` folder. Subfolders become columns, Markdown files become cards, `.draxul-kanban.toml` stores ordering, Vim-style `h/j/k/l`, `Ctrl+F/B`, `gg`, and `G` move selection within the current column, shifted up/down arrows reorder cards, `<`/`>` move files between column folders, `z` zooms to the selected column full-width (`z` again restores all columns), `p` pins a bottom-third Markdown preview of the selected card that follows the selection (`p` again removes it), and Enter opens the selected card's Markdown file in a background Neovim host (reusing an existing Neovim pane or spawning a split) without moving focus off the board |
-| Bash | `--host bash` | PTY-based terminal (Unix) |
-| Zsh | `--host zsh` | PTY-based terminal (Unix) |
-| PowerShell | `--host powershell` | ConPTY on Windows, PTY on macOS/Linux |
-| WSL | `--host wsl` | Windows Subsystem for Linux shell |
+| Bash | `--host bash` | Server-owned PTY terminal (Unix) |
+| Zsh | `--host zsh` | Server-owned PTY terminal (Unix) |
+| PowerShell | `--host powershell` | Server-owned ConPTY terminal on Windows |
+| WSL | `--host wsl` | Server-owned Windows Subsystem for Linux terminal |
 | MegaCity | `--host megacity` | 3D demo host (semantic code city, textured road/sidewalk/tree materials, cascaded directional shadows, point-light cubemap shadows, screen-space AO, mouse-drag pan, Alt+drag orbit, direct Tree-sitter-to-semantic-snapshot scan, optional `--source` Tree-sitter scan-root override) |
 | BioView | `--host bioview` | Experimental biological code visualization: the whole codebase grown as a living organism. Each **module** becomes a soft, colored **tissue territory**; each **class/struct** becomes a **cell** packed into its module's tissue; and strong **cross-module dependencies** become **blood vessels** arcing between tissues. The most significant classes render as full detailed cells (methods→mitochondria, fields→ribosomes, member roster→DNA rungs, inheritance→Golgi, dependencies→vesicles, oversized methods→lysosomes, organizer→centrosome), while the rest render as simpler module-tinted cells so hundreds of types stay affordable. All procedural geometry, lit by the shared 3D scene renderer; deterministic; every organelle carries a semantic ref back to its code node. |
 | Score | `--host score [--source <file.musicxml/.mxl>]` | Music score viewer + adaptive learning runner ([docs/features/scoreview.md](features/scoreview.md)): Verovio-engraved MusicXML/`.mxl` piano scores; a paged reading view with piece-analysis overlays; conveyor and Roll (Guitar-Hero-style) practice modes with adaptive tempo, spelling-colored notes, guidance keyboard, waterfall, and per-bar tempo ladders; an adaptive practice composer with spaced review, drills, and overnight re-tests; metronome/audition/soundfont audio; dev-keyboard, MIDI, and microphone input; per-piece progress memory. Full narrative: [docs/features/scoreview.md](features/scoreview.md) |
 | SatView | `--host satview` | Satellite-overview host: interactive 3D globe, full-screen 2D map, and ground-observer sky views; Sun/planet/major-moon POVs; CelesTrak GP + SATCAT catalogs with SGP4 propagation; HDR pipeline with stars, constellations, Milky Way, atmosphere, and clouds; surface-object catalogues; six ImGui dock panels with filters, selection, and time controls. Full narrative: [docs/features/satview.md](features/satview.md) |
 
-Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows) regardless of primary host type.
+Shell Session splits use the server's platform default shell (Zsh on macOS,
+PowerShell on Windows). Explicit self-contained product windows advertise only
+the client-owned hosts they can create.
 Host names, aliases, platform support, test-only status, and split/new-tab visibility come from the registered provider metadata. Optional hosts that are not built are therefore absent from the command palette and rejected explicitly by `--host`; the hidden `nanovg-demo` provider remains directly launchable by the render harness.
+
+---
+
+## Shared Terminal Server
+
+- `draxul --server` runs the renderer-free per-user server, while
+  `--server-status` and `--shutdown-server --yes` inspect or stop it.
+  `--server-runtime-dir <path>` isolates an endpoint for testing.
+- An ordinary `draxul` launch discovers or starts the singleton, opens the default
+  shared shell Session, and reconnects to the same server-owned Spaces, panes,
+  terminals, and agents after the UI closes. Shells have no client-owned fallback.
+  Explicit product hosts such as `--host nvim`, Markdown, Kanban, ScoreView,
+  SatView, and MegaCity remain client-owned and do not start the server.
+- The server owns a Windows notification-area or macOS menu-bar status item. Its menu
+  reports connected clients, Sessions, Spaces, terminals, live terminals, and agents,
+  and provides Open Draxul, refresh, open-log, and one guarded Stop Server action.
+  The stop dialog runs in a short-lived helper process on Windows. On macOS the server
+  itself runs as a nested `LSUIElement` app with a distinct bundle identifier, and its
+  dialog runs in the menu-bar process while the RPC loop continues on the server thread.
+  The normal Draxul app therefore remains purely a UI client and always attaches to the
+  existing server when reopened. The dialog tries graceful shutdown first and offers
+  Force Stop only if that attempt fails. `server_status`, `open_server_log`, and
+  `stop_server` expose the matching UI operations through the command palette.
+- On Windows the server runs from a sibling `draxul-server.exe` copy that is refreshed
+  only when a server is started. The UI executable therefore remains replaceable while
+  the server is running, so normal development builds can relink `draxul.exe` without
+  first shutting down persistent terminal Sessions. macOS uses the corresponding nested
+  helper executable inside the application bundle.
+- Graceful shutdown refuses to stop a server with live terminals unless the action is
+  explicitly confirmed. CLI shutdown therefore uses `--shutdown-server --yes`, while
+  `--force-stop-server --yes` is reserved for an unresponsive server. Incompatible
+  live servers are reported and left running; stop the existing server explicitly
+  before retrying.
+- `--experimental-server-client` and `--experimental-remote-shell` remain
+  compatibility aliases for earlier slice scripts; they do not select another
+  runtime. `--experimental-remote-terminal` retains the deterministic fake
+  terminal as a protocol/renderer diagnostic.
+- `--experimental-remote-terminal` is the Slice 3 test path. It discovers or starts
+  the singleton, disables file-backed Session restore for that UI, and renders one
+  deterministic server-owned fake terminal through `RemoteTerminalHost`. Multiple
+  windows using the flag see the same terminal cells, title, cursor, dimensions, and
+  controller lease. The first attached window controls input and resize; observers
+  can run `take_terminal_control` from the command palette to take over. Brief local
+  transport interruptions and full server restarts use per-channel, jittered
+  exponential backoff capped at five seconds. A pane remains alive while reconnecting,
+  refreshes the shared server epoch, and reattaches in place unless the server
+  authoritatively reports that its terminal was removed.
+- `--experimental-remote-shell` follows the same production renderer, protocol,
+  and controller lease, lazily starting a real server-owned PowerShell on Windows
+  or the configured login shell on macOS/Linux. Closing every attached window leaves
+  the process and terminal state alive in the server; reconnecting recovers the same
+  terminal ID, process ID, generation, and current cells. A clean process exit removes
+  its shared pane, or its now-empty tab/Space, when another pane remains in the Session.
+  A clean exit from the final shell closes each attached UI while leaving the server
+  running; abnormal exits remain visible for explicit restart. The
+  diagnostic fake path remains available. On first server launch,
+  `--server-shell <powershell|bash|zsh|wsl>`,
+  `--server-working-dir <path>`, and `--server-scrollback-lines <count>` define
+  server-owned process/history settings. Stop an already-running isolated server
+  before changing them; client fonts, palette, selection, and rendering remain local.
+- The server owns durable checkpoints for every Session under
+  `<server-runtime-dir>/sessions/`. It restores every usable Space before processing
+  client requests, checkpoints changed topology every 30 seconds without a UI, and
+  checkpoints again on graceful shutdown. Writes flush a temporary file before an
+  atomic replace and run off the kernel request loop. A corrupt checkpoint is archived
+  as `.corrupt-<timestamp>` before saving resumes; partial restores remain writable.
+  Restore/checkpoint warnings are shown once in an attaching UI as well as by
+  `--server-status`.
+- Remote terminal clients receive a complete versioned snapshot followed by ordered
+  dirty-cell and controller events. Each client has a bounded server queue; a slow
+  client receives a fresh snapshot rather than delaying the terminal or another
+  client. Protocol major 2 cell frames use packed RGBA8 colours plus shared attribute
+  and hyperlink tables. Subscriber queues are capped at 32 events and 2 MiB, and poll
+  responses budget the first event and resync snapshot as well as later events. An
+  otherwise valid oversized snapshot deterministically sheds hyperlinks, then visual
+  attributes, while preserving terminal text and geometry instead of wedging the
+  client. Dirty-cell lists update the client grid incrementally; full rebuilds are
+  reserved for full frames, resizes, and scrollback presentation transitions. Client
+  input is batched and command work is bounded
+  between projection polls so sustained typing cannot starve observers. Windows
+  named pipes and Unix-domain sockets both serve four clients concurrently. Windows
+  pipes reject remote SMB clients, retain the first pipe instance for the server
+  lifetime, and use identification-level client impersonation. Runtime metadata is
+  replaced atomically with current-user-only permissions, and the Windows runtime
+  directory and named pipes have protected DACLs tied to the user's SID rather than
+  the process owner, so elevated and non-elevated Draxul processes share one server.
+  Client presence, Sessions, terminal dimensions, agent wait filters, and stale
+  delivery queues are bounded. Server, topology, and agent parsing range-checks
+  narrowing integers; status values and client identifiers are also bounded and
+  reject control characters. Clean goodbye or lease expiry releases every terminal
+  subscription and controller claim; a paused UI reattaches and retries safely.
+  Topology and agent projections refresh automatically if a restarted server reports
+  an earlier revision. Reconnect restores the current server state. Queued terminal
+  input is retained in order across transient failures, expired control requests are
+  cancelled before dispatch, and bounded request-ID caches make topology, terminal,
+  and agent mutations safe to replay. Topology, agent,
+  status, and terminal attachment work runs away from the render thread; projected
+  panes remain responsive placeholders until their first snapshot arrives. Divider
+  drags preview locally and send one trailing authoritative update rather than
+  blocking the UI on every mouse move.
+- A server process admits at most 256 terminal runtimes across all Sessions (tests can
+  inject a lower bound). Registering a lazy terminal allocates only its small live
+  grid; the configured scrollback ring is allocated after the first successful child
+  process start. Topology command replay caches retain only bounded command outcomes,
+  not thousands of copied topology snapshots.
+- Each server terminal admits input to a bounded per-terminal queue and performs the
+  potentially blocking PTY/ConPTY write on that terminal's writer thread. Saturation
+  returns backpressure without delaying another terminal or the server request loop.
+  PTY output readers pause at their bounded queue limit without dropping bytes, and
+  live-process teardown is reaped away from the server state thread.
+- The real endpoint retains bounded semantic scrollback and serves versioned pages.
+  Each window owns its scroll offset, selection, clipboard copy, and cursor
+  presentation, so scrolling one client does not disturb another. Shift+PageUp,
+  Shift+PageDown, Shift+Home, and Shift+End navigate that local view, and keyboard
+  copy mode works over both live and historical cells without sending navigation to
+  the shell. Observers can still scroll and copy; attempted text or paste shows one
+  Take Terminal Control hint instead of disappearing. Keyboard, focus, terminal
+  mouse reporting, bracketed paste, OSC 8 links, OSC 52 clipboard writes,
+  alternate-screen state, synchronized output, shell marks, title, and cwd travel
+  through the remote path. Input while scrolled returns only that client to live.
+  Oversized paste is sent as ordered bounded frames; invalid input, input
+  backpressure, process-write rejection, and other request failures are surfaced
+  without stopping a live pane. Unexpected poll failures reattach with bounded
+  backoff, while a scrollback failure simply returns that client to live.
+- Hello negotiation explicitly advertises scrollback, sanitized metrics, and the
+  current uncompressed frame fallback. `terminal.metrics` reports counts, encoded
+  bytes, delta density, queue count/byte limits, pressure/resyncs, oversized events,
+  degraded frames, and scrollback service volume without terminal text; the client
+  records its attach/reconnect latency. Unknown additive terminal event kinds are
+  counted and skipped, while malformed known events still trigger bounded recovery.
+- `topology-v1` is the first Slice 6 checkpoint. The headless server now owns a
+  renderer-neutral Session/Space/tab/pane/split snapshot with monotonic revisions.
+  Mutations are optimistic and idempotent, and multiple clients can poll to the same
+  accepted snapshot. Active Space/tab/focus, viewport, selection, and window geometry
+  remain client-local. Shared-shell UIs now project server Spaces, tabs,
+  panes, names, and split trees; create/close/rename actions use server commands.
+  Each `client_local` descriptor creates an independent host in each UI, and live
+  split reconciliation preserves unchanged hosts instead of restarting them. The
+  descriptor includes the client host kind, working directory, source path, and
+  optional companion owner, so file-backed hosts restore consistently across UI
+  reconnects and durable Session checkpoints.
+  `multi-terminal-v1` gives every `server_terminal` pane a distinct lazy server
+  runtime and stable TerminalId; the real host adapter targets that identity, and
+  closing the shared pane removes its endpoint and process. Tab moves, pane swaps,
+  keyboard resize, cell-snapped divider drag, and split equalization now submit
+  authoritative server commands and project back into every UI without moving
+  client-local focus. Restarting a shared terminal pane restarts its server runtime
+  exactly once, advances its runtime generation, and resynchronizes every attached
+  client with the new process identity. Client-local pane restart remains local.
+  A host kind missing from a particular build now projects as an inert
+  `<kind> not available in this build` grid instead of preventing that client
+  from attaching. Topology and agent snapshots remain pending until the UI
+  acknowledges successful application by server epoch and revision; failed
+  projections retry, coalesce to the newest snapshot, preserve input routing,
+  and report a persistent apply error only once.
+- **Headless topology and terminal control**: `draxul.exe` talks directly to the
+  shared server for Space, tab, pane, split, terminal, and declarative-layout
+  operations; no Draxul window is required. Mutations update the same
+  server-authoritative topology projected by every attached UI. Commands accept
+  `--session <id>`, `--server-runtime-dir <path>`, and `--json`. Server shells
+  inherit `DRAXUL_SESSION_ID`, `DRAXUL_SPACE_ID`, `DRAXUL_TAB_ID`,
+  `DRAXUL_PANE_ID`, `DRAXUL_TERMINAL_ID`, and `DRAXUL_SERVER_RUNTIME_DIR`, so an
+  agent inside a pane can use `--current` and can omit its inherited Session and
+  runtime route.
+
+  | Area | Commands |
+  |------|----------|
+  | Spaces | `space list`, `space get/create/rename/close` |
+  | Tabs | `tab list/get/create/rename/close`, `tab move --delta -1|1` |
+  | Panes | `pane list/get/split/rename/close/restart/swap`, `pane move --target <pane> --direction <left|right|up|down>` |
+  | Splits | `split list`, `split set --ratio <0.1..0.9>`, `split equalize` |
+  | Terminal processes | `pane run --command <text>`, `pane send --text <text>`, `pane keys <keys...>`, `pane read`, `pane wait-output --text <text> --timeout <duration>` |
+  | Managed agents | `agent start <profile> --space/--tab/--pane [--replace]`, `agent prompt`, `agent keys`, `agent get/list/explain/wait/restart`; `--replace` converts the selected server-terminal pane in place and preserves its pane ID |
+  | Declarative layouts | `layout validate <file|->`, `layout apply <file|-> [--dry-run]` |
+
+  Layout JSON creates one Space atomically. It contains `name`, optional `alias`
+  and `root_directory`, plus non-empty `tabs`; each tab contains a name, optional
+  alias, and panes. Every pane has a unique `alias` and may set `name` and `cwd`.
+  Panes after the first may set `split_from` to an earlier pane alias,
+  `direction` (`left`, `right`, `up`, or `down`), and `ratio`. Validation performs
+  no mutation. Apply returns an `aliases` object mapping caller-chosen names to
+  durable server IDs; allocation failure destroys terminals created by the
+  request and restores the pre-request topology before returning an error.
 
 ---
 
@@ -55,7 +240,7 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
 - **MegaCity selection tuning**: Selection fade now has configurable dependency, hidden, hover-hidden, and road hidden alpha controls, with configurable spacebar-held raise/fall timing for hidden buildings so the shared road layer can remain fully visible while selected-context buildings read clearly
 - **SatView rendering and data pipeline**: the Earth/Moon/Sun/planet passes, surface-object and sky-orientation overlays, catalog/propagation services, sun-synchronous filter, and dock panels are documented in [docs/features/satview.md](features/satview.md#rendering-and-data-pipeline)
 - **Native network transport**: Weather, SatView catalog, and live-cloud downloads use a shared bounded HTTP client backed by WinHTTP on Windows and `NSURLSession` on macOS. Requests have explicit connection and overall deadlines, per-service response-size limits, RFC 3986 query encoding, and cancellation before worker joins, so runtime networking no longer requires `curl` or passes URLs through a command shell. Weather responses are parsed as typed JSON and reject missing, non-finite, wrong-type, or out-of-range values.
-- **Markdown viewer pipeline**: Markdown panes are rendered by Draxul itself rather than through the terminal grid or ImGui. The host parses Markdown into document blocks, lays them out as variable-height rows, builds a GPU draw list of styled rectangles and glyph runs, uploads rich-text atlas regions incrementally, and renders directly through the platform hardware renderer. GitHub/Obsidian pipe tables render with header/body styling, cell borders, wrapped cell text, left/center/right column alignment, and content-aware column widths that balance required and preferred cell sizes. Markdown body size is controlled independently through `[markdown].font_size`, headings scale relative to it, focused Markdown panes consume `font_increase`, `font_decrease`, and `font_reset`, and `[markdown].margin_columns` controls the document margin in body character widths. Navigation supports PageUp/PageDown/Home/End, wheel scrolling, Vim-style `j/k`, `Ctrl+F/B`, `gg`, `G`, and mouse dragging on the wider scrollbar thumb.
+- **Markdown viewer pipeline**: Markdown panes are rendered by Draxul itself rather than through the terminal grid or ImGui. The host parses Markdown into document blocks, lays them out as variable-height rows, builds a GPU draw list of styled rectangles and glyph runs, uploads rich-text atlas regions incrementally, and renders directly through the platform hardware renderer. Inline `**bold**` and `*italic*` emphasis render with real bold/italic faces (including inside table cells and headings), each authored newline inside a block starts exactly one new visual row (Obsidian-style line handling, rather than CommonMark reflow) with no blank row between, and task-list markers draw as scalable □/✓ glyphs tinted with the theme accent. GitHub/Obsidian pipe tables render with header/body styling, cell borders, wrapped cell text, left/center/right column alignment, and content-aware column widths that balance required and preferred cell sizes. Markdown body size is controlled independently through `[markdown].font_size` (defaulting to one point below the global `font_size`), headings scale relative to it, focused Markdown panes consume `font_increase`, `font_decrease`, and `font_reset`, and `[markdown].margin_columns` controls the document margin in body character widths. Navigation supports PageUp/PageDown/Home/End, wheel scrolling, Vim-style `j/k`, `Ctrl+F/B`, `gg`, `G`, and mouse dragging on the wider scrollbar thumb.
 
 ## GUI (draxul-gui)
 
@@ -101,8 +286,13 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **Word/line selection**: Double-click selects the word at the cursor (contiguous non-whitespace), triple-click selects the entire row
 - **Selection copy gestures**: Clicking inside an existing mouse selection copies it to the system clipboard; `Ctrl+C` also copies when a shell-pane mouse selection is active, without sending SIGINT to the process
 - **Copy on select**: `copy_on_select` automatically copies completed mouse selections (drag, double-click, or triple-click) to the system clipboard; enabled by default
-- **Keyboard copy mode**: `toggle_copy_mode` (default `Ctrl+S, Return`) enters a vim/tmux-style cursor: `h/j/k/l` and arrows move, `0/Home/End` jump to line bounds, `g/Shift+G` jump to top/bottom, `v`/`V` start char/line selection, `y` yanks to clipboard and exits, `Esc`/`q` exits without copy. Available on shell hosts only (Neovim panes already provide their own visual mode)
+- **Keyboard copy mode**: `toggle_copy_mode` (default `Ctrl+S, Return`) enters a vim/tmux-style cursor: `h/j/k/l` and arrows move, `0/Home/End` jump to line bounds, `g/Shift+G` jump to top/bottom, `v`/`V` start char/line selection, `y` yanks to clipboard and exits, `Esc`/`q` exits without copy. Available on both client-owned and server-owned shell hosts (including an observer's local scrollback view); Neovim panes already provide their own visual mode
 - **Terminal colors**: Configurable foreground/background via `[terminal]` config section
+- **Renderer-free terminal state**: Local PowerShell, Bash, and Zsh hosts all compose
+  the same platform-neutral terminal core for VT parsing, grid/mode state,
+  alternate-screen handling, reusable scrollback storage, and complete or dirty
+  semantic snapshots. The current process, selection, clipboard, and rendering path
+  remains local; this is the compatibility boundary for the planned server runtime.
 
 ---
 
@@ -117,7 +307,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **File drop**: Native drag-and-drop dispatched to host as `open_file:` action
 - **Kanban navigation**: Kanban panes support Vim-style card selection with `h/j/k/l`, `Ctrl+F/B` page jumps, `gg`/`G` beginning/end jumps within the current column, shifted up/down arrows for reordering cards, `<`/`>` for moving files between columns, `r` reload, and Enter to open the selected card's Markdown file for editing in a Neovim host.
 - **Kanban column zoom**: `z` collapses the board to just the selected column at full width (moving left/right pages between columns while zoomed); `z` again restores the multi-column view.
-- **Kanban card preview**: `p` pins a live Markdown preview pane across the bottom third of the board that always renders the currently selected card; it follows the selection as you move and Enter keeps input focus on the board so the preview and the board stay in view together. `p` again closes the preview.
+- **Kanban card preview**: `p` pins a live Markdown preview pane across the bottom third of the board that always renders the currently selected card; it follows the selection as you move and Enter keeps input focus on the board so the preview and the board stay in view together. In shared topology, the server owns the preview split and source descriptor so every connected UI projects it and reconnect restores it. `p` again closes the preview.
 - **GUI keybindings**: Chord-style prefix bindings (e.g. `ctrl+s, |`)
 - **Command palette**: `Ctrl+Shift+P` opens a centered fuzzy-search overlay for all GUI actions with fzf-style scoring, `Ctrl+J/K` navigation, keybinding hints, and palette-rendered text prompts for actions needing short values
 - **Print pane** (`print_pane` action, palette or `[keybindings]`): captures the focused pane's pixels, composes a single-page A4 PDF (aspect-fit inside margins, auto landscape for wide panes, CoreGraphics), and presents the native macOS print dialog for it (PDFKit print operation: preview, printer/paper choice, and auto-rotation so landscape pages land correctly on portrait paper); toasts report printed/canceled/failed. Hosts advise the printer via `IHost::print_hint()` — a pane-relative content rect plus a paper-white flag — so ScoreView prints just the page/band (no backdrop border) with its warm screen sheet tint snapped to pure white instead of printed stipple. macOS-only for now. `DRAXUL_PRINT_DRY_RUN=1` composes the PDF but skips the dialog and toasts the temp path (test hook)
@@ -138,11 +328,9 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - Keyboard-driven pane resizing via `resize_pane_left`, `resize_pane_right`, `resize_pane_up`, `resize_pane_down` actions (each nudges the nearest enclosing divider by 5%)
 - **Pane zoom**: `toggle_zoom` action (default `Ctrl+S, z`) expands the focused pane to fill the full window; toggling again restores the previous split layout exactly (like tmux `Ctrl+B z`)
 - **Close pane**: Closes the focused pane and its host; if last pane, exits the app
-- **Shell session restore from saved topology**: Normal desktop launches periodically checkpoint every Space and its shell-session tabs, split layout, focus, pane names, tab names, launch commands, and working directories in a local session-state file, save again on clean shutdown, and restore the ordered collection by respawning panes on the next launch. Restore is transactional: the live collection is replaced only after a usable candidate exists, and individual failed tabs can be skipped with one summarized warning. Closing the final window exits Draxul; no hidden background owner remains. This is still shell-host only and not full crash recovery yet.
-- **When a saved session is kept vs discarded**: closing the window (titlebar, or the OS quit path) **saves** the topology, so the next launch restores it. Ending the last shell from inside — typing `exit` in the final pane of the final tab of the final Space — **deletes** the saved session, on the basis that you finished the work rather than parked it. Both paths are deliberate; they are simply not symmetric, so it is worth knowing which one you are using.
-- **Session saving is shell-only, and says so**: a saved layout covers shell panes only, so a single Neovim, Markdown, Kanban, ScoreView, or MegaCity pane anywhere in any Space disables every checkpoint *and* the shutdown save. That gate is intentional; Draxul now reports the transition once (log plus a toast) instead of silently dropping the layout, and reports again when persistence resumes.
-- **One session, one process**: a Session is single-owner. Launching a second Draxul on a session id that is already open refuses with a message pointing at `--session <id>` and `--new-session`, rather than restoring the same topology twice and letting the two instances overwrite each other's checkpoint. Distinct session ids run concurrently as normal.
-- **Session-scoped shell restore CLI/UI**: `--session <id>` selects which saved shell session Draxul should restore, `--new-session` starts a fresh saved shell session (generating a unique id when `--session` is omitted), `--session-name <name>` sets its display name, `--rename-session --session-name <name>` renames a saved session, `--list-sessions` prints saved sessions with Space/tab/pane counts, and `--delete-session` deletes saved topology. In the running app, `save_session_as` saves the current topology under a prompted name and switches to the generated session id; `load_session` shows a fuzzy list of saved sessions and restores the selection in the current window.
+- **Server-owned Session persistence**: the headless server periodically checkpoints every Session, Space, tab, pane, split, name, working directory, restore policy, and agent reference. Closing every UI leaves that topology and its terminal processes running; graceful server shutdown writes a final checkpoint, and the next server cold-restores every usable Session.
+- **One Session, many clients**: multiple Draxul windows can attach to the same Session without duplicating processes or competing file writers. Topology and terminal state are authoritative in the server, while each client retains independent navigation and presentation state.
+- **Session-scoped CLI**: `--session <id>` selects a shared server Session, `--new-session` creates a fresh one (generating a unique id when omitted), and `--session-name <name>` sets its display name. `--list-sessions`, `--rename-session --session-name <name>`, `--delete-session --session <id>`, and `--delete-all-sessions --yes` all address the running server registry. Deletion refuses while a UI is attached; stopping live terminals requires explicit confirmation.
 - **Abnormally exited shell panes stay inspectable**: If a shell pane dies unexpectedly, Draxul keeps the pane and its last rendered output visible instead of immediately tearing it down. The pane status pill shows `[exited]`, a toast points you at `restart_host`, and the existing restart action respawns the host in place. Clean shell exits still close the pane normally.
 - **Session startup messaging**: Shell sessions surface a toast when Draxul starts a brand-new session or restores saved topology, so the user can tell which path was taken.
 - **Restart host**: Kills the current host in the focused pane and relaunches with the same arguments
@@ -153,20 +341,67 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 ## Spaces
 
 - The live hierarchy is **Session -> Space -> Tab -> Pane**. A Space is a local project/task container with its own tabs, split layouts, hosts, and default root directory.
-- A Draxul process can own multiple live Spaces. Switching the active Space preserves every inactive Space's panes and processes; inactive hosts continue to be pumped.
-- The left rail appears once a second Space or a tracked agent exists. Its upper Spaces section uses the shared segmented pill component (`1: Name`): a palette-blue number accent for the selected Space (grey when inactive), followed by the name on the standard grey pill body. Click a pill to activate it. A horizontal application-shell divider separates the lower Agents section. Agent rows are derived from pane-owned identities across all Spaces, use the pane-green accent when focused, show `[exited]` when their host is unavailable, and navigate to the owning Space, tab, and pane when clicked. The rail background uses the same dark-grey chrome colour as the surrounding UI and default console background. Drag the rail's right-hand divider to resize it; the width snaps to terminal columns and is retained across launches.
+- A server-owned Session can contain multiple live Spaces. Each UI chooses its
+  active Space independently while the server continues to own every inactive
+  Space's terminals and agents.
+- The left rail appears once a second Space or a tracked agent exists. Its upper Spaces section uses the shared segmented pill component (`1: Name`): every Space pill has a one-third-brightness palette-blue body, while the selected Space's number segment uses the bright blue. The first Space row follows its header with the same compact spacing used by Agents. Click a pill to activate it. A horizontal application-shell divider separates the lower Agents section. Agent rows are derived from pane-owned identities across all Spaces, use their own mauve family body and bright focused/attention number accent, show `[exited]` when their host is unavailable, and navigate to the owning Space, tab, and pane when clicked. The rail background uses the same dark-grey chrome colour as the surrounding UI and default console background. Drag the rail's right-hand divider to resize it; the width snaps to terminal columns and is retained across launches.
 - `new_space`, `switch_space`, `rename_space`, and `close_space` are available in the command palette. They are unbound by default.
-- `launch_agent` is available in the command palette and unbound by default. It opens a profile picker with built-in Codex and Claude entries plus structured `[agents.profiles.<id>]` configuration. Managed agents launch directly as the PTY/ConPTY child using executable-plus-argv data, receive Draxul Session/Space/tab/pane/instance routing environment variables, and record durable kind/display/instance identity on the pane. Legacy saved shell-command agents retain their compatibility path. Codex and Claude can additionally install opt-in, versioned `SessionStart` hooks with `draxul integration install codex|claude`; each hook reports the official native conversation ID back to its owning pane. Bare `draxul integration status` inspects both integrations without modifying configuration.
+- `launch_agent` is available in the command palette and unbound by default. It
+  opens a profile picker with built-in Codex and Claude entries plus structured
+  `[agents.profiles.<id>]` configuration. The server resolves the profile,
+  creates the server-owned terminal, injects Session/Space/tab/pane/runtime
+  routing, persists the launch descriptor and identity, and projects the new
+  pane/agent into every client under `managed-agent-v1`. The launching UI gets
+  the initial controller lease; another client may explicitly take control.
+  Codex and Claude can install opt-in, versioned `SessionStart` hooks with
+  `draxul integration install codex|claude`; each hook reports the official
+  native conversation ID to the owning server pane. Bare
+  `draxul integration status` inspects both integrations without modifying configuration.
 - `focus_agent`, `restart_agent`, and `clear_agent_identity` are also available in the command palette. Runtime generations and process exit codes are kept in memory, so restarting an agent cannot make an earlier process look current and failed/exited agents remain visible and inspectable in the rail.
-- Local terminal hosts expose a bounded, immutable bottom-of-screen observation to the agent controller. Bundled versioned Codex and Claude manifests conservatively project `idle`, `working`, `blocked`, and `done`; ambiguous output remains `unknown`. Codex manifest v2 follows Herdr's current precedence: an OSC-title action marker or braille spinner is authoritative, a plain OSC title is idle, and the screen fallback only accepts the exact bottom-of-screen `•/◦ Working (... esc to interrupt)` status shape rather than arbitrary uses of the word “working”. The Agents rail shows the semantic suffix, latches a green attention accent for unseen blocked/done transitions, and acknowledges it when the pane is focused. `explain_agent_state` reports only the authority, manifest/rule version, sanitized evidence category, transition age, or fallback reason—never captured terminal text.
-- Codex and Claude started manually inside ordinary shell panes are discovered best-effort from local process evidence. Unix uses the PTY foreground process group; Windows uses the ConPTY descendant tree and reports lower confidence because ConPTY has no portable foreground-group query. Detection follows Herdr's foreground-job approach: it considers executable and argv-zero identity, recognizes official target-qualified Codex binaries, and sees through structured Node/Bun, Python, shell, cmd, and PowerShell launchers without treating eval-string arguments as programs. `DRAXUL_AGENT=codex|claude` remains an explicit hint. Agent-presence transitions immediately recompute the application shell, so the sidebar appears when the first agent is found and disappears after the last transient agent is removed. Discovered rows survive six failed probes to avoid flicker, can be attached or corrected for the focused pane runtime generation with the `attach_agent_identity` profile picker, and can be dismissed with `clear_agent_identity`. They are never checkpointed and can never acquire a resumable native-session reference through inference or manual attachment.
-- Normal desktop Sessions expose a same-user local control endpoint: an authenticated named pipe on Windows or owner-only Unix-domain socket on macOS/Linux. `draxul space list/get`, `agent list/get/explain`, and `pane read` provide concise or `--json` read-only inspection by Session ID. Requests are bounded and versioned; transport work is isolated from the application model, and all Space, agent, pane, and host reads run on Draxul's main thread. Note that `--session <id>` means two different things depending on the command: with a control subcommand (`space`, `agent`, `pane`, ...) it addresses a *running* instance's endpoint; without one it selects which saved session to restore. If the endpoint cannot be created — an over-long socket path, an unwritable runtime directory — Draxul warns and runs without it, since the control plane is optional tooling and never gates startup.
-- The local control endpoint also supports `space focus` and structured agent operations: start a registered profile with argv data, focus or restart it, send bounded text or named keys, and wait for lifecycle/semantic states. Waits are pinned to a runtime generation and timed out by the CLI. Sanitized Space/agent transitions are available through a bounded cursor-based `event.subscribe` journal; terminal text is never included.
+- Server terminal runtimes expose bounded bottom-of-screen and process evidence
+  to the server agent tracker. Bundled Codex and Claude manifests conservatively
+  project `idle`, `working`, `blocked`, and `done`; ambiguous output remains
+  `unknown`. The Agents rail shows semantic state and client-local attention.
+  `explain_agent_state` reports only sanitized evidence, never captured text.
+- Codex and Claude started manually inside ordinary shell panes are discovered
+  best-effort by the server. Unix uses the PTY foreground process group; Windows
+  uses the ConPTY descendant tree. Detection sees through structured launchers
+  and accepts `DRAXUL_AGENT=codex|claude` as an explicit hint. Inferred rows are
+  not given durable native-session references.
+- The shared server exposes its authenticated same-user local control endpoint.
+  The headless topology/terminal commands above provide bounded discovery and
+  manipulation by stable route ID and Session; structured agent operations
+  start (including in-place pane replacement), restart, prompt, send bounded
+  keys, and wait on a pinned runtime generation. Sanitized agent events never
+  include terminal text; terminal text is available only through explicit pane
+  reads and output waits.
+- Shared server Sessions expose the sanitized Agents projection to every
+  attached UI. Agent focus and attention acknowledgement remain local to each
+  window. `agent list/get/explain/wait/restart/send-text/send-keys` and bounded
+  `pane read` commands address the global server for the selected Session, so
+  inspection and control continue with no GPU client attached. This route is
+  negotiated as `agent-control-v1`; terminal text is returned only by the
+  explicit bounded pane-read operation and is never included in the Agents
+  projection.
+- Official native-session reports for managed agents are owned by the
+  global server. A report must match the current server epoch, Session, pane,
+  declared agent instance, kind, and runtime generation; stale, duplicate, or
+  out-of-order reports are rejected. Accepted references update shared topology,
+  the Agents projection, and the durable Session checkpoint even when no UI is
+  attached.
 - A new Space inherits the focused host's current working directory when possible. Its root directory becomes the fallback working directory for new hosts in that Space.
 - Closing a Space terminates the hosts it owns. The final Space cannot be closed.
-- Spaces are currently local. Session snapshots use a version-3 Space envelope, transparently migrate version-1 and version-2 files in memory, atomically checkpoint the complete ordered Space collection, and transactionally restore all usable Spaces with the saved active Space selected. Version 3 adds official native agent-session references and per-pane restore policy. Suspend/resume, background ownership, SSH, and remote Spaces remain future work.
-- Session recovery is bounded before hosts launch: snapshots are limited to 4 MiB, 64 Spaces, 128 tabs per Space, 256 panes per tab, 64 layout levels, and bounded text/list fields. File loads reject oversized snapshots before allocating the parse buffer. Diagnostics identify the invalid field without echoing saved commands or paths.
-- A successful save atomically replaces the previous snapshot. Draxul does not currently maintain a second `.bak` copy because there is no observed failure mode beyond the protected replacement boundary; this can be added if field evidence justifies the extra recovery policy.
+- Spaces are authoritative server topology. Server checkpoints use a version-3
+  Space envelope, migrate older schema versions in memory, atomically persist
+  the ordered Space collection, and transactionally restore every usable Space.
+  Suspend/resume and remote-machine transport remain future work.
+- Server recovery is bounded before processes launch: checkpoints are limited
+  to 4 MiB, 64 Spaces, 128 tabs per Space, 256 panes per tab, 64 layout levels,
+  and bounded text/list fields. Diagnostics identify invalid fields without
+  echoing commands or paths.
+- A successful server checkpoint atomically replaces the previous snapshot.
+  Draxul does not currently maintain a second `.bak` copy; corrupt checkpoints
+  are archived before checkpointing resumes.
 - Agent runtime state, semantic observations, explanations, attention latches, and sidebar rows are projections, not persisted state. The pane-owned agent identity, restore policy, and optional official native session reference are durable; live status and terminal evidence never enter a Session snapshot. Native references are bounded, source-allowlisted, and globally unique across restored Spaces.
 
 ---
@@ -174,16 +409,16 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 ## Tabs
 
 - Multiple tabs, each with its own independent split tree and host set
-- Space, tab, and pane-status labels share one pill layout and palette model for capsule size, number accent width, text columns, foreground contrast, and active/inactive/editing colours.
+- Space, Agent, tab, and pane-status labels share one pill layout and palette model for capsule size, number accent width, text columns, foreground contrast, and active/inactive/editing colours. Each collection keeps a 30%-brightness version of its unchanged role colour across every pill; the selected/focused number segment uses the brighter role colour (Space blue, Agent mauve, tab red, pane green).
 - The top tab bar remains visible even with a single tab and shows right-aligned pills for live system usage and active chord prefixes
 - `new_tab` (`Ctrl+S, C`): Create a new tab
 - `close_tab` (`Ctrl+S, &`): Close the active tab (disabled when only one tab remains)
 - `next_tab` (`Ctrl+S, N`): Cycle to the next tab
 - `prev_tab` (`Ctrl+S, P`): Cycle to the previous tab
 - Tab switching preserves focus state per tab (focus lost/gained notifications)
-- **Inline tab rename**: double-click a tab pill (or press `Ctrl+S, ,` — tmux-style chord) to edit the tab name in place. Enter commits, Escape cancels, Backspace/Delete/Home/End/Left/Right work as expected. Empty commits leave the existing name untouched.
+- **Inline Space and tab rename**: double-click a Space or tab pill (or use the corresponding command-palette action; tabs also support `Ctrl+S, ,`) to edit its name in place. Enter commits, Escape cancels, Backspace/Delete/Home/End/Left/Right work as expected. Empty commits leave the existing name untouched.
 - **OSC 7 default naming**: shell hosts (e.g. zsh) drive the tab name from the OSC 7 working-directory escape until the user explicitly renames the tab; once the user sets a name, OSC 7 updates no longer overwrite it.
-- **Inline pane rename**: double-click a pane status pill (or press `Ctrl+S, .`) to set a per-pane override name. Empty commit clears the override and reverts to the host-provided status text. Pane name overrides follow the stable pane identity and are included in Session snapshots.
+- **Stable pane labels and inline rename**: pane pills show a custom pane name when set, otherwise the stable host or shell name (`PowerShell`, `Zsh`, `Neovim`, and so on). Live remote-controller role, terminal size, and connection timing remain diagnostics and no longer cause pane labels to change. Double-click a pane pill (or press `Ctrl+S, .`) to set an override; an empty commit clears it. Pane name overrides follow the stable pane identity and are included in Session snapshots.
 - **Luminance-based pill text colour**: tab and pane pill text colour is chosen automatically from the underlying NanoVG fill via BT.709 relative luminance, so any future background tweak gets a readable foreground without re-tuning a constant.
 
 ---
@@ -217,8 +452,6 @@ Toggle with F12. Shows:
 | `split_horizontal` | `Ctrl + S, -` |
 | `command_palette` | `Ctrl + Shift + P` |
 | `quit` | `Ctrl + S, Q` |
-| `save_session_as` | (unbound) |
-| `load_session` | (unbound) |
 | `new_space` | (unbound) |
 | `switch_space` | (unbound) |
 | `rename_space` | (unbound) |
@@ -297,7 +530,7 @@ Draxul reads `config.toml` on startup and creates it with defaults on first save
 
 | Key | Default | Range | Notes |
 |-----|---------|-------|-------|
-| `font_size` | `font_size` | 6.0--72.0 | Markdown body text size in points. If `[markdown]` is omitted, it follows the global `font_size`; headings and other markdown styles scale relative to this value. |
+| `font_size` | `font_size` - 1.0 | 6.0--72.0 | Markdown body text size in points. If `[markdown]` is omitted, it follows the global `font_size` one point smaller (prose reads better than terminal text at a slightly reduced size); headings and other markdown styles scale relative to this value. |
 | `margin_columns` | 2.0 | 0.0--24.0 | Left/right document margin measured in Markdown body character widths |
 
 ### Rendering
@@ -334,7 +567,7 @@ Draxul reads `config.toml` on startup and creates it with defaults on first save
 
 | Key | Default | Range | Notes |
 |-----|---------|-------|-------|
-| `show_pane_status` | true | | One-cell-tall status strip below each pane showing host kind, dimensions, and (for shell hosts) cwd from OSC 7 |
+| `show_pane_status` | true | | One-cell-tall pane label strip showing the custom name or stable host/shell kind |
 
 ### MegaCity (`[mega_city_code]` section)
 
@@ -365,15 +598,16 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 | `tab_active_fg` | `#f5e0dc` | Active tab label text |
 | `tab_inactive_fg` | `#cdd6f4` | Inactive tab label text |
 | `space_active_bg` | `#89b4fa` | Active Space number/accent fill |
+| `agent_active_bg` | `#cba6f7` | Focused or attention Agent number/accent fill |
 | `tab_active_bg` | `#b93c3c` | Active tab number/accent fill |
-| `tab_inactive_bg` | `#45475a` | Inactive tab and dim accent fill |
+| `tab_inactive_bg` | `#45475a` | Secondary neutral chrome fill for headers and outlines |
 | `tab_editing_bg` | `#8c90af` | Tab rename field fill |
 | `divider` | `#78788c` | Spaces/Agents section divider |
 | `focus_border` | `#7b2828` | Focused border when a tab has multiple visible panes |
-| `status_bar_bg` | `#45475a` | Pane status pill body |
+| `status_bar_bg` | `#45475a` | Legacy pane status body setting retained for config compatibility |
 | `status_bar_fg` | `#cdd6f4` | Pane status text |
 | `status_focused_accent_bg` | `#3ca55f` | Focused pane status number/accent fill |
-| `status_inactive_accent_bg` | `#6e738c` | Unfocused pane status number/accent fill |
+| `status_inactive_accent_bg` | `#6e738c` | Legacy inactive-pane accent retained for config compatibility |
 | `status_editing_bg` | `#8c90af` | Pane rename field fill |
 | `resource_pill_bg` | `#f9e2af` | Normal CPU/RAM pill fill |
 | `resource_pill_fg` | `#1a1a1f` | CPU/RAM pill text |
@@ -387,6 +621,12 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 
 ## CLI Flags
 
+`draxul --help` enumerates the public launch, server/Session, Space, agent,
+pane-inspection, and Codex/Claude integration commands. Internal test hooks and
+server helper invocations are deliberately omitted. Subcommands are dispatched
+through their own option grammars, so invocations such as `draxul agent list`
+and `draxul integration status` do not pass through the launch-option parser.
+
 | Flag | Description |
 |------|-------------|
 | `--host <type>` | Host type: nvim, markdown, powershell, bash, zsh, wsl, megacity, bioview, satview, score |
@@ -395,9 +635,10 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 | `--session <id>` | Select which saved shell session to restore |
 | `--new-session` | Start a fresh saved shell session; if `--session` is omitted Draxul generates a unique session id. If the requested session cannot be prepared (for example an explicit `--session` id that already exists) Draxul reports the error and exits rather than silently falling back to `default` |
 | `--session-name <name>` | Set the saved display name for the launched or restored shell session |
-| `--rename-session` | Rename the selected saved shell session using `--session-name <name>` |
-| `--list-sessions` | Print saved sessions with Space, tab, and pane counts |
-| `--delete-session` | Delete the selected saved shell session |
+| `--rename-session` | Rename the selected Session in the running shared-server store using `--session-name <name>` |
+| `--list-sessions` | Query the running shared-server store and print its Session names and status rows |
+| `--delete-session --session <id>` | Delete a detached server Session and its checkpoint; add `--yes` if it owns live terminals |
+| `--delete-all-sessions --yes` | Stop every detached Session's live terminals and delete every shared-server Session checkpoint; refuses while any UI is attached |
 | `--continuous-refresh` | Let animation/3D hosts request frames continuously; use `--no-vblank` separately when unsynced presentation is desired |
 | `--log-file <path>` | Write logs to file |
 | `--log-level <level>` | Minimum level: error, warn, info, debug, trace |
@@ -448,9 +689,9 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 - `do smoke` remains the explicit startup check; the individual render shortcuts and `renderall` remain the explicit visual checks. `t.sh`, `t.bat`, and `scripts/run_tests.*` retain the full unit + smoke + available render-snapshot workflow for pre-commit, release, and CI validation
 - `do run release --host megacity --parser treesitter` strips the helper flag before launching, writes `[mega_city_code].code_source = "treesitter_db"`, and removes stale `graphify_graph_path` entries from that section. `--parser treesitter_db` is accepted as the same helper alias
 - `do deploy` creates a Release build, stages the runtime payload into `deploy/YYYY_MM_DD/mac` or `deploy/YYYY_MM_DD/win`, and writes a matching `draxul-YYYY_MM_DD-mac|win.zip` archive under the date folder. Windows packages contain only `draxul.exe`, its Microsoft C++ and adjacent runtime DLLs, compiled shaders, bundled fonts, and runtime assets; CMake metadata, object files, static libraries, tests, and source/build directories are excluded
-- `do review features`, `do review bugs`, and `do review refactor` run focused Codex, Gemini/Agy, and Claude review passes followed by the matching Codex consensus; plain `do review` defaults to `features`, while `do review-bugs` remains a compatibility alias
-- `do consensus features|bugs|refactor` reruns only the matching Codex consensus over the latest focused reviews; plain `do consensus` defaults to `features`, while `do consensus-bugs` remains a compatibility alias
-- A reviewer selector can follow the review kind (`codex`, `agy`/`gemini`, or `claude`) to run one review without consensus; `do review-codex` and the legacy `do review-gpt` shortcut run the feature review unless another kind is supplied
+- The repo-scoped `$draxul-review` skill runs isolated, read-only multi-AI reviews through installed Codex, Claude, Agy/Gemini, and Grok CLIs. Its default panel selects one healthy OpenAI, Anthropic, and Google transport; explicit panels reject duplicate companies, and `--all` adds every healthy configured company. When a synthesis prompt requests Kanban work items, the trusted parent runner validates the returned card paths/content and atomically creates them under `kanban/pending/`; providers never receive repository write access
+- Reviews and synthesis are separate operations. Immutable run archives, manifests, diagnostics, and optional summaries live under `plans/reviews/runs/`, while atomically refreshed `*-latest.*.md`, `*-consensus.md`, `*-latest.manifest.json`, and `*-latest.summary.manifest.json` files preserve stable pointers without synthesis hiding the latest review manifest
+- `$draxul-preflight` checks installation, authentication, requested-model access, and a nonce-based live response before review work. Agy is preferred for Google and falls back to Gemini when unavailable, with the fallback recorded in the run manifest. Reviewers have a 30-minute default timeout and emit flushed lifecycle events. Real Codex, Claude, and Grok review/synthesis sessions persist in their normal provider stores for TokenFu tool-call and token accounting, while nonce-only preflight sessions remain ephemeral and cross-session memory stays disabled. A Codex review that hits native Windows sandbox error 1312 retries once without the broken OS sandbox inside its disposable repository snapshot, retains the fixed review-only contract and original total timeout, and records the fallback in the manifest
 
 ### CMake Options
 
@@ -475,6 +716,9 @@ Markdown and Kanban are product modules under `modules/markdown/` and `modules/k
 ScoreView builds as five libraries inside the `DRAXUL_ENABLE_SCOREVIEW` gate — `draxul-score-learn`, `draxul-score-input`, `draxul-score-audio`, `draxul-scoreview`, `draxul-scoreview-host`; the per-library layering and dependency-isolation rationale is documented in [docs/features/scoreview.md](features/scoreview.md#build-structure).
 
 CTest also registers `tests/do_py_tests.py` under the `unit` label. App smoke and render-snapshot tests use a shared CTest resource lock so full parallel test runs never overlap GPU/application processes.
+On Windows, every test executable that links ScoreView stages `verovio.dll`
+beside itself, so Debug and Release CTest runs do not depend on a stale DLL or
+the developer's `PATH`.
 
 ### Dependencies (FetchContent, automatic)
 SDL3, FreeType, HarfBuzz, MPack, ImGui, GLM, Catch2, vk-bootstrap (Windows), VMA (Windows)

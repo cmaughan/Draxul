@@ -849,6 +849,8 @@ void KanbanHost::toggle_column_zoom()
 
 void KanbanHost::toggle_card_preview()
 {
+    preview_visible_ = preview_visible_
+        || callbacks().is_markdown_preview_visible();
     if (preview_visible_)
     {
         preview_visible_ = false;
@@ -862,6 +864,8 @@ void KanbanHost::toggle_card_preview()
 
 void KanbanHost::refresh_card_preview()
 {
+    preview_visible_ = preview_visible_
+        || callbacks().is_markdown_preview_visible();
     if (!preview_visible_)
         return;
 

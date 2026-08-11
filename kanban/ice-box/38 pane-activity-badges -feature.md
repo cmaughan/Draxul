@@ -23,7 +23,8 @@ The badge should clear when the user focuses the pane. The intent is to allow us
 
 - [ ] Read `app/chrome_host.cpp` — find where the tab bar and pane pills are rendered; identify where a badge indicator could be added.
 - [ ] Read `libs/draxul-host/include/draxul/host.h` — check if `IHost` has a notification/activity API or if one needs to be added.
-- [ ] Read `libs/draxul-host/src/terminal_host_base.cpp` — find where BEL (U+0007) is handled in the VT parser path.
+- [ ] Read `draxul-terminal-core` and the server terminal projection to find
+      where BEL and shell marks become semantic state.
 - [ ] Check if OSC 133 (WI 24) is implemented; if not, the non-zero-exit badge should be marked as dependent on WI 24.
 - [ ] Review `AppConfig` for any existing notification-related fields.
 
@@ -51,8 +52,10 @@ The badge should clear when the user focuses the pane. The intent is to allow us
 
 ### Step 3: Running process detection
 
-- [ ] Add a `is_command_running()` method to `IHost` (implement in `NvimHost` and `LocalTerminalHost`).
-- [ ] For `LocalTerminalHost`: query the foreground process group of the PTY.
+- [ ] Extend the server terminal/agent projection with a bounded activity state;
+      do not make the client inspect remote process trees.
+- [ ] Derive running/exit state from server-owned process observation and shell
+      marks. Keep Nvim/client-only products on an optional local capability.
 - [ ] For `NvimHost`: always `false` (Neovim is always running; this badge is terminal-oriented).
 - [ ] Track start-time of last "shell" state change; if `is_command_running()` is true for > threshold, set `ActivityFlag::running`.
 

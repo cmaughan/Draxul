@@ -1,0 +1,30 @@
+{
+  "finished_at": "2026-08-07T13:40:59.726533+00:00",
+  "inputs": [
+    "D:\\dev\\Draxul\\plans\\reviews\\runs\\20260807T130818Z-review-refactor-f8bc8848\\reports\\anthropic.claude.opus.md",
+    "D:\\dev\\Draxul\\plans\\reviews\\runs\\20260807T130818Z-review-refactor-f8bc8848\\reports\\openai.codex.gpt-5-6-sol.md",
+    "D:\\dev\\Draxul\\plans\\reviews\\runs\\20260807T130818Z-review-refactor-f8bc8848\\reports\\xai.grok.grok-4-5.md"
+  ],
+  "kind": "summary",
+  "missing_reviewers": [],
+  "name": "review-refactor",
+  "prompt": "D:\\dev\\Draxul\\plans\\prompts\\consensus_review_refactor.md",
+  "run_id": "20260807T132603Z-review-refactor-summary-3baee201",
+  "schema_version": 1,
+  "started_at": "2026-08-07T13:26:03.269230+00:00",
+  "status": "complete",
+  "summarizer": {
+    "company": "openai",
+    "duration_seconds": 895.922,
+    "error": "",
+    "fallback_reason": "",
+    "model": "gpt-5.6-sol",
+    "preflight": "passed",
+    "preflight_message": "live response verified",
+    "requested": "codex",
+    "sandbox_fallback": "Windows sandbox failed to create a child process with error 1312; retried without the OS sandbox inside the disposable repository snapshot. The review-only prompt and snapshot boundary remained in force.",
+    "status": "passed",
+    "transport": "codex",
+    "version": "codex-cli 0.146.1"
+  }
+}

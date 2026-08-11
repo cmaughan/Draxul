@@ -266,6 +266,15 @@ TEST_CASE("encode_key: Tab emits 0x09", "[input]")
     REQUIRE(s.press(SDLK_TAB) == std::string("\x09"));
 }
 
+TEST_CASE("encode_key: Shift+Tab emits back-tab", "[input]")
+{
+    KeyTestSetup s;
+    INFO("host must initialize");
+    REQUIRE(s.ok);
+    INFO("shift+tab = CSI Z");
+    REQUIRE(s.press(SDLK_TAB, kModShift) == std::string("\x1B[Z"));
+}
+
 TEST_CASE("encode_key: Enter emits carriage return 0x0D", "[input]")
 {
     KeyTestSetup s;

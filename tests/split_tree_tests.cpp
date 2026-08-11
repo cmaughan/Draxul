@@ -302,6 +302,12 @@ TEST_CASE("SplitTree: update_divider_from_pixel maps mouse to ratio", "[split_tr
     auto result = tree.hit_test(499, 400);
     REQUIRE(std::holds_alternative<SplitTree::DividerHit>(result));
     const DividerId id = std::get<SplitTree::DividerHit>(result).id;
+    REQUIRE(tree.divider_ratio(id) == Catch::Approx(0.5f));
+    const auto calculated
+        = tree.divider_ratio_from_pixel(id, 300, 400);
+    REQUIRE(calculated);
+    CHECK(*calculated == Catch::Approx(300.0f / 996.0f));
+    CHECK(tree.divider_ratio(id) == Catch::Approx(0.5f));
 
     // Drop the divider near x=300 — left pane should occupy roughly that width.
     tree.update_divider_from_pixel(id, 300, 400);

@@ -2,7 +2,7 @@
 
 #include <catch2/catch_all.hpp>
 
-#include "../libs/draxul-host/src/conpty_process.h"
+#include <draxul/conpty_process.h>
 
 #include <algorithm>
 #include <chrono>

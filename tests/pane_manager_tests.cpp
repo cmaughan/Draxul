@@ -9,6 +9,7 @@
 #include <draxul/app_config.h>
 #include <draxul/app_options.h>
 #include <draxul/text_service.h>
+#include <draxul/unavailable_host.h>
 
 #include "pane_manager.h"
 #include "split_tree.h"
@@ -16,6 +17,7 @@
 #ifdef DRAXUL_ENABLE_MEGACITY
 #include <draxul/megacity_host.h>
 #endif
+#include <utility>
 
 using namespace draxul;
 using namespace draxul::tests;
@@ -39,7 +41,13 @@ public:
         return FakeHost::initialize(ctx, callbacks);
     }
 
+    std::string display_name() const override
+    {
+        return stable_display_name;
+    }
+
     HostLaunchOptions captured_launch;
+    std::string stable_display_name;
 };
 
 // Alias for the shared FakeGridHost (replaces the ad-hoc GuardedGridHost).
@@ -90,10 +98,21 @@ struct PaneManagerHarness
     float display_ppi = 96.0f;
     std::vector<LifetimeTestHost*> created_hosts;
     std::vector<std::shared_ptr<int>> shutdown_counters;
+    int before_host_destroyed_calls = 0;
+    bool fail_next_initialize = false;
+    std::string next_init_error_code;
+    std::optional<HostKind> unavailable_factory_kind;
+    bool allow_local_layout_mutation = true;
+    std::function<void(DividerId, float)>
+        request_projected_divider_ratio;
     PaneManager manager;
 
-    PaneManagerHarness()
-        : manager(make_deps())
+    explicit PaneManagerHarness(
+        bool allow_mutation = true,
+        std::function<void(DividerId, float)> ratio_callback = {})
+        : allow_local_layout_mutation(allow_mutation)
+        , request_projected_divider_ratio(std::move(ratio_callback))
+        , manager(make_deps())
     {
         TextServiceConfig ts_cfg;
         ts_cfg.font_path = bundled_font_path();
@@ -106,9 +125,15 @@ struct PaneManagerHarness
         options.load_user_config = false;
         options.save_user_config = false;
         options.host_kind = HostKind::Nvim;
-        options.host_factory = [this](HostKind) -> std::unique_ptr<IHost> {
+        options.host_factory = [this](HostKind kind) -> std::unique_ptr<IHost> {
+            if (unavailable_factory_kind == kind)
+                return nullptr;
             auto counter = std::make_shared<int>(0);
             auto host = std::make_unique<LifetimeTestHost>("lifetime-test");
+            host->fail_initialize
+                = std::exchange(fail_next_initialize, false);
+            host->init_error_code_message
+                = std::exchange(next_init_error_code, {});
             host->on_shutdown_callback = [counter] { ++(*counter); };
             shutdown_counters.push_back(counter);
             created_hosts.push_back(host.get());
@@ -122,6 +147,13 @@ struct PaneManagerHarness
         deps.grid_renderer = &renderer;
         deps.text_service = &text_service;
         deps.display_ppi = &display_ppi;
+        deps.allow_local_layout_mutation
+            = allow_local_layout_mutation;
+        deps.request_projected_divider_ratio
+            = request_projected_divider_ratio;
+        deps.before_host_destroyed = [this](IHost*) {
+            ++before_host_destroyed_calls;
+        };
         deps.compute_viewport = [](const PaneDescriptor& desc) {
             HostViewport viewport;
             viewport.pixel_pos = desc.pixel_pos;
@@ -587,6 +619,24 @@ TEST_CASE("pane manager: closing the preview pane clears preview tracking", "[pa
     CHECK_FALSE(harness.manager.has_markdown_preview());
 }
 
+TEST_CASE("pane manager: pane labels prefer custom then stable host identity",
+    "[pane_manager][chrome][label]")
+{
+    PaneManagerHarness harness;
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+    const LeafId leaf = harness.manager.focused_leaf();
+
+    CHECK(harness.manager.pane_display_name(leaf) == "Neovim");
+    REQUIRE(harness.created_hosts.size() == 1);
+    harness.created_hosts.front()->stable_display_name = "PowerShell";
+    CHECK(harness.manager.pane_display_name(leaf) == "PowerShell");
+
+    harness.manager.set_pane_name(leaf, "build");
+    CHECK(harness.manager.pane_display_name(leaf) == "build");
+    harness.manager.set_pane_name(leaf, {});
+    CHECK(harness.manager.pane_display_name(leaf) == "PowerShell");
+}
+
 TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_manager]")
 {
     PaneManagerHarness harness;
@@ -676,6 +726,311 @@ TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_mana
     CHECK(restored_split->agent->instance_id == "agent-4-7-pane-right");
     REQUIRE(restored_split->agent_session);
     CHECK(restored_split->agent_session->value == "codex-native-session");
+}
+
+TEST_CASE("pane manager: projected layout preserves unchanged live hosts",
+    "[pane_manager][topology]")
+{
+    PaneManagerHarness harness;
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+    REQUIRE(harness.created_hosts.size() == 1);
+    LifetimeTestHost* original_host = harness.created_hosts.front();
+    const auto original_shutdown = harness.shutdown_counters.front();
+
+    SplitTree split_tree;
+    const LeafId root = split_tree.reset(800, 600);
+    const LeafId added
+        = split_tree.split_leaf(root, SplitDirection::Vertical);
+    REQUIRE(added != kInvalidLeaf);
+    split_tree.set_focused(added);
+
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = split_tree.snapshot();
+    projected.panes = {
+        {
+            .leaf_id = root,
+            .launch = { .kind = HostKind::Nvim },
+            .pane_name = "kept",
+            .pane_id = "shared-pane-1",
+        },
+        {
+            .leaf_id = added,
+            .launch = { .kind = HostKind::PowerShell },
+            .pane_name = "new",
+            .pane_id = "shared-pane-2",
+        },
+    };
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    REQUIRE(harness.created_hosts.size() == 2);
+    CHECK(harness.manager.host_for(root) == original_host);
+    CHECK(*original_shutdown == 0);
+    CHECK(harness.manager.pane_name(root) == "kept");
+    CHECK(harness.manager.pane_id(added) == "shared-pane-2");
+
+    projected.tree.root->ratio = 0.7f;
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    CHECK(harness.created_hosts.size() == 2);
+    CHECK(harness.manager.host_for(root) == original_host);
+    CHECK(*original_shutdown == 0);
+    CHECK(harness.before_host_destroyed_calls == 0);
+
+    SplitTree single_tree;
+    REQUIRE(single_tree.reset(800, 600) == root);
+    PaneManager::PaneLayoutSnapshot collapsed;
+    collapsed.tree = single_tree.snapshot();
+    collapsed.panes = { projected.panes.front() };
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, collapsed));
+    CHECK(harness.manager.host_count() == 1);
+    CHECK(harness.manager.host_for(root) == original_host);
+    CHECK(*original_shutdown == 0);
+    REQUIRE(harness.shutdown_counters.size() == 2);
+    CHECK(*harness.shutdown_counters[1] == 1);
+    CHECK(harness.before_host_destroyed_calls == 1);
+}
+
+TEST_CASE("pane manager: projected host preserves typed initialization failure",
+    "[pane_manager][topology]")
+{
+    PaneManagerHarness harness;
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+
+    SplitTree split_tree;
+    const LeafId root = split_tree.reset(800, 600);
+    const LeafId added
+        = split_tree.split_leaf(root, SplitDirection::Vertical);
+    REQUIRE(added != kInvalidLeaf);
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = split_tree.snapshot();
+    projected.panes = {
+        {
+            .leaf_id = root,
+            .launch = { .kind = HostKind::Nvim },
+            .pane_id = "shared-pane-1",
+        },
+        {
+            .leaf_id = added,
+            .launch = {
+                .kind = HostKind::RemoteTerminal,
+                .remote_terminal_id = "already-removed",
+            },
+            .pane_id = "shared-pane-2",
+        },
+    };
+    harness.fail_next_initialize = true;
+    harness.next_init_error_code = "terminal_not_found";
+
+    CHECK_FALSE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    CHECK(harness.manager.error_code() == "terminal_not_found");
+    CHECK(harness.manager.host_count() == 1);
+}
+
+TEST_CASE("pane manager: projected unavailable client host keeps the rest of the layout live",
+    "[pane_manager][topology][unavailable]")
+{
+    PaneManagerHarness harness;
+    REQUIRE(harness.manager.create(
+        harness.callbacks, 800, 600));
+
+    SplitTree split_tree;
+    const LeafId root = split_tree.reset(800, 600);
+    const LeafId added
+        = split_tree.split_leaf(
+            root, SplitDirection::Vertical);
+    REQUIRE(added != kInvalidLeaf);
+
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = split_tree.snapshot();
+    projected.panes = {
+        {
+            .leaf_id = root,
+            .launch = { .kind = HostKind::Nvim },
+            .pane_id = "shared-pane-1",
+        },
+        {
+            .leaf_id = added,
+            .launch = {
+                .kind = HostKind::PowerShell,
+                .client_host_kind = "future_view",
+            },
+            .pane_id = "shared-pane-2",
+        },
+    };
+
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    CHECK(harness.manager.host_count() == 2);
+    CHECK(harness.manager.host_for(root) != nullptr);
+    const auto* unavailable = dynamic_cast<UnavailableHost*>(
+        harness.manager.host_for(added));
+    REQUIRE(unavailable != nullptr);
+    CHECK(unavailable->status_text()
+        == "future_view not available in this build");
+
+    // A known optional kind absent from this build degrades in exactly the
+    // same way; ordinary local launches still retain their failure behavior.
+    harness.unavailable_factory_kind = HostKind::Score;
+    projected.panes[1].launch.kind = HostKind::Score;
+    projected.panes[1].launch.client_host_kind = "score";
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    unavailable = dynamic_cast<UnavailableHost*>(
+        harness.manager.host_for(added));
+    REQUIRE(unavailable != nullptr);
+    CHECK(unavailable->status_text()
+        == "score not available in this build");
+}
+
+TEST_CASE("pane manager: identifies only server-owned remote terminals",
+    "[pane_manager][topology]")
+{
+    PaneManagerHarness harness(false);
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+
+    SplitTree split_tree;
+    const LeafId root = split_tree.reset(800, 600);
+    const LeafId remote
+        = split_tree.split_leaf(root, SplitDirection::Vertical);
+    REQUIRE(remote != kInvalidLeaf);
+
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = split_tree.snapshot();
+    projected.panes = {
+        {
+            .leaf_id = root,
+            .launch = { .kind = HostKind::PowerShell },
+            .pane_id = "shared-pane-1",
+        },
+        {
+            .leaf_id = remote,
+            .launch = {
+                .kind = HostKind::RemoteTerminal,
+                .remote_terminal_id = "terminal-2",
+            },
+            .pane_id = "shared-pane-2",
+        },
+    };
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+
+    CHECK_FALSE(harness.manager
+                    .is_server_owned_remote_terminal_leaf(root));
+    CHECK(harness.manager
+              .is_server_owned_remote_terminal_leaf(remote));
+
+    PaneManagerHarness local_harness;
+    REQUIRE(local_harness.manager.create(
+        local_harness.callbacks, 800, 600,
+        HostKind::RemoteTerminal));
+    CHECK_FALSE(local_harness.manager
+                    .is_server_owned_remote_terminal_leaf(
+                        local_harness.manager.focused_leaf()));
+}
+
+TEST_CASE("pane manager restores and refreshes a projected companion preview",
+    "[pane_manager][topology][preview]")
+{
+    PaneManagerHarness harness(false);
+    REQUIRE(harness.manager.create(
+        harness.callbacks, 800, 600));
+
+    SplitTree split_tree;
+    const LeafId owner = split_tree.reset(800, 600);
+    const LeafId preview
+        = split_tree.split_leaf(
+            owner, SplitDirection::Horizontal);
+    REQUIRE(preview != kInvalidLeaf);
+    auto tree_snapshot = split_tree.snapshot();
+    REQUIRE(tree_snapshot.root);
+    tree_snapshot.root->ratio = 2.0f / 3.0f;
+
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = std::move(tree_snapshot);
+    projected.panes = {
+        {
+            .leaf_id = owner,
+            .launch = {
+                .kind = HostKind::Kanban,
+                .client_host_kind = "kanban",
+            },
+            .pane_id = "kanban-pane",
+        },
+        {
+            .leaf_id = preview,
+            .launch = {
+                .kind = HostKind::Markdown,
+                .source_path = "D:/cards/one.md",
+                .client_host_kind = "markdown",
+                .companion_owner_pane_id = "kanban-pane",
+            },
+            .pane_id = "preview-pane",
+        },
+    };
+
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    CHECK(harness.manager.has_markdown_preview());
+    CHECK(harness.manager.markdown_preview_leaf() == preview);
+    const size_t hosts_after_restore
+        = harness.created_hosts.size();
+    auto* preview_host = dynamic_cast<LifetimeTestHost*>(
+        harness.manager.host_for(preview));
+    REQUIRE(preview_host);
+
+    projected.panes[1].launch.source_path
+        = "D:/cards/two.md";
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    CHECK(harness.created_hosts.size()
+        == hosts_after_restore);
+    REQUIRE(preview_host->dispatched_actions.size() == 1);
+    CHECK(preview_host->dispatched_actions.back()
+        == "open_file:D:/cards/two.md");
+}
+
+TEST_CASE("pane manager: projected divider drag previews and reports locally",
+    "[pane_manager][topology]")
+{
+    std::optional<std::pair<DividerId, float>> requested;
+    PaneManagerHarness harness(false,
+        [&](DividerId id, float ratio) {
+            requested = { id, ratio };
+        });
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+
+    SplitTree split_tree;
+    const LeafId root = split_tree.reset(800, 600);
+    const LeafId added
+        = split_tree.split_leaf(root, SplitDirection::Vertical);
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = split_tree.snapshot();
+    projected.panes = {
+        {
+            .leaf_id = root,
+            .launch = { .kind = HostKind::Nvim },
+            .pane_id = "shared-pane-1",
+        },
+        {
+            .leaf_id = added,
+            .launch = { .kind = HostKind::PowerShell },
+            .pane_id = "shared-pane-2",
+        },
+    };
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    REQUIRE(harness.manager.divider_ratio(0)
+        == Catch::Approx(0.5f));
+
+    harness.manager.update_divider_from_pixel(
+        0, 600, 300, 0, 0);
+    REQUIRE(requested);
+    CHECK(requested->first == 0);
+    CHECK(requested->second > 0.7f);
+    CHECK(harness.manager.divider_ratio(0)
+        == Catch::Approx(requested->second));
 }
 
 TEST_CASE("pane manager: only terminal shell layouts are checkpoint-restorable",

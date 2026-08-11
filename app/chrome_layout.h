@@ -134,6 +134,7 @@ struct ChromeSpaceLayout : ChromePillLayout
     int space_index = 0;
     int row = 0;
     bool active = false;
+    bool editing = false;
 };
 
 struct ChromeAgentLayout : ChromePillLayout
@@ -209,6 +210,7 @@ struct ChromeLayoutOutput
     std::vector<ChromePaneFrameLayout> pane_frames;
     std::vector<ChromeDivider> dividers;
     std::optional<ChromeCaretLayout> tab_caret;
+    std::optional<ChromeCaretLayout> space_caret;
     std::optional<ChromeCaretLayout> pane_caret;
     std::vector<ChromeHitRegion> hit_regions;
     float focus_border = 3.0f;

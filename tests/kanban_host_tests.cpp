@@ -59,6 +59,11 @@ public:
         preview_visible = false;
     }
 
+    bool is_markdown_preview_visible() const override
+    {
+        return preview_visible;
+    }
+
     void push_toast(int level, std::string_view message) override
     {
         toast_level = level;
@@ -222,6 +227,19 @@ TEST_CASE("kanban host preview follows the moved-to card", "[kanban][host][input
     REQUIRE(fixture.callbacks.hide_preview_calls == 0);
     REQUIRE(std::filesystem::weakly_canonical(fixture.callbacks.preview_path)
         == std::filesystem::weakly_canonical(second_card));
+}
+
+TEST_CASE("kanban host recognizes a preview restored by shared topology",
+    "[kanban][host][input][restore]")
+{
+    KanbanHostFixture fixture;
+    fixture.callbacks.preview_visible = true;
+
+    fixture.host.on_key(key_event(SDLK_P));
+
+    CHECK(fixture.callbacks.show_preview_calls == 0);
+    CHECK(fixture.callbacks.hide_preview_calls == 1);
+    CHECK_FALSE(fixture.callbacks.preview_visible);
 }
 
 TEST_CASE("kanban host does not touch the preview until it is pinned", "[kanban][host][input]")

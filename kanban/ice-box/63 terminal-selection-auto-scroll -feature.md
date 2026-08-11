@@ -11,7 +11,9 @@ While dragging a terminal selection beyond the pane's top or bottom edge, scroll
 ## Implementation plan
 
 - [ ] Add a pure edge-scroll model that maps pointer distance beyond the content viewport to a capped cells-per-second velocity with a small dead zone.
-- [ ] Start auto-scroll only during an active local terminal selection; stop on release, focus loss, pane change, mouse-mode capture, alt screen without history, or pointer return.
+- [ ] Start auto-scroll only during an active client-local
+  `RemoteTerminalHost` selection; stop on release, focus loss, pane change,
+  mouse-mode capture, alt screen without history, or pointer return.
 - [ ] Tick from the main frame loop using elapsed time, update scrollback viewport, and extend the selection endpoint in buffer coordinates after each scroll step.
 - [ ] Keep selection anchors stable across ring-buffer indices and wide/continuation cells; clamp at available history/current grid limits.
 - [ ] Request frames only while motion is active and apply configured smooth-scroll policy without accumulating unrelated wheel residue.

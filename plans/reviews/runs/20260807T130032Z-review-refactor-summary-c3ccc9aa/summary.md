@@ -1,0 +1,1 @@
+Unable to complete the synthesis: the environment cannot start PowerShell (`CreateProcessAsUserW` failure), and no alternative read-only filesystem interface is available. Therefore I could not read the required prompt and reviews. No files were changed and no project commands ran.

@@ -17,29 +17,6 @@ constexpr int kMaxClusterCodepoints = 8;
 constexpr int kMaxBuildAttempts = 3;
 constexpr int kChannels = 4;
 
-const MarkdownTextStyle& style_for_id(const MarkdownTheme& theme, StyleId style)
-{
-    switch (style.value)
-    {
-    case 1:
-        return theme.heading1;
-    case 2:
-        return theme.heading2;
-    case 3:
-        return theme.heading3;
-    case 4:
-        return theme.heading4;
-    case 5:
-        return theme.heading5;
-    case 6:
-        return theme.heading6;
-    case 7:
-        return theme.code;
-    default:
-        return theme.body;
-    }
-}
-
 void build_glyph_batches(MarkdownDrawList& list);
 
 MarkdownDrawList empty_markdown_draw_list(const MarkdownTheme& theme, const MarkdownDrawListOptions& options)
@@ -68,26 +45,6 @@ void add_bullet(MarkdownDrawList& list, const Decoration& decoration, float scro
     add_rect(list, decoration.x, decoration.y - scroll_offset, size, size, decoration.color);
 }
 
-void add_checkbox(MarkdownDrawList& list, const Decoration& decoration, float scroll_offset, float pixel_scale)
-{
-    const float thickness = std::max(1.0f, pixel_scale);
-    const float x = decoration.x;
-    const float y = decoration.y - scroll_offset;
-    const float width = std::max(decoration.width, 6.0f * pixel_scale);
-    const float height = std::max(decoration.height, 6.0f * pixel_scale);
-
-    add_rect(list, x, y, width, thickness, decoration.color);
-    add_rect(list, x, y + height - thickness, width, thickness, decoration.color);
-    add_rect(list, x, y, thickness, height, decoration.color);
-    add_rect(list, x + width - thickness, y, thickness, height, decoration.color);
-
-    if (!decoration.checked)
-        return;
-
-    add_rect(list, x + thickness * 2.0f, y + height * 0.5f, width * 0.28f, thickness, decoration.color);
-    add_rect(list, x + width * 0.45f, y + height * 0.3f, thickness, height * 0.45f, decoration.color);
-}
-
 void add_decoration(MarkdownDrawList& list, const Decoration& decoration, float scroll_offset, float pixel_scale)
 {
     switch (decoration.kind)
@@ -108,9 +65,6 @@ void add_decoration(MarkdownDrawList& list, const Decoration& decoration, float 
         break;
     case Decoration::Kind::Bullet:
         add_bullet(list, decoration, scroll_offset, pixel_scale);
-        break;
-    case Decoration::Kind::Checkbox:
-        add_checkbox(list, decoration, scroll_offset, pixel_scale);
         break;
     }
 }
@@ -138,6 +92,7 @@ float add_text_cluster(
     MarkdownDrawList& list,
     std::string_view text,
     const MarkdownTextStyle& style,
+    const draxul::Color& foreground,
     draxul::RichTextService& rich_text,
     float x,
     float baseline,
@@ -157,7 +112,7 @@ float add_text_cluster(
                 static_cast<float>(region.bitmap_size.x),
                 static_cast<float>(region.bitmap_size.y)),
             .uv = region.uv,
-            .color = style.foreground,
+            .color = foreground,
             .flags = region.is_color ? STYLE_FLAG_COLOR_GLYPH : 0u,
             .atlas_id = cluster.atlas_id,
             .atlas_generation = cluster.atlas_generation,
@@ -178,7 +133,8 @@ void add_text_run(
     if (run.text.empty())
         return;
 
-    const auto& style = style_for_id(theme, run.style);
+    const auto style = resolve_markdown_style(theme, run.style);
+    const draxul::Color foreground = run.color.value_or(style.foreground);
     float pen_x = run.x;
     size_t chunk_start = 0;
     size_t offset = 0;
@@ -199,7 +155,7 @@ void add_text_run(
         }
 
         const std::string_view chunk(run.text.data() + chunk_start, offset - chunk_start);
-        pen_x += add_text_cluster(list, chunk, style, rich_text, pen_x, run.baseline, scroll_offset);
+        pen_x += add_text_cluster(list, chunk, style, foreground, rich_text, pen_x, run.baseline, scroll_offset);
         chunk_start = offset;
         codepoints = 0;
 
@@ -363,9 +319,8 @@ std::vector<MarkdownAtlasUpload> collect_markdown_atlas_uploads(
         upload.rgba.resize(row_bytes * static_cast<size_t>(rect.size.y));
         for (int row = 0; row < rect.size.y; ++row)
         {
-            const size_t src_offset =
-                (static_cast<size_t>(rect.pos.y + row) * static_cast<size_t>(snapshot->width)
-                    + static_cast<size_t>(rect.pos.x))
+            const size_t src_offset = (static_cast<size_t>(rect.pos.y + row) * static_cast<size_t>(snapshot->width)
+                                          + static_cast<size_t>(rect.pos.x))
                 * static_cast<size_t>(kChannels);
             const size_t dst_offset = static_cast<size_t>(row) * row_bytes;
             std::memcpy(upload.rgba.data() + dst_offset, snapshot->data + src_offset, row_bytes);

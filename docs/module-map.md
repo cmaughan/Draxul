@@ -29,6 +29,7 @@ target graph has four layers:
 ```text
 draxul executable
 ├── draxul-app
+├── draxul-client / draxul-server
 ├── draxul-markdown-host
 ├── draxul-kanban
 └── optional product hosts: draxul-megacity / draxul-satview-host / draxul-scoreview-host
@@ -36,13 +37,15 @@ draxul executable
         ├── product-specific model, scene, service, and renderer targets
         └── shared host / renderer / UI infrastructure
                 │
-                ├── draxul-host / draxul-runtime-support / draxul-render-test
+                ├── draxul-host (including RemoteTerminalHost) /
+                │   draxul-runtime-support / draxul-render-test
                 ├── draxul-config / draxul-gui / draxul-ui / draxul-nanovg
                 └── draxul-http / draxul-font / draxul-grid / draxul-nvim /
                     draxul-renderer / draxul-window
                             │
                             └── narrow foundations: draxul-types / draxul-performance /
-                                draxul-agent / draxul-bmp / draxul-host-identity
+                                draxul-agent / draxul-session-model / draxul-bmp / draxul-host-identity /
+                                draxul-terminal-core / draxul-terminal-process
 ```
 
 This is a dependency shape, not a promise that every target in one row links every
@@ -59,6 +62,8 @@ Top-level orchestration only.
 Owns:
 - process startup/shutdown
 - wiring between window, renderer, text service, grid, and Neovim RPC
+- the `ITopologyMutationRoute` adapter boundary: local controller mutations and
+  server-backed command translation share one App-facing operation surface
 - smoke/render-test entry points
 
 Good place for:
@@ -97,11 +102,21 @@ does not rebuild or extend the universal value-type archive.
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
 | `libs/draxul-agent/` | Neutral agent identity/profile/runtime values plus bundled, versioned terminal-status and process-discovery evaluators |
+| `libs/draxul-session-model/` | Renderer-free durable Session/Space/tab/pane snapshot values, validation, versioned TOML codec, and transactional file replacement shared by the app and server |
 | `libs/draxul-control/` | Versioned, authenticated local Session control transport and client (Windows named pipe; Unix-domain socket elsewhere) |
+| `libs/draxul-protocol/` | Renderer- and transport-neutral server hello/status, versioned topology and sanitized agent-projection values, plus terminal pane, snapshot, delta, controller, clipboard, paged-scrollback, and diagnostic values |
+| `libs/draxul-client/` | Singleton discovery/launch/status/shutdown plus renderer-free remote-terminal and sanitized-agent polling, acknowledged/coalesced Session delivery, and `TopologyProjection`, which owns remote/local Space-tab-pane identities, stable leaf/split projection, structural signatures, divider-node mapping, and topology command activation bookkeeping behind the app's thin controller/PaneManager adapters; also owns the scrollback-page client, attach-latency metric, and headless probe API |
+| `libs/draxul-server/` | Headless server kernel, authoritative revisioned/idempotent topology service, Session-scoped agent discovery, sanitized status projection, profile-resolved managed-agent launch/restore, headless agent inspection/input/restart control, and epoch/runtime-pinned native-session reporting, server-owned periodic/graceful v3 Session checkpoint and cold restore, deterministic fake terminal plus a stable-ID registry of lazy real server-owned shell runtimes, semantic scrollback, per-terminal controller leases, sanitized transport metrics, bounded per-client terminal event queues, and serialized control event loop; deliberately has no window, renderer, host, or product dependency |
+| `libs/draxul-terminal-core/` | Renderer-, window-, and process-free VT state machine, semantic full/dirty/cell snapshots, terminal identity/limits, alternate-screen state, attributes, and reusable scrollback storage |
+| `libs/draxul-terminal-process/` | UI-free PTY/ConPTY process adapters owned by server terminal runtimes |
 
 These targets must not depend on product modules. Configure-time checks in
 `cmake/CheckDependencyBoundaries.cmake` enforce that direction and the direct
 `draxul-host` dependencies needed by its public and implementation headers.
+`draxul-host` privately consumes `draxul-client` for the `RemoteTerminalHost`
+renderer adapter, including client-local viewport/selection/mouse/paste behavior.
+The process adapter, client, and server libraries remain free of host, window,
+renderer, font, SDL, and product dependencies.
 
 ### libs/draxul-window/
 
@@ -193,7 +208,7 @@ Good place for:
 | `libs/draxul-gui/` | GPU-grid-native overlays such as palettes, tooltips, and toasts; no ImGui frame loop |
 | `libs/draxul-ui/` | ImGui diagnostics and developer-facing UI |
 | `libs/draxul-runtime-support/` | Shared grid-render pipeline, printing, resource monitoring, and background UI requests |
-| `libs/draxul-host/` | Host interfaces/base classes, terminal/Neovim hosts, PTY/ConPTY behavior, and terminal emulation |
+| `libs/draxul-host/` | UI/process host adapters, terminal/Neovim hosts, PTY/ConPTY behavior, selection, copy mode, and client-side terminal presentation |
 | `libs/draxul-nanovg/` | Cross-platform NanoVG render-pass integration |
 | `libs/draxul-render-test/` | Render-test driver and reusable render-test hosts |
 | `libs/draxul-app-support/` | Interface target bundling reusable config/runtime/render-test dependencies |
@@ -273,9 +288,12 @@ Use this when:
 - If the issue is about glyph choice, shaping, emoji, tofu, or atlas behavior, start in `draxul-font`.
 - If the issue is about DPI, focus, clipboard, IME, or visible window behavior, start in `draxul-window`.
 - If the issue is about config parsing/validation, start in `draxul-config`.
-- If the issue is about terminal/shell behavior or pane host lifecycle, start in `draxul-host`.
+- If the issue is about VT parsing, terminal modes, semantic cells, alternate-screen
+  behavior, or reusable scrollback storage, start in `draxul-terminal-core`.
+- If it is about a shell process, PTY/ConPTY lifecycle, selection, copy mode, or
+  client presentation, start in `draxul-host`.
 - If the issue belongs only to Markdown, Kanban, Megacity, SatView, or ScoreView, start in that product's `modules/` directory.
-- If the issue crosses several modules, start in `app/` to trace orchestration, then move reusable logic downward.
+- If the issue crosses several modules, start in `app/` to trace orchestration, then move reusable logic downward. Shared Session identity/split projection belongs in `draxul-client::TopologyProjection`; `app/` only adapts it to controllers and pane hosts.
 
 ## Why This Exists
 

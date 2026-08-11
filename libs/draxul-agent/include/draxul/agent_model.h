@@ -195,5 +195,7 @@ AgentStatusExplanation evaluate_agent_observation(
     std::string_view agent_kind, const AgentObservation& observation);
 std::optional<AgentDiscoveryMatch> discover_agent_process(
     const AgentProcessObservation& observation);
+std::optional<std::string> encode_agent_keys(
+    const std::vector<std::string>& keys, std::string& error);
 
 } // namespace draxul

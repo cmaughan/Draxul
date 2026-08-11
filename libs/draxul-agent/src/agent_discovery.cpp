@@ -20,8 +20,14 @@ std::string lowercase(std::string value)
 
 std::string executable_name(std::string_view value)
 {
-    std::string name =
-        lowercase(std::filesystem::path(value).filename().string());
+    // This matcher is a platform-neutral library: a macOS build still parses
+    // Windows-shaped evidence (cmd.exe command text with backslash paths), and
+    // std::filesystem::path only splits on the HOST's separators. Normalize
+    // first — discovery is heuristic, so mis-splitting the vanishingly rare
+    // POSIX filename that contains a literal backslash is an acceptable trade.
+    std::string portable(value);
+    std::replace(portable.begin(), portable.end(), '\\', '/');
+    std::string name = lowercase(std::filesystem::path(portable).filename().string());
     for (const std::string_view suffix :
         { ".exe", ".cmd", ".bat", ".ps1", ".js" })
     {
@@ -161,8 +167,7 @@ std::optional<AgentDiscoveryMatch> kind_from_command_text(
     if (command.empty())
         return std::nullopt;
 
-    const char quote =
-        command.front() == '"' || command.front() == '\'' ? command.front() : 0;
+    const char quote = command.front() == '"' || command.front() == '\'' ? command.front() : 0;
     if (quote != 0)
     {
         command.remove_prefix(1);
@@ -213,8 +218,7 @@ std::optional<AgentDiscoveryMatch> kind_from_wrapper(
         return std::nullopt;
     }
 
-    const bool node_runtime =
-        wrapper == "node" || wrapper == "nodejs" || wrapper == "bun";
+    const bool node_runtime = wrapper == "node" || wrapper == "nodejs" || wrapper == "bun";
     const bool python_runtime = wrapper == "python" || wrapper == "python3";
     const bool shell_runtime = wrapper == "sh" || wrapper == "bash"
         || wrapper == "zsh" || wrapper == "fish";

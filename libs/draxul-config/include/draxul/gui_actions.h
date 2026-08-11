@@ -28,13 +28,17 @@ struct GuiActionInfo
 };
 
 // Canonical list of GUI action base names. Order is fixed but not load-bearing.
-inline constexpr std::array<GuiActionInfo, 54> kGuiActions = { {
+// Size must equal the initialized rows exactly: std::array value-initializes
+// any tail, and two empty-named entries broke registry parity when actions
+// were removed without shrinking the count.
+inline constexpr std::array<GuiActionInfo, 56> kGuiActions = { {
     { "toggle_diagnostics" },
     { "copy" },
     { "paste" },
     { "confirm_paste" },
     { "cancel_paste" },
     { "toggle_copy_mode" },
+    { "take_terminal_control" },
     { "font_increase" },
     { "font_decrease" },
     { "font_reset" },
@@ -44,8 +48,9 @@ inline constexpr std::array<GuiActionInfo, 54> kGuiActions = { {
     { "toggle_host_ui" },
     { "command_palette" },
     { "quit" },
-    { "save_session_as" },
-    { "load_session" },
+    { "server_status" },
+    { "open_server_log" },
+    { "stop_server" },
     { "new_space" },
     { "switch_space" },
     { "rename_space" },

@@ -201,12 +201,14 @@ TEST_CASE("vtparser overflow: OSC buffer stays within cap", "[vtparser][overflow
 // plain_text buffer overflow test
 // ---------------------------------------------------------------------------
 
-TEST_CASE("vtparser overflow: plain_text buffer capped for incomplete multibyte", "[vtparser][overflow]")
+TEST_CASE("vtparser invalid UTF-8 lead bytes cannot accumulate in plain_text",
+    "[vtparser][overflow][unicode]")
 {
-    // plain_text_ only grows when incomplete UTF-8 multi-byte sequences stall
-    // the flush loop.  We simulate this by feeding a sequence of 0xC2 bytes
-    // (2-byte UTF-8 lead), each of which is incomplete without a continuation
-    // byte, causing the buffer to accumulate without being flushed.
+    // A lone lead byte remains buffered so it can be completed by a later PTY
+    // read. Once another lead byte arrives, however, the preceding sequence is
+    // provably invalid and must be emitted as U+FFFD. This both sanitizes the
+    // terminal snapshot and prevents invalid lead bytes from accumulating up
+    // to the plain-text safety cap.
 
     ScopedLogCapture log;
     TestParser tp;
@@ -235,7 +237,9 @@ TEST_CASE("vtparser overflow: plain_text buffer capped for incomplete multibyte"
             break;
         }
     }
-    REQUIRE(found_warn);
+    REQUIRE_FALSE(found_warn);
+    REQUIRE(tp.clusters.size() >= oversized - 1);
+    CHECK(tp.clusters.front() == "\xEF\xBF\xBD");
 
     // Parser still usable after overflow — feed valid ASCII.
     tp.parser.reset();

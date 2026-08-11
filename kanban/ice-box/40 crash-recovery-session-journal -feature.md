@@ -6,15 +6,19 @@
 
 ## User need
 
-Clean shutdown saves shell topology, but a crash loses changes since the last checkpoint. Record bounded topology mutations so startup can recover the last consistent tab.
+The server writes durable Session checkpoints, but a server crash can lose
+topology mutations since the last checkpoint. Record bounded authoritative
+server mutations so restart can recover the last consistent Session revision.
 
 ## Implementation plan
 
 - [ ] Land atomic persistence item 02 and SessionController item 22.
-- [ ] Define versioned journal records for tab/pane create/close/move/rename/focus and host launch descriptors; exclude terminal contents and secrets.
+- [ ] Define versioned journal records for server topology mutations and launch
+  descriptors; exclude terminal contents, client-local focus, and secrets.
 - [ ] Append length/checksum-framed records and flush on a bounded debounce rather than every input event.
 - [ ] Periodically write an atomic full checkpoint and compact records already represented by it.
-- [ ] On startup validate sequence/checksums, replay through pure session-state operations, and stop at the last valid record.
+- [ ] During `ServerKernel` restore validate sequence/checksums, replay through
+  pure authoritative topology operations, and stop at the last valid record.
 - [ ] Present a recovery choice after abnormal termination; never overwrite a valid clean checkpoint silently.
 - [ ] Cap file size/record count and quarantine corrupt journals with useful diagnostics.
 

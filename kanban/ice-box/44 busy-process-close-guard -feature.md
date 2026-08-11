@@ -11,9 +11,12 @@ Warn before closing a pane/tab/session that owns an active foreground job, while
 ## Implementation plan
 
 - [ ] Define an optional `CloseRisk` capability/result with reason, process summary, confidence, and whether graceful close is supported.
-- [ ] For POSIX PTYs compare the foreground process group with the shell; for Windows ConPTY use the best supported process-tree/job signal and document limitations.
+- [ ] Add a bounded server `CloseRisk` query: POSIX compares the foreground
+  process group with the shell; Windows ConPTY uses server-owned process-tree
+  evidence and documents limitations.
 - [ ] Treat unknown as unknown, not definitely safe; avoid expensive process enumeration every frame.
-- [ ] Query only on destructive actions and aggregate risks across tab/session closes.
+- [ ] Query the server only on destructive actions and aggregate risks across
+  authoritative pane/tab/Session closes.
 - [ ] Add a native confirmation overlay with Cancel, Close Anyway, and optional graceful interrupt/terminate where safe.
 - [ ] Bypass prompts for clean exited panes and support an explicit force-close command path.
 - [ ] Keep non-process hosts free to provide their own close risk later (for example unsaved documents).

@@ -126,27 +126,33 @@ cmake --build build --parallel
 
 ## Running
 
-With no arguments, Draxul starts an embedded Neovim child process (`nvim` must be on `PATH`).
-To run as a plain terminal instead, use `--host`:
+With no arguments, Draxul discovers or starts the per-user Draxul server and opens
+its shared default shell Session. Closing the UI leaves the server, shells, Spaces,
+and agents running; the next UI reconnects to them. Select a standalone product
+explicitly with `--host`.
 
 ### Windows
 
 ```powershell
-.\build\Release\draxul.exe                     # Neovim (default)
-.\build\Release\draxul.exe --host powershell   # PowerShell terminal
-.\build\Release\draxul.exe --host bash         # Bash (WSL)
-.\build\Release\draxul.exe --host megacity --source C:\dev\linux  # MegaCity scan root override
-.\build\Release\draxul.exe --console           # allocate a debug console for log output
+.\build-ninja-release\draxul.exe                         # shared PowerShell Session
+.\build-ninja-release\draxul.exe --host nvim             # embedded Neovim
+.\build-ninja-release\draxul.exe --host powershell       # shared PowerShell Session
+.\build-ninja-release\draxul.exe --host megacity --source C:\dev\linux
+.\build-ninja-release\draxul.exe --server-status
+.\build-ninja-release\draxul.exe --list-sessions          # live server Sessions
+.\build-ninja-release\draxul.exe --delete-session --session work --yes
+.\build-ninja-release\draxul.exe --shutdown-server --yes # confirms live-shell shutdown
 ```
 
-For a Debug build, replace `Release` with `Debug`.
+The server also exposes a Windows notification-area status menu with Open Draxul,
+status counts, log access, and guarded stop actions.
 
 ### macOS
 
 ```bash
-./build/draxul.app/Contents/MacOS/draxul                # Neovim (default)
-./build/draxul.app/Contents/MacOS/draxul --host zsh     # Zsh terminal
-./build/draxul.app/Contents/MacOS/draxul --host bash    # Bash terminal
+./build/draxul.app/Contents/MacOS/draxul                # shared login-shell Session
+./build/draxul.app/Contents/MacOS/draxul --host nvim    # embedded Neovim
+./build/draxul.app/Contents/MacOS/draxul --host zsh     # shared Zsh Session
 ./build/draxul.app/Contents/MacOS/draxul --host megacity --source ~/dev/linux  # MegaCity scan root override
 ```
 
@@ -156,7 +162,8 @@ Or launch via Finder / `open`:
 open ./build/draxul.app
 ```
 
-Supported `--host` values: `nvim`, `zsh`, `bash`, `powershell` / `pwsh` (Windows), `wsl` (Windows), `megacity`.
+Supported `--host` values include `nvim`, `zsh`, `bash`, `powershell` / `pwsh`
+(Windows), `wsl` (Windows), and built product hosts such as `megacity`.
 
 `--source <path>` overrides the MegaCity Tree-sitter scan root when launching `--host megacity`.
 

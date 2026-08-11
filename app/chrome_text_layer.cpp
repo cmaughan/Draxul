@@ -183,11 +183,14 @@ void ChromeTextLayer::update_sidebar(const ChromeLayoutOutput& layout, const Chr
     PaneDescriptor desc;
     desc.pixel_pos = {
         static_cast<int>(layout.sidebar_rect.x),
-        static_cast<int>(layout.sidebar_rect.y) - layout.grid_padding
+        static_cast<int>(layout.sidebar_spaces_header.y) - layout.grid_padding
     };
     desc.pixel_size = {
         layout.sidebar_width,
-        layout.sidebar_height + layout.grid_padding
+        std::max(0, static_cast<int>(
+            layout.sidebar_spaces_rect.y + layout.sidebar_spaces_rect.h
+                - layout.sidebar_spaces_header.y))
+            + layout.grid_padding
     };
     sidebar_handle_->set_viewport(desc);
     sidebar_handle_->set_grid_size(layout.sidebar_cols, layout.sidebar_rows);

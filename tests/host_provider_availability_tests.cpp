@@ -111,12 +111,17 @@ TEST_CASE("built-in host registration matches platform availability", "[host][re
 {
     HostProviderRegistry registry;
     register_builtin_host_providers(registry);
+    register_server_shell_host_metadata(registry);
     CHECK(registry.has(HostKind::Nvim));
     CHECK(registry.has(HostKind::Bash));
     CHECK(registry.has(HostKind::Zsh));
+    CHECK_FALSE(registry.create(HostKind::Bash));
+    CHECK_FALSE(registry.create(HostKind::Zsh));
 #ifdef _WIN32
     CHECK(registry.has(HostKind::PowerShell));
     CHECK(registry.has(HostKind::Wsl));
+    CHECK_FALSE(registry.create(HostKind::PowerShell));
+    CHECK_FALSE(registry.create(HostKind::Wsl));
 #else
     CHECK_FALSE(registry.has(HostKind::PowerShell));
     CHECK_FALSE(registry.has(HostKind::Wsl));

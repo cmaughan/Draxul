@@ -151,10 +151,16 @@ add_subdirectory(libs/draxul-renderer)
 add_subdirectory(libs/draxul-ui)
 add_subdirectory(libs/draxul-font)
 add_subdirectory(libs/draxul-grid)
+add_subdirectory(libs/draxul-terminal-core)
 add_subdirectory(libs/draxul-nvim)
 add_subdirectory(libs/draxul-config)
 add_subdirectory(libs/draxul-agent)
+add_subdirectory(libs/draxul-session-model)
+add_subdirectory(libs/draxul-terminal-process)
+add_subdirectory(libs/draxul-protocol)
 add_subdirectory(libs/draxul-control)
+add_subdirectory(libs/draxul-client)
+add_subdirectory(libs/draxul-server)
 add_subdirectory(libs/draxul-gui)
 add_subdirectory(modules/markdown)
 add_subdirectory(libs/draxul-runtime-support)
@@ -180,7 +186,9 @@ draxul_check_dependency_boundaries()
 foreach(_draxul_lib
     draxul-performance draxul-types draxul-bmp draxul-http draxul-window draxul-renderer draxul-ui
     draxul-font draxul-grid draxul-nvim
-    draxul-config draxul-gui draxul-markdown draxul-markdown-host draxul-kanban draxul-runtime-support draxul-render-test
+    draxul-terminal-core draxul-terminal-process
+    draxul-config draxul-session-model draxul-protocol draxul-control draxul-client draxul-server
+    draxul-gui draxul-markdown draxul-markdown-host draxul-kanban draxul-runtime-support draxul-render-test
     draxul-host)
     draxul_apply_sanitizers(${_draxul_lib})
     draxul_apply_coverage(${_draxul_lib})
@@ -250,7 +258,10 @@ endif()
 #   cmake/CompileShaders_Metal.cmake (Apple)
 #   cmake/CompileShaders.cmake (Windows)
 if(APPLE)
-    set(DRAXUL_APP_PLATFORM_SOURCES "app/macos_menu.mm")
+    set(DRAXUL_APP_PLATFORM_SOURCES
+        "app/macos_menu.mm"
+        "app/macos_server_status_surface.mm"
+    )
     set(DRAXUL_EXEC_PLATFORM_SOURCES "")
     set(DRAXUL_ICON_FILE "${CMAKE_SOURCE_DIR}/assets/draxul.icns")
     if(EXISTS "${DRAXUL_ICON_FILE}")
@@ -279,13 +290,13 @@ add_library(draxul-app
     app/chrome_vector_pass.cpp
     app/rename_editor.cpp
     app/cli_args.cpp
-    app/session_cli.cpp
+    app/cli_help.cpp
+    app/server_status_surface.cpp
     app/command_palette.cpp
     app/command_palette_host.cpp
     app/control_cli.cpp
     app/control_event_journal.cpp
     app/control_request_router.cpp
-    app/session_listing.cpp
     app/toast_host.cpp
     app/weather_service.cpp
     app/diagnostics_panel_host.cpp
@@ -295,10 +306,11 @@ add_library(draxul-app
     app/pane_manager.cpp
     app/render_tree.cpp
     app/session_id.cpp
-    app/session_state.cpp
     app/space_controller.cpp
     app/split_tree.cpp
     app/tab_controller.cpp
+    app/topology_cli.cpp
+    app/topology_mutation_route.cpp
     ${DRAXUL_APP_PLATFORM_SOURCES}
 )
 
@@ -310,7 +322,9 @@ draxul_apply_msvc_parallel_pdb_fix(draxul-app)
 
 target_link_libraries(draxul-app PUBLIC
     draxul-agent
+    draxul-session-model
     draxul-control
+    draxul-client
     draxul-http
     nlohmann_json::nlohmann_json
     draxul-config
@@ -359,9 +373,11 @@ draxul_apply_msvc_parallel_pdb_fix(draxul)
 target_link_libraries(draxul PRIVATE
     draxul-app
     draxul-bmp
+    draxul-client
     draxul-markdown-host
     draxul-kanban
     draxul-performance
+    draxul-server
 )
 if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul PRIVATE draxul-megacity)
@@ -378,10 +394,30 @@ endif()
 if(DRAXUL_ENABLE_RENDER_TESTS)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_RENDER_TESTS)
 endif()
+if(TARGET draxul-test-core)
+    add_dependencies(draxul-test-core draxul)
+endif()
 
 if(APPLE)
     find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
     target_link_libraries(draxul PRIVATE ${COREGRAPHICS_FRAMEWORK})
+
+    configure_file(
+        ${CMAKE_SOURCE_DIR}/cmake/MacOSXServerBundleInfo.plist.in
+        ${CMAKE_BINARY_DIR}/DraxulServerInfo.plist
+        @ONLY
+    )
+    add_custom_command(TARGET draxul POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_BUNDLE_DIR:draxul>/Contents/Helpers/Draxul Server.app/Contents/MacOS"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:draxul>"
+            "$<TARGET_BUNDLE_DIR:draxul>/Contents/Helpers/Draxul Server.app/Contents/MacOS/draxul-server"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_BINARY_DIR}/DraxulServerInfo.plist"
+            "$<TARGET_BUNDLE_DIR:draxul>/Contents/Helpers/Draxul Server.app/Contents/Info.plist"
+        VERBATIM
+    )
 
     function(draxul_stage_metal_shader target_name shader_path)
         add_custom_target(${target_name}
@@ -520,6 +556,19 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
+    if(WIN32)
+        find_program(DRAXUL_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
+        if(DRAXUL_POWERSHELL_EXECUTABLE)
+            add_test(NAME draxul-topology-cli-integration
+                COMMAND ${DRAXUL_POWERSHELL_EXECUTABLE}
+                    -NoProfile -ExecutionPolicy Bypass
+                    -File ${CMAKE_SOURCE_DIR}/tests/topology_cli_integration.ps1
+                    -Executable $<TARGET_FILE:draxul>)
+            set_tests_properties(draxul-topology-cli-integration
+                PROPERTIES LABELS "integration;smoke" TIMEOUT 45)
+        endif()
+    endif()
+
     find_program(NVIM_EXECUTABLE nvim)
     if(NVIM_EXECUTABLE)
         if(WIN32)

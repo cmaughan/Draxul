@@ -33,6 +33,7 @@ public:
     }
     std::pair<int, int> size_logical() const override;
     std::pair<int, int> size_pixels() const override;
+    bool is_minimized() const override;
     float display_ppi() const override;
     void set_title(const std::string& title) override;
     void set_title_bar_color(Color color) override;

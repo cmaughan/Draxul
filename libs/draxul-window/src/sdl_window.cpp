@@ -577,6 +577,12 @@ std::pair<int, int> SdlWindow::size_pixels() const
     return { w, h };
 }
 
+bool SdlWindow::is_minimized() const
+{
+    return window_ != nullptr
+        && (SDL_GetWindowFlags(window_) & SDL_WINDOW_MINIMIZED) != 0;
+}
+
 std::pair<int, int> SdlWindow::size_logical() const
 {
     PERF_MEASURE();

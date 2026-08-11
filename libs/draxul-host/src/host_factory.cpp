@@ -6,15 +6,6 @@
 
 namespace draxul
 {
-std::unique_ptr<IHost> create_shell_host();
-#ifdef _WIN32
-std::unique_ptr<IHost> create_powershell_host();
-std::unique_ptr<IHost> create_wsl_host();
-#endif
-} // namespace draxul
-
-namespace draxul
-{
 
 void register_builtin_host_providers(HostProviderRegistry& registry)
 {
@@ -22,11 +13,17 @@ void register_builtin_host_providers(HostProviderRegistry& registry)
     registry.register_provider(HostKind::Nvim, [] {
         return std::unique_ptr<IHost>(std::make_unique<NvimHost>());
     });
-    registry.register_provider(HostKind::Bash, [] { return create_shell_host(); });
-    registry.register_provider(HostKind::Zsh, [] { return create_shell_host(); });
+}
+
+void register_server_shell_host_metadata(
+    HostProviderRegistry& registry)
+{
+    PERF_MEASURE();
+    registry.register_metadata(HostKind::Bash);
+    registry.register_metadata(HostKind::Zsh);
 #ifdef _WIN32
-    registry.register_provider(HostKind::PowerShell, [] { return create_powershell_host(); });
-    registry.register_provider(HostKind::Wsl, [] { return create_wsl_host(); });
+    registry.register_metadata(HostKind::PowerShell);
+    registry.register_metadata(HostKind::Wsl);
 #endif
 }
 

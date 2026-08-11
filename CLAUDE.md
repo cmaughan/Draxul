@@ -187,6 +187,12 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 
 ## Validation Expectations
 
+- Prefer integration tests, vertical-slice tests, and smoke tests that exercise
+  real feature boundaries over narrow unit tests with little incremental value.
+  Reserve new unit tests for cases where isolation materially improves coverage,
+  protects an existing behavior, or makes an otherwise difficult edge case
+  deterministic. Do not add small-scale tests merely because a helper or parser
+  can be tested in isolation.
 - **Always build and run the smoke test before committing.** Use `cmake --build build --target draxul draxul-tests` followed by `py do.py smoke` (or `python do.py smoke` on Windows). This catches broken includes, link errors, and basic startup failures that only surface after merging changes from multiple sources.
 - If you touch RPC, redraw handling, or input translation, run `ctest`.
 - If you touch renderer code, build the platform-specific app target and verify startup at least once.

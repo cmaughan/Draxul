@@ -19,8 +19,11 @@
 #include <SDL3/SDL.h>
 #include <catch2/catch_all.hpp>
 #include <draxul/app_config.h>
+#include <draxul/control_plane.h>
 #include <draxul/host.h>
 #include <draxul/http/http_client.h>
+#include <draxul/server_protocol.h>
+#include <draxul/topology_protocol.h>
 #include <atomic>
 #include <filesystem>
 #include <fstream>
@@ -323,6 +326,143 @@ TEST_CASE("app smoke: initialize succeeds with all fakes", "[app_smoke]")
     app.shutdown();
 }
 
+TEST_CASE("app smoke: remote topology starts with a host-free placeholder",
+    "[app_smoke][topology]")
+{
+    TempDir temp("draxul-app-remote-placeholder");
+    int host_creations = 0;
+    AppOptions opts = make_smoke_options();
+    opts.enable_control_server = false;
+    opts.enable_session_restore = false;
+    opts.enable_remote_topology = true;
+    opts.server_runtime_directory = temp.path;
+    opts.server_client_id = "missing-server-client";
+    opts.host_factory = [&host_creations](HostKind)
+        -> std::unique_ptr<IHost> {
+        ++host_creations;
+        return std::make_unique<SmokeTestHost>();
+    };
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    CHECK(host_creations == 0);
+    CHECK(app.init_error().empty());
+    app.shutdown();
+}
+
+TEST_CASE("app smoke: failed remote projection retries and restores input routing",
+    "[app_smoke][topology][retry]")
+{
+    TempDir temp("draxul-app-remote-retry");
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &start_error));
+
+    const TopologySnapshot topology{
+        .revision = 1,
+        .session_id = "default",
+        .spaces = {
+            {
+                .space_id = "space-1",
+                .name = "Work",
+                .tabs = {
+                    {
+                        .tab_id = "tab-1",
+                        .name = "Shell",
+                        .root_node_id = "node-1",
+                        .nodes = {
+                            {
+                                .node_id = "node-1",
+                                .is_leaf = true,
+                                .pane_id = "pane-1",
+                            },
+                        },
+                        .panes = {
+                            {
+                                .pane_id = "pane-1",
+                                .domain
+                                = TopologyPaneDomain::ClientLocal,
+                                .client_host_kind = "nvim",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    };
+    const auto dispatch = [&](const ControlRequest& request) {
+        if (request.method == "topology.snapshot")
+        {
+            return ControlMethodResult::success(
+                topology_snapshot_to_json(topology));
+        }
+        if (request.method == "topology.poll")
+        {
+            return ControlMethodResult::success({
+                { "changed", false },
+                { "revision", topology.revision },
+            });
+        }
+        return ControlMethodResult::error(
+            "unknown_method", "Not used by this test.");
+    };
+    std::jthread server_thread([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            server.process_pending(dispatch);
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(1));
+        }
+    });
+
+    int host_creations = 0;
+    AppOptions opts = make_smoke_options();
+    opts.enable_control_server = false;
+    opts.enable_session_restore = false;
+    opts.enable_remote_topology = true;
+    opts.server_runtime_directory = temp.path;
+    opts.server_client_id = "retry-client";
+    opts.host_factory = [&](HostKind)
+        -> std::unique_ptr<IHost> {
+        ++host_creations;
+        auto host = std::make_unique<SmokeTestHost>();
+        if (host_creations == 1)
+        {
+            host->fail_initialize = true;
+            host->init_error_message
+                = "Synthetic transient projection failure.";
+        }
+        else
+        {
+            g_last_smoke_host = host.get();
+        }
+        return host;
+    };
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    REQUIRE(app.run_smoke_test(
+        std::chrono::seconds(2)));
+    REQUIRE(host_creations >= 2);
+    REQUIRE(g_last_smoke_host != nullptr);
+    REQUIRE(g_last_fake_window != nullptr);
+    REQUIRE(static_cast<bool>(g_last_fake_window->on_key));
+    g_last_fake_window->on_key({
+        .scancode = 4,
+        .keycode = 'a',
+        .mod = kModNone,
+        .pressed = true,
+    });
+    CHECK(g_last_smoke_host->key_events.size() == 1);
+
+    app.shutdown();
+    server_thread.request_stop();
+    server_thread.join();
+    server.stop();
+}
+
 TEST_CASE("app smoke: Space lifecycle creates rooted hosts and switches in memory",
     "[app_smoke][spaces]")
 {
@@ -482,6 +622,33 @@ TEST_CASE("app smoke: queued window resize updates the host viewport", "[app_smo
     CHECK(after.pixel_size.y > before.pixel_size.y);
     CHECK(after.grid_size.x >= before.grid_size.x);
     CHECK(after.grid_size.y >= before.grid_size.y);
+
+    app.shutdown();
+}
+
+TEST_CASE("app smoke: rendering pauses while minimized and resumes after restore", "[app_smoke]")
+{
+    const std::string font = bundled_font_path();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    g_last_fake_renderer = nullptr;
+    g_last_fake_window = nullptr;
+    App app(make_smoke_options());
+    REQUIRE(app.initialize());
+    REQUIRE(g_last_fake_renderer != nullptr);
+    REQUIRE(g_last_fake_window != nullptr);
+
+    g_last_fake_renderer->reset();
+    g_last_fake_window->minimized_ = true;
+    REQUIRE_FALSE(app.run_smoke_test(std::chrono::milliseconds(20)));
+    CHECK(g_last_fake_renderer->begin_frame_calls == 0);
+    CHECK(g_last_fake_renderer->end_frame_calls == 0);
+
+    g_last_fake_window->minimized_ = false;
+    REQUIRE(app.run_smoke_test(std::chrono::milliseconds(100)));
+    CHECK(g_last_fake_renderer->begin_frame_calls == 1);
+    CHECK(g_last_fake_renderer->end_frame_calls == 1);
 
     app.shutdown();
 }
@@ -1064,306 +1231,6 @@ TEST_CASE("app smoke: reload_config propagates to all split panes in the active 
     CHECK(pane_a->last_config().enable_ligatures == false);
     CHECK(pane_b->last_config().enable_ligatures == false);
 
-    app.shutdown();
-}
-
-TEST_CASE("app smoke: save_session_as persists a named session and switches active session id",
-    "[app_smoke][session]")
-{
-    TempDir temp("draxul-save-session-as");
-    HomeDirRedirect redir(temp.path);
-
-    AppOptions opts = make_smoke_options();
-    opts.enable_session_restore = true;
-    opts.session_id = "default";
-    opts.session_name = "default";
-    opts.host_kind = HostKind::PowerShell;
-
-    App app(std::move(opts));
-    REQUIRE(app.initialize());
-
-    auto saved = app.save_session_as("Work Bench");
-    if (!saved)
-        INFO(saved.error().message);
-    REQUIRE(saved);
-    const std::string new_id = *saved;
-    REQUIRE(new_id.rfind("work-bench-", 0) == 0);
-
-    auto saved_state = load_session_state(new_id);
-    REQUIRE(saved_state);
-    CHECK(saved_state->session_id == new_id);
-    CHECK(saved_state->session_name == "Work Bench");
-
-    REQUIRE(app.run_smoke_test(std::chrono::milliseconds(200)));
-
-    saved_state = load_session_state(new_id);
-    REQUIRE(saved_state);
-    CHECK(saved_state->session_name == "Work Bench");
-
-    app.shutdown();
-}
-
-TEST_CASE("app smoke: save_session_as captures active and inactive Spaces",
-    "[app_smoke][session][space]")
-{
-    TempDir temp("draxul-save-multi-space");
-    HomeDirRedirect redir(temp.path);
-
-    AppOptions opts = make_smoke_options();
-    opts.enable_session_restore = true;
-    opts.session_id = "default";
-    opts.session_name = "default";
-    opts.host_kind = HostKind::PowerShell;
-
-    App app(std::move(opts));
-    REQUIRE(app.initialize());
-    auto worker = app.create_space("worker", "D:/work/worker");
-    REQUIRE(worker);
-    REQUIRE(app.space_controller().count() == 2);
-    REQUIRE(app.space_controller().active_space_id() == *worker);
-
-    auto saved = app.save_session_as("Multi Space");
-    if (!saved)
-        INFO(saved.error().message);
-    REQUIRE(saved);
-
-    auto state = load_session_state(*saved);
-    REQUIRE(state);
-    CHECK(state->active_space_id == *worker);
-    REQUIRE(state->spaces.size() == 2);
-    CHECK(state->spaces[0].id == kDefaultSpaceId);
-    CHECK(state->spaces[0].name == "default");
-    CHECK(state->spaces[1].id == *worker);
-    CHECK(state->spaces[1].name == "worker");
-    CHECK(state->spaces[1].root_directory == std::filesystem::path("D:/work/worker"));
-    REQUIRE(state->spaces[0].tabs.size() == 1);
-    REQUIRE(state->spaces[1].tabs.size() == 1);
-
-    const std::string saved_id = *saved;
-    app.shutdown();
-
-    AppOptions restored_opts = make_smoke_options();
-    restored_opts.enable_session_restore = true;
-    restored_opts.session_id = saved_id;
-    restored_opts.host_kind = HostKind::PowerShell;
-
-    App restored(std::move(restored_opts));
-    REQUIRE(restored.initialize());
-    REQUIRE(restored.space_controller().count() == 2);
-    CHECK(restored.space_controller().active_space_id() == *worker);
-    REQUIRE(restored.space_controller().spaces().size() == 2);
-    CHECK(restored.space_controller().spaces()[0]->name == "default");
-    CHECK(restored.space_controller().spaces()[1]->name == "worker");
-    CHECK(restored.space_controller().spaces()[1]->root_directory
-        == std::filesystem::path("D:/work/worker"));
-    restored.shutdown();
-}
-
-TEST_CASE("app smoke: launched agent identity drives the sidebar and survives restore",
-    "[app_smoke][session][agent]")
-{
-    TempDir temp("draxul-agent-identity");
-    HomeDirRedirect redir(temp.path);
-
-    AppOptions opts = make_smoke_options();
-    opts.enable_session_restore = true;
-    opts.session_id = "agent-session";
-    opts.host_kind = HostKind::PowerShell;
-
-    App app(std::move(opts));
-    REQUIRE(app.initialize());
-    auto launched = app.launch_agent(AgentLaunchRequest{
-        .profile_id = "codex",
-        .additional_args = { "--ask-for-approval", "never" },
-    });
-    if (!launched)
-        INFO(launched.error().message);
-    REQUIRE(launched);
-    CHECK(app.shell_layout().sidebar_visible);
-
-    AgentController agents;
-    auto rows = agents.query(app.space_controller());
-    REQUIRE(rows.size() == 1);
-    CHECK(rows[0].identity.kind == "codex");
-    CHECK(rows[0].identity.display_name == "Codex");
-    CHECK(rows[0].identity.instance_id == *launched);
-    CHECK(rows[0].focused);
-
-    auto saved = app.save_session_as("Agent Session");
-    REQUIRE(saved);
-    auto state = load_session_state(*saved);
-    REQUIRE(state);
-    REQUIRE(state->spaces.size() == 1);
-    REQUIRE(state->spaces[0].tabs.size() == 1);
-    REQUIRE(state->spaces[0].tabs[0].pane_layout.panes.size() == 2);
-    const auto agent_pane = std::find_if(
-        state->spaces[0].tabs[0].pane_layout.panes.begin(),
-        state->spaces[0].tabs[0].pane_layout.panes.end(),
-        [](const PaneManager::PaneSnapshot& pane) { return pane.agent.has_value(); });
-    REQUIRE(agent_pane != state->spaces[0].tabs[0].pane_layout.panes.end());
-    REQUIRE(agent_pane->agent);
-    CHECK(agent_pane->agent->instance_id == *launched);
-    CHECK(agent_pane->launch.command == "codex");
-    CHECK(agent_pane->launch.args
-        == (std::vector<std::string>{ "--ask-for-approval", "never" }));
-    CHECK(agent_pane->launch.startup_commands.empty());
-
-    const std::string saved_id = *saved;
-    const std::string agent_id = *launched;
-    app.shutdown();
-
-    AppOptions restored_opts = make_smoke_options();
-    restored_opts.enable_session_restore = true;
-    restored_opts.session_id = saved_id;
-    restored_opts.host_kind = HostKind::PowerShell;
-    App restored(std::move(restored_opts));
-    REQUIRE(restored.initialize());
-    rows = agents.query(restored.space_controller());
-    REQUIRE(rows.size() == 1);
-    CHECK(rows[0].identity.instance_id == agent_id);
-    CHECK(rows[0].running);
-    CHECK(restored.shell_layout().sidebar_visible);
-    restored.shutdown();
-}
-
-TEST_CASE("app smoke: load_session restores a selected saved session in the current window",
-    "[app_smoke][session]")
-{
-    TempDir temp("draxul-load-session");
-    HomeDirRedirect redir(temp.path);
-
-    SplitTree tree;
-    const LeafId leaf = tree.reset(640, 360);
-
-    SessionSnapshot target;
-    target.session_id = "target";
-    target.session_name = "Target Session";
-    target.active_space_id = kDefaultSpaceId;
-    target.next_space_id = kDefaultSpaceId + 1;
-
-    TabSnapshot tab;
-    tab.id = 7;
-    tab.name = "loaded";
-    tab.name_user_set = true;
-    tab.pane_layout.tree = tree.snapshot();
-    tab.pane_layout.panes.push_back({
-        .leaf_id = leaf,
-        .launch = {
-            .kind = HostKind::PowerShell,
-            .command = "pwsh",
-            .args = {},
-            .working_dir = "D:/target",
-            .source_path = "",
-            .startup_commands = {},
-        },
-        .pane_name = "loaded-shell",
-        .pane_id = "pane-loaded",
-    });
-    SpaceSnapshot target_space;
-    target_space.id = kDefaultSpaceId;
-    target_space.name = "target";
-    target_space.root_directory = "D:/target";
-    target_space.active_tab_id = 7;
-    target_space.next_tab_id = 8;
-    target_space.tabs.push_back(std::move(tab));
-    target.spaces.push_back(std::move(target_space));
-
-    std::string session_error;
-    REQUIRE(save_session_state(target, &session_error));
-    REQUIRE(session_error.empty());
-
-    AppOptions opts = make_smoke_options();
-    opts.enable_session_restore = true;
-    opts.session_id = "default";
-    opts.session_name = "Default Session";
-    opts.host_kind = HostKind::PowerShell;
-
-    App app(std::move(opts));
-    REQUIRE(app.initialize());
-
-    auto loaded = app.load_session("target");
-    if (!loaded)
-        INFO(loaded.error().message);
-    REQUIRE(loaded);
-    REQUIRE(app.run_smoke_test(std::chrono::milliseconds(200)));
-
-    auto previous_state = load_session_state("default");
-    REQUIRE(previous_state);
-    CHECK(previous_state->session_name == "Default Session");
-
-    auto loaded_state = load_session_state("target");
-    REQUIRE(loaded_state);
-    CHECK(loaded_state->session_name == "Target Session");
-    REQUIRE(loaded_state->spaces.size() == 1);
-    REQUIRE(loaded_state->spaces[0].tabs.size() == 1);
-    CHECK(loaded_state->spaces[0].tabs[0].name == "loaded");
-
-    app.shutdown();
-}
-
-TEST_CASE("app smoke: failed named Session restore preserves the live Space collection",
-    "[app_smoke][session][space][restore]")
-{
-    TempDir temp("draxul-load-session-transaction");
-    HomeDirRedirect redir(temp.path);
-
-    SplitTree tree;
-    const LeafId leaf = tree.reset(640, 360);
-    SessionSnapshot target;
-    target.session_id = "broken-target";
-    target.session_name = "Broken Target";
-    target.active_space_id = 5;
-    target.next_space_id = 6;
-
-    TabSnapshot tab;
-    tab.id = 4;
-    tab.name = "cannot-start";
-    tab.pane_layout.tree = tree.snapshot();
-    tab.pane_layout.panes.push_back({
-        .leaf_id = leaf,
-        .launch = { .kind = HostKind::PowerShell, .command = "pwsh" },
-        .pane_id = "pane-broken",
-    });
-    SpaceSnapshot space;
-    space.id = 5;
-    space.name = "broken";
-    space.active_tab_id = 4;
-    space.next_tab_id = 5;
-    space.tabs.push_back(std::move(tab));
-    target.spaces.push_back(std::move(space));
-    REQUIRE(save_session_state(target));
-
-    auto fail_host_initialization = std::make_shared<bool>(false);
-    AppOptions opts = make_smoke_options();
-    opts.enable_session_restore = true;
-    opts.session_id = "default";
-    opts.host_kind = HostKind::PowerShell;
-    opts.host_factory = [fail_host_initialization](HostKind) -> std::unique_ptr<IHost> {
-        auto host = std::make_unique<FakeHost>("transaction-host");
-        host->fail_initialize = *fail_host_initialization;
-        host->init_error_message = "injected named Session restore failure";
-        return host;
-    };
-
-    App app(std::move(opts));
-    REQUIRE(app.initialize());
-    const Space* live_space = app.space_controller().find_active_space();
-    REQUIRE(live_space != nullptr);
-    IHost* live_host = live_space->tab_controller.active_pane_manager().focused_host();
-    REQUIRE(live_host != nullptr);
-
-    *fail_host_initialization = true;
-    auto loaded = app.load_session("broken-target");
-    CHECK_FALSE(loaded);
-    CHECK(app.space_controller().count() == 1);
-    CHECK(app.space_controller().find_active_space() == live_space);
-    CHECK(app.space_controller().active_space_id() == kDefaultSpaceId);
-    CHECK(app.space_controller().active_tab_controller().active_tab_id() == 0);
-    CHECK(app.space_controller().active_tab_controller().active_pane_manager().focused_host()
-        == live_host);
-    CHECK(live_host->is_running());
-
-    *fail_host_initialization = false;
     app.shutdown();
 }
 

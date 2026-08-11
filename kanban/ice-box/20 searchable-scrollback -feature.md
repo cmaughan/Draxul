@@ -9,13 +9,17 @@
 
 ## Problem
 
-`LocalTerminalHost` has scrollback buffer infrastructure (`scrollback_buffer.h`), but there is no way to search within it. Users must scroll manually to find text. A pattern-match search that highlights matching lines and lets the user jump forward/backward is a standard terminal emulator feature and would make Draxul's shell pane substantially more useful.
+The server retains semantic terminal scrollback and `RemoteTerminalHost` owns
+each client's independent scroll position and selection, but there is no way to
+search within retained rows. A pattern search should query paged server
+scrollback while keeping the pattern, matches, highlighting, and navigation
+strictly client-local.
 
 ---
 
 ## Implementation Plan
 
-- [ ] Read `libs/draxul-host/include/draxul/scrollback_buffer.h` and its implementation to understand the stored row format and existing API.
+- [ ] Read `libs/draxul-terminal-core/include/draxul/scrollback_buffer.h` and its implementation to understand the stored row format and existing API.
 - [ ] Read how scrollback mode is currently entered and displayed (keyboard shortcut, viewport offset, etc.).
 - [ ] Design the search interaction:
   - Scrollback mode is activated (existing behavior).
@@ -24,9 +28,10 @@
   - `n` / `N` jump to next/previous match.
   - `Escape` clears the search and returns to normal scrollback browsing.
 - [ ] Implementation steps:
-  - [ ] Add a `search(std::string_view pattern)` method to `ScrollbackBuffer` that returns a list of matching row indices (simple substring or regex match; regex recommended for extensibility).
-  - [ ] Add state to the terminal host for current search pattern and current match index.
-  - [ ] In the scrollback render path, highlight cells on matching rows with a search-highlight color.
+  - [ ] Define a bounded paged-search/read strategy over the existing versioned
+        server scrollback API; do not copy the entire retained history on every edit.
+  - [ ] Add current pattern and match navigation state to `RemoteTerminalHost`.
+  - [ ] Highlight matching cells in the client scrollback projection.
   - [ ] Wire keybindings (`/`, `n`, `N`) in scrollback mode.
   - [ ] Add a `search_highlight` color to `AppConfig` with a sensible default.
 - [ ] Consider using a subagent to implement the `ScrollbackBuffer::search()` method and the render highlight pass once the design is agreed.
@@ -45,7 +50,8 @@
 
 ## Interdependencies
 
-- No upstream blockers; self-contained.
+- Depends on the existing server scrollback paging capability; no local shell
+  backend should be introduced.
 - Existing configurable scrollback capacity should remain unchanged by search.
 
 ---

@@ -1,0 +1,85 @@
+{
+  "finished_at": "2026-08-07T16:15:32.769928+00:00",
+  "inputs": [
+    "D:\\dev\\Draxul\\plans\\reviews\\runs\\20260807T153949Z-review-bugs-90b8bd63\\reports\\anthropic.claude.opus.md",
+    "D:\\dev\\Draxul\\plans\\reviews\\runs\\20260807T153949Z-review-bugs-90b8bd63\\reports\\openai.codex.gpt-5-6-sol.md",
+    "D:\\dev\\Draxul\\plans\\reviews\\runs\\20260807T153949Z-review-bugs-90b8bd63\\reports\\xai.grok.grok-4-5.md"
+  ],
+  "kind": "summary",
+  "missing_reviewers": [],
+  "name": "review-bugs",
+  "prompt": "D:\\dev\\Draxul\\plans\\prompts\\consensus_review_bugs.md",
+  "recovered_from_session": "C:\\Users\\cmaughan\\.codex\\sessions\\2026\\08\\07\\rollout-2026-08-07T17-02-15-019fdcf5-fa13-7e80-a00c-907c76784946.jsonl",
+  "run_id": "20260807T161532Z-review-bugs-summary-recovered-7cb97cdb",
+  "schema_version": 1,
+  "started_at": "2026-08-07T16:15:32.714666+00:00",
+  "status": "complete",
+  "summarizer": {
+    "company": "openai",
+    "duration_seconds": 0.0,
+    "error": "",
+    "fallback_reason": "",
+    "model": "gpt-5.6-sol",
+    "preflight": "passed",
+    "preflight_message": "Recovered from an already-completed persisted Codex session; no provider call was made.",
+    "requested": "codex:gpt-5.6-sol",
+    "sandbox_fallback": "",
+    "status": "passed",
+    "transport": "codex",
+    "version": ""
+  },
+  "work_items": [
+    {
+      "path": "kanban\\pending\\20 conpty-output-handle-shutdown-race -bug.md",
+      "sha256": "1a812abf726f9203cc6e140d9ae4cebe9a72c86d9c95a25e0a779f012f884180"
+    },
+    {
+      "path": "kanban\\pending\\21 vulkan-chunk-flush-failure-state -bug.md",
+      "sha256": "e7965bef72a9b635b37ac711333c972cbbf324c5b249b42cb950e6fde147ac94"
+    },
+    {
+      "path": "kanban\\pending\\22 csi-cursor-parameter-overflow -bug.md",
+      "sha256": "b07780c94e0738dd8853ee6b541de46181df83f2a60f7d65e20fa80642d8d933"
+    },
+    {
+      "path": "kanban\\pending\\23 conpty-desktop-window-suppression -bug.md",
+      "sha256": "3ddb93212710c6ac0e8c5474c1506c1c5d1fa1fedaac09feebdd071c535bd4b2"
+    },
+    {
+      "path": "kanban\\pending\\24 csi-tab-repeat-hang -bug.md",
+      "sha256": "e3d555298420acf2ae6a9d7e0ad03bb52c555849e90454dbddd3a1db22928ada"
+    },
+    {
+      "path": "kanban\\pending\\25 pty-grid-dimension-desynchronization -bug.md",
+      "sha256": "f2c273a45d3aeef4e83fe10d0c6442a8d979b45ee70e34c81dfb1a475e03d736"
+    },
+    {
+      "path": "kanban\\pending\\26 reentrant-log-sink-deadlock -bug.md",
+      "sha256": "437475caa0d6fbbd13828b391462359a15f4b928b5a86ef487cb78aebc49bb28"
+    },
+    {
+      "path": "kanban\\pending\\27 terminal-cell-restoration-preserves-hyperlinks -bug.md",
+      "sha256": "64c13bd17f555c181f355d45f59dd4dfbafd08eb5039c7cc8f4010216c0420ed"
+    },
+    {
+      "path": "kanban\\pending\\28 grid-wide-glyph-overlap-orphan -bug.md",
+      "sha256": "da88868d447cc8ffd3621db05e163ecb8fb777132feb4e86a0e9cbea5f24d5d7"
+    },
+    {
+      "path": "kanban\\pending\\29 conpty-process-status-query-failure -bug.md",
+      "sha256": "07ad77586edb518091d1648afe4e586c98afa10a71bedcffe39c60315ea81eee"
+    },
+    {
+      "path": "kanban\\pending\\30 macos-screenshot-executable-path -bug.md",
+      "sha256": "6786b422e4410739e881fb95ebb97f99fdeeffa3c8ca0d88278d9f6ddd62927e"
+    },
+    {
+      "path": "kanban\\pending\\31 macos-store-logs-executable-path -bug.md",
+      "sha256": "7c5dc23f748c1b02c19f602a6b659b52c6e8339f2d20c1c9737e4218d0157371"
+    },
+    {
+      "path": "kanban\\pending\\32 startup-window-error-assertion -bug.md",
+      "sha256": "7f3d8ca2a49b344dbfd8e870fb039dbbc0cef008ee47465ef8798e6a11f4a24b"
+    }
+  ]
+}

@@ -94,6 +94,36 @@ struct AppTestAccess
     {
         app.request_quit();
     }
+
+    static bool create_initial_tab(
+        App& app, PaneManager::Deps deps)
+    {
+        return app.space_controller_
+            .active_tab_controller()
+            .create_initial_tab(app, 800, 600, std::move(deps));
+    }
+
+    static bool close_dead_panes(App& app)
+    {
+        return app.close_dead_panes();
+    }
+
+    static void set_running(App& app, bool running)
+    {
+        app.running_ = running;
+    }
+
+    static bool is_running(const App& app)
+    {
+        return app.running_;
+    }
+
+    static bool announce_topology_apply_error(
+        App& app, std::string_view error)
+    {
+        return app.announce_remote_topology_apply_error(
+            error);
+    }
 };
 
 } // namespace draxul
@@ -187,6 +217,92 @@ TEST_CASE("closing an inactive tab preserves active identity and the last tab", 
     CHECK(AppTestAccess::active_id(app) == 1);
 }
 
+TEST_CASE("remote topology apply errors latch by exact message",
+    "[app][topology][toast]")
+{
+    App app;
+    CHECK(AppTestAccess::announce_topology_apply_error(
+        app, "projection failed"));
+    CHECK_FALSE(AppTestAccess::announce_topology_apply_error(
+        app, "projection failed"));
+    CHECK(AppTestAccess::announce_topology_apply_error(
+        app, "different projection failure"));
+}
+
+TEST_CASE("clean exit of the sole remote shell closes only the UI",
+    "[app][remote-terminal][lifecycle]")
+{
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    AppOptions options;
+    AppConfig config;
+    FakeHost* host = nullptr;
+    options.host_kind = HostKind::RemoteTerminal;
+    options.host_factory = [&host](HostKind) {
+        auto created = std::make_unique<FakeHost>("remote-shell");
+        created->fake_exit_code = 0;
+        host = created.get();
+        return created;
+    };
+    PaneManager::Deps deps;
+    deps.options = &options;
+    deps.config = &config;
+    deps.window = &window;
+    deps.grid_renderer = &renderer;
+    deps.allow_local_layout_mutation = false;
+    deps.compute_viewport = [](const PaneDescriptor&) {
+        return HostViewport{
+            .pixel_size = { 800, 600 },
+            .grid_size = { 100, 37 },
+        };
+    };
+
+    App app;
+    REQUIRE(AppTestAccess::create_initial_tab(app, std::move(deps)));
+    REQUIRE(host != nullptr);
+    AppTestAccess::set_running(app, true);
+
+    CHECK_FALSE(AppTestAccess::close_dead_panes(app));
+    CHECK_FALSE(AppTestAccess::is_running(app));
+    // The projected host is not destroyed here: App shutdown merely detaches
+    // it, leaving authoritative server topology untouched.
+    CHECK(host->shutdown_calls == 0);
+}
+
+TEST_CASE("abnormal exit of the sole remote shell remains restartable",
+    "[app][remote-terminal][lifecycle]")
+{
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    AppOptions options;
+    AppConfig config;
+    options.host_kind = HostKind::RemoteTerminal;
+    options.host_factory = [](HostKind) {
+        auto created = std::make_unique<FakeHost>("remote-shell");
+        created->fake_exit_code = 7;
+        return created;
+    };
+    PaneManager::Deps deps;
+    deps.options = &options;
+    deps.config = &config;
+    deps.window = &window;
+    deps.grid_renderer = &renderer;
+    deps.allow_local_layout_mutation = false;
+    deps.compute_viewport = [](const PaneDescriptor&) {
+        return HostViewport{
+            .pixel_size = { 800, 600 },
+            .grid_size = { 100, 37 },
+        };
+    };
+
+    App app;
+    REQUIRE(AppTestAccess::create_initial_tab(app, std::move(deps)));
+    AppTestAccess::set_running(app, true);
+
+    CHECK(AppTestAccess::close_dead_panes(app));
+    CHECK(AppTestAccess::is_running(app));
+}
+
 TEST_CASE("tab controller cycles, activates by index, and reorders the active tab",
     "[tab_controller][tab]")
 {
@@ -211,6 +327,14 @@ TEST_CASE("tab controller cycles, activates by index, and reorders the active ta
     CHECK(controller.active_tab_id() == 3);
     controller.activate_tab_by_index(0);
     CHECK(controller.active_tab_id() == 3);
+
+    REQUIRE(controller.reorder_projected_tabs({ 3, 1, 2 }));
+    CHECK(controller.active_tab_id() == 3);
+    CHECK(controller.tabs()[0]->id == 3);
+    CHECK(controller.tabs()[1]->id == 1);
+    CHECK(controller.tabs()[2]->id == 2);
+    CHECK_FALSE(controller.reorder_projected_tabs({ 3, 1 }));
+    CHECK_FALSE(controller.reorder_projected_tabs({ 3, 3, 2 }));
 }
 
 TEST_CASE("failed restore preserves the current tab collection", "[app][tab][session]")

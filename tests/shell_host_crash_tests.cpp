@@ -2,19 +2,16 @@
 //
 // Tests for shell host process crash lifecycle behaviour.
 //
-// The concrete ShellHost class lives in an anonymous namespace inside
-// shell_host_unix.cpp / shell_host_win.cpp and cannot be instantiated
-// directly from tests.  Instead we exercise the identical code path
-// through TerminalHostBase using a controllable fake that simulates
-// a process that exits mid-session.
+// Production shell processes are server-owned and covered by server runtime
+// tests. These low-level adapter tests exercise TerminalHostBase with a
+// controllable fake process that exits mid-session.
 //
 // The tests verify:
 //   1. is_running() returns false once the fake process signals exit.
 //   2. Writing input after process exit does not crash or hang.
 //   3. Grid cells are not mutated after the process has exited.
 //
-// If a future thin ShellHost test interface is added, these SKIPs can be
-// replaced with real ShellHost instantiation.
+// Server integration fixtures provide the corresponding real-process coverage.
 
 #include <catch2/catch_test_macros.hpp>
 

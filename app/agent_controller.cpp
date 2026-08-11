@@ -20,6 +20,101 @@ void AgentController::invalidate()
     cache_valid_ = false;
 }
 
+void AgentController::set_server_agents(
+    std::vector<AgentProjection> agents)
+{
+    for (auto& agent : agents)
+    {
+        const auto minimum
+            = minimum_server_generations_.find(
+                agent.identity.instance_id);
+        if (minimum
+            == minimum_server_generations_.end())
+        {
+            continue;
+        }
+        if (agent.generation.value
+            >= minimum->second)
+        {
+            minimum_server_generations_.erase(
+                minimum);
+            continue;
+        }
+        const auto current = std::ranges::find_if(
+            server_agents_,
+            [&](const AgentProjection& candidate) {
+                return candidate.identity.instance_id
+                    == agent.identity.instance_id;
+            });
+        if (current != server_agents_.end())
+            agent = *current;
+    }
+    server_agents_ = std::move(agents);
+    server_agents_authoritative_ = true;
+    std::unordered_set<std::string> live_instances;
+    for (const auto& agent : server_agents_)
+        live_instances.insert(agent.identity.instance_id);
+    std::erase_if(minimum_server_generations_,
+        [&live_instances](const auto& entry) {
+            return !live_instances.contains(entry.first);
+        });
+    std::erase_if(server_attention_acknowledged_,
+        [&live_instances](const auto& entry) {
+            return !live_instances.contains(entry.first);
+        });
+    invalidate();
+}
+
+void AgentController::clear_server_agents()
+{
+    server_agents_.clear();
+    minimum_server_generations_.clear();
+    server_attention_acknowledged_.clear();
+    server_agents_authoritative_ = false;
+    invalidate();
+}
+
+bool AgentController::note_server_agent_restart(
+    std::string_view instance_id,
+    AgentRuntimeGeneration generation)
+{
+    if (!server_agents_authoritative_
+        || generation.value == 0)
+    {
+        return false;
+    }
+    const auto found = std::ranges::find_if(
+        server_agents_,
+        [instance_id](const AgentProjection& agent) {
+            return agent.identity.instance_id
+                == instance_id;
+        });
+    if (found == server_agents_.end())
+        return false;
+
+    const auto now = std::chrono::steady_clock::now();
+    found->generation = generation;
+    found->runtime_started_at = now;
+    found->lifecycle = AgentLifecycle::Starting;
+    found->lifecycle_transition_at = now;
+    found->exit_code.reset();
+    found->status = AgentStatus::Unknown;
+    found->status_authority = AgentStateAuthority::None;
+    found->status_explanation = {
+        .status = AgentStatus::Unknown,
+        .authority = AgentStateAuthority::None,
+        .evaluated_at = now,
+    };
+    found->attention = false;
+    found->last_status_transition_at = now;
+    found->running = true;
+    minimum_server_generations_[
+        found->identity.instance_id]
+        = generation.value;
+    invalidate();
+    return true;
+}
+
 std::vector<AgentProjection> AgentController::query(SpaceController& spaces)
 {
     return compute(spaces);
@@ -37,6 +132,9 @@ const std::vector<AgentProjection>& AgentController::frame_agents(SpaceControlle
 
 std::vector<AgentProjection> AgentController::compute(SpaceController& spaces)
 {
+    if (server_agents_authoritative_)
+        return compute_server_agents(spaces);
+
     std::vector<AgentProjection> agents;
     std::unordered_set<std::string> live_instances;
     std::unordered_set<std::string> live_routes;
@@ -274,9 +372,92 @@ std::vector<AgentProjection> AgentController::compute(SpaceController& spaces)
     return agents;
 }
 
+std::vector<AgentProjection>
+AgentController::compute_server_agents(SpaceController& spaces)
+{
+    std::vector<AgentProjection> agents = server_agents_;
+    for (auto& agent : agents)
+    {
+        Space* space = spaces.find_space(agent.space_id);
+        auto tab_it = space
+            ? std::ranges::find_if(
+                  space->tab_controller.tabs(),
+                  [&agent](const auto& tab) {
+                      return tab->id == agent.tab_id;
+                  })
+            : TabController::Tabs::iterator{};
+        Tab* tab = space
+                && tab_it
+                    != space->tab_controller.tabs().end()
+            ? tab_it->get()
+            : nullptr;
+        PaneManager* panes = tab ? &tab->pane_manager : nullptr;
+        agent.focused = space
+            && tab
+            && panes
+            && spaces.active_space_id() == space->id
+            && space->tab_controller.active_tab_id() == tab->id
+            && panes->focused_leaf() == agent.leaf_id;
+        if (agent.focused && agent.attention)
+        {
+            server_attention_acknowledged_[agent.identity.instance_id]
+                = agent.status_explanation
+                      .observation_generation;
+        }
+        const auto acknowledged
+            = server_attention_acknowledged_.find(
+                agent.identity.instance_id);
+        if (acknowledged
+                != server_attention_acknowledged_.end()
+            && acknowledged->second
+                >= agent.status_explanation
+                       .observation_generation)
+        {
+            agent.attention = false;
+        }
+    }
+    return agents;
+}
+
 bool AgentController::focus(
     SpaceController& spaces, std::string_view instance_id) const
 {
+    if (server_agents_authoritative_)
+    {
+        const auto found = std::ranges::find_if(
+            server_agents_,
+            [instance_id](const AgentProjection& agent) {
+                return agent.identity.instance_id == instance_id;
+            });
+        if (found == server_agents_.end())
+            return false;
+        Space* space = spaces.find_space(found->space_id);
+        if (!space
+            || !spaces.activate_space(found->space_id)
+            || !space->tab_controller.activate_tab(
+                found->tab_id))
+        {
+            return false;
+        }
+        const auto tab_it = std::ranges::find_if(
+            space->tab_controller.tabs(),
+            [&found](const auto& tab) {
+                return tab->id == found->tab_id;
+            });
+        if (tab_it == space->tab_controller.tabs().end())
+        {
+            return false;
+        }
+        (*tab_it)->pane_manager.set_focused(found->leaf_id);
+        if (found->attention)
+        {
+            server_attention_acknowledged_[found->identity.instance_id]
+                = found->status_explanation
+                      .observation_generation;
+        }
+        return true;
+    }
+
     for (auto& space : spaces.spaces())
     {
         for (auto& tab : space->tab_controller.tabs())
@@ -328,6 +509,8 @@ bool AgentController::focus_by_index(
 bool AgentController::attach_focused(
     SpaceController& spaces, const AgentDefinition& definition)
 {
+    if (server_agents_authoritative_)
+        return false;
     Space* space = spaces.find_active_space();
     if (!space || definition.kind.empty() || definition.display_name.empty())
         return false;
@@ -370,6 +553,8 @@ bool AgentController::attach_focused(
 
 bool AgentController::dismiss_focused(SpaceController& spaces)
 {
+    if (server_agents_authoritative_)
+        return false;
     Space* space = spaces.find_active_space();
     if (!space)
         return false;
