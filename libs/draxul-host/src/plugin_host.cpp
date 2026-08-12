@@ -154,7 +154,8 @@ bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callback
     instance_ = plugin_->api().create_instance(&create_info);
     if (!instance_)
     {
-        error_ = "Plugin instance creation failed";
+        error_ = "Plugin instance creation failed for '" + plugin_id_
+            + "'; check its configuration, bundled resources, and Draxul log";
         return false;
     }
 

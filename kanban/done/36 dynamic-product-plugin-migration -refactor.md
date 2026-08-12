@@ -15,7 +15,18 @@ to move SatView and ScoreView onto the trusted native plugin architecture.
 - [x] Slice 7: ship ScoreView reading modes through the dynamic plugin route.
 - [x] Slice 8: move ScoreView transport, workers, and player persistence across.
 - [x] Slice 9: add deterministic audio, microphone, and MIDI device ownership.
-- [ ] Slice 10: remove the static ScoreView route and complete packaging/docs cleanup.
+- [x] Slice 10: remove the static ScoreView route and complete packaging/docs cleanup.
+
+Completed on Windows on 2026-08-12. SatView and ScoreView now have plugin-only
+production routes: their legacy host kinds, provider registrations, executable
+links, static adapters, and executable-relative product assets are gone. Clean
+plugin staging includes each module's native dependencies and assets; the main
+executable imports neither product nor Verovio. Missing modules and local source
+failures preserve the pane with a wrapped actionable placeholder. The topology
+CLI integration, all 24 CTest entries, the three dynamic-product Vulkan render
+comparisons, clean-package discovery/removal checks, debug smoke, and repository
+hygiene pass. Metal/macOS remains enforced by CI because it is not runnable from
+this Windows checkout.
 
 Acceptance is defined per slice in the plan. Prefer isolated-server, attached-UI,
 render-snapshot, and smoke coverage over narrow helper unit tests.

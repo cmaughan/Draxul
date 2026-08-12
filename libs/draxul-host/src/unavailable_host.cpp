@@ -1,6 +1,7 @@
 #include <draxul/unavailable_host.h>
 
 #include <algorithm>
+#include <vector>
 
 namespace draxul
 {
@@ -73,16 +74,38 @@ void UnavailableHost::render_message()
     const int rows = std::max(1, viewport().grid_size.y);
     apply_grid_size(cols, rows);
     grid().clear();
-    const int row = rows / 2;
-    const int start = std::max(0,
-        (cols - static_cast<int>(message_.size())) / 2);
-    const int count = std::min(
-        static_cast<int>(message_.size()), cols - start);
-    for (int i = 0; i < count; ++i)
+
+    const size_t line_width = static_cast<size_t>(std::max(1, cols - 4));
+    std::vector<std::string_view> lines;
+    size_t offset = 0;
+    while (offset < message_.size() && lines.size() < static_cast<size_t>(rows))
     {
-        grid().set_cell(start + i, row,
-            std::string(1, message_[static_cast<size_t>(i)]),
-            0, false);
+        while (offset < message_.size() && message_[offset] == ' ')
+            ++offset;
+        size_t end = std::min(message_.size(), offset + line_width);
+        if (end < message_.size())
+        {
+            const size_t break_at = message_.rfind(' ', end);
+            if (break_at != std::string::npos && break_at > offset)
+                end = break_at;
+        }
+        lines.emplace_back(message_.data() + offset, end - offset);
+        offset = end;
+    }
+
+    const int first_row = std::max(0,
+        (rows - static_cast<int>(lines.size())) / 2);
+    for (size_t line_index = 0; line_index < lines.size(); ++line_index)
+    {
+        const std::string_view line = lines[line_index];
+        const int start = std::max(0,
+            (cols - static_cast<int>(line.size())) / 2);
+        for (size_t i = 0; i < line.size(); ++i)
+        {
+            grid().set_cell(start + static_cast<int>(i),
+                first_row + static_cast<int>(line_index),
+                std::string(1, line[i]), 0, false);
+        }
     }
     flush_grid();
 }

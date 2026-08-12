@@ -721,7 +721,8 @@ bool App::initialize_chrome_host()
 {
     PERF_MEASURE();
     host_owner_lifetime_ = std::make_shared<int>(0);
-    refresh_system_resource_snapshot(std::chrono::steady_clock::now());
+    if (options_.show_system_resources)
+        refresh_system_resource_snapshot(std::chrono::steady_clock::now());
 
     ChromeHost::Deps chrome_deps;
     chrome_deps.config = &config_;
@@ -729,7 +730,8 @@ bool App::initialize_chrome_host()
     chrome_deps.text_service = &text_service_;
     chrome_deps.space_controller = &space_controller_;
     chrome_deps.agent_controller = &agent_controller_;
-    chrome_deps.system_resource_snapshot = &system_resource_snapshot_;
+    chrome_deps.system_resource_snapshot = options_.show_system_resources
+        ? &system_resource_snapshot_ : nullptr;
     chrome_deps.weather_emoji = [this]() -> std::string {
         return weather_service_.emoji();
     };
@@ -2394,6 +2396,8 @@ void App::pump_background_hosts()
 
 void App::refresh_system_resource_snapshot(std::chrono::steady_clock::time_point now)
 {
+    if (!options_.show_system_resources)
+        return;
     if (!system_resource_monitor_.refresh(now))
         return;
 

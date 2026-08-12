@@ -7,7 +7,7 @@
 // the host applies at ONE defined point after the frame is recorded). The
 // inspector never touches live host/controller state again — the mid-frame
 // mutation class of bugs is structurally gone. Internal to
-// draxul-scoreview-host (no public header).
+// draxul-scoreview-runtime (no public header).
 
 #include <draxul/scoreview/piece_analysis.h>
 #include <draxul/scoreview/player_input_rig.h>

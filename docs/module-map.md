@@ -32,7 +32,7 @@ draxul executable
 ├── draxul-client / draxul-server
 ├── draxul-markdown-host
 ├── draxul-kanban
-└── optional products: draxul-megacity / dev.draxul.satview plugin / draxul-scoreview-host
+└── optional products: draxul-megacity / SatView + ScoreView plugins
         │
         ├── product-specific model, scene, service, and renderer targets
         └── shared host / renderer / UI infrastructure
@@ -50,8 +50,8 @@ draxul executable
 
 This is a dependency shape, not a promise that every target in one row links every
 target below it. Consult the target's `CMakeLists.txt` for exact public/private edges.
-In particular, `draxul-app` deliberately has no source-level dependency on optional
-product modules; the executable links and registers those host providers.
+In particular, `draxul-app` deliberately has no source-level dependency on the
+SatView or ScoreView product runtimes; the executable discovers their modules.
 
 ## Core Libraries
 
@@ -118,7 +118,7 @@ These targets must not depend on product modules. Configure-time checks in
 renderer adapter, including client-local viewport/selection/mouse/paste behavior.
 It also owns the generic `PluginHost` and its Vulkan/Metal render-pass adapters;
 plugin modules remain dynamically linked and are never product dependencies of the
-server. Bundled spinning-triangle and SatView modules live under `plugins/`.
+server. Bundled spinning-triangle, SatView, and ScoreView modules live under `plugins/`.
 The process adapter, client, and server libraries remain free of host, window,
 renderer, font, SDL, and product dependencies.
 
@@ -224,12 +224,11 @@ Good place for:
 | `modules/markdown/` | Always built | `draxul-markdown` parses/layouts documents; `draxul-markdown-host` integrates the native pane and platform render pass |
 | `modules/kanban/` | Always built | `draxul-kanban` owns board storage, layout/navigation, and the native Kanban host |
 | `modules/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Code semantics/tree-sitter, geometry, scene, renderer, host helpers, and the `draxul-megacity` product host; see its nested `AGENTS.md` |
-| `modules/satview/` | `DRAXUL_ENABLE_SATVIEW` | Satellite core, scene, services, and `SatViewRuntime`, linked privately into `plugins/satview`; the retained static adapter is test-only parity support and is not registered or linked by the executable |
-| `modules/score/` | `DRAXUL_ENABLE_SCOREVIEW` | Notation, learning, MIDI/audio input, `ScoreRuntime`, and a temporary static `draxul-scoreview-host` frame-sink adapter during plugin migration |
+| `modules/satview/` | `DRAXUL_ENABLE_SATVIEW` | Satellite core, scene, services, renderer, and `draxul-satview-runtime`, linked privately into `plugins/satview` |
+| `modules/score/` | `DRAXUL_ENABLE_SCOREVIEW` | Notation, learning, MIDI/audio input, and `draxul-scoreview-runtime`, linked privately into `plugins/scoreview` |
 
-Markdown and Kanban are linked directly into `draxul`. Optional static product
-hosts are linked only at the executable boundary; SatView is staged and loaded as
-a native module instead.
+Markdown and Kanban are linked directly into `draxul`. SatView and ScoreView are
+staged and loaded only as native modules; neither has a compiled-in host fallback.
 
 ## Generated Views
 

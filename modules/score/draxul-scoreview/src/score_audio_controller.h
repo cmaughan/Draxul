@@ -3,8 +3,8 @@
 // The runner's audio rig (kanban 21, ScoreAudioController): output stream,
 // metronome ticks, audition voicing, instrument selection and mixing, and
 // soundfont staging. Owns every SDL-audio and synth detail so
-// ScoreHost stays an orchestrator — the stream handle and synth voices never
-// leak across this boundary. Internal to draxul-scoreview-host (no public
+// ScoreRuntime stays an orchestrator — the stream handle and synth voices never
+// leak across this boundary. Internal to draxul-scoreview-runtime (no public
 // header; the host holds it by unique_ptr behind a forward declaration).
 
 #include <draxul/scoreview/flow_controller.h>

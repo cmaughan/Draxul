@@ -2,7 +2,7 @@
 # (IPlayerInput/PlayerNoteEvent), the dev keyboard scaffold, and the hardware
 # MIDI input. Isolates the RtMidi dependency in one library. The bot input
 # stays in draxul-scoreview (it judges against FlowController); the
-# microphone front-end stays in draxul-scoreview-host (SDL).
+# microphone front-end stays in draxul-scoreview-runtime (SDL).
 add_library(draxul-score-input STATIC
     src/midi_player_input.cpp
 )

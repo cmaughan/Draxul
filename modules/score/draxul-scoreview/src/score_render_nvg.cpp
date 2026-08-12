@@ -1,8 +1,6 @@
 #include <draxul/scoreview/keyboard_render_nvg.h>
 #include <draxul/scoreview/score_render_nvg.h>
 
-#include <draxul/runtime_path.h>
-
 #include "nanovg.h"
 
 #include <array>
@@ -80,7 +78,8 @@ void replay_commands(NVGcontext* vg, const std::vector<PathCmd>& cmds)
 
 } // namespace
 
-ScoreTextFonts ensure_score_text_fonts(NVGcontext* vg)
+ScoreTextFonts ensure_score_text_fonts(NVGcontext* vg,
+    std::string_view music_font_path)
 {
     ScoreTextFonts fonts;
     fonts.regular = nvgFindFont(vg, "score-serif");
@@ -124,9 +123,10 @@ ScoreTextFonts ensure_score_text_fonts(NVGcontext* vg)
     fonts.music = nvgFindFont(vg, "score-music");
     if (fonts.music < 0)
     {
-        const std::string leipzig = (executable_directory() / "verovio-data" / "Leipzig.ttf").string();
+        const std::string leipzig(music_font_path);
         fonts.music = create_font_from_candidates(
-            vg, "score-music", { leipzig.c_str(), nullptr, nullptr, nullptr });
+            vg, "score-music", { leipzig.empty() ? nullptr : leipzig.c_str(),
+                nullptr, nullptr, nullptr });
     }
     return fonts;
 }

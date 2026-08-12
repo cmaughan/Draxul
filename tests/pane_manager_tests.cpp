@@ -872,16 +872,16 @@ TEST_CASE("pane manager: projected unavailable client host keeps the rest of the
 
     // A known optional kind absent from this build degrades in exactly the
     // same way; ordinary local launches still retain their failure behavior.
-    harness.unavailable_factory_kind = HostKind::Score;
-    projected.panes[1].launch.kind = HostKind::Score;
-    projected.panes[1].launch.client_host_kind = "score";
+    harness.unavailable_factory_kind = HostKind::MegaCity;
+    projected.panes[1].launch.kind = HostKind::MegaCity;
+    projected.panes[1].launch.client_host_kind = "megacity";
     REQUIRE(harness.manager.reconcile_projected_layout(
         harness.callbacks, 800, 600, projected));
     unavailable = dynamic_cast<UnavailableHost*>(
         harness.manager.host_for(added));
     REQUIRE(unavailable != nullptr);
     CHECK(unavailable->status_text()
-        == "score not available in this build");
+        == "megacity not available in this build");
 }
 
 TEST_CASE("pane manager: identifies only server-owned remote terminals",

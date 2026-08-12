@@ -6,7 +6,7 @@
 // scale-lock cache (the fixed sheet scale that keeps bars from breathing as
 // the window advances). No device, persistence, or transport ownership: the
 // host builds a plain input each frame and this component records it.
-// Internal to draxul-scoreview-host (no public header).
+// Internal to draxul-scoreview-runtime (no public header).
 
 #include <draxul/nanovg_pass.h>
 #include <draxul/scoreview/analysis_overlay.h>
@@ -20,6 +20,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace draxul
@@ -62,6 +63,10 @@ public:
     };
 
     void record_flow(INanoVGPass& pass, const FlowFrame& frame);
+    void set_music_font_path(std::string path)
+    {
+        music_font_path_ = std::move(path);
+    }
     void record_placeholder(INanoVGPass& pass, float pixel_scale);
     // `overlay` (optional): the analysis data — pages parallel to `pages`.
     // `annotations` draws the green analysis marks + banner; `unique_chunks`
@@ -91,6 +96,7 @@ public:
     }
 
 private:
+    std::string music_font_path_;
     // The guidance keyboard + fixed sheet scale (stream follow-up): the
     // scale locks per viewport/zoom so bars don't breathe as the window
     // moves. The reference canvas height only grows (the tallest window

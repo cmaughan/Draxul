@@ -8,7 +8,6 @@
 #include <draxul/imgui_host.h>
 #include <draxul/log.h>
 #include <draxul/notation/musicxml_importer.h>
-#include <draxul/runtime_path.h>
 #include <draxul/scoreview/keyboard_render_nvg.h>
 #include <draxul/scoreview/piece_analysis.h>
 #include <draxul/scoreview/progress_store.h>
@@ -134,14 +133,17 @@ bool ScoreRuntime::initialize(const HostContext& context,
         }
 
         if (paths.verovio_data.empty())
-            paths.verovio_data = executable_directory() / "verovio-data";
-        if (paths.soundfonts.empty())
-            paths.soundfonts = executable_directory() / "soundfonts";
+        {
+            init_error_ = "ScoreView Verovio resources were not provided by the plugin";
+            return false;
+        }
         if (paths.progress.empty())
         {
             paths.progress = ConfigDocument::default_path().parent_path()
                 / "scoreview" / "progress";
         }
+        presentation_->set_music_font_path(
+            (paths.verovio_data / "Leipzig.ttf").string());
         const std::string resources = paths.verovio_data.string();
         std::string engine_error;
         auto engine = VerovioLayoutEngine::create(resources, engine_error);
@@ -169,10 +171,9 @@ bool ScoreRuntime::initialize(const HostContext& context,
                 "score: background engraver unavailable (%s); window swaps stay synchronous",
                 engraver_error.c_str());
 
-        // Instrument voices: every .sf2 staged beside the app is offered in
-        // the inspector (the bundled YDP grand by default; a better font
-        // dropped into the folder just appears). Loading is lazy — the
-        // ~118 MB parse happens on first selection, not startup.
+        // Instrument voices: every .sf2 staged in the plugin bundle is offered
+        // in the inspector. Loading is lazy, so large soundfonts are parsed on
+        // first selection rather than at startup.
         audio_->stage_soundfonts(paths.soundfonts);
         audio_->prefer_piano(0);
 

@@ -11,7 +11,7 @@ target_include_directories(draxul-satview-plugin PRIVATE
     ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
 target_link_libraries(draxul-satview-plugin PRIVATE
     nlohmann_json::nlohmann_json
-    draxul-satview-host)
+    draxul-satview-runtime)
 set_target_properties(draxul-satview-plugin PROPERTIES
     PREFIX ""
     OUTPUT_NAME "draxul-satview")

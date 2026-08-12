@@ -31,13 +31,13 @@ option(DRAXUL_ENABLE_COVERAGE "Enable LLVM source-based code coverage (Clang/App
 # unconditional dynamic_cast / I3DPassProvider surface in IRenderer can be guarded or removed
 # when megacity is disabled, yielding a cleaner renderer interface.
 option(DRAXUL_ENABLE_MEGACITY "Build and include the Megacity 3D demo host" ON)
-option(DRAXUL_ENABLE_SATVIEW "Build and include the SatView 3D satellite overview host" ON)
+option(DRAXUL_ENABLE_SATVIEW "Build and bundle the SatView plugin" ON)
 if(APPLE OR WIN32)
     set(DRAXUL_SCOREVIEW_DEFAULT ON)
 else()
     set(DRAXUL_SCOREVIEW_DEFAULT OFF)
 endif()
-option(DRAXUL_ENABLE_SCOREVIEW "Build and include the ScoreView music score host" ${DRAXUL_SCOREVIEW_DEFAULT})
+option(DRAXUL_ENABLE_SCOREVIEW "Build and bundle the ScoreView plugin" ${DRAXUL_SCOREVIEW_DEFAULT})
 option(DRAXUL_ENABLE_RENDER_TESTS "Enable render-test capture/compare infrastructure" OFF)
 
 # Sanitizer helper — applied to draxul targets after FetchContent deps are fetched
@@ -234,9 +234,9 @@ if(DRAXUL_ENABLE_SATVIEW)
     draxul_apply_sanitizers(draxul-satview-renderer)
     draxul_apply_coverage(draxul-satview-renderer)
     draxul_apply_msvc_parallel_pdb_fix(draxul-satview-renderer)
-    draxul_apply_sanitizers(draxul-satview-host)
-    draxul_apply_coverage(draxul-satview-host)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-satview-host)
+    draxul_apply_sanitizers(draxul-satview-runtime)
+    draxul_apply_coverage(draxul-satview-runtime)
+    draxul_apply_msvc_parallel_pdb_fix(draxul-satview-runtime)
 endif()
 if(DRAXUL_ENABLE_SCOREVIEW)
     draxul_apply_sanitizers(draxul-notation)
@@ -245,9 +245,9 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     draxul_apply_sanitizers(draxul-scoreview)
     draxul_apply_coverage(draxul-scoreview)
     draxul_apply_msvc_parallel_pdb_fix(draxul-scoreview)
-    draxul_apply_sanitizers(draxul-scoreview-host)
-    draxul_apply_coverage(draxul-scoreview-host)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-scoreview-host)
+    draxul_apply_sanitizers(draxul-scoreview-runtime)
+    draxul_apply_coverage(draxul-scoreview-runtime)
+    draxul_apply_msvc_parallel_pdb_fix(draxul-scoreview-runtime)
 endif()
 
 include(CTest)
@@ -490,6 +490,9 @@ add_custom_target(draxul-stage-scoreview-plugin
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE:draxul-scoreview-plugin>"
         "${DRAXUL_SCOREVIEW_PLUGIN_STAGE}/$<TARGET_FILE_NAME:draxul-scoreview-plugin>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:verovio>"
+        "${DRAXUL_SCOREVIEW_PLUGIN_STAGE}/$<TARGET_FILE_NAME:verovio>"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${verovio_SOURCE_DIR}/data"
         "${DRAXUL_SCOREVIEW_PLUGIN_STAGE}/verovio-data"
@@ -499,7 +502,7 @@ add_custom_target(draxul-stage-scoreview-plugin
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${ydp_grand_piano_SOURCE_DIR}"
         "${DRAXUL_SCOREVIEW_PLUGIN_STAGE}/soundfonts"
-    DEPENDS draxul-scoreview-plugin
+    DEPENDS draxul-scoreview-plugin verovio
         "${CMAKE_SOURCE_DIR}/plugins/scoreview/plugin.toml"
     VERBATIM)
 add_dependencies(draxul draxul-stage-scoreview-plugin)
@@ -507,10 +510,6 @@ endif()
 if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul PRIVATE draxul-megacity)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_MEGACITY)
-endif()
-if(DRAXUL_ENABLE_SCOREVIEW)
-    target_link_libraries(draxul PRIVATE draxul-scoreview-host)
-    target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_SCOREVIEW)
 endif()
 if(DRAXUL_ENABLE_RENDER_TESTS)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_RENDER_TESTS)
@@ -598,40 +597,6 @@ if(DRAXUL_ENABLE_MEGACITY AND EXISTS "${CMAKE_SOURCE_DIR}/assets/megacity")
             $<TARGET_FILE_DIR:draxul>/assets/megacity
     )
     add_dependencies(draxul stage_megacity_assets)
-endif()
-
-if(DRAXUL_ENABLE_SCOREVIEW)
-    # Verovio's runtime resources (SMuFL fonts + glyph metadata) must sit next
-    # to the executable; VerovioLayoutEngine::create() receives this path.
-    add_custom_target(stage_verovio_data
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${verovio_SOURCE_DIR}/data
-            $<TARGET_FILE_DIR:draxul>/verovio-data
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${verovio_SOURCE_DIR}/fonts/Leipzig/Leipzig.ttf
-            $<TARGET_FILE_DIR:draxul>/verovio-data/Leipzig.ttf
-    )
-    add_dependencies(draxul stage_verovio_data)
-    # The piano soundfonts (+ their CC-BY attribution texts) ship beside the
-    # app; the instrument picker lists every .sf2 in this folder, so a better
-    # soundfont dropped here is a zero-code upgrade.
-    add_custom_target(stage_soundfonts
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${ydp_grand_piano_SOURCE_DIR}
-            $<TARGET_FILE_DIR:draxul>/soundfonts
-    )
-    add_dependencies(draxul stage_soundfonts)
-    if(WIN32)
-        # Verovio is an upstream shared-library target. MSVC links its import
-        # library but does not copy the runtime DLL beside draxul.exe.
-        add_custom_target(stage_verovio_runtime
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:verovio>
-                $<TARGET_FILE_DIR:draxul>
-            DEPENDS verovio
-        )
-        add_dependencies(draxul stage_verovio_runtime)
-    endif()
 endif()
 
 # Copy fonts to build directory

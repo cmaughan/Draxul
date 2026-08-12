@@ -9,7 +9,7 @@
 // driven, not raced.
 
 #include <draxul/scoreview/player_input_rig.h>
-#include <draxul/scoreview/score_host.h>
+#include <draxul/scoreview/score_runtime.h>
 
 #include "score_stream_controller.h"
 #include "score_view_model.h"
@@ -30,6 +30,8 @@ namespace draxul
 {
 namespace scoreview
 {
+
+using ScoreHost = ScoreRuntime;
 
 // This is the sole friend of ScoreHost used by tests. It drives the same
 // methods as the UI while keeping test setup independent of devices.
@@ -333,23 +335,14 @@ inline bool wait_for_host_install(ScoreHost& host)
 // Counting IHostCallbacks: proves the host requests frames (and nothing
 // else) without a window; lifetime is the test's, so use-after-shutdown
 // would trip sanitizers.
-class CountingHostCallbacks final : public draxul::IHostCallbacks
+class CountingHostCallbacks final : public ScoreRuntimeCallbacks
 {
 public:
     void request_frame() override
     {
         ++frames;
     }
-    void request_quit() override
-    {
-        ++quits;
-    }
-    void wake_window() override {}
-    void set_window_title(const std::string&) override {}
-    void set_text_input_area(int, int, int, int) override {}
-
     int frames = 0;
-    int quits = 0;
 };
 
 } // namespace scoreview

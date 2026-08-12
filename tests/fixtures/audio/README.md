@@ -31,8 +31,9 @@ All six are engraved in [recording-script.musicxml](recording-script.musicxml)
 — put it on the stand via ScoreView itself:
 
 ```bash
-./build/draxul.app/Contents/MacOS/draxul --host score \
-  --source tests/fixtures/audio/recording-script.musicxml
+draxul tab create --space <space-id> --name Score \
+  --plugin dev.draxul.scoreview \
+  --plugin-config '{"source":"tests/fixtures/audio/recording-script.musicxml","mode":"paged"}' --json
 ```
 
 (Sections 4–5 embed the Grieg fixture's opening 8 measures verbatim; the

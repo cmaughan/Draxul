@@ -36,7 +36,8 @@ void close_module(void* module)
 void* open_module(const std::filesystem::path& path, std::string& error)
 {
 #ifdef _WIN32
-    HMODULE module = LoadLibraryW(path.c_str());
+    HMODULE module = LoadLibraryExW(path.c_str(), nullptr,
+        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (!module)
         error = "LoadLibrary failed for " + path.string() + " (error " + std::to_string(GetLastError()) + ")";
     return module;

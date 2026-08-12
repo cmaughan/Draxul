@@ -14,7 +14,7 @@ const char* cli_help_text() noexcept
         "  draxul [--session <id>] [--new-session] [--host <kind>]\n"
         "  --host <kind>                 powershell, bash, zsh, wsl, nvim,\n"
         "                                markdown, kanban, nanovg-demo, or an\n"
-        "                                enabled megacity, bioview, or score host\n"
+        "                                enabled megacity or bioview host\n"
         "  --source <path>               Source file or directory for a product host\n"
         "  --command <command>           Override the selected host command\n"
         "  --session-name <name>         Set the launched Session display name\n\n"

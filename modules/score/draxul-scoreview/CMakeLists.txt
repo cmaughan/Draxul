@@ -1,8 +1,8 @@
 # ScoreView (plans/scoreview.md): draxul-score-learn is the GPU-free learning
 # core (player model, analysis, slicer, composer); draxul-scoreview is the
 # layout/transport pipeline (Verovio engine wrapper, SVG interpreter, flow
-# judge, audio synths, device inputs); draxul-scoreview-host is the IHost +
-# NanoVG presentation layer.
+# judge, audio synths, device inputs); draxul-scoreview-runtime is the
+# plugin-owned orchestration and NanoVG presentation layer.
 add_library(draxul-scoreview STATIC
     src/bot_player_input.cpp
     src/engraved_window.cpp
@@ -51,7 +51,7 @@ target_link_libraries(draxul-scoreview
     PRIVATE verovio tinyxml2::tinyxml2 nlohmann_json::nlohmann_json
 )
 
-add_library(draxul-scoreview-host STATIC
+add_library(draxul-scoreview-runtime STATIC
     src/analysis_overlay.cpp
     src/keyboard_render_nvg.cpp
     src/mic_player_input.cpp
@@ -61,19 +61,18 @@ add_library(draxul-scoreview-host STATIC
     src/score_session_controller.cpp
     src/score_stream_controller.cpp
     src/player_input_rig.cpp
-    src/score_host.cpp
-    src/score_host_inspector.cpp
+    src/score_runtime_inspector.cpp
     src/score_runtime.cpp
     src/score_render_nvg.cpp
 )
 
-target_include_directories(draxul-scoreview-host PUBLIC
+target_include_directories(draxul-scoreview-runtime PUBLIC
     include
 )
 
-# SDL stays at the host layer: the core listener above is pure DSP and
+# SDL stays at the runtime layer: the core listener above is pure DSP and
 # offline-testable; only the microphone front-end touches a device.
-target_link_libraries(draxul-scoreview-host PUBLIC
+target_link_libraries(draxul-scoreview-runtime PUBLIC
     draxul-scoreview
     draxul-notation
     draxul-host
@@ -85,20 +84,20 @@ target_link_libraries(draxul-scoreview-host PUBLIC
 # Microphone permission pre-flight: TCC via AVFoundation on macOS (SDL must
 # never be the one to trigger the consent dialog — see mic_permission.h).
 if(APPLE)
-    target_sources(draxul-scoreview-host PRIVATE src/mic_permission.mm)
+    target_sources(draxul-scoreview-runtime PRIVATE src/mic_permission.mm)
     set_source_files_properties(src/mic_permission.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     find_library(AVFOUNDATION_FRAMEWORK AVFoundation REQUIRED)
-    target_link_libraries(draxul-scoreview-host PRIVATE ${AVFOUNDATION_FRAMEWORK})
+    target_link_libraries(draxul-scoreview-runtime PRIVATE ${AVFOUNDATION_FRAMEWORK})
 else()
-    target_sources(draxul-scoreview-host PRIVATE src/mic_permission_stub.cpp)
+    target_sources(draxul-scoreview-runtime PRIVATE src/mic_permission_stub.cpp)
 endif()
 
-# Host orchestration tests need controller internals, but those controllers are
+# Runtime orchestration tests need controller internals, but those controllers are
 # not public product API. Keep the exception named and confined to tests.
-add_library(draxul-scoreview-host-test-internals INTERFACE)
-target_include_directories(draxul-scoreview-host-test-internals INTERFACE
+add_library(draxul-scoreview-runtime-test-internals INTERFACE)
+target_include_directories(draxul-scoreview-runtime-test-internals INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-target_link_libraries(draxul-scoreview-host-test-internals INTERFACE
-    draxul-scoreview-host
+target_link_libraries(draxul-scoreview-runtime-test-internals INTERFACE
+    draxul-scoreview-runtime
 )

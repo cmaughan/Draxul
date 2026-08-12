@@ -312,10 +312,11 @@ void ScorePresentation::record_flow(INanoVGPass& pass, const FlowFrame& frame)
 
     const float score_clip_h = streaming ? score_region_h : vh;
 
+    const std::string music_font_path = music_font_path_;
     pass.set_draw_callback(
         [strip, highlight, pixel_scale, vw, target_h, scale, origin_x, strip_y, playhead_x,
             waiting, lit, keyboard_alpha, keyboard_y, keyboard_h, streaming, show_wf, blocks,
-            waterfall_top, split_acc, score_clip_h](NVGcontext* vg, int w, int h) {
+            waterfall_top, split_acc, score_clip_h, music_font_path](NVGcontext* vg, int w, int h) {
             fill_backdrop(vg, w, h);
             const float band_pad = 18.0f * pixel_scale;
             // The sheet, notes, and playhead are clipped to the fixed score
@@ -325,7 +326,7 @@ void ScorePresentation::record_flow(INanoVGPass& pass, const FlowFrame& frame)
             nvgScissor(vg, 0.0f, 0.0f, static_cast<float>(vw), score_clip_h);
             draw_page_sheet(vg, -48.0f * pixel_scale, strip_y - band_pad,
                 vw + 96.0f * pixel_scale, target_h + 2.0f * band_pad, pixel_scale);
-            const ScoreTextFonts fonts = ensure_score_text_fonts(vg);
+            const ScoreTextFonts fonts = ensure_score_text_fonts(vg, music_font_path);
             render_draw_list(
                 vg, *strip, { origin_x, strip_y }, scale, fonts, highlight, split_acc);
             // Playhead: amber while rolling, teal while awaiting the player.
@@ -380,12 +381,13 @@ void ScorePresentation::record_paged(INanoVGPass& pass,
 {
     if (!annotations && !unique_chunks)
         overlay = nullptr;
+    const std::string music_font_path = music_font_path_;
     pass.set_draw_callback(
         [pages, pixel_scale, margin, gap, scroll, page_w, page_h, scale, overlay, note_colors,
             annotations, unique_chunks, show_note_colors,
-            split_accidentals](NVGcontext* vg, int w, int h) {
+            split_accidentals, music_font_path](NVGcontext* vg, int w, int h) {
             fill_backdrop(vg, w, h);
-            const ScoreTextFonts fonts = ensure_score_text_fonts(vg);
+            const ScoreTextFonts fonts = ensure_score_text_fonts(vg, music_font_path);
             float y = margin - scroll;
             for (size_t index = 0; index < pages->size(); ++index)
             {

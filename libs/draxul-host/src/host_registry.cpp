@@ -50,9 +50,6 @@ HostProviderMetadata default_metadata(HostKind kind)
     case HostKind::BioView:
         metadata.display_name = "BioView";
         break;
-    case HostKind::SatView:
-        metadata.display_name = "SatView";
-        break;
     case HostKind::NanoVGDemo:
         metadata.display_name = "NanoVG Demo";
         metadata.palette_visible = false;
@@ -66,9 +63,6 @@ HostProviderMetadata default_metadata(HostKind kind)
         break;
     case HostKind::Kanban:
         metadata.display_name = "Kanban";
-        break;
-    case HostKind::Score:
-        metadata.display_name = "ScoreView";
         break;
     case HostKind::Plugin:
         metadata.display_name = "Plugin";

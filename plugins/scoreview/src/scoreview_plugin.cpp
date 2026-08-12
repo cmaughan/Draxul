@@ -238,7 +238,7 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
     }
 
     draxul::HostContext context;
-    context.launch_options.kind = draxul::HostKind::Score;
+    context.launch_options.kind = draxul::HostKind::Plugin;
     context.launch_options.source_path = source;
     context.launch_options.command = mode;
     context.initial_viewport.pixel_pos = {
@@ -256,7 +256,14 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
     instance->runtime = std::make_unique<draxul::scoreview::ScoreRuntime>();
     if (!instance->runtime->initialize(context, instance->callbacks,
             std::move(paths)))
+    {
+        const std::string error = "ScoreView initialization failed: "
+            + instance->runtime->init_error();
+        if (info->host->log)
+            info->host->log(info->host->host_context,
+                DRAXUL_PLUGIN_LOG_ERROR, error.c_str(), error.size());
         return nullptr;
+    }
     if (instance->overlay.available())
         instance->runtime->attach_imgui_host(instance->overlay);
     if (!instance->canvas.set_render_pass(

@@ -329,14 +329,6 @@ if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul-test-app PRIVATE draxul-megacity)
     target_compile_definitions(draxul-test-app PRIVATE DRAXUL_ENABLE_MEGACITY)
 endif()
-if(DRAXUL_ENABLE_SATVIEW)
-    target_link_libraries(draxul-test-app PRIVATE draxul-satview-host)
-    target_compile_definitions(draxul-test-app PRIVATE DRAXUL_ENABLE_SATVIEW)
-endif()
-if(DRAXUL_ENABLE_SCOREVIEW)
-    target_link_libraries(draxul-test-app PRIVATE draxul-scoreview-host)
-    target_compile_definitions(draxul-test-app PRIVATE DRAXUL_ENABLE_SCOREVIEW)
-endif()
 
 draxul_add_test_target(
     draxul-test-markdown-kanban "markdown;kanban" 1
@@ -361,7 +353,7 @@ endif()
 if(DRAXUL_ENABLE_SATVIEW)
     draxul_add_test_target(draxul-test-satview satview 2 ${DRAXUL_SATVIEW_TEST_SOURCES})
     target_link_libraries(draxul-test-satview PRIVATE
-        draxul-satview-host-test-internals
+        draxul-satview-runtime-test-internals
         draxul-satview-renderer-test-internals
     )
     target_compile_definitions(draxul-test-satview PRIVATE DRAXUL_ENABLE_SATVIEW)
@@ -374,17 +366,17 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     # Host lifecycle, microphone, NanoVG overlay, and worker orchestration tests
     # carry the full host dependency without imposing it on the ScoreView core.
     draxul_add_test_target(
-        draxul-test-scoreview-host "scoreview;scoreview-host" 1
+        draxul-test-scoreview-runtime "scoreview;scoreview-runtime" 1
         ${DRAXUL_SCOREVIEW_HOST_TEST_SOURCES}
     )
-    target_link_libraries(draxul-test-scoreview-host PRIVATE
-        draxul-scoreview-host-test-internals
+    target_link_libraries(draxul-test-scoreview-runtime PRIVATE
+        draxul-scoreview-runtime-test-internals
     )
 
     foreach(scoreview_target
         draxul-test-app
         draxul-test-scoreview
-        draxul-test-scoreview-host)
+        draxul-test-scoreview-runtime)
         target_compile_definitions(${scoreview_target} PRIVATE
             DRAXUL_ENABLE_SCOREVIEW
             DRAXUL_VEROVIO_DATA_DIR="${verovio_SOURCE_DIR}/data"

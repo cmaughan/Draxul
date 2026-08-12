@@ -650,6 +650,17 @@ busy device degrades to a usable visual ScoreView rather than failing the pane.
 
 ### Slice 10: ScoreView cutover and architecture cleanup
 
+Progress: completed on Windows on 2026-08-12. `HostKind::SatView` and
+`HostKind::Score`, their providers and static adapters, and both executable
+product links have been removed. SatView and ScoreView production code is now
+reachable only through the staged native modules. ScoreView resolves Verovio,
+Leipzig, soundfonts, progress storage, and its module-local shared library from
+the plugin contract/bundle; it no longer searches beside `draxul.exe`. Clean
+package discovery and module-removal behavior, CLI-created product topology,
+actionable missing-source presentation, full CTest, smoke, hygiene, and fixed
+Vulkan product snapshots pass. The Metal implementation and module-local rpath
+are present and remain a macOS CI gate.
+
 **User-visible result:** SatView and ScoreView are both discovered, packaged,
 launched, persisted, and controlled as plugins; Draxul contains no static product
 fallback for either one.

@@ -412,7 +412,7 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
     instance->runtime_callbacks.host = instance->host;
     instance->runtime = std::make_unique<draxul::satview::SatViewRuntime>();
     draxul::HostContext context;
-    context.launch_options.kind = draxul::HostKind::SatView;
+    context.launch_options.kind = draxul::HostKind::Plugin;
     context.launch_options.show_host_ui_panels
         = instance->imgui_overlay.available();
     context.initial_viewport.pixel_pos = {

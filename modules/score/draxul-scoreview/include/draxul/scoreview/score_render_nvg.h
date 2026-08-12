@@ -3,6 +3,8 @@
 #include <draxul/scoreview/score_draw_list.h>
 #include <draxul/scoreview/score_highlight.h>
 
+#include <string_view>
+
 struct NVGcontext;
 
 namespace draxul
@@ -21,7 +23,8 @@ struct ScoreTextFonts
 // Loads (once per NVGcontext) the serif faces used for score text — Verovio
 // engraves text as "Times, serif". Missing variants fall back to regular; if
 // no face is found at all the ids stay -1 and text runs are skipped.
-ScoreTextFonts ensure_score_text_fonts(NVGcontext* vg);
+ScoreTextFonts ensure_score_text_fonts(NVGcontext* vg,
+    std::string_view music_font_path = {});
 
 // Replays one interpreted page into NanoVG. origin is the page's top-left in
 // pixels; scale maps canvas units to pixels (stroke widths and font sizes are

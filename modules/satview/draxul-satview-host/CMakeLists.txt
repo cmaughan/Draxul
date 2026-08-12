@@ -1,28 +1,23 @@
 cmake_minimum_required(VERSION 3.25)
 
-# draxul-satview-host — the orchestration layer: ImGui UI, SDL input, camera
-# control, config load/store IO, the simulation worker, and the SatViewHost
-# that drives the lower boundaries and self-registers with the host provider
-# registry (register_satview_host_provider, called from app/main.cpp). This is
-# the target the executable links.
+# draxul-satview-runtime — the plugin-owned orchestration layer: ImGui UI,
+# SDL input, camera control, config IO, and the simulation worker.
 #
-# It PUBLIC-links the four lower SatView boundaries so the app (which includes
-# only <draxul/satview/satview_host.h>) and the white-box tests resolve every
-# SatView public header transitively.
+# It PUBLIC-links the lower SatView boundaries so the dynamic module and
+# white-box runtime tests resolve every SatView public header transitively.
 
-add_library(draxul-satview-host STATIC
+add_library(draxul-satview-runtime STATIC
     src/satview_config_io.cpp
-    src/satview_host.cpp
     src/satview_runtime.cpp
     src/satview_simulation_worker.cpp
 )
 
-target_include_directories(draxul-satview-host
+target_include_directories(draxul-satview-runtime
     PUBLIC include
     PRIVATE src
 )
 
-target_link_libraries(draxul-satview-host PUBLIC
+target_link_libraries(draxul-satview-runtime PUBLIC
     draxul-satview-core
     draxul-satview-scene
     draxul-satview-services
@@ -31,19 +26,19 @@ target_link_libraries(draxul-satview-host PUBLIC
     draxul-renderer
     imgui
 )
-target_link_libraries(draxul-satview-host PRIVATE
+target_link_libraries(draxul-satview-runtime PRIVATE
     draxul-config
     draxul-font
     draxul-ui
     SDL3::SDL3
 )
 
-# Camera/controller/worker tests intentionally inspect host internals without
+# Camera/controller/worker tests intentionally inspect runtime internals without
 # making those implementation headers part of the SatView public API.
-add_library(draxul-satview-host-test-internals INTERFACE)
-target_include_directories(draxul-satview-host-test-internals INTERFACE
+add_library(draxul-satview-runtime-test-internals INTERFACE)
+target_include_directories(draxul-satview-runtime-test-internals INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-target_link_libraries(draxul-satview-host-test-internals INTERFACE
-    draxul-satview-host
+target_link_libraries(draxul-satview-runtime-test-internals INTERFACE
+    draxul-satview-runtime
 )

@@ -294,8 +294,8 @@ TEST_CASE("cli: normal shell startup uses the shared server by default",
     REQUIRE(parse({ "--no-server" }).error);
     REQUIRE_FALSE(should_use_shared_server(
         parse({ "--host", "nvim" }).args));
-    REQUIRE_FALSE(should_use_shared_server(
-        parse({ "--host", "satview" }).args));
+    REQUIRE(parse({ "--host", "satview" }).error);
+    REQUIRE(parse({ "--host", "score" }).error);
     REQUIRE(should_use_shared_server(
         parse({ "--smoke-test" }).args));
 }

@@ -4,9 +4,9 @@
 // the per-piece player model, its content-hash-keyed progress file, the
 // session clock, the bar-boundary flush policy, and the cached piece
 // analysis with its inspection dump. Owns every filesystem/serialization
-// detail; ScoreHost keeps only the transport-coupled decisions (tempo
+// detail; ScoreRuntime keeps only the transport-coupled decisions (tempo
 // resume on session start, ending tempo fraction). Internal to
-// draxul-scoreview-host (no public header).
+// draxul-scoreview-runtime (no public header).
 
 #include <draxul/scoreview/piece_analysis.h>
 #include <draxul/scoreview/player_model.h>

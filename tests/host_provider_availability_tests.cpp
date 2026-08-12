@@ -36,17 +36,17 @@ TEST_CASE("host registry exposes ordered metadata and canonical aliases", "[host
 {
     HostProviderRegistry registry;
     registry.register_provider(HostKind::Nvim, fake_provider());
-    registry.register_provider(HostKind::SatView, fake_provider());
+    registry.register_provider(HostKind::BioView, fake_provider());
 
     const auto providers = registry.available_providers();
     REQUIRE(providers.size() == 2);
     CHECK(providers[0].kind == HostKind::Nvim);
     CHECK(providers[0].canonical_cli_name == "nvim");
-    CHECK(providers[1].kind == HostKind::SatView);
-    CHECK(providers[1].canonical_cli_name == "satview");
-    CHECK(registry.parse_available_kind("sat") == HostKind::SatView);
+    CHECK(providers[1].kind == HostKind::BioView);
+    CHECK(providers[1].canonical_cli_name == "bioview");
+    CHECK(registry.parse_available_kind("bio") == HostKind::BioView);
     CHECK_FALSE(registry.parse_available_kind("megacity").has_value());
-    CHECK(registry.available_cli_names() == "nvim, satview");
+    CHECK(registry.available_cli_names() == "nvim, bioview");
 
     for (const auto& provider : providers)
     {
@@ -61,7 +61,7 @@ TEST_CASE("command palette advertises only registered visible providers", "[host
 {
     HostProviderRegistry registry;
     registry.register_provider(HostKind::Nvim, fake_provider());
-    registry.register_provider(HostKind::SatView, fake_provider());
+    registry.register_provider(HostKind::BioView, fake_provider());
     registry.register_provider(HostKind::NanoVGDemo, fake_provider());
 
     CommandPalette palette(CommandPalette::Deps{ .host_registry = &registry });
@@ -69,8 +69,8 @@ TEST_CASE("command palette advertises only registered visible providers", "[host
     const auto state = palette.view_state(120, 40);
 
     CHECK(contains_action(state, "split_vertical nvim"));
-    CHECK(contains_action(state, "split_horizontal satview"));
-    CHECK(contains_action(state, "new_tab satview"));
+    CHECK(contains_action(state, "split_horizontal bioview"));
+    CHECK(contains_action(state, "new_tab bioview"));
     CHECK_FALSE(contains_action(state, "split_vertical megacity"));
     CHECK_FALSE(contains_action(state, "new_tab nanovg-demo"));
     CHECK_FALSE(registry.create(HostKind::MegaCity));
@@ -88,12 +88,12 @@ TEST_CASE("CLI rejects unknown and unavailable host providers but preserves alia
     HostProviderRegistry registry;
     registry.register_provider(HostKind::Nvim, fake_provider());
 
-    const auto unavailable = parse_host("sat");
+    const auto unavailable = parse_host("bio");
     REQUIRE_FALSE(unavailable.error.has_value());
-    REQUIRE(unavailable.args.host_kind == HostKind::SatView);
+    REQUIRE(unavailable.args.host_kind == HostKind::BioView);
     const auto availability_error = validate_host_provider_availability(unavailable.args, registry);
     REQUIRE(availability_error.has_value());
-    CHECK(availability_error->find("satview") != std::string::npos);
+    CHECK(availability_error->find("bioview") != std::string::npos);
     CHECK(availability_error->find("nvim") != std::string::npos);
 
     const auto available = parse_host("nvim");
@@ -147,22 +147,22 @@ TEST_CASE("host metadata makes platform and optional-module availability explici
 
     for (const bool megacity_enabled : { false, true })
     {
-        for (const bool satview_enabled : { false, true })
+        for (const bool bioview_enabled : { false, true })
         {
             HostProviderRegistry optional_registry;
             optional_registry.register_provider(HostKind::Nvim, fake_provider());
             if (megacity_enabled)
                 optional_registry.register_provider(HostKind::MegaCity, fake_provider());
-            if (satview_enabled)
-                optional_registry.register_provider(HostKind::SatView, fake_provider());
+            if (bioview_enabled)
+                optional_registry.register_provider(HostKind::BioView, fake_provider());
 
             CommandPalette palette(CommandPalette::Deps{ .host_registry = &optional_registry });
             palette.open();
             const auto state = palette.view_state(120, 40);
             CHECK(contains_action(state, "new_tab megacity") == megacity_enabled);
-            CHECK(contains_action(state, "new_tab satview") == satview_enabled);
+            CHECK(contains_action(state, "new_tab bioview") == bioview_enabled);
             CHECK(optional_registry.has(HostKind::MegaCity) == megacity_enabled);
-            CHECK(optional_registry.has(HostKind::SatView) == satview_enabled);
+            CHECK(optional_registry.has(HostKind::BioView) == bioview_enabled);
         }
     }
 }

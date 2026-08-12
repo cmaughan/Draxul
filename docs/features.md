@@ -17,7 +17,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | WSL | `--host wsl` | Server-owned Windows Subsystem for Linux terminal |
 | MegaCity | `--host megacity` | 3D demo host (semantic code city, textured road/sidewalk/tree materials, cascaded directional shadows, point-light cubemap shadows, screen-space AO, mouse-drag pan, Alt+drag orbit, direct Tree-sitter-to-semantic-snapshot scan, optional `--source` Tree-sitter scan-root override) |
 | BioView | `--host bioview` | Experimental biological code visualization: the whole codebase grown as a living organism. Each **module** becomes a soft, colored **tissue territory**; each **class/struct** becomes a **cell** packed into its module's tissue; and strong **cross-module dependencies** become **blood vessels** arcing between tissues. The most significant classes render as full detailed cells (methods→mitochondria, fields→ribosomes, member roster→DNA rungs, inheritance→Golgi, dependencies→vesicles, oversized methods→lysosomes, organizer→centrosome), while the rest render as simpler module-tinted cells so hundreds of types stay affordable. All procedural geometry, lit by the shared 3D scene renderer; deterministic; every organelle carries a semantic ref back to its code node. |
-| Score | `--host score [--source <file.musicxml/.mxl>]` | Music score viewer + adaptive learning runner ([docs/features/scoreview.md](features/scoreview.md)): Verovio-engraved MusicXML/`.mxl` piano scores; a paged reading view with piece-analysis overlays; conveyor and Roll (Guitar-Hero-style) practice modes with adaptive tempo, spelling-colored notes, guidance keyboard, waterfall, and per-bar tempo ladders; an adaptive practice composer with spaced review, drills, and overnight re-tests; metronome/audition/soundfont audio; dev-keyboard, MIDI, and microphone input; per-piece progress memory. Full narrative: [docs/features/scoreview.md](features/scoreview.md) |
+| ScoreView | `--plugin dev.draxul.scoreview` on pane/tab commands | Dynamically loaded music score viewer + adaptive learning runner ([docs/features/scoreview.md](features/scoreview.md)); launch JSON accepts `source`, `mode`, and `background_playback` |
 | SatView | `--plugin dev.draxul.satview` on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and build-matched ImGui controls. Full narrative: [docs/features/satview.md](features/satview.md) |
 
 Shell Session splits use the server's platform default shell (Zsh on macOS,
@@ -57,11 +57,11 @@ cache, and temporary directories plus bounded atomic JSON documents. Storage is
 client-local and main-thread-only; background workers request a logic tick before
 reading or writing it.
 
-The build-matched `draxul.imgui-overlay` service lets bundled first-party plugins
+The build-matched `draxul.imgui-overlay` and `draxul.canvas2d` services let bundled first-party plugins
 reuse Draxul's font, input, and Vulkan/Metal ImGui backend while Draxul retains
 submission and presentation. It rejects an ImGui version or draw-layout mismatch.
-Bundled IDs currently include `dev.draxul.satview` and the ABI example
-`dev.draxul.spinning-triangle`. SatView preferences are pane-local and durable;
+Bundled IDs currently include `dev.draxul.satview`, `dev.draxul.scoreview`, and the ABI example
+`dev.draxul.spinning-triangle`. Product preferences are pane-local and durable;
 shared launch JSON remains limited to values every attached UI should see.
 
 ```text
@@ -72,6 +72,17 @@ draxul pane split <pane-id> --direction right --plugin <plugin-id> \
 draxul tab create --space <space-id> --name <name> --plugin <plugin-id> \
   [--plugin-config <json>] --json
 ```
+
+For example, open the bundled score reader without a terminal:
+
+```text
+draxul tab create --space <space-id> --name ScoreView \
+  --plugin dev.draxul.scoreview \
+  --plugin-config '{"source":"C:/scores/piece.musicxml","mode":"paged"}' --json
+```
+
+ScoreView pauses transport and releases device leases while hidden by default;
+`"background_playback":true` opts into hidden logic/audio without hidden renders.
 
 The bundled `dev.draxul.spinning-triangle` module is a real dynamically loaded
 Vulkan/Metal sample. Its configuration accepts `speed_radians_per_second`,
@@ -90,9 +101,9 @@ per pane for this UI; another attached UI resolves the shared pane independently
 - An ordinary `draxul` launch discovers or starts the singleton, opens the default
   shared shell Session, and reconnects to the same server-owned Spaces, panes,
   terminals, and agents after the UI closes. Shells have no client-owned fallback.
-  Explicit product hosts such as `--host nvim`, Markdown, Kanban, ScoreView,
-  and MegaCity remain client-owned and do not start the server. SatView is a
-  client-local plugin pane created in shared server topology.
+  Explicit hosts such as `--host nvim`, Markdown, Kanban, and MegaCity remain
+  client-owned and do not start the server. SatView and ScoreView are client-local
+  plugin panes created in shared server topology.
 - The server owns a Windows notification-area or macOS menu-bar status item. Its menu
   reports connected clients, Sessions, Spaces, terminals, live terminals, and agents,
   and provides Open Draxul, refresh, open-log, and one guarded Stop Server action.
@@ -705,9 +716,9 @@ and `draxul integration status` do not pass through the launch-option parser.
 
 | Flag | Description |
 |------|-------------|
-| `--host <type>` | Host type: nvim, markdown, powershell, bash, zsh, wsl, megacity, bioview, satview, score |
+| `--host <type>` | Host type: nvim, markdown, powershell, bash, zsh, wsl, megacity, bioview |
 | `--command <cmd>` | Override host command path |
-| `--source <path>` | Markdown file for `--host markdown`; Tree-sitter scan root for `--host megacity` or `--host bioview`; MusicXML or `.mxl` score for `--host score` |
+| `--source <path>` | Markdown file for `--host markdown`; Tree-sitter scan root for `--host megacity` or `--host bioview` |
 | `--session <id>` | Select which saved shell session to restore |
 | `--new-session` | Start a fresh saved shell session; if `--session` is omitted Draxul generates a unique session id. If the requested session cannot be prepared (for example an explicit `--session` id that already exists) Draxul reports the error and exits rather than silently falling back to `default` |
 | `--session-name <name>` | Set the saved display name for the launched or restored shell session |
@@ -779,7 +790,7 @@ and `draxul integration status` do not pass through the launch-option parser.
 | `DRAXUL_ENABLE_COVERAGE` | OFF | LLVM source-based coverage |
 | `DRAXUL_ENABLE_MEGACITY` | ON | MegaCity optional module (`modules/megacity/`) — when OFF, the terminal product builds with no megacity sources, headers, link dependency, or test coupling |
 | `DRAXUL_ENABLE_SATVIEW` | ON | Builds and stages the `dev.draxul.satview` DLL/dylib plus its private product libraries and assets; the executable has no static SatView host fallback |
-| `DRAXUL_ENABLE_SCOREVIEW` | ON on Windows/macOS | ScoreView optional module (`modules/score/`) with the pinned Verovio engraving runtime |
+| `DRAXUL_ENABLE_SCOREVIEW` | ON on Windows/macOS | Builds and stages `dev.draxul.scoreview`, its private runtime libraries, Verovio, fonts, and soundfonts; the executable has no static ScoreView fallback |
 | `BUILD_TESTING` | ON | Test targets |
 
 Markdown and Kanban are product modules under `modules/markdown/` and `modules/kanban/`. They are built by default and keep their existing host flags and CMake target names.
@@ -789,7 +800,7 @@ Markdown and Kanban are product modules under `modules/markdown/` and `modules/k
 - `draxul-tests` -- Unit test suite (Catch2), compiled with a test-only precompiled header and registered as four disjoint CTest shards labeled `unit`
 - `draxul-rpc-fake` -- Fake RPC server for integration tests
 
-ScoreView builds as five libraries inside the `DRAXUL_ENABLE_SCOREVIEW` gate — `draxul-score-learn`, `draxul-score-input`, `draxul-score-audio`, `draxul-scoreview`, `draxul-scoreview-host`; the per-library layering and dependency-isolation rationale is documented in [docs/features/scoreview.md](features/scoreview.md#build-structure).
+ScoreView builds as five libraries inside the `DRAXUL_ENABLE_SCOREVIEW` gate — `draxul-score-learn`, `draxul-score-input`, `draxul-score-audio`, `draxul-scoreview`, `draxul-scoreview-runtime` — plus the dynamic module; the per-library layering and dependency-isolation rationale is documented in [docs/features/scoreview.md](features/scoreview.md#build-structure).
 
 CTest also registers `tests/do_py_tests.py` under the `unit` label. App smoke and render-snapshot tests use a shared CTest resource lock so full parallel test runs never overlap GPU/application processes.
 On Windows, every test executable that links ScoreView stages `verovio.dll`

@@ -4,10 +4,10 @@
 // slicing, the composer + host-owned program, the verdict archive, window
 // bookkeeping (first bar / count / stream offset), the advance policy, and
 // the async-engrave worker state machine (latest-wins generations over
-// WindowEngraver). ScoreHost keeps what is genuinely presentation- and
+// WindowEngraver). ScoreRuntime keeps what is genuinely presentation- and
 // transport-coupled: the synchronous engrave through the main engine, the
 // install swap, and the view/transport checks around a completed generation.
-// Internal to draxul-scoreview-host (no public header).
+// Internal to draxul-scoreview-runtime (no public header).
 
 #include <draxul/scoreview/composer.h>
 #include <draxul/scoreview/source_slicer.h>
