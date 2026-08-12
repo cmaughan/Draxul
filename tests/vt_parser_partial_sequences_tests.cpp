@@ -40,6 +40,9 @@ struct TraceHarness
             cbs.on_esc = [this](char ch) {
                 events.push_back("esc:" + std::string(1, ch));
             };
+            cbs.on_dcs = [this](std::string_view body) {
+                events.push_back("dcs:" + std::string(body));
+            };
             return cbs;
         }())
     {
@@ -77,6 +80,7 @@ TEST_CASE("vt parser partial sequences: split feeds match whole feed", "[vt_pars
         { "SGR with multiple params", "\x1B[1;31m" },
         { "DEC private mode", "\x1B[?1049h" },
         { "OSC title", "\x1B]0;title\x07" },
+        { "DCS XTGETTCAP", "\x1BP+q544e\x1B\\" },
         { "plain ASCII text", "plain text" },
         { "plain UTF-8 text", plain_utf8 },
     };

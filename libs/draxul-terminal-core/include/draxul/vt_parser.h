@@ -19,6 +19,7 @@ namespace draxul
 //   - C0 control characters             → on_control
 //   - CSI sequences (ESC [ … final)     → on_csi
 //   - OSC sequences (ESC ] … BEL/ST)    → on_osc
+//   - DCS sequences (ESC P … ST)        → on_dcs
 //
 // Buffer caps: each accumulation buffer is bounded to prevent OOM from
 // pathological terminal streams.  When a cap is reached the in-progress
@@ -29,6 +30,7 @@ public:
     static constexpr size_t kMaxPlainTextBuffer = 64 * 1024; // 64 KiB
     static constexpr size_t kMaxCsiBuffer = 4096; // 4 KiB
     static constexpr size_t kMaxOscBuffer = 8192; // 8 KiB
+    static constexpr size_t kMaxDcsBuffer = 8192; // 8 KiB
 
     struct Callbacks
     {
@@ -40,9 +42,13 @@ public:
         std::function<void(char final_char, std::string_view body)> on_csi;
         // A complete OSC sequence (everything between ESC ] and BEL/ST).
         std::function<void(std::string_view body)> on_osc;
-        // A two-character ESC sequence where the second byte is not '[' or ']'
+        // A two-character ESC sequence where the second byte does not begin
+        // a CSI, OSC, or DCS
         // (e.g. ESC 7 = DECSC, ESC 8 = DECRC).  Optional — unhandled if null.
         std::function<void(char ch)> on_esc;
+        // A complete DCS sequence (everything between ESC P and ST).
+        // Optional — consumed without dispatch if null.
+        std::function<void(std::string_view body)> on_dcs;
     };
 
     explicit VtParser(Callbacks cbs);
@@ -61,15 +67,21 @@ private:
         Csi,
         Osc,
         OscEsc,
+        Dcs,
+        DcsEsc,
+        DcsIgnore,
+        DcsIgnoreEsc,
     };
 
     void flush_plain_text();
+    void dispatch_escape_followup(char ch);
 
     Callbacks cbs_;
     State state_ = State::Ground;
     std::string plain_text_; // accumulates printable bytes in Ground state
     std::string csi_buffer_;
     std::string osc_buffer_;
+    std::string dcs_buffer_;
 };
 
 } // namespace draxul

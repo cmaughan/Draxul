@@ -147,22 +147,7 @@ void VtParser::feed(std::string_view bytes)
             }
             break;
         case State::Escape:
-            if (ch == '[')
-            {
-                csi_buffer_.clear();
-                state_ = State::Csi;
-            }
-            else if (ch == ']')
-            {
-                osc_buffer_.clear();
-                state_ = State::Osc;
-            }
-            else
-            {
-                if (cbs_.on_esc)
-                    cbs_.on_esc(ch);
-                state_ = State::Ground;
-            }
+            dispatch_escape_followup(ch);
             break;
         case State::Csi:
             if (ch >= 0x40 && ch <= 0x7E)
@@ -225,23 +210,59 @@ void VtParser::feed(std::string_view bytes)
                 // re-dispatch the current character as the start of a new
                 // escape sequence rather than silently dropping it.
                 cbs_.on_osc(osc_buffer_);
-                if (ch == '[')
-                {
-                    csi_buffer_.clear();
-                    state_ = State::Csi;
-                }
-                else if (ch == ']')
-                {
-                    osc_buffer_.clear();
-                    state_ = State::Osc;
-                }
-                else
-                {
-                    if (cbs_.on_esc)
-                        cbs_.on_esc(ch);
-                    state_ = State::Ground;
-                }
+                dispatch_escape_followup(ch);
             }
+            break;
+        case State::Dcs:
+            if (ch == '\x1B')
+            {
+                state_ = State::DcsEsc;
+            }
+            else if (ch == '\x18' || ch == '\x1A') // CAN / SUB cancel the control string
+            {
+                dcs_buffer_.clear();
+                state_ = State::Ground;
+            }
+            else if (dcs_buffer_.size() >= kMaxDcsBuffer)
+            {
+                DRAXUL_LOG_WARN(LogCategory::App,
+                    "vt_parser: DCS buffer exceeded cap (%zu bytes); dropping sequence",
+                    kMaxDcsBuffer);
+                dcs_buffer_.clear();
+                state_ = State::DcsIgnore;
+            }
+            else
+            {
+                dcs_buffer_.push_back(ch);
+            }
+            break;
+        case State::DcsEsc:
+            if (ch == '\\')
+            {
+                if (cbs_.on_dcs)
+                    cbs_.on_dcs(dcs_buffer_);
+                dcs_buffer_.clear();
+                state_ = State::Ground;
+            }
+            else
+            {
+                // ESC not followed by ST aborts the DCS and begins a new
+                // escape sequence. Never render the partial DCS payload.
+                dcs_buffer_.clear();
+                dispatch_escape_followup(ch);
+            }
+            break;
+        case State::DcsIgnore:
+            if (ch == '\x1B')
+                state_ = State::DcsIgnoreEsc;
+            else if (ch == '\x18' || ch == '\x1A')
+                state_ = State::Ground;
+            break;
+        case State::DcsIgnoreEsc:
+            if (ch == '\\')
+                state_ = State::Ground;
+            else if (ch != '\x1B')
+                state_ = State::DcsIgnore;
             break;
         }
     }
@@ -260,6 +281,32 @@ void VtParser::reset()
     plain_text_.clear();
     csi_buffer_.clear();
     osc_buffer_.clear();
+    dcs_buffer_.clear();
+}
+
+void VtParser::dispatch_escape_followup(char ch)
+{
+    if (ch == '[')
+    {
+        csi_buffer_.clear();
+        state_ = State::Csi;
+    }
+    else if (ch == ']')
+    {
+        osc_buffer_.clear();
+        state_ = State::Osc;
+    }
+    else if (ch == 'P')
+    {
+        dcs_buffer_.clear();
+        state_ = State::Dcs;
+    }
+    else
+    {
+        if (cbs_.on_esc)
+            cbs_.on_esc(ch);
+        state_ = State::Ground;
+    }
 }
 
 void VtParser::flush_plain_text()
