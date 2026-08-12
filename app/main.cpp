@@ -34,9 +34,6 @@
 #ifdef DRAXUL_ENABLE_MEGACITY
 #include <draxul/megacity_host.h>
 #endif
-#ifdef DRAXUL_ENABLE_SATVIEW
-#include <draxul/satview/satview_host.h>
-#endif
 #ifdef DRAXUL_ENABLE_SCOREVIEW
 #include <draxul/scoreview/score_host.h>
 #endif
@@ -740,9 +737,6 @@ static int draxul_main(std::vector<std::string> args)
     draxul::kanban::register_kanban_host_provider(host_registry);
 #ifdef DRAXUL_ENABLE_MEGACITY
     draxul::register_megacity_host_provider(host_registry);
-#endif
-#ifdef DRAXUL_ENABLE_SATVIEW
-    draxul::satview::register_satview_host_provider(host_registry);
 #endif
 #ifdef DRAXUL_ENABLE_SCOREVIEW
     draxul::scoreview::register_score_host_provider(host_registry);

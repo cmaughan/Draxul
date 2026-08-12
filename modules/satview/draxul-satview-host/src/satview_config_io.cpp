@@ -3,6 +3,8 @@
 #include <draxul/satview/satview_sky_projection.h>
 #include <draxul/satview/satview_solar_system.h>
 
+#include <sstream>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -450,6 +452,29 @@ SatViewConfig load_satview_config(const ConfigDocument& document)
 void store_satview_config(ConfigDocument& document, const SatViewConfig& config)
 {
     document.ensure_table("satview") = serialize_satview_table(config);
+}
+
+std::string serialize_satview_config_toml(const SatViewConfig& config)
+{
+    std::ostringstream output;
+    output << serialize_satview_table(config);
+    return output.str();
+}
+
+std::optional<SatViewConfig> parse_satview_config_toml(
+    std::string_view text)
+{
+    try
+    {
+        const toml::table table = toml::parse(text);
+        SatViewConfig config;
+        apply_satview_table(config, table);
+        return config;
+    }
+    catch (...)
+    {
+        return std::nullopt;
+    }
 }
 
 } // namespace draxul::satview

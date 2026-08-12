@@ -411,6 +411,14 @@ policy, and the existing launch path is still fully functional.
 
 ### Slice 4: SatView scene as a real GPU plugin
 
+Progress: completed on Windows on 2026-08-12. `dev.draxul.satview` is a real
+DLL with a matching Metal module source, staged assets/shaders, live
+`SatViewRuntime` catalog and simulation work, pane-local input, deterministic
+render coverage, and no imported queue submit/wait or device-wait calls. The
+plugin-native overview renderer deliberately replaces the old tightly coupled
+HDR pass rather than retaining that pass as a compatibility fallback. Metal
+build/render validation remains assigned to CI.
+
 **User-visible result:** `dev.draxul.satview` can be created as a tab or split and
 renders the live SatView scene, including camera input and background simulation,
 without being statically registered as the active pane host. The optional ImGui
@@ -444,6 +452,14 @@ Exit gate: the dynamic module is useful without debug UI, observes hidden-pane
 scheduling, and cannot alter the neighboring pane in the snapshot test.
 
 ### Slice 5: SatView controls and complete cutover
+
+Progress: completed on Windows on 2026-08-12. ABI v2 now includes a
+build-fingerprinted first-party ImGui overlay service; the dynamic module runs
+the existing SatView dock/control panels, translates pane-local input, exposes
+product actions/status, and persists its preferences through pane-local plugin
+storage. Production startup no longer registers or links the static SatView
+host, legacy executable shader/asset staging was removed, and a missing module
+therefore remains an inert plugin pane rather than selecting compiled-in code.
 
 **User-visible result:** the dynamic SatView has its complete control panels,
 saved preferences, status/actions, and launch behavior; the statically linked

@@ -93,6 +93,8 @@ public:
     draxul::Color default_background() const;
     draxul::HostRuntimeState runtime_state() const;
     draxul::HostDebugState debug_state() const;
+    [[nodiscard]] SatViewConfig current_config() const;
+    void apply_config(const SatViewConfig& config);
 
     void attach_imgui_host(draxul::IImGuiHost& host);
     void set_imgui_font(const std::string& path, float size_pixels);
@@ -152,8 +154,6 @@ private:
     void invalidate_track_buffer();
     void invalidate_marker_buffer();
     void invalidate_visual_buffers();
-    [[nodiscard]] SatViewConfig current_config() const;
-    void apply_config(const SatViewConfig& config);
     void persist_config();
     [[nodiscard]] std::optional<CentralBody> active_surface_body() const;
     [[nodiscard]] const SatViewSurfaceCatalog* surface_catalog(CentralBody body) const;

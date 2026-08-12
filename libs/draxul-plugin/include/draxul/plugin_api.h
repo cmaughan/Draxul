@@ -26,6 +26,8 @@ extern "C" {
 #define DRAXUL_PLUGIN_PATH_SERVICE_VERSION 1u
 #define DRAXUL_PLUGIN_STORAGE_SERVICE_ID "draxul.storage"
 #define DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION 1u
+#define DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_ID "draxul.imgui-overlay"
+#define DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_VERSION 1u
 #define DRAXUL_PLUGIN_MAX_STORAGE_JSON_BYTES (1024u * 1024u)
 
 typedef enum DraxulPluginBackendV2
@@ -124,6 +126,29 @@ typedef struct DraxulPluginStorageServiceV2
     uint32_t (*remove)(void* service_context, uint32_t scope,
         const char* key, size_t key_length);
 } DraxulPluginStorageServiceV2;
+
+// First-party, build-matched ImGui bridge. ImGuiContext and ImDrawData remain
+// opaque at the C boundary; the version and type sizes must match before a
+// plugin uses the service. Calls are main-thread-only. The host owns all GPU
+// backend state and submission.
+typedef struct DraxulPluginImGuiOverlayServiceV2
+{
+    uint32_t struct_size;
+    uint32_t service_version;
+    uint32_t imgui_version_num;
+    uint32_t draw_vert_size;
+    uint32_t draw_idx_size;
+    void* service_context;
+    int32_t (*initialize)(void* service_context, void* imgui_context);
+    void (*shutdown)(void* service_context, void* imgui_context);
+    void (*rebuild_font_texture)(void* service_context, void* imgui_context);
+    int32_t (*begin_frame)(void* service_context, void* imgui_context);
+    int32_t (*render_draw_data)(void* service_context, void* draw_data,
+        void* imgui_context);
+    // Two-call UTF-8 path contract. The returned size includes the NUL.
+    int32_t (*get_font)(void* service_context, char* path,
+        size_t* in_out_size, float* size_pixels);
+} DraxulPluginImGuiOverlayServiceV2;
 
 typedef struct DraxulPluginViewportV2
 {

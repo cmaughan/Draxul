@@ -61,6 +61,11 @@ public:
     void shutdown_imgui_backend() override;
     void rebuild_imgui_font_texture() override;
     void begin_imgui_frame() override;
+    bool render_imgui_draw_data(const ImDrawData* draw_data,
+        ImGuiContext* context) override
+    {
+        return render_imgui_now(draw_data, context);
+    }
     void request_frame_capture() override;
     std::optional<CapturedFrame> take_captured_frame() override;
     int padding() const override

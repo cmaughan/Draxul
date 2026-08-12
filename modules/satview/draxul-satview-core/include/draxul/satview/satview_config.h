@@ -3,6 +3,9 @@
 #include <array>
 #include <cstddef>
 #include <draxul/satview/satview_filter.h>
+#include <optional>
+#include <string>
+#include <string_view>
 
 namespace draxul
 {
@@ -193,5 +196,9 @@ struct SatViewConfig
 
 [[nodiscard]] SatViewConfig load_satview_config(const draxul::ConfigDocument& document);
 void store_satview_config(draxul::ConfigDocument& document, const SatViewConfig& config);
+[[nodiscard]] std::string serialize_satview_config_toml(
+    const SatViewConfig& config);
+[[nodiscard]] std::optional<SatViewConfig> parse_satview_config_toml(
+    std::string_view text);
 
 } // namespace draxul::satview

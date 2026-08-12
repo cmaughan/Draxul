@@ -52,6 +52,9 @@ public:
     HostRuntimeState runtime_state() const override;
     HostDebugState debug_state() const override;
     HostPrintHint print_hint() const override;
+    void attach_imgui_host(IImGuiHost& host) override;
+    void set_imgui_font(const std::string& path,
+        float size_pixels) override;
 
     void accept_render_result(const DraxulPluginRenderResultV2& result);
 
@@ -83,6 +86,18 @@ private:
         size_t json_length);
     static uint32_t remove_storage(void* context, uint32_t scope,
         const char* key, size_t key_length);
+    static int32_t initialize_imgui_overlay(void* context,
+        void* imgui_context);
+    static void shutdown_imgui_overlay(void* context,
+        void* imgui_context);
+    static void rebuild_imgui_font_texture(void* context,
+        void* imgui_context);
+    static int32_t begin_imgui_frame(void* context,
+        void* imgui_context);
+    static int32_t render_imgui_draw_data(void* context,
+        void* draw_data, void* imgui_context);
+    static int32_t get_imgui_font(void* context, char* path,
+        size_t* in_out_size, float* size_pixels);
     DraxulPluginViewportV2 plugin_viewport() const;
     void send_input(DraxulPluginInputEventV2 event);
     void send_focus(bool focused);
@@ -97,6 +112,7 @@ private:
     std::shared_ptr<LoadedPlugin> plugin_;
     std::unique_ptr<IRenderPass> render_pass_;
     IGridRenderer* renderer_ = nullptr;
+    IImGuiHost* imgui_host_ = nullptr;
     std::atomic<IHostCallbacks*> callbacks_{ nullptr };
     void* instance_ = nullptr;
     HostViewport viewport_;
@@ -125,6 +141,8 @@ private:
     std::filesystem::path cache_path_;
     std::filesystem::path temporary_path_;
     std::thread::id main_thread_id_;
+    std::string imgui_font_path_;
+    float imgui_font_size_pixels_ = 13.0f;
 };
 
 class HostProviderRegistry;

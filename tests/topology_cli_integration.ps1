@@ -151,6 +151,14 @@ try {
     if (-not ($pluginList | Where-Object id -eq 'dev.draxul.spinning-triangle')) {
         throw 'Bundled plugin was not discoverable through plugin list.'
     }
+    if (-not ($pluginList | Where-Object id -eq 'dev.draxul.satview')) {
+        throw 'Bundled SatView plugin was not discoverable through plugin list.'
+    }
+    $satViewPlugin = Invoke-Draxul @(
+        'plugin', 'get', 'dev.draxul.satview', '--json') | ConvertFrom-Json
+    if (-not $satViewPlugin.available -or $satViewPlugin.abi_version -ne 2) {
+        throw 'Bundled SatView plugin metadata is unavailable or incompatible.'
+    }
 
     $pluginTab = Invoke-Draxul @(
         'tab', 'create', '--space', $applied.created_id,
@@ -177,6 +185,20 @@ try {
     if ($pluginSplitState.terminal_id `
         -or $pluginSplitState.client_plugin_id -ne 'dev.draxul.spinning-triangle') {
         throw 'Plugin pane split allocated a terminal or lost its descriptor.'
+    }
+
+    $satViewTab = Invoke-Draxul @(
+        'tab', 'create', '--space', $applied.created_id,
+        '--name', 'SatView', '--plugin', 'dev.draxul.satview',
+        '--plugin-config', '{"paused":true}', '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    $satViewTabState = Invoke-Draxul @(
+        'tab', 'get', $satViewTab.created_id, '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    if ($satViewTabState.panes.Count -ne 1 `
+        -or $satViewTabState.panes[0].terminal_id `
+        -or $satViewTabState.panes[0].client_plugin_id -ne 'dev.draxul.satview') {
+        throw 'SatView tab creation did not preserve a terminal-free plugin pane.'
     }
 
     $marker = "DRAXUL-CONTEXT:$($applied.created_id):$($applied.aliases.workers):$($applied.aliases.shell)"

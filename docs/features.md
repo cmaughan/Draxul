@@ -18,7 +18,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | MegaCity | `--host megacity` | 3D demo host (semantic code city, textured road/sidewalk/tree materials, cascaded directional shadows, point-light cubemap shadows, screen-space AO, mouse-drag pan, Alt+drag orbit, direct Tree-sitter-to-semantic-snapshot scan, optional `--source` Tree-sitter scan-root override) |
 | BioView | `--host bioview` | Experimental biological code visualization: the whole codebase grown as a living organism. Each **module** becomes a soft, colored **tissue territory**; each **class/struct** becomes a **cell** packed into its module's tissue; and strong **cross-module dependencies** become **blood vessels** arcing between tissues. The most significant classes render as full detailed cells (methods→mitochondria, fields→ribosomes, member roster→DNA rungs, inheritance→Golgi, dependencies→vesicles, oversized methods→lysosomes, organizer→centrosome), while the rest render as simpler module-tinted cells so hundreds of types stay affordable. All procedural geometry, lit by the shared 3D scene renderer; deterministic; every organelle carries a semantic ref back to its code node. |
 | Score | `--host score [--source <file.musicxml/.mxl>]` | Music score viewer + adaptive learning runner ([docs/features/scoreview.md](features/scoreview.md)): Verovio-engraved MusicXML/`.mxl` piano scores; a paged reading view with piece-analysis overlays; conveyor and Roll (Guitar-Hero-style) practice modes with adaptive tempo, spelling-colored notes, guidance keyboard, waterfall, and per-bar tempo ladders; an adaptive practice composer with spaced review, drills, and overnight re-tests; metronome/audition/soundfont audio; dev-keyboard, MIDI, and microphone input; per-piece progress memory. Full narrative: [docs/features/scoreview.md](features/scoreview.md) |
-| SatView | `--host satview` | Satellite-overview host: interactive 3D globe, full-screen 2D map, and ground-observer sky views; Sun/planet/major-moon POVs; CelesTrak GP + SATCAT catalogs with SGP4 propagation; HDR pipeline with stars, constellations, Milky Way, atmosphere, and clouds; surface-object catalogues; six ImGui dock panels with filters, selection, and time controls. Full narrative: [docs/features/satview.md](features/satview.md) |
+| SatView | `--plugin dev.draxul.satview` on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and build-matched ImGui controls. Full narrative: [docs/features/satview.md](features/satview.md) |
 
 Shell Session splits use the server's platform default shell (Zsh on macOS,
 PowerShell on Windows). Explicit self-contained product windows advertise only
@@ -57,6 +57,13 @@ cache, and temporary directories plus bounded atomic JSON documents. Storage is
 client-local and main-thread-only; background workers request a logic tick before
 reading or writing it.
 
+The build-matched `draxul.imgui-overlay` service lets bundled first-party plugins
+reuse Draxul's font, input, and Vulkan/Metal ImGui backend while Draxul retains
+submission and presentation. It rejects an ImGui version or draw-layout mismatch.
+Bundled IDs currently include `dev.draxul.satview` and the ABI example
+`dev.draxul.spinning-triangle`. SatView preferences are pane-local and durable;
+shared launch JSON remains limited to values every attached UI should see.
+
 ```text
 draxul plugin list --json
 draxul plugin get <plugin-id> --json
@@ -84,7 +91,8 @@ per pane for this UI; another attached UI resolves the shared pane independently
   shared shell Session, and reconnects to the same server-owned Spaces, panes,
   terminals, and agents after the UI closes. Shells have no client-owned fallback.
   Explicit product hosts such as `--host nvim`, Markdown, Kanban, ScoreView,
-  SatView, and MegaCity remain client-owned and do not start the server.
+  and MegaCity remain client-owned and do not start the server. SatView is a
+  client-local plugin pane created in shared server topology.
 - The server owns a Windows notification-area or macOS menu-bar status item. Its menu
   reports connected clients, Sessions, Spaces, terminals, live terminals, and agents,
   and provides Open Draxul, refresh, open-log, and one guarded Stop Server action.
@@ -770,7 +778,7 @@ and `draxul integration status` do not pass through the launch-option parser.
 | `DRAXUL_ENABLE_TSAN` | OFF | ThreadSanitizer (Clang/GCC only, mutually exclusive with `DRAXUL_ENABLE_SANITIZERS`) |
 | `DRAXUL_ENABLE_COVERAGE` | OFF | LLVM source-based coverage |
 | `DRAXUL_ENABLE_MEGACITY` | ON | MegaCity optional module (`modules/megacity/`) — when OFF, the terminal product builds with no megacity sources, headers, link dependency, or test coupling |
-| `DRAXUL_ENABLE_SATVIEW` | ON | SatView optional module (`modules/satview/`) — when OFF, the terminal product builds with no SatView sources, headers, link dependency, or shader staging |
+| `DRAXUL_ENABLE_SATVIEW` | ON | Builds and stages the `dev.draxul.satview` DLL/dylib plus its private product libraries and assets; the executable has no static SatView host fallback |
 | `DRAXUL_ENABLE_SCOREVIEW` | ON on Windows/macOS | ScoreView optional module (`modules/score/`) with the pinned Verovio engraving runtime |
 | `BUILD_TESTING` | ON | Test targets |
 

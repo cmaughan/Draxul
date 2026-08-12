@@ -3,7 +3,10 @@
 #include <draxul/plugin_manager.h>
 #include <draxul/plugin_host.h>
 #include <draxul/events.h>
+#include <draxul/imgui_host.h>
 #include "support/test_host_callbacks.h"
+
+#include <imgui.h>
 
 #include <filesystem>
 #include <fstream>
@@ -20,6 +23,30 @@
 
 namespace
 {
+
+class RecordingImGuiHost final : public draxul::IImGuiHost
+{
+public:
+    bool initialize_imgui_backend() override
+    {
+        ++initialize_count;
+        return true;
+    }
+    void shutdown_imgui_backend() override { ++shutdown_count; }
+    void rebuild_imgui_font_texture() override { ++font_rebuild_count; }
+    void begin_imgui_frame() override { ++begin_count; }
+    bool render_imgui_draw_data(const ImDrawData*, ImGuiContext*) override
+    {
+        ++render_count;
+        return true;
+    }
+
+    int initialize_count = 0;
+    int shutdown_count = 0;
+    int font_rebuild_count = 0;
+    int begin_count = 0;
+    int render_count = 0;
+};
 
 class TempPlugins
 {
@@ -234,6 +261,43 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     REQUIRE(fixture_query_service(DRAXUL_PLUGIN_STORAGE_SERVICE_ID,
         std::strlen(DRAXUL_PLUGIN_STORAGE_SERVICE_ID),
         DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION, &storage, sizeof(storage)));
+
+    DraxulPluginImGuiOverlayServiceV2 overlay{};
+    REQUIRE(fixture_query_service(DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_ID,
+        std::strlen(DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_ID),
+        DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_VERSION,
+        &overlay, sizeof(overlay)));
+    CHECK(overlay.imgui_version_num == IMGUI_VERSION_NUM);
+    CHECK(overlay.draw_vert_size == sizeof(ImDrawVert));
+    CHECK(overlay.draw_idx_size == sizeof(ImDrawIdx));
+    CHECK_FALSE(overlay.initialize(overlay.service_context, nullptr));
+
+    RecordingImGuiHost imgui_host;
+    host.set_imgui_font("fixture-font.ttf", 17.0f);
+    host.attach_imgui_host(imgui_host);
+    ImGuiContext* overlay_context = ImGui::CreateContext();
+    REQUIRE(overlay_context);
+    REQUIRE(overlay.initialize(overlay.service_context, overlay_context));
+    REQUIRE(overlay.begin_frame(overlay.service_context, overlay_context));
+    REQUIRE(overlay.render_draw_data(overlay.service_context,
+        reinterpret_cast<void*>(1), overlay_context));
+    size_t font_path_size = 0;
+    float font_size = 0.0f;
+    REQUIRE(overlay.get_font(overlay.service_context, nullptr,
+        &font_path_size, &font_size));
+    std::string font_path(font_path_size, '\0');
+    REQUIRE(overlay.get_font(overlay.service_context, font_path.data(),
+        &font_path_size, &font_size));
+    CHECK(std::string_view(font_path.c_str()) == "fixture-font.ttf");
+    CHECK(font_size == 17.0f);
+    overlay.rebuild_font_texture(overlay.service_context, overlay_context);
+    overlay.shutdown(overlay.service_context, overlay_context);
+    CHECK(imgui_host.initialize_count == 1);
+    CHECK(imgui_host.begin_count == 1);
+    CHECK(imgui_host.render_count == 1);
+    CHECK(imgui_host.font_rebuild_count == 1);
+    CHECK(imgui_host.shutdown_count == 1);
+    ImGui::DestroyContext(overlay_context);
     constexpr std::string_view state_key = "fixture-state";
     constexpr std::string_view first_json = R"({"value":1})";
     constexpr std::string_view second_json = R"({"value":2})";

@@ -132,6 +132,21 @@ every attached UI resolves it against its own installation. A missing plugin is
 therefore not a reason to delete or recreate the pane: the UI displays a placeholder
 until it restarts with a compatible plugin installed.
 
+Bundled IDs currently include `dev.draxul.spinning-triangle` and
+`dev.draxul.satview`. Create SatView headlessly like any other plugin:
+
+```text
+draxul tab create --space <space-id> --name SatView \
+  --plugin dev.draxul.satview --json
+draxul pane split <pane-id> --direction right \
+  --plugin dev.draxul.satview --json
+```
+
+SatView's control panels, camera input, background catalog work, status/actions,
+and local preferences belong to the UI-side module. Do not use `--host satview`:
+there is deliberately no compiled-in fallback. If `plugin get` reports it missing,
+preserve the shared pane and repair that UI's plugin installation.
+
 ## Drive terminal processes
 
 ```text

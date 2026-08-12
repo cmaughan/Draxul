@@ -4,10 +4,12 @@
 
 #include <draxul/base_renderer.h>
 #include <draxul/host_registry.h>
+#include <draxul/imgui_host.h>
 #include <draxul/log.h>
 #include <draxul/plugin_manager.h>
 #include <draxul/renderer.h>
 #include <nlohmann/json.hpp>
+#include <imgui.h>
 
 #include <algorithm>
 #include <atomic>
@@ -210,6 +212,25 @@ void PluginHost::shutdown()
     running_ = false;
     has_presentation_ = false;
     renderer_ = nullptr;
+    imgui_host_ = nullptr;
+}
+
+void PluginHost::attach_imgui_host(IImGuiHost& host)
+{
+    imgui_host_ = &host;
+    tick_pending_.store(true);
+    if (auto* callbacks = callbacks_.load())
+        callbacks->wake_window();
+}
+
+void PluginHost::set_imgui_font(const std::string& path,
+    float size_pixels)
+{
+    imgui_font_path_ = path;
+    imgui_font_size_pixels_ = size_pixels;
+    tick_pending_.store(true);
+    if (auto* callbacks = callbacks_.load())
+        callbacks->wake_window();
 }
 
 DraxulPluginViewportV2 PluginHost::plugin_viewport() const
@@ -477,7 +498,123 @@ int32_t PluginHost::query_service(void* context, const char* service_id,
             &PluginHost::write_storage_json, &PluginHost::remove_storage };
         return 1;
     }
+    if (id == DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_ID
+        && requested_version == DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_VERSION
+        && service_table_size >= sizeof(DraxulPluginImGuiOverlayServiceV2))
+    {
+        auto* service = static_cast<DraxulPluginImGuiOverlayServiceV2*>(service_table);
+        *service = {
+            sizeof(*service),
+            DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_VERSION,
+            IMGUI_VERSION_NUM,
+            sizeof(ImDrawVert),
+            sizeof(ImDrawIdx),
+            host,
+            &PluginHost::initialize_imgui_overlay,
+            &PluginHost::shutdown_imgui_overlay,
+            &PluginHost::rebuild_imgui_font_texture,
+            &PluginHost::begin_imgui_frame,
+            &PluginHost::render_imgui_draw_data,
+            &PluginHost::get_imgui_font,
+        };
+        return 1;
+    }
     return 0;
+}
+
+int32_t PluginHost::initialize_imgui_overlay(void* context,
+    void* imgui_context)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    auto* target = static_cast<ImGuiContext*>(imgui_context);
+    if (!host || !host->imgui_host_ || !target
+        || std::this_thread::get_id() != host->main_thread_id_)
+        return 0;
+    ImGuiContext* previous = ImGui::GetCurrentContext();
+    ImGui::SetCurrentContext(target);
+    const bool result = host->imgui_host_->initialize_imgui_backend();
+    ImGui::SetCurrentContext(previous);
+    return result ? 1 : 0;
+}
+
+void PluginHost::shutdown_imgui_overlay(void* context,
+    void* imgui_context)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    auto* target = static_cast<ImGuiContext*>(imgui_context);
+    if (!host || !host->imgui_host_ || !target
+        || std::this_thread::get_id() != host->main_thread_id_)
+        return;
+    ImGuiContext* previous = ImGui::GetCurrentContext();
+    ImGui::SetCurrentContext(target);
+    host->imgui_host_->shutdown_imgui_backend();
+    ImGui::SetCurrentContext(previous);
+}
+
+void PluginHost::rebuild_imgui_font_texture(void* context,
+    void* imgui_context)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    auto* target = static_cast<ImGuiContext*>(imgui_context);
+    if (!host || !host->imgui_host_ || !target
+        || std::this_thread::get_id() != host->main_thread_id_)
+        return;
+    ImGuiContext* previous = ImGui::GetCurrentContext();
+    ImGui::SetCurrentContext(target);
+    host->imgui_host_->rebuild_imgui_font_texture();
+    ImGui::SetCurrentContext(previous);
+}
+
+int32_t PluginHost::begin_imgui_frame(void* context,
+    void* imgui_context)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    auto* target = static_cast<ImGuiContext*>(imgui_context);
+    if (!host || !host->imgui_host_ || !target
+        || std::this_thread::get_id() != host->main_thread_id_)
+        return 0;
+    ImGuiContext* previous = ImGui::GetCurrentContext();
+    ImGui::SetCurrentContext(target);
+    host->imgui_host_->begin_imgui_frame();
+    ImGui::SetCurrentContext(previous);
+    return 1;
+}
+
+int32_t PluginHost::render_imgui_draw_data(void* context,
+    void* draw_data, void* imgui_context)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    if (!host || !host->imgui_host_ || !draw_data || !imgui_context
+        || std::this_thread::get_id() != host->main_thread_id_)
+        return 0;
+    return host->imgui_host_->render_imgui_draw_data(
+        static_cast<ImDrawData*>(draw_data),
+        static_cast<ImGuiContext*>(imgui_context))
+        ? 1 : 0;
+}
+
+int32_t PluginHost::get_imgui_font(void* context, char* path,
+    size_t* in_out_size, float* size_pixels)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    if (!host || !in_out_size || !size_pixels
+        || std::this_thread::get_id() != host->main_thread_id_)
+        return 0;
+    *size_pixels = host->imgui_font_size_pixels_;
+    const size_t required = host->imgui_font_path_.size() + 1;
+    if (!path)
+    {
+        *in_out_size = required;
+        return 1;
+    }
+    if (*in_out_size < required)
+    {
+        *in_out_size = required;
+        return 0;
+    }
+    std::memcpy(path, host->imgui_font_path_.c_str(), required);
+    *in_out_size = required;
+    return 1;
 }
 
 int32_t PluginHost::get_service_path(void* context, uint32_t path_kind,

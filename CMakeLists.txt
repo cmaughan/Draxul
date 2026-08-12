@@ -176,6 +176,7 @@ if(DRAXUL_ENABLE_MEGACITY)
 endif()
 if(DRAXUL_ENABLE_SATVIEW)
     add_subdirectory(modules/satview)
+    add_subdirectory(plugins/satview)
 endif()
 if(DRAXUL_ENABLE_SCOREVIEW)
     add_subdirectory(modules/score)
@@ -424,13 +425,56 @@ else()
             "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.frag.spv")
 endif()
 add_dependencies(draxul draxul-stage-spinning-triangle)
+if(DRAXUL_ENABLE_SATVIEW)
+if(APPLE)
+    set(DRAXUL_SATVIEW_PLUGIN_STAGE
+        "$<TARGET_BUNDLE_DIR:draxul>/Contents/PlugIns/dev.draxul.satview")
+else()
+    set(DRAXUL_SATVIEW_PLUGIN_STAGE
+        "$<TARGET_FILE_DIR:draxul>/plugins/dev.draxul.satview")
+endif()
+set(DRAXUL_SATVIEW_STAGE_DEPENDS
+    draxul-satview-plugin
+    "${CMAKE_SOURCE_DIR}/plugins/satview/plugin.toml")
+if(APPLE)
+    list(APPEND DRAXUL_SATVIEW_STAGE_DEPENDS "${SATVIEW_PLUGIN_METALLIB}")
+else()
+    list(APPEND DRAXUL_SATVIEW_STAGE_DEPENDS
+        "${SATVIEW_PLUGIN_VERTEX_SPV}" "${SATVIEW_PLUGIN_FRAGMENT_SPV}")
+endif()
+add_custom_target(draxul-stage-satview-plugin
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "${DRAXUL_SATVIEW_PLUGIN_STAGE}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/plugins/satview/plugin.toml"
+        "${DRAXUL_SATVIEW_PLUGIN_STAGE}/plugin.toml"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:draxul-satview-plugin>"
+        "${DRAXUL_SATVIEW_PLUGIN_STAGE}/$<TARGET_FILE_NAME:draxul-satview-plugin>"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/assets/satview"
+        "${DRAXUL_SATVIEW_PLUGIN_STAGE}/assets"
+    DEPENDS ${DRAXUL_SATVIEW_STAGE_DEPENDS}
+    VERBATIM)
+if(APPLE)
+    add_custom_command(TARGET draxul-stage-satview-plugin POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${SATVIEW_PLUGIN_METALLIB}"
+            "${DRAXUL_SATVIEW_PLUGIN_STAGE}/satview_plugin.metallib")
+else()
+    add_custom_command(TARGET draxul-stage-satview-plugin POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${SATVIEW_PLUGIN_VERTEX_SPV}"
+            "${DRAXUL_SATVIEW_PLUGIN_STAGE}/satview_plugin.vert.spv"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${SATVIEW_PLUGIN_FRAGMENT_SPV}"
+            "${DRAXUL_SATVIEW_PLUGIN_STAGE}/satview_plugin.frag.spv")
+endif()
+add_dependencies(draxul draxul-stage-satview-plugin)
+endif()
 if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul PRIVATE draxul-megacity)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_MEGACITY)
-endif()
-if(DRAXUL_ENABLE_SATVIEW)
-    target_link_libraries(draxul PRIVATE draxul-satview-host)
-    target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_SATVIEW)
 endif()
 if(DRAXUL_ENABLE_SCOREVIEW)
     target_link_libraries(draxul PRIVATE draxul-scoreview-host)
@@ -502,13 +546,6 @@ if(APPLE)
             stage_megacity_gbuffer_metal_shader
             stage_megacity_ao_metal_shader)
     endif()
-    if(DRAXUL_ENABLE_SATVIEW)
-        draxul_stage_metal_shader(stage_satview_metal_shader
-            ${CMAKE_BINARY_DIR}/shaders/satview_scene.metallib)
-        list(APPEND DRAXUL_METAL_SHADER_DEPS
-            compile_satview_shaders
-            stage_satview_metal_shader)
-    endif()
     add_dependencies(draxul ${DRAXUL_METAL_SHADER_DEPS})
 else()
     add_dependencies(draxul compile_shaders)
@@ -529,16 +566,6 @@ if(DRAXUL_ENABLE_MEGACITY AND EXISTS "${CMAKE_SOURCE_DIR}/assets/megacity")
             $<TARGET_FILE_DIR:draxul>/assets/megacity
     )
     add_dependencies(draxul stage_megacity_assets)
-endif()
-
-if(DRAXUL_ENABLE_SATVIEW AND EXISTS "${CMAKE_SOURCE_DIR}/assets/satview")
-    add_custom_target(stage_satview_assets
-        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:draxul>/assets
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/assets/satview
-            $<TARGET_FILE_DIR:draxul>/assets/satview
-    )
-    add_dependencies(draxul stage_satview_assets)
 endif()
 
 if(DRAXUL_ENABLE_SCOREVIEW)
