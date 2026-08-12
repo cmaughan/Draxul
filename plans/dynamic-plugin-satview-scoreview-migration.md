@@ -338,6 +338,9 @@ direct fixture call.
 
 ### Slice 2: Durable local plugin state through the triangle
 
+Progress: completed on Windows on 2026-08-12. The Metal implementation was
+updated in lockstep and remains a macOS CI build/render gate.
+
 **User-visible result:** a plugin can keep client-local preferences across a UI
 restart without changing shared server topology.
 

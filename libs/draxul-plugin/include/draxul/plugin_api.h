@@ -22,6 +22,11 @@ extern "C" {
 
 #define DRAXUL_PLUGIN_PRESENTATION_EXTENSION_ID "draxul.presentation"
 #define DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION 1u
+#define DRAXUL_PLUGIN_PATH_SERVICE_ID "draxul.paths"
+#define DRAXUL_PLUGIN_PATH_SERVICE_VERSION 1u
+#define DRAXUL_PLUGIN_STORAGE_SERVICE_ID "draxul.storage"
+#define DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION 1u
+#define DRAXUL_PLUGIN_MAX_STORAGE_JSON_BYTES (1024u * 1024u)
 
 typedef enum DraxulPluginBackendV2
 {
@@ -63,6 +68,62 @@ typedef struct DraxulPluginStringViewV2
     const char* data;
     size_t length;
 } DraxulPluginStringViewV2;
+
+typedef enum DraxulPluginPathKindV2
+{
+    DRAXUL_PLUGIN_PATH_RESOURCES = 1,
+    DRAXUL_PLUGIN_PATH_CONFIG = 2,
+    DRAXUL_PLUGIN_PATH_DATA = 3,
+    DRAXUL_PLUGIN_PATH_CACHE = 4,
+    DRAXUL_PLUGIN_PATH_TEMPORARY = 5,
+} DraxulPluginPathKindV2;
+
+typedef enum DraxulPluginStorageScopeV2
+{
+    DRAXUL_PLUGIN_STORAGE_PLUGIN = 1,
+    DRAXUL_PLUGIN_STORAGE_PANE = 2,
+} DraxulPluginStorageScopeV2;
+
+typedef enum DraxulPluginStorageResultV2
+{
+    DRAXUL_PLUGIN_STORAGE_OK = 0,
+    DRAXUL_PLUGIN_STORAGE_NOT_FOUND = 1,
+    DRAXUL_PLUGIN_STORAGE_INVALID_KEY = 2,
+    DRAXUL_PLUGIN_STORAGE_TOO_LARGE = 3,
+    DRAXUL_PLUGIN_STORAGE_INVALID_JSON = 4,
+    DRAXUL_PLUGIN_STORAGE_WRONG_THREAD = 5,
+    DRAXUL_PLUGIN_STORAGE_IO_ERROR = 6,
+    DRAXUL_PLUGIN_STORAGE_BUFFER_TOO_SMALL = 7,
+    DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE = 8,
+} DraxulPluginStorageResultV2;
+
+// get_path uses a conventional two-call buffer contract. With buffer=null,
+// *in_out_size receives the required byte count including the trailing NUL.
+typedef struct DraxulPluginPathServiceV2
+{
+    uint32_t struct_size;
+    uint32_t service_version;
+    void* service_context;
+    int32_t (*get_path)(void* service_context, uint32_t path_kind,
+        char* buffer, size_t* in_out_size);
+} DraxulPluginPathServiceV2;
+
+// Storage values are complete UTF-8 JSON documents. Keys are bounded simple
+// names, not paths. Calls are main-thread-only and writes replace atomically.
+typedef struct DraxulPluginStorageServiceV2
+{
+    uint32_t struct_size;
+    uint32_t service_version;
+    void* service_context;
+    uint32_t (*read_json)(void* service_context, uint32_t scope,
+        const char* key, size_t key_length, char* buffer,
+        size_t* in_out_size);
+    uint32_t (*write_json)(void* service_context, uint32_t scope,
+        const char* key, size_t key_length, const char* json,
+        size_t json_length);
+    uint32_t (*remove)(void* service_context, uint32_t scope,
+        const char* key, size_t key_length);
+} DraxulPluginStorageServiceV2;
 
 typedef struct DraxulPluginViewportV2
 {

@@ -7,7 +7,9 @@
 
 #include <filesystem>
 #include <fstream>
+#include <cstring>
 #include <string>
+#include <thread>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -40,7 +42,9 @@ public:
 void install_plugin(const std::filesystem::path& tier,
     std::string_view directory_name, std::string_view id,
     const std::filesystem::path& library,
-    std::string_view manifest_library = {})
+    std::string_view manifest_library = {},
+    std::string_view name = "Fixture",
+    std::string_view version = "1.0.0")
 {
     const auto directory = tier / directory_name;
     std::filesystem::create_directories(directory);
@@ -56,8 +60,8 @@ void install_plugin(const std::filesystem::path& tier,
     std::ofstream manifest(directory / "plugin.toml");
     manifest << "schema_version = 1\n"
              << "id = \"" << id << "\"\n"
-             << "name = \"Fixture\"\n"
-             << "version = \"1.0.0\"\n"
+             << "name = \"" << name << "\"\n"
+             << "version = \"" << version << "\"\n"
              << "abi_version = 2\n"
 #ifdef _WIN32
              << "[platform.windows]\n"
@@ -70,6 +74,85 @@ void install_plugin(const std::filesystem::path& tier,
 }
 
 } // namespace
+
+TEST_CASE("spinning triangle persists pane-local state through host services",
+    "[plugin][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    install_plugin(bundled, "triangle", "dev.draxul.spinning-triangle",
+        DRAXUL_TRIANGLE_PLUGIN_PATH, {}, "Spinning Triangle", "0.2.0");
+    const auto manager = draxul::PluginManager::discover(bundled, user);
+
+    draxul::HostContext context;
+    context.launch_options.kind = draxul::HostKind::Plugin;
+    context.launch_options.client_plugin_id
+        = "dev.draxul.spinning-triangle";
+    context.launch_options.client_plugin_config_json
+        = R"({"remember_state":true})";
+    context.pane_id = "pane-a";
+    context.initial_viewport.pixel_size = { 640, 360 };
+
+    const auto first_ui_root = temp.root / "ui-a";
+    {
+        draxul::PluginHost host(manager, first_ui_root);
+        draxul::tests::TestHostCallbacks callbacks;
+        REQUIRE(host.initialize(context, callbacks));
+        CHECK(host.status_text().find("running clockwise")
+            != std::string::npos);
+        CHECK(host.status_text().find("remembered") != std::string::npos);
+        CHECK(host.status_text().find("paths ready") != std::string::npos);
+        CHECK(host.dispatch_action("reverse"));
+        CHECK(host.dispatch_action("toggle_pause"));
+        CHECK(host.status_text().find("paused counter-clockwise")
+            != std::string::npos);
+        host.shutdown();
+    }
+
+    // Recreating the client-local host for the same server pane restores its
+    // state without changing the pane's shared launch configuration.
+    {
+        draxul::PluginHost host(manager, first_ui_root);
+        draxul::tests::TestHostCallbacks callbacks;
+        REQUIRE(host.initialize(context, callbacks));
+        CHECK(host.status_text().find("paused counter-clockwise")
+            != std::string::npos);
+        host.shutdown();
+    }
+
+    // Another attached UI resolves the same topology against independent
+    // local storage and therefore begins with the launch defaults.
+    {
+        draxul::PluginHost host(manager, temp.root / "ui-b");
+        draxul::tests::TestHostCallbacks callbacks;
+        REQUIRE(host.initialize(context, callbacks));
+        CHECK(host.status_text().find("running clockwise")
+            != std::string::npos);
+        host.shutdown();
+    }
+
+    // Corrupt local state is an instance-local warning, not a failed shared
+    // pane. The plugin remains interactive and can replace the bad document.
+    const auto corrupt_root = temp.root / "ui-corrupt";
+    const auto corrupt_file = corrupt_root / "config"
+        / "dev.draxul.spinning-triangle" / "panes" / "pane-a"
+        / "state.json";
+    std::filesystem::create_directories(corrupt_file.parent_path());
+    {
+        std::ofstream output(corrupt_file);
+        output << "not-json";
+    }
+    {
+        draxul::PluginHost host(manager, corrupt_root);
+        draxul::tests::TestHostCallbacks callbacks;
+        REQUIRE(host.initialize(context, callbacks));
+        CHECK(host.status_text().find("saved state is corrupt")
+            != std::string::npos);
+        CHECK(host.dispatch_action("toggle_pause"));
+        host.shutdown();
+    }
+}
 
 TEST_CASE("PluginHost translates SDK-owned input through a real module",
     "[plugin][integration]")
@@ -110,6 +193,9 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
         symbol("draxul_fixture_quiesce_count"));
     const auto fixture_action_count = reinterpret_cast<size_t (*)()>(
         symbol("draxul_fixture_action_dispatch_count"));
+    const auto fixture_query_service = reinterpret_cast<int (*)(const char*,
+        size_t, uint32_t, void*, size_t)>(
+        symbol("draxul_fixture_query_host_service"));
     REQUIRE(reset);
     REQUIRE(count);
     REQUIRE(event_at);
@@ -117,17 +203,83 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     REQUIRE(fixture_tick_count);
     REQUIRE(fixture_quiesce_count);
     REQUIRE(fixture_action_count);
+    REQUIRE(fixture_query_service);
     reset();
 
-    draxul::PluginHost host(manager);
+    draxul::PluginHost host(manager, temp.root / "storage");
     draxul::HostContext context;
     context.launch_options.kind = draxul::HostKind::Plugin;
     context.launch_options.client_plugin_id = "dev.draxul.fixture";
     context.launch_options.client_plugin_config_json = "{}";
+    context.pane_id = "fixture-pane";
     context.initial_viewport.pixel_pos = { 100, 50 };
     context.initial_viewport.pixel_size = { 640, 360 };
     draxul::tests::TestHostCallbacks callbacks;
     REQUIRE(host.initialize(context, callbacks));
+
+    DraxulPluginPathServiceV2 paths{};
+    REQUIRE(fixture_query_service(DRAXUL_PLUGIN_PATH_SERVICE_ID,
+        std::strlen(DRAXUL_PLUGIN_PATH_SERVICE_ID),
+        DRAXUL_PLUGIN_PATH_SERVICE_VERSION, &paths, sizeof(paths)));
+    size_t path_size = 0;
+    REQUIRE(paths.get_path(paths.service_context, DRAXUL_PLUGIN_PATH_DATA,
+        nullptr, &path_size));
+    REQUIRE(path_size > 1);
+    std::string data_path(path_size, '\0');
+    REQUIRE(paths.get_path(paths.service_context, DRAXUL_PLUGIN_PATH_DATA,
+        data_path.data(), &path_size));
+    CHECK(std::filesystem::exists(std::filesystem::u8path(data_path.c_str())));
+
+    DraxulPluginStorageServiceV2 storage{};
+    REQUIRE(fixture_query_service(DRAXUL_PLUGIN_STORAGE_SERVICE_ID,
+        std::strlen(DRAXUL_PLUGIN_STORAGE_SERVICE_ID),
+        DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION, &storage, sizeof(storage)));
+    constexpr std::string_view state_key = "fixture-state";
+    constexpr std::string_view first_json = R"({"value":1})";
+    constexpr std::string_view second_json = R"({"value":2})";
+    CHECK(storage.write_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        first_json.data(), first_json.size()) == DRAXUL_PLUGIN_STORAGE_OK);
+    CHECK(storage.write_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        second_json.data(), second_json.size()) == DRAXUL_PLUGIN_STORAGE_OK);
+    size_t state_size = 0;
+    REQUIRE(storage.read_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        nullptr, &state_size) == DRAXUL_PLUGIN_STORAGE_OK);
+    std::string saved_state(state_size, '\0');
+    REQUIRE(storage.read_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        saved_state.data(), &state_size) == DRAXUL_PLUGIN_STORAGE_OK);
+    CHECK(std::string_view(saved_state.c_str()) == second_json);
+    CHECK(storage.write_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, "../escape", 9,
+        second_json.data(), second_json.size())
+        == DRAXUL_PLUGIN_STORAGE_INVALID_KEY);
+    CHECK(storage.write_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        "bad", 3) == DRAXUL_PLUGIN_STORAGE_INVALID_JSON);
+    std::string oversized(DRAXUL_PLUGIN_MAX_STORAGE_JSON_BYTES + 1, ' ');
+    CHECK(storage.write_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        oversized.data(), oversized.size())
+        == DRAXUL_PLUGIN_STORAGE_TOO_LARGE);
+    uint32_t worker_result = DRAXUL_PLUGIN_STORAGE_OK;
+    std::thread worker([&] {
+        size_t size = 0;
+        worker_result = storage.read_json(storage.service_context,
+            DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+            nullptr, &size);
+    });
+    worker.join();
+    CHECK(worker_result == DRAXUL_PLUGIN_STORAGE_WRONG_THREAD);
+    CHECK(storage.remove(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size())
+        == DRAXUL_PLUGIN_STORAGE_OK);
+    state_size = 0;
+    CHECK(storage.read_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        nullptr, &state_size) == DRAXUL_PLUGIN_STORAGE_NOT_FOUND);
     CHECK(host.display_name() == "Fixture instance");
     CHECK(host.status_text() == "ready");
     CHECK(host.runtime_state().content_ready);

@@ -7,9 +7,22 @@
 #include <draxul/log.h>
 #include <draxul/plugin_manager.h>
 #include <draxul/renderer.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <cctype>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iterator>
+#include <system_error>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
 
 namespace draxul
 {
@@ -38,10 +51,51 @@ std::optional<MouseCursor> map_mouse_cursor(uint32_t cursor)
     }
 }
 
+std::filesystem::path environment_path(const char* name,
+    std::filesystem::path fallback)
+{
+    const char* value = std::getenv(name);
+    return value && *value ? std::filesystem::path(value) : std::move(fallback);
+}
+
+std::string path_utf8(const std::filesystem::path& path)
+{
+    const auto encoded = path.u8string();
+    return std::string(reinterpret_cast<const char*>(encoded.data()),
+        encoded.size());
+}
+
+bool valid_storage_key(std::string_view key)
+{
+    if (key.empty() || key.size() > 128 || key == "." || key == "..")
+        return false;
+    return std::all_of(key.begin(), key.end(), [](unsigned char ch) {
+        return std::isalnum(ch) || ch == '.' || ch == '_' || ch == '-';
+    });
+}
+
+bool replace_file_atomically(const std::filesystem::path& temporary,
+    const std::filesystem::path& target, std::error_code& error)
+{
+#ifdef _WIN32
+    if (MoveFileExW(temporary.c_str(), target.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        return true;
+    error = std::error_code(static_cast<int>(GetLastError()),
+        std::system_category());
+    return false;
+#else
+    std::filesystem::rename(temporary, target, error);
+    return !error;
+#endif
+}
+
 } // namespace
 
-PluginHost::PluginHost(std::shared_ptr<PluginManager> manager)
+PluginHost::PluginHost(std::shared_ptr<PluginManager> manager,
+    std::filesystem::path storage_root)
     : manager_(std::move(manager))
+    , storage_root_override_(std::move(storage_root))
 {
 }
 
@@ -56,6 +110,8 @@ bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callback
     callbacks_.store(&callbacks);
     renderer_ = context.grid_renderer;
     viewport_ = context.initial_viewport;
+    pane_id_ = context.pane_id;
+    main_thread_id_ = std::this_thread::get_id();
     plugin_id_ = context.launch_options.client_plugin_id;
     config_json_ = context.launch_options.client_plugin_config_json.empty()
         ? "{}" : context.launch_options.client_plugin_config_json;
@@ -72,6 +128,7 @@ bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callback
         return false;
     }
     plugin_directory_ = plugin_->manifest().directory.string();
+    initialize_service_paths();
     started_at_ = std::chrono::steady_clock::now();
     host_api_ = {
         .struct_size = sizeof(host_api_),
@@ -335,12 +392,263 @@ void PluginHost::log_message(void*, uint32_t level, const char* message, size_t 
     log_printf(mapped, LogCategory::Renderer, "Plugin: %s", text.c_str());
 }
 
-int32_t PluginHost::query_service(void*, const char*, size_t, uint32_t,
-    void*, size_t)
+void PluginHost::initialize_service_paths()
 {
-    // Slice 1 establishes negotiation. Concrete host services are added by
-    // their consuming vertical slices.
+    resource_path_ = std::filesystem::u8path(plugin_directory_);
+    if (!storage_root_override_.empty())
+    {
+        config_path_ = storage_root_override_ / "config" / plugin_id_;
+        data_path_ = storage_root_override_ / "data" / plugin_id_;
+        cache_path_ = storage_root_override_ / "cache" / plugin_id_;
+        temporary_path_ = storage_root_override_ / "temporary" / plugin_id_;
+        return;
+    }
+
+#ifdef _WIN32
+    const std::filesystem::path roaming = environment_path("APPDATA", ".");
+    const std::filesystem::path local = environment_path("LOCALAPPDATA", roaming);
+    config_path_ = roaming / "draxul" / "plugin-config" / plugin_id_;
+    data_path_ = roaming / "draxul" / "plugin-data" / plugin_id_;
+    cache_path_ = local / "draxul" / "cache" / "plugins" / plugin_id_;
+#elif defined(__APPLE__)
+    const std::filesystem::path home = environment_path("HOME", ".");
+    const std::filesystem::path support
+        = home / "Library" / "Application Support" / "draxul";
+    config_path_ = support / "Plugin Config" / plugin_id_;
+    data_path_ = support / "Plugins" / plugin_id_;
+    cache_path_ = home / "Library" / "Caches" / "draxul" / "plugins" / plugin_id_;
+#else
+    const std::filesystem::path home = environment_path("HOME", ".");
+    const std::filesystem::path config_root = environment_path(
+        "XDG_CONFIG_HOME", home / ".config");
+    const std::filesystem::path data_root = environment_path(
+        "XDG_DATA_HOME", home / ".local" / "share");
+    const std::filesystem::path cache_root = environment_path(
+        "XDG_CACHE_HOME", home / ".cache");
+    config_path_ = config_root / "draxul" / "plugins" / plugin_id_;
+    data_path_ = data_root / "draxul" / "plugins" / plugin_id_;
+    cache_path_ = cache_root / "draxul" / "plugins" / plugin_id_;
+#endif
+    std::error_code temp_error;
+    temporary_path_ = std::filesystem::temp_directory_path(temp_error)
+        / "draxul" / "plugins" / plugin_id_;
+    if (temp_error)
+        temporary_path_ = data_path_ / "temporary";
+}
+
+std::filesystem::path PluginHost::storage_path(uint32_t scope,
+    std::string_view key) const
+{
+    if (scope == DRAXUL_PLUGIN_STORAGE_PLUGIN)
+        return config_path_ / "state" / (std::string(key) + ".json");
+    if (scope == DRAXUL_PLUGIN_STORAGE_PANE
+        && valid_storage_key(pane_id_))
+    {
+        return config_path_ / "panes" / pane_id_
+            / (std::string(key) + ".json");
+    }
+    return {};
+}
+
+int32_t PluginHost::query_service(void* context, const char* service_id,
+    size_t service_id_length, uint32_t requested_version,
+    void* service_table, size_t service_table_size)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    if (!host || !service_id || !service_table)
+        return 0;
+    const std::string_view id(service_id, service_id_length);
+    if (id == DRAXUL_PLUGIN_PATH_SERVICE_ID
+        && requested_version == DRAXUL_PLUGIN_PATH_SERVICE_VERSION
+        && service_table_size >= sizeof(DraxulPluginPathServiceV2))
+    {
+        auto* service = static_cast<DraxulPluginPathServiceV2*>(service_table);
+        *service = { sizeof(*service), DRAXUL_PLUGIN_PATH_SERVICE_VERSION,
+            host, &PluginHost::get_service_path };
+        return 1;
+    }
+    if (id == DRAXUL_PLUGIN_STORAGE_SERVICE_ID
+        && requested_version == DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION
+        && service_table_size >= sizeof(DraxulPluginStorageServiceV2))
+    {
+        auto* service = static_cast<DraxulPluginStorageServiceV2*>(service_table);
+        *service = { sizeof(*service), DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION,
+            host, &PluginHost::read_storage_json,
+            &PluginHost::write_storage_json, &PluginHost::remove_storage };
+        return 1;
+    }
     return 0;
+}
+
+int32_t PluginHost::get_service_path(void* context, uint32_t path_kind,
+    char* buffer, size_t* in_out_size)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    if (!host || !in_out_size)
+        return 0;
+    const std::filesystem::path* selected = nullptr;
+    switch (path_kind)
+    {
+    case DRAXUL_PLUGIN_PATH_RESOURCES:
+        selected = &host->resource_path_;
+        break;
+    case DRAXUL_PLUGIN_PATH_CONFIG:
+        selected = &host->config_path_;
+        break;
+    case DRAXUL_PLUGIN_PATH_DATA:
+        selected = &host->data_path_;
+        break;
+    case DRAXUL_PLUGIN_PATH_CACHE:
+        selected = &host->cache_path_;
+        break;
+    case DRAXUL_PLUGIN_PATH_TEMPORARY:
+        selected = &host->temporary_path_;
+        break;
+    default:
+        return 0;
+    }
+    if (path_kind != DRAXUL_PLUGIN_PATH_RESOURCES)
+    {
+        std::error_code error;
+        std::filesystem::create_directories(*selected, error);
+        if (error)
+            return 0;
+    }
+    const std::string value = path_utf8(*selected);
+    const size_t required = value.size() + 1;
+    if (!buffer)
+    {
+        *in_out_size = required;
+        return 1;
+    }
+    if (*in_out_size < required)
+    {
+        *in_out_size = required;
+        return 0;
+    }
+    std::memcpy(buffer, value.c_str(), required);
+    *in_out_size = required;
+    return 1;
+}
+
+uint32_t PluginHost::read_storage_json(void* context, uint32_t scope,
+    const char* key, size_t key_length, char* buffer, size_t* in_out_size)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    if (!host || std::this_thread::get_id() != host->main_thread_id_)
+        return DRAXUL_PLUGIN_STORAGE_WRONG_THREAD;
+    if (!key || !in_out_size
+        || !valid_storage_key(std::string_view(key, key_length)))
+        return DRAXUL_PLUGIN_STORAGE_INVALID_KEY;
+    const auto path = host->storage_path(scope, std::string_view(key, key_length));
+    if (path.empty())
+        return DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
+    std::error_code error;
+    const auto file_size = std::filesystem::file_size(path, error);
+    if (error)
+    {
+        return error == std::errc::no_such_file_or_directory
+            ? DRAXUL_PLUGIN_STORAGE_NOT_FOUND
+            : DRAXUL_PLUGIN_STORAGE_IO_ERROR;
+    }
+    if (file_size > DRAXUL_PLUGIN_MAX_STORAGE_JSON_BYTES)
+        return DRAXUL_PLUGIN_STORAGE_TOO_LARGE;
+    std::ifstream input(path, std::ios::binary);
+    std::string value((std::istreambuf_iterator<char>(input)),
+        std::istreambuf_iterator<char>());
+    if (!input.good() && !input.eof())
+        return DRAXUL_PLUGIN_STORAGE_IO_ERROR;
+    try
+    {
+        (void)nlohmann::json::parse(value);
+    }
+    catch (...)
+    {
+        return DRAXUL_PLUGIN_STORAGE_INVALID_JSON;
+    }
+    const size_t required = value.size() + 1;
+    if (!buffer)
+    {
+        *in_out_size = required;
+        return DRAXUL_PLUGIN_STORAGE_OK;
+    }
+    if (*in_out_size < required)
+    {
+        *in_out_size = required;
+        return DRAXUL_PLUGIN_STORAGE_BUFFER_TOO_SMALL;
+    }
+    std::memcpy(buffer, value.c_str(), required);
+    *in_out_size = required;
+    return DRAXUL_PLUGIN_STORAGE_OK;
+}
+
+uint32_t PluginHost::write_storage_json(void* context, uint32_t scope,
+    const char* key, size_t key_length, const char* json, size_t json_length)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    if (!host || std::this_thread::get_id() != host->main_thread_id_)
+        return DRAXUL_PLUGIN_STORAGE_WRONG_THREAD;
+    if (!key || !valid_storage_key(std::string_view(key, key_length)))
+        return DRAXUL_PLUGIN_STORAGE_INVALID_KEY;
+    if (!json)
+        return DRAXUL_PLUGIN_STORAGE_INVALID_JSON;
+    if (json_length > DRAXUL_PLUGIN_MAX_STORAGE_JSON_BYTES)
+        return DRAXUL_PLUGIN_STORAGE_TOO_LARGE;
+    try
+    {
+        (void)nlohmann::json::parse(json, json + json_length);
+    }
+    catch (...)
+    {
+        return DRAXUL_PLUGIN_STORAGE_INVALID_JSON;
+    }
+    const auto path = host->storage_path(scope, std::string_view(key, key_length));
+    if (path.empty())
+        return DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error)
+        return DRAXUL_PLUGIN_STORAGE_IO_ERROR;
+    static std::atomic<uint64_t> serial{ 0 };
+    const auto temporary = path.parent_path()
+        / (path.filename().string() + ".tmp-"
+            + std::to_string(serial.fetch_add(1)));
+    {
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        output.write(json, static_cast<std::streamsize>(json_length));
+        output.flush();
+        if (!output)
+        {
+            output.close();
+            std::filesystem::remove(temporary, error);
+            return DRAXUL_PLUGIN_STORAGE_IO_ERROR;
+        }
+    }
+    if (!replace_file_atomically(temporary, path, error))
+    {
+        std::filesystem::remove(temporary, error);
+        return DRAXUL_PLUGIN_STORAGE_IO_ERROR;
+    }
+    return DRAXUL_PLUGIN_STORAGE_OK;
+}
+
+uint32_t PluginHost::remove_storage(void* context, uint32_t scope,
+    const char* key, size_t key_length)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    if (!host || std::this_thread::get_id() != host->main_thread_id_)
+        return DRAXUL_PLUGIN_STORAGE_WRONG_THREAD;
+    if (!key || !valid_storage_key(std::string_view(key, key_length)))
+        return DRAXUL_PLUGIN_STORAGE_INVALID_KEY;
+    const auto path = host->storage_path(scope, std::string_view(key, key_length));
+    if (path.empty())
+        return DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
+    std::error_code error;
+    const bool removed = std::filesystem::remove(path, error);
+    if (error)
+        return DRAXUL_PLUGIN_STORAGE_IO_ERROR;
+    return removed ? DRAXUL_PLUGIN_STORAGE_OK
+                   : DRAXUL_PLUGIN_STORAGE_NOT_FOUND;
 }
 
 void PluginHost::send_input(DraxulPluginInputEventV2 event)

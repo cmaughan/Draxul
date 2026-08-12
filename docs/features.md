@@ -52,6 +52,11 @@ background, cursor, actions, readiness, and print hints. Hidden tabs and Spaces
 stop render animation deadlines; plugins explicitly decide whether any non-render
 logic continues while hidden.
 
+Versioned path and storage services expose plugin resource, configuration, data,
+cache, and temporary directories plus bounded atomic JSON documents. Storage is
+client-local and main-thread-only; background workers request a logic tick before
+reading or writing it.
+
 ```text
 draxul plugin list --json
 draxul plugin get <plugin-id> --json
@@ -63,9 +68,10 @@ draxul tab create --space <space-id> --name <name> --plugin <plugin-id> \
 
 The bundled `dev.draxul.spinning-triangle` module is a real dynamically loaded
 Vulkan/Metal sample. Its configuration accepts `speed_radians_per_second`,
-`initial_angle`, and `paused`; Space toggles pause and left-click reverses it. Its
-rotation is driven by ABI v2 logic ticks rather than render callbacks, and its
-pause/direction state is also exposed through presentation status and actions.
+`initial_angle`, `paused`, and optional `remember_state`; Space toggles pause and
+left-click reverses it. Its rotation is driven by ABI v2 logic ticks rather than
+render callbacks. With state retention enabled, pause and direction are stored
+per pane for this UI; another attached UI resolves the shared pane independently.
 
 ---
 

@@ -5,8 +5,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <memory>
 #include <string>
+#include <thread>
 
 namespace draxul
 {
@@ -18,7 +20,8 @@ class PluginManager;
 class PluginHost final : public IHost
 {
 public:
-    explicit PluginHost(std::shared_ptr<PluginManager> manager);
+    explicit PluginHost(std::shared_ptr<PluginManager> manager,
+        std::filesystem::path storage_root = {});
     ~PluginHost() override;
 
     bool initialize(const HostContext& context, IHostCallbacks& callbacks) override;
@@ -70,12 +73,25 @@ private:
     static int32_t query_service(void* context, const char* service_id,
         size_t service_id_length, uint32_t requested_version,
         void* service_table, size_t service_table_size);
+    static int32_t get_service_path(void* context, uint32_t path_kind,
+        char* buffer, size_t* in_out_size);
+    static uint32_t read_storage_json(void* context, uint32_t scope,
+        const char* key, size_t key_length, char* buffer,
+        size_t* in_out_size);
+    static uint32_t write_storage_json(void* context, uint32_t scope,
+        const char* key, size_t key_length, const char* json,
+        size_t json_length);
+    static uint32_t remove_storage(void* context, uint32_t scope,
+        const char* key, size_t key_length);
     DraxulPluginViewportV2 plugin_viewport() const;
     void send_input(DraxulPluginInputEventV2 event);
     void send_focus(bool focused);
     void run_tick(std::chrono::steady_clock::time_point now,
         bool& frame_needed);
     std::optional<PresentationSnapshot> presentation_snapshot() const;
+    void initialize_service_paths();
+    std::filesystem::path storage_path(uint32_t scope,
+        std::string_view key) const;
 
     std::shared_ptr<PluginManager> manager_;
     std::shared_ptr<LoadedPlugin> plugin_;
@@ -94,6 +110,7 @@ private:
     std::optional<std::chrono::steady_clock::time_point> next_tick_;
     std::chrono::steady_clock::time_point started_at_{};
     std::string plugin_id_;
+    std::string pane_id_;
     std::string plugin_directory_;
     std::string config_json_;
     std::string error_;
@@ -101,6 +118,13 @@ private:
     bool visible_ = true;
     bool focused_ = false;
     bool has_presentation_ = false;
+    std::filesystem::path storage_root_override_;
+    std::filesystem::path resource_path_;
+    std::filesystem::path config_path_;
+    std::filesystem::path data_path_;
+    std::filesystem::path cache_path_;
+    std::filesystem::path temporary_path_;
+    std::thread::id main_thread_id_;
 };
 
 class HostProviderRegistry;

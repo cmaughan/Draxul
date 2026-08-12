@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cstring>
 #include <iterator>
 #include <string>
 #include <string_view>
@@ -35,6 +36,13 @@ struct TriangleInstance
     bool visible = true;
     bool focused = false;
     bool quiesced = false;
+    bool remember_state = false;
+    bool paths_ready = false;
+    DraxulPluginPathServiceV2 paths{};
+    DraxulPluginStorageServiceV2 storage{};
+    bool has_storage = false;
+    std::string storage_warning;
+    std::string data_directory;
     std::string status;
     id<MTLDevice> device = nil;
     id<MTLRenderPipelineState> pipeline = nil;
@@ -53,6 +61,82 @@ DraxulPluginTickResultV2 tick_result(bool ok, uint64_t deadline,
 {
     return { sizeof(DraxulPluginTickResultV2), deadline,
         redraw ? 1 : 0, ok ? 1 : 0, error };
+}
+
+std::string service_path(DraxulPluginPathServiceV2& service,
+    uint32_t kind)
+{
+    if (!service.get_path)
+        return {};
+    size_t required = 0;
+    if (!service.get_path(service.service_context, kind,
+            nullptr, &required)
+        || required == 0)
+        return {};
+    std::string result(required, '\0');
+    if (!service.get_path(service.service_context, kind,
+            result.data(), &required))
+        return {};
+    result.resize(required > 0 ? required - 1 : 0);
+    return result;
+}
+
+void load_saved_state(TriangleInstance* instance)
+{
+    if (!instance->remember_state || !instance->has_storage)
+        return;
+    constexpr std::string_view key = "state";
+    size_t required = 0;
+    const uint32_t first = instance->storage.read_json(
+        instance->storage.service_context, DRAXUL_PLUGIN_STORAGE_PANE,
+        key.data(), key.size(), nullptr, &required);
+    if (first == DRAXUL_PLUGIN_STORAGE_NOT_FOUND)
+        return;
+    if (first != DRAXUL_PLUGIN_STORAGE_OK || required == 0)
+    {
+        instance->storage_warning = first == DRAXUL_PLUGIN_STORAGE_INVALID_JSON
+            ? "saved state is corrupt" : "saved state could not be read";
+        return;
+    }
+    std::string value(required, '\0');
+    const uint32_t second = instance->storage.read_json(
+        instance->storage.service_context, DRAXUL_PLUGIN_STORAGE_PANE,
+        key.data(), key.size(), value.data(), &required);
+    if (second != DRAXUL_PLUGIN_STORAGE_OK)
+    {
+        instance->storage_warning = "saved state could not be read";
+        return;
+    }
+    value.resize(required > 0 ? required - 1 : 0);
+    try
+    {
+        const auto state = nlohmann::json::parse(value);
+        instance->paused = state.value("paused", instance->paused);
+        const float direction = state.value("direction", instance->direction);
+        instance->direction = direction < 0.0f ? -1.0f : 1.0f;
+    }
+    catch (...)
+    {
+        instance->storage_warning = "saved state is corrupt";
+    }
+}
+
+void save_state(TriangleInstance* instance)
+{
+    if (!instance->remember_state || !instance->has_storage)
+        return;
+    constexpr std::string_view key = "state";
+    const std::string value = nlohmann::json{
+        { "paused", instance->paused },
+        { "direction", instance->direction },
+    }.dump();
+    const uint32_t result = instance->storage.write_json(
+        instance->storage.service_context, DRAXUL_PLUGIN_STORAGE_PANE,
+        key.data(), key.size(), value.data(), value.size());
+    if (result == DRAXUL_PLUGIN_STORAGE_OK)
+        instance->storage_warning.clear();
+    else
+        instance->storage_warning = "saved state could not be written";
 }
 
 void log(TriangleInstance* instance, uint32_t level,
@@ -144,12 +228,34 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
             "speed_radians_per_second", 1.0f);
         instance->angle = config.value("initial_angle", 0.0f);
         instance->paused = config.value("paused", false);
+        instance->remember_state = config.value("remember_state", false);
     }
     catch (...)
     {
         delete instance;
         return nullptr;
     }
+    if (instance->host->query_service)
+    {
+        instance->paths.struct_size = sizeof(instance->paths);
+        instance->paths.service_version = DRAXUL_PLUGIN_PATH_SERVICE_VERSION;
+        instance->paths_ready = instance->host->query_service(
+            instance->host->host_context, DRAXUL_PLUGIN_PATH_SERVICE_ID,
+            std::strlen(DRAXUL_PLUGIN_PATH_SERVICE_ID),
+            DRAXUL_PLUGIN_PATH_SERVICE_VERSION,
+            &instance->paths, sizeof(instance->paths)) != 0;
+        instance->storage.struct_size = sizeof(instance->storage);
+        instance->storage.service_version = DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION;
+        instance->has_storage = instance->host->query_service(
+            instance->host->host_context, DRAXUL_PLUGIN_STORAGE_SERVICE_ID,
+            std::strlen(DRAXUL_PLUGIN_STORAGE_SERVICE_ID),
+            DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION,
+            &instance->storage, sizeof(instance->storage)) != 0;
+    }
+    if (instance->paths_ready)
+        instance->data_directory = service_path(
+            instance->paths, DRAXUL_PLUGIN_PATH_DATA);
+    load_saved_state(instance);
     return instance;
 }
 
@@ -162,7 +268,10 @@ void quiesce_instance(void* opaque)
 {
     auto* instance = static_cast<TriangleInstance*>(opaque);
     if (instance)
+    {
+        save_state(instance);
         instance->quiesced = true;
+    }
 }
 
 void set_viewport(void* opaque,
@@ -198,6 +307,7 @@ void toggle_pause(TriangleInstance* instance)
 {
     instance->paused = !instance->paused;
     instance->last_time = -1.0;
+    save_state(instance);
     request_tick(instance);
     if (instance->host->request_redraw)
         instance->host->request_redraw(instance->host->host_context);
@@ -207,6 +317,7 @@ void toggle_pause(TriangleInstance* instance)
 void reverse_direction(TriangleInstance* instance)
 {
     instance->direction = -instance->direction;
+    save_state(instance);
     request_tick(instance);
     if (instance->host->request_redraw)
         instance->host->request_redraw(instance->host->host_context);
@@ -334,6 +445,13 @@ int32_t get_presentation_state(void* opaque,
         instance->status += " | hidden";
     if (instance->focused)
         instance->status += " | focused";
+    if (instance->remember_state)
+        instance->status += instance->has_storage
+            ? " | remembered" : " | storage unavailable";
+    if (instance->paths_ready && !instance->data_directory.empty())
+        instance->status += " | paths ready";
+    if (!instance->storage_warning.empty())
+        instance->status += " | " + instance->storage_warning;
     *state = {};
     state->struct_size = sizeof(*state);
     state->display_name = { "Spinning Triangle", 17 };

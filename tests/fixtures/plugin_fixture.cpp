@@ -258,3 +258,16 @@ extern "C" DRAXUL_PLUGIN_EXPORT size_t draxul_fixture_action_dispatch_count()
 {
     return action_dispatch_count;
 }
+
+extern "C" DRAXUL_PLUGIN_EXPORT int draxul_fixture_query_host_service(
+    const char* service_id, size_t service_id_length,
+    uint32_t requested_version, void* service_table,
+    size_t service_table_size)
+{
+    if (!live_instance || !live_instance->host->query_service)
+        return 0;
+    return live_instance->host->query_service(
+        live_instance->host->host_context, service_id,
+        service_id_length, requested_version, service_table,
+        service_table_size);
+}

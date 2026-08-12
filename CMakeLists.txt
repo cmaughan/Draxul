@@ -382,7 +382,6 @@ target_link_libraries(draxul PRIVATE
     draxul-performance
     draxul-server
 )
-add_dependencies(draxul draxul-spinning-triangle)
 if(APPLE)
     set(DRAXUL_TRIANGLE_PLUGIN_STAGE
         "$<TARGET_BUNDLE_DIR:draxul>/Contents/PlugIns/dev.draxul.spinning-triangle")
@@ -390,7 +389,16 @@ else()
     set(DRAXUL_TRIANGLE_PLUGIN_STAGE
         "$<TARGET_FILE_DIR:draxul>/plugins/dev.draxul.spinning-triangle")
 endif()
-add_custom_command(TARGET draxul POST_BUILD
+set(DRAXUL_TRIANGLE_STAGE_DEPENDS
+    draxul-spinning-triangle
+    "${CMAKE_SOURCE_DIR}/plugins/spinning-triangle/plugin.toml")
+if(APPLE)
+    list(APPEND DRAXUL_TRIANGLE_STAGE_DEPENDS "${TRIANGLE_METALLIB}")
+else()
+    list(APPEND DRAXUL_TRIANGLE_STAGE_DEPENDS
+        "${TRIANGLE_VERTEX_SPV}" "${TRIANGLE_FRAGMENT_SPV}")
+endif()
+add_custom_target(draxul-stage-spinning-triangle
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "${DRAXUL_TRIANGLE_PLUGIN_STAGE}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -399,14 +407,15 @@ add_custom_command(TARGET draxul POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE:draxul-spinning-triangle>"
         "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/$<TARGET_FILE_NAME:draxul-spinning-triangle>"
+    DEPENDS ${DRAXUL_TRIANGLE_STAGE_DEPENDS}
     VERBATIM)
 if(APPLE)
-    add_custom_command(TARGET draxul POST_BUILD
+    add_custom_command(TARGET draxul-stage-spinning-triangle POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${TRIANGLE_METALLIB}"
             "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.metallib")
 else()
-    add_custom_command(TARGET draxul POST_BUILD
+    add_custom_command(TARGET draxul-stage-spinning-triangle POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${TRIANGLE_VERTEX_SPV}"
             "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.vert.spv"
@@ -414,6 +423,7 @@ else()
             "${TRIANGLE_FRAGMENT_SPV}"
             "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.frag.spv")
 endif()
+add_dependencies(draxul draxul-stage-spinning-triangle)
 if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul PRIVATE draxul-megacity)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_MEGACITY)

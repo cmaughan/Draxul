@@ -184,6 +184,9 @@ struct HostContext
     AppConfig* config = nullptr;
     ConfigDocument* config_document = nullptr;
     HostLaunchOptions launch_options;
+    // Stable pane identity supplied by PaneManager. Client-local plugins use
+    // this only for local per-pane state; shared topology remains server-owned.
+    std::string pane_id;
     HostViewport initial_viewport;
     std::weak_ptr<void> owner_lifetime;
     float display_ppi = 96.0f;

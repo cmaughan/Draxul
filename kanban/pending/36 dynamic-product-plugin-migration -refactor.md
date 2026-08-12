@@ -6,7 +6,7 @@ to move SatView and ScoreView onto the trusted native plugin architecture.
 
 - [x] Slice 1: replace plugin ABI v1 with current-only ABI v2 and prove lifecycle,
       scheduling, metadata, actions, and teardown through the spinning triangle.
-- [ ] Slice 2: prove durable client-local path/storage services through the
+- [x] Slice 2: prove durable client-local path/storage services through the
       spinning triangle.
 - [ ] Slice 3: extract `SatViewRuntime` and run the existing static host through it.
 - [ ] Slice 4: ship the SatView scene as a real Vulkan/Metal plugin.

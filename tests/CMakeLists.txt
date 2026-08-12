@@ -311,12 +311,14 @@ add_library(draxul-plugin-fixture-no-symbol MODULE
 set_target_properties(draxul-plugin-fixture-no-symbol PROPERTIES PREFIX "")
 
 add_dependencies(draxul-test-app
+    draxul-spinning-triangle
     draxul-plugin-fixture
     draxul-plugin-fixture-bad-abi
     draxul-plugin-fixture-wrong-id
     draxul-plugin-fixture-unsupported
     draxul-plugin-fixture-no-symbol)
 target_compile_definitions(draxul-test-app PRIVATE
+    DRAXUL_TRIANGLE_PLUGIN_PATH="$<TARGET_FILE:draxul-spinning-triangle>"
     DRAXUL_FIXTURE_VALID_PATH="$<TARGET_FILE:draxul-plugin-fixture>"
     DRAXUL_FIXTURE_BAD_ABI_PATH="$<TARGET_FILE:draxul-plugin-fixture-bad-abi>"
     DRAXUL_FIXTURE_WRONG_ID_PATH="$<TARGET_FILE:draxul-plugin-fixture-wrong-id>"
