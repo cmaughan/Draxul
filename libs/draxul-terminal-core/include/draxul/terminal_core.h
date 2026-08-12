@@ -229,6 +229,7 @@ private:
     void handle_esc(char ch);
     void handle_csi(char final_char, std::string_view body);
     void handle_osc(std::string_view body);
+    void handle_dcs(std::string_view body);
     void handle_osc8(std::string_view payload);
     void handle_osc133(std::string_view payload);
     void on_osc_cwd(const std::string& path);

@@ -784,6 +784,19 @@ void TerminalCore::handle_osc(std::string_view body)
     }
 }
 
+void TerminalCore::handle_dcs(std::string_view body)
+{
+    PERF_MEASURE();
+
+    // XTGETTCAP asks for semicolon-separated, hex-encoded termcap/terminfo
+    // names. Draxul's shell environment already advertises xterm-256color,
+    // whose static capabilities are available through terminfo. Replying that
+    // the dynamic query is unsupported is preferable to leaving Vim waiting,
+    // and is the response form specified by xterm for an invalid capability.
+    if (body.starts_with("+q"))
+        host_.terminal_write_process("\x1BP0+r\x1B\\");
+}
+
 void TerminalCore::handle_osc8(std::string_view payload)
 {
     PERF_MEASURE();

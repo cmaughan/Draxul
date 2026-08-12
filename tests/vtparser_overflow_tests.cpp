@@ -3,6 +3,7 @@
 #include <draxul/log.h>
 #include <draxul/vt_parser.h>
 
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,6 +21,7 @@ struct TestParser
 {
     std::vector<std::string> csi_calls;
     std::vector<std::string> osc_calls;
+    std::vector<std::string> dcs_calls;
     std::vector<std::string> clusters;
     VtParser parser;
 
@@ -33,6 +35,7 @@ struct TestParser
             };
             cbs.on_osc = [this](std::string_view body) { osc_calls.push_back(std::string(body)); };
             cbs.on_esc = [](char) {};
+            cbs.on_dcs = [this](std::string_view body) { dcs_calls.push_back(std::string(body)); };
             return cbs;
         }())
     {
@@ -195,6 +198,35 @@ TEST_CASE("vtparser overflow: OSC buffer stays within cap", "[vtparser][overflow
     const size_t osc_before = tp.osc_calls.size();
     tp.parser.feed("\x07"); // BEL in Ground = control character, not OSC terminator
     REQUIRE(tp.osc_calls.size() == osc_before);
+}
+
+TEST_CASE("vtparser overflow: oversized DCS stays hidden until its terminator",
+    "[vtparser][overflow][dcs]")
+{
+    ScopedLogCapture log;
+    TestParser tp;
+
+    tp.parser.feed("\x1BP+q");
+    std::string chunk(256, 'x');
+    size_t fed = 0;
+    const size_t oversized = VtParser::kMaxDcsBuffer + chunk.size();
+    while (fed < oversized)
+    {
+        const size_t count = std::min(chunk.size(), oversized - fed);
+        tp.parser.feed(std::string_view(chunk.data(), count));
+        fed += count;
+    }
+    tp.parser.feed("still-hidden\x1B\\visible");
+
+    CHECK(tp.dcs_calls.empty());
+    REQUIRE(tp.clusters.size() == 7);
+    CHECK(tp.clusters.front() == "v");
+    CHECK(tp.clusters.back() == "e");
+
+    const bool warned = std::any_of(log.records.begin(), log.records.end(), [](const auto& record) {
+        return record.level == LogLevel::Warn && record.message.find("DCS") != std::string::npos;
+    });
+    CHECK(warned);
 }
 
 // ---------------------------------------------------------------------------

@@ -163,6 +163,20 @@ TEST_CASE("terminal core owns resize, responses, and clipboard semantics",
     CHECK(harness.core.semantic_snapshot().metadata.cursor == expected_cursor);
 }
 
+TEST_CASE("terminal core consumes Vim XTGETTCAP without rendering its payload",
+    "[terminal-core][dcs][regression]")
+{
+    CoreHarness harness(16, 3);
+    harness.grid.clear_dirty();
+
+    harness.core.feed("\x1BP+q544e;436f\x1B\\");
+
+    CHECK(harness.process_writes == "\x1BP0+r\x1B\\");
+    CHECK(harness.cursor == std::pair{ 0, 0 });
+    CHECK(harness.grid.get_cell(0, 0).text == std::string(" "));
+    CHECK(harness.core.dirty_snapshot().cells.empty());
+}
+
 TEST_CASE("terminal core replaces invalid UTF-8 before snapshots reach the wire",
     "[terminal-core][unicode][server]")
 {

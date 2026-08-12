@@ -102,6 +102,7 @@ TerminalCore::TerminalCore(ITerminalCoreHost& host)
           std::bind_front(&TerminalCore::handle_csi, this),
           std::bind_front(&TerminalCore::handle_osc, this),
           std::bind_front(&TerminalCore::handle_esc, this),
+          std::bind_front(&TerminalCore::handle_dcs, this),
       })
     , alt_screen_(AltScreenManager::GridAccessors{
           std::bind_front(&TerminalCore::grid_cols, this),
