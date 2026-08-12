@@ -31,6 +31,10 @@ public:
     {
         ScoreRuntime::set_viewport(value);
     }
+    void set_presentation_visible(bool visible) override
+    {
+        ScoreRuntime::set_presentation_visible(visible);
+    }
     void on_config_reloaded(const draxul::HostReloadConfig& value) override
     {
         ScoreRuntime::on_config_reloaded(value);

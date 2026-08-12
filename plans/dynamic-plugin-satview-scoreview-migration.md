@@ -571,6 +571,14 @@ or Metal entry point for its normal 2D presentation.
 
 ### Slice 8: ScoreView transport, workers, and player persistence
 
+Progress: completed on Windows on 2026-08-12. Transport, rolling-window
+engraving, adaptive player state, and content-keyed progress now execute inside
+the dynamic module. Hidden panes pause and remember an active transport by
+default, resume it when shown, suppress redraw callbacks, and poll only an
+in-flight worker at 100 ms. `background_playback: true` retains the 16.7 ms
+logic cadence without scheduling hidden render deadlines. Quiesce ends the
+session, flushes progress, and joins engraving before renderer-safe teardown.
+
 **User-visible result:** the dynamic ScoreView runs its flow/roll transport,
 asynchronous rolling engraver, adaptive player model, and durable progress with
 smooth animation and correct hidden-tab behavior.

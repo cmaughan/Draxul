@@ -349,6 +349,35 @@ void ScoreRuntime::set_viewport(const HostViewport& viewport)
         layout_dirty_ = true;
 }
 
+void ScoreRuntime::set_presentation_visible(bool visible,
+    bool allow_background_playback)
+{
+    background_playback_ = allow_background_playback;
+    if (presentation_visible_ == visible)
+        return;
+
+    presentation_visible_ = visible;
+    if (!visible && !background_playback_)
+    {
+        resume_transport_on_show_ = flow_.playing();
+        if (resume_transport_on_show_)
+            flow_.pause();
+    }
+    else if (visible && resume_transport_on_show_)
+    {
+        resume_transport_on_show_ = false;
+        if (!flow_.at_end())
+            flow_.play();
+    }
+    last_pump_ = std::chrono::steady_clock::now();
+    if (callbacks_ != nullptr)
+    {
+        callbacks_->notify_presentation_changed();
+        if (visible)
+            callbacks_->request_frame();
+    }
+}
+
 void ScoreRuntime::on_config_reloaded(const HostReloadConfig& config)
 {
     if (config.terminal_bg)

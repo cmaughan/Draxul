@@ -246,6 +246,28 @@ TEST_CASE("input selection swaps in place and reports requested-vs-engaged",
     CHECK(ScoreHostTestAccess::playing(primed.host));
 }
 
+TEST_CASE("hidden presentation pauses transport unless background playback is enabled",
+    "[scoreview][host][orchestration][visibility]")
+{
+    PrimedHost paused;
+    REQUIRE(paused.prime());
+    ScoreHostTestAccess::set_transport(paused.host, 1.5, 96.0, true);
+    paused.host.set_presentation_visible(false);
+    CHECK_FALSE(ScoreHostTestAccess::playing(paused.host));
+    CHECK_FALSE(paused.host.next_deadline().has_value());
+    paused.host.set_presentation_visible(true);
+    CHECK(ScoreHostTestAccess::playing(paused.host));
+    CHECK(paused.host.next_deadline().has_value());
+
+    PrimedHost background;
+    REQUIRE(background.prime());
+    ScoreHostTestAccess::set_transport(background.host, 1.5, 96.0, true);
+    static_cast<draxul::scoreview::ScoreRuntime&>(background.host)
+        .set_presentation_visible(false, /*allow_background_playback=*/true);
+    CHECK(ScoreHostTestAccess::playing(background.host));
+    CHECK(background.host.next_deadline().has_value());
+}
+
 TEST_CASE("full-score note colors are on by default and inspector-toggleable",
     "[scoreview][host][orchestration][view]")
 {

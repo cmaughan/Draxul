@@ -54,6 +54,7 @@ class ScoreRuntimeCallbacks
 public:
     virtual ~ScoreRuntimeCallbacks() = default;
     virtual void request_frame() = 0;
+    virtual void notify_presentation_changed() {}
 };
 
 class ScoreFrameSink
@@ -90,6 +91,8 @@ public:
     }
 
     void set_viewport(const draxul::HostViewport& viewport);
+    void set_presentation_visible(bool visible,
+        bool allow_background_playback = false);
     void on_config_reloaded(const draxul::HostReloadConfig& config);
     void pump();
     void draw(ScoreFrameSink& frame);
@@ -288,6 +291,9 @@ private:
     bool layout_dirty_ = true;
     bool running_ = false;
     bool quiesced_ = false;
+    bool presentation_visible_ = true;
+    bool background_playback_ = false;
+    bool resume_transport_on_show_ = false;
 
     // Conveyor state (plans/scoreview-conveyor.md). The strip is the whole
     // piece as one system; the controller owns transport/tempo/lit diffs and

@@ -26,10 +26,16 @@ class RuntimeCallbacks final
 public:
     void request_frame() override
     {
-        if (host && host->request_redraw)
+        if (visible && host && host->request_redraw)
             host->request_redraw(host->host_context);
     }
+    void notify_presentation_changed() override
+    {
+        if (host && host->notify_presentation_changed)
+            host->notify_presentation_changed(host->host_context);
+    }
     const DraxulPluginHostApiV2* host = nullptr;
+    bool visible = true;
 };
 
 class OverlayAdapter final : public draxul::IImGuiHost
@@ -141,6 +147,7 @@ struct Instance
     std::string status;
     bool visible = true;
     bool focused = false;
+    bool background_playback = false;
     bool quiesced = false;
 };
 
@@ -222,6 +229,8 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
                 ? info->config_json + info->config_json_length : "{}" + 2);
         source = config.value("source", std::string{});
         mode = config.value("mode", mode);
+        instance->background_playback
+            = config.value("background_playback", false);
     }
     catch (...)
     {
@@ -295,6 +304,9 @@ void set_visible(void* opaque, int32_t visible)
     if (!instance)
         return;
     instance->visible = visible != 0;
+    instance->callbacks.visible = instance->visible;
+    instance->runtime->set_presentation_visible(instance->visible,
+        instance->background_playback);
     if (instance->host->request_tick)
         instance->host->request_tick(instance->host->host_context);
     if (instance->visible && instance->host->request_redraw)
@@ -360,7 +372,9 @@ DraxulPluginTickResultV2 tick(void* opaque,
     instance->runtime->pump();
     const auto deadline = instance->runtime->next_deadline();
     if (!instance->visible || !info->visible)
-        return tick_result(true, deadline ? kWorkerDelayNs
+        return tick_result(true, deadline
+                ? (instance->background_playback
+                    ? kActiveDelayNs : kWorkerDelayNs)
                                           : DRAXUL_PLUGIN_NO_DEADLINE);
     return tick_result(true, deadline ? kActiveDelayNs
                                       : DRAXUL_PLUGIN_NO_DEADLINE,
