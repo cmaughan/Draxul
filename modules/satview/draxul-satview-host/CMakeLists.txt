@@ -13,6 +13,7 @@ cmake_minimum_required(VERSION 3.25)
 add_library(draxul-satview-host STATIC
     src/satview_config_io.cpp
     src/satview_host.cpp
+    src/satview_runtime.cpp
     src/satview_simulation_worker.cpp
 )
 

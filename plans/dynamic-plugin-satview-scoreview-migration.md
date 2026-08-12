@@ -373,6 +373,11 @@ merged solely on unit tests.
 
 ### Slice 3: SatView runtime extraction behind the existing host
 
+Progress: completed on Windows on 2026-08-12. The prior host implementation is
+now `SatViewRuntime`, does not inherit `IHost`, submits through a SatView-owned
+frame sink, uses a SatView-owned callback port, and accepts injected asset/cache
+roots. `SatViewHost` is a stateless parity adapter. macOS remains a CI gate.
+
 **User-visible result:** the statically launched SatView behaves and renders as
 before, but all product behavior is owned by a renderer-independent
 `SatViewRuntime` that a plugin can instantiate.

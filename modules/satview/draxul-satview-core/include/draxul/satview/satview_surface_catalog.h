@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <filesystem>
 #include <draxul/satview/satview_catalog.h>
 #include <limits>
 #include <optional>
@@ -80,6 +81,9 @@ struct SatViewSurfaceCatalog
     CentralBody body);
 [[nodiscard]] SatViewSurfaceCatalog load_satview_surface_catalog(
     std::string_view asset_path,
+    CentralBody body);
+[[nodiscard]] SatViewSurfaceCatalog load_satview_surface_catalog_file(
+    const std::filesystem::path& path,
     CentralBody body);
 [[nodiscard]] SatViewSurfaceCatalog load_satview_mars_surface_catalog();
 

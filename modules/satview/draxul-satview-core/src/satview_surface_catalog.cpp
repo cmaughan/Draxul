@@ -364,7 +364,14 @@ SatViewSurfaceCatalog load_satview_surface_catalog(
     std::string_view asset_path,
     CentralBody body)
 {
-    const auto path = resolve_satview_asset_path(std::filesystem::path(asset_path));
+    return load_satview_surface_catalog_file(
+        resolve_satview_asset_path(std::filesystem::path(asset_path)), body);
+}
+
+SatViewSurfaceCatalog load_satview_surface_catalog_file(
+    const std::filesystem::path& path,
+    CentralBody body)
+{
     std::ifstream input(path, std::ios::binary);
     if (!input.is_open())
         return { body, {}, 0, "failed to open " + path.string() };
