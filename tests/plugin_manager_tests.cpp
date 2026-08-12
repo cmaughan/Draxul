@@ -4,6 +4,8 @@
 #include <draxul/plugin_host.h>
 #include <draxul/events.h>
 #include <draxul/imgui_host.h>
+#include <draxul/base_renderer.h>
+#include "support/fake_renderer.h"
 #include "support/test_host_callbacks.h"
 
 #include <imgui.h>
@@ -23,6 +25,12 @@
 
 namespace
 {
+
+class DummyCanvasPass final : public draxul::IRenderPass
+{
+public:
+    void record(draxul::IRenderContext&) override {}
+};
 
 class RecordingImGuiHost final : public draxul::IImGuiHost
 {
@@ -272,6 +280,19 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     CHECK(overlay.draw_idx_size == sizeof(ImDrawIdx));
     CHECK_FALSE(overlay.initialize(overlay.service_context, nullptr));
 
+    DraxulPluginCanvas2DServiceV2 canvas{};
+    REQUIRE(fixture_query_service(DRAXUL_PLUGIN_CANVAS2D_SERVICE_ID,
+        std::strlen(DRAXUL_PLUGIN_CANVAS2D_SERVICE_ID),
+        DRAXUL_PLUGIN_CANVAS2D_SERVICE_VERSION,
+        &canvas, sizeof(canvas)));
+    CHECK(canvas.cpp_abi_fingerprint
+        == DRAXUL_PLUGIN_CANVAS2D_CPP_ABI_FINGERPRINT);
+    DummyCanvasPass canvas_pass;
+    CHECK_FALSE(canvas.set_render_pass(canvas.service_context, &canvas_pass,
+        DRAXUL_PLUGIN_CANVAS2D_CPP_ABI_FINGERPRINT + 1));
+    REQUIRE(canvas.set_render_pass(canvas.service_context, &canvas_pass,
+        DRAXUL_PLUGIN_CANVAS2D_CPP_ABI_FINGERPRINT));
+
     RecordingImGuiHost imgui_host;
     host.set_imgui_font("fixture-font.ttf", 17.0f);
     host.attach_imgui_host(imgui_host);
@@ -281,6 +302,27 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     REQUIRE(overlay.begin_frame(overlay.service_context, overlay_context));
     REQUIRE(overlay.render_draw_data(overlay.service_context,
         reinterpret_cast<void*>(1), overlay_context));
+
+    // Both the plugin GPU pass and the borrowed Canvas 2D pass are clipped to
+    // the same pane-local viewport; deferred overlay data follows the canvas.
+    draxul::tests::FakeTermRenderer renderer;
+    canvas.set_overlay(canvas.service_context,
+        reinterpret_cast<void*>(1), overlay_context);
+    host.draw(renderer.frame_context);
+    REQUIRE(renderer.recorded_render_viewports.size() == 2);
+    CHECK(renderer.last_recorded_render_pass == &canvas_pass);
+    CHECK(renderer.recorded_render_viewports[0].x == 100);
+    CHECK(renderer.recorded_render_viewports[0].y == 50);
+    CHECK(renderer.recorded_render_viewports[0].width == 640);
+    CHECK(renderer.recorded_render_viewports[0].height == 360);
+    CHECK(renderer.recorded_render_viewports[1].x
+        == renderer.recorded_render_viewports[0].x);
+    CHECK(renderer.recorded_render_viewports[1].y
+        == renderer.recorded_render_viewports[0].y);
+    CHECK(renderer.recorded_render_viewports[1].width
+        == renderer.recorded_render_viewports[0].width);
+    CHECK(renderer.recorded_render_viewports[1].height
+        == renderer.recorded_render_viewports[0].height);
     size_t font_path_size = 0;
     float font_size = 0.0f;
     REQUIRE(overlay.get_font(overlay.service_context, nullptr,
@@ -294,7 +336,7 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     overlay.shutdown(overlay.service_context, overlay_context);
     CHECK(imgui_host.initialize_count == 1);
     CHECK(imgui_host.begin_count == 1);
-    CHECK(imgui_host.render_count == 1);
+    CHECK(imgui_host.render_count == 2);
     CHECK(imgui_host.font_rebuild_count == 1);
     CHECK(imgui_host.shutdown_count == 1);
     ImGui::DestroyContext(overlay_context);

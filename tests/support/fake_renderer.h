@@ -34,9 +34,11 @@ public:
             ++renderer_.draw_grid_handle_calls;
         }
 
-        void record_render_pass(IRenderPass& pass, const RenderViewport&) override
+        void record_render_pass(IRenderPass& pass,
+            const RenderViewport& viewport) override
         {
             renderer_.last_recorded_render_pass = &pass;
+            renderer_.recorded_render_viewports.push_back(viewport);
             ++renderer_.record_render_pass_calls;
         }
 
@@ -145,6 +147,7 @@ public:
     FakeGridHandle* last_handle = nullptr;
     IGridHandle* last_drawn_handle = nullptr;
     IRenderPass* last_recorded_render_pass = nullptr;
+    std::vector<RenderViewport> recorded_render_viewports;
 
     // Recorded state — read by tests (overlay forwarded from the default handle).
     std::vector<CellUpdate> last_overlay;
@@ -167,6 +170,7 @@ public:
         last_handle = nullptr;
         last_drawn_handle = nullptr;
         last_recorded_render_pass = nullptr;
+        recorded_render_viewports.clear();
         last_imgui_draw_data = nullptr;
         draw_grid_handle_calls = 0;
         record_render_pass_calls = 0;

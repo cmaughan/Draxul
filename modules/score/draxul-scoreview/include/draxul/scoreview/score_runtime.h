@@ -15,6 +15,7 @@
 #include <draxul/scoreview/window_engraver.h>
 
 #include <chrono>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -65,6 +66,13 @@ public:
     virtual void finish() = 0;
 };
 
+struct ScoreRuntimePaths
+{
+    std::filesystem::path verovio_data;
+    std::filesystem::path soundfonts;
+    std::filesystem::path progress;
+};
+
 class ScoreRuntime
 {
 public:
@@ -72,7 +80,8 @@ public:
     ~ScoreRuntime();
 
     bool initialize(const draxul::HostContext& context,
-        ScoreRuntimeCallbacks& callbacks);
+        ScoreRuntimeCallbacks& callbacks, ScoreRuntimePaths paths = {});
+    void quiesce();
     void shutdown();
     bool is_running() const;
     std::string init_error() const
@@ -101,6 +110,10 @@ public:
     draxul::HostRuntimeState runtime_state() const;
     draxul::HostDebugState debug_state() const;
     draxul::HostPrintHint print_hint() const;
+    draxul::INanoVGPass* canvas_pass() const
+    {
+        return nanovg_pass_.get();
+    }
 
 private:
     // Narrow friend seam for deterministic orchestration tests. Production
@@ -274,6 +287,7 @@ private:
     float page_scale_ = 0.0f;
     bool layout_dirty_ = true;
     bool running_ = false;
+    bool quiesced_ = false;
 
     // Conveyor state (plans/scoreview-conveyor.md). The strip is the whole
     // piece as one system; the controller owns transport/tempo/lit diffs and

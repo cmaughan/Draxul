@@ -28,6 +28,9 @@ extern "C" {
 #define DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION 1u
 #define DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_ID "draxul.imgui-overlay"
 #define DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_VERSION 1u
+#define DRAXUL_PLUGIN_CANVAS2D_SERVICE_ID "draxul.canvas2d"
+#define DRAXUL_PLUGIN_CANVAS2D_SERVICE_VERSION 1u
+#define DRAXUL_PLUGIN_CANVAS2D_CPP_ABI_FINGERPRINT UINT64_C(0x4452584c43324401)
 #define DRAXUL_PLUGIN_MAX_STORAGE_JSON_BYTES (1024u * 1024u)
 
 typedef enum DraxulPluginBackendV2
@@ -149,6 +152,22 @@ typedef struct DraxulPluginImGuiOverlayServiceV2
     int32_t (*get_font)(void* service_context, char* path,
         size_t* in_out_size, float* size_pixels);
 } DraxulPluginImGuiOverlayServiceV2;
+
+// Build-matched first-party Canvas 2D bridge. The opaque render pass is owned
+// by the plugin instance and must implement the exact Draxul IRenderPass ABI
+// identified by cpp_abi_fingerprint. Draxul only borrows it between plugin
+// render and quiesce. Overlay data is similarly frame-local.
+typedef struct DraxulPluginCanvas2DServiceV2
+{
+    uint32_t struct_size;
+    uint32_t service_version;
+    uint64_t cpp_abi_fingerprint;
+    void* service_context;
+    int32_t (*set_render_pass)(void* service_context,
+        void* opaque_render_pass, uint64_t cpp_abi_fingerprint);
+    void (*set_overlay)(void* service_context, void* draw_data,
+        void* imgui_context);
+} DraxulPluginCanvas2DServiceV2;
 
 typedef struct DraxulPluginViewportV2
 {

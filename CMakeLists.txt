@@ -180,6 +180,7 @@ if(DRAXUL_ENABLE_SATVIEW)
 endif()
 if(DRAXUL_ENABLE_SCOREVIEW)
     add_subdirectory(modules/score)
+    add_subdirectory(plugins/scoreview)
 endif()
 
 include(cmake/CheckDependencyBoundaries.cmake)
@@ -471,6 +472,37 @@ else()
             "${DRAXUL_SATVIEW_PLUGIN_STAGE}/satview_plugin.frag.spv")
 endif()
 add_dependencies(draxul draxul-stage-satview-plugin)
+endif()
+if(DRAXUL_ENABLE_SCOREVIEW)
+if(APPLE)
+    set(DRAXUL_SCOREVIEW_PLUGIN_STAGE
+        "$<TARGET_BUNDLE_DIR:draxul>/Contents/PlugIns/dev.draxul.scoreview")
+else()
+    set(DRAXUL_SCOREVIEW_PLUGIN_STAGE
+        "$<TARGET_FILE_DIR:draxul>/plugins/dev.draxul.scoreview")
+endif()
+add_custom_target(draxul-stage-scoreview-plugin
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "${DRAXUL_SCOREVIEW_PLUGIN_STAGE}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/plugins/scoreview/plugin.toml"
+        "${DRAXUL_SCOREVIEW_PLUGIN_STAGE}/plugin.toml"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:draxul-scoreview-plugin>"
+        "${DRAXUL_SCOREVIEW_PLUGIN_STAGE}/$<TARGET_FILE_NAME:draxul-scoreview-plugin>"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${verovio_SOURCE_DIR}/data"
+        "${DRAXUL_SCOREVIEW_PLUGIN_STAGE}/verovio-data"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${verovio_SOURCE_DIR}/fonts/Leipzig/Leipzig.ttf"
+        "${DRAXUL_SCOREVIEW_PLUGIN_STAGE}/verovio-data/Leipzig.ttf"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${ydp_grand_piano_SOURCE_DIR}"
+        "${DRAXUL_SCOREVIEW_PLUGIN_STAGE}/soundfonts"
+    DEPENDS draxul-scoreview-plugin
+        "${CMAKE_SOURCE_DIR}/plugins/scoreview/plugin.toml"
+    VERBATIM)
+add_dependencies(draxul draxul-stage-scoreview-plugin)
 endif()
 if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul PRIVATE draxul-megacity)

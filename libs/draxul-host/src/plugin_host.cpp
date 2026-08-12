@@ -204,6 +204,9 @@ void PluginHost::shutdown()
     if (plugin_->api().quiesce_instance)
         plugin_->api().quiesce_instance(instance_);
     render_pass_.reset();
+    canvas2d_render_pass_ = nullptr;
+    canvas2d_draw_data_ = nullptr;
+    canvas2d_imgui_context_ = nullptr;
     if (renderer_)
         renderer_->wait_idle();
     plugin_->api().destroy_instance(instance_);
@@ -346,6 +349,16 @@ void PluginHost::draw(IFrameContext& frame)
         viewport_.pixel_size.y,
     };
     frame.record_render_pass(*render_pass_, viewport);
+    if (canvas2d_render_pass_)
+        frame.record_render_pass(*canvas2d_render_pass_, viewport);
+    if (imgui_host_ && canvas2d_draw_data_ && canvas2d_imgui_context_)
+    {
+        imgui_host_->render_imgui_draw_data(
+            static_cast<ImDrawData*>(canvas2d_draw_data_),
+            static_cast<ImGuiContext*>(canvas2d_imgui_context_));
+    }
+    canvas2d_draw_data_ = nullptr;
+    canvas2d_imgui_context_ = nullptr;
     frame.flush_submit_chunk();
 }
 
@@ -519,7 +532,39 @@ int32_t PluginHost::query_service(void* context, const char* service_id,
         };
         return 1;
     }
+    if (id == DRAXUL_PLUGIN_CANVAS2D_SERVICE_ID
+        && requested_version == DRAXUL_PLUGIN_CANVAS2D_SERVICE_VERSION
+        && service_table_size >= sizeof(DraxulPluginCanvas2DServiceV2))
+    {
+        auto* service = static_cast<DraxulPluginCanvas2DServiceV2*>(service_table);
+        *service = { sizeof(*service), DRAXUL_PLUGIN_CANVAS2D_SERVICE_VERSION,
+            DRAXUL_PLUGIN_CANVAS2D_CPP_ABI_FINGERPRINT, host,
+            &PluginHost::set_canvas2d_render_pass,
+            &PluginHost::set_canvas2d_overlay };
+        return 1;
+    }
     return 0;
+}
+
+int32_t PluginHost::set_canvas2d_render_pass(void* context,
+    void* render_pass, uint64_t fingerprint)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    if (!host || std::this_thread::get_id() != host->main_thread_id_
+        || fingerprint != DRAXUL_PLUGIN_CANVAS2D_CPP_ABI_FINGERPRINT)
+        return 0;
+    host->canvas2d_render_pass_ = static_cast<IRenderPass*>(render_pass);
+    return 1;
+}
+
+void PluginHost::set_canvas2d_overlay(void* context, void* draw_data,
+    void* imgui_context)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    if (!host || std::this_thread::get_id() != host->main_thread_id_)
+        return;
+    host->canvas2d_draw_data_ = draw_data;
+    host->canvas2d_imgui_context_ = imgui_context;
 }
 
 int32_t PluginHost::initialize_imgui_overlay(void* context,

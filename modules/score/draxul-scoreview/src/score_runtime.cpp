@@ -86,8 +86,9 @@ bool ScoreRuntime::stream_active() const
 ScoreRuntime::~ScoreRuntime() = default;
 
 bool ScoreRuntime::initialize(const HostContext& context,
-    ScoreRuntimeCallbacks& callbacks)
+    ScoreRuntimeCallbacks& callbacks, ScoreRuntimePaths paths)
 {
+    quiesced_ = false;
     viewport_ = context.initial_viewport;
     callbacks_ = &callbacks;
     source_path_ = context.launch_options.source_path;
@@ -130,7 +131,16 @@ bool ScoreRuntime::initialize(const HostContext& context,
                 LogCategory::App, "score model import skipped: %s", import_error.c_str());
         }
 
-        const std::string resources = (executable_directory() / "verovio-data").string();
+        if (paths.verovio_data.empty())
+            paths.verovio_data = executable_directory() / "verovio-data";
+        if (paths.soundfonts.empty())
+            paths.soundfonts = executable_directory() / "soundfonts";
+        if (paths.progress.empty())
+        {
+            paths.progress = ConfigDocument::default_path().parent_path()
+                / "scoreview" / "progress";
+        }
+        const std::string resources = paths.verovio_data.string();
         std::string engine_error;
         auto engine = VerovioLayoutEngine::create(resources, engine_error);
         if (!engine)
@@ -161,14 +171,13 @@ bool ScoreRuntime::initialize(const HostContext& context,
         // the inspector (the bundled YDP grand by default; a better font
         // dropped into the folder just appears). Loading is lazy — the
         // ~118 MB parse happens on first selection, not startup.
-        audio_->stage_soundfonts(executable_directory() / "soundfonts");
+        audio_->stage_soundfonts(paths.soundfonts);
         audio_->prefer_piano(0);
         audio_->set_audition(true);
 
         // Player memory: the per-piece progress file, keyed by the source
         // bytes so renames don't lose history (stream plan S0).
-        session_->attach_source(
-            ConfigDocument::default_path().parent_path() / "scoreview" / "progress", bytes);
+        session_->attach_source(paths.progress, bytes);
 
         // Default: the runner (plans/scoreview-runner.md) — the conveyor in
         // Roll mode with the dev keyboard, transport rolling from the first
@@ -295,11 +304,7 @@ double ScoreRuntime::now_seconds() const
 
 void ScoreRuntime::shutdown()
 {
-    end_progress_session();
-    // Stop the background engraver first: its destructor signals the worker and
-    // joins it (bounded by one in-flight engrave), so nothing races teardown.
-    stream_->reset_engraver();
-    audio_->shutdown();
+    quiesce();
     strip_.reset();
     pages_.reset();
     engine_.reset();
@@ -316,7 +321,19 @@ void ScoreRuntime::shutdown()
         ImGui::DestroyContext(imgui_context_);
         imgui_context_ = nullptr;
     }
+}
+
+void ScoreRuntime::quiesce()
+{
+    if (quiesced_)
+        return;
+    end_progress_session();
+    // Stop the background engraver first: its destructor signals the worker and
+    // joins it (bounded by one in-flight engrave), so nothing races teardown.
+    stream_->reset_engraver();
+    audio_->shutdown();
     running_ = false;
+    quiesced_ = true;
 }
 
 bool ScoreRuntime::is_running() const

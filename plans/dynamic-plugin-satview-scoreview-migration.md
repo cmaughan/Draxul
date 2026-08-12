@@ -530,6 +530,14 @@ global config documents.
 
 ### Slice 7: ScoreView reading modes as a real plugin
 
+Progress: completed on Windows on 2026-08-12. `dev.draxul.scoreview` is now a
+real ABI-v2 module with packaged Verovio/Leipzig/soundfont resources. The host
+records the module's build-matched Canvas 2D pass in the same clipped pane
+viewport as its native plugin pass, then composites its ImGui inspector. A real
+Swan Lake MusicXML fixture renders through the DLL, and isolated-server CLI
+coverage proves ScoreView tabs retain a terminal-free plugin descriptor. Metal
+build and image validation remain part of CI.
+
 **User-visible result:** `dev.draxul.scoreview` opens a local MusicXML score in a
 dynamic pane and supports paged/flow presentation, resize, scroll, zoom, actions,
 printing, status, and the inspector. Live playback and physical input can remain

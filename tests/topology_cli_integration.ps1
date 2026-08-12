@@ -154,10 +154,18 @@ try {
     if (-not ($pluginList | Where-Object id -eq 'dev.draxul.satview')) {
         throw 'Bundled SatView plugin was not discoverable through plugin list.'
     }
+    if (-not ($pluginList | Where-Object id -eq 'dev.draxul.scoreview')) {
+        throw 'Bundled ScoreView plugin was not discoverable through plugin list.'
+    }
     $satViewPlugin = Invoke-Draxul @(
         'plugin', 'get', 'dev.draxul.satview', '--json') | ConvertFrom-Json
     if (-not $satViewPlugin.available -or $satViewPlugin.abi_version -ne 2) {
         throw 'Bundled SatView plugin metadata is unavailable or incompatible.'
+    }
+    $scoreViewPlugin = Invoke-Draxul @(
+        'plugin', 'get', 'dev.draxul.scoreview', '--json') | ConvertFrom-Json
+    if (-not $scoreViewPlugin.available -or $scoreViewPlugin.abi_version -ne 2) {
+        throw 'Bundled ScoreView plugin metadata is unavailable or incompatible.'
     }
 
     $pluginTab = Invoke-Draxul @(
@@ -199,6 +207,21 @@ try {
         -or $satViewTabState.panes[0].terminal_id `
         -or $satViewTabState.panes[0].client_plugin_id -ne 'dev.draxul.satview') {
         throw 'SatView tab creation did not preserve a terminal-free plugin pane.'
+    }
+
+    $scoreViewTab = Invoke-Draxul @(
+        'tab', 'create', '--space', $applied.created_id,
+        '--name', 'ScoreView', '--plugin', 'dev.draxul.scoreview',
+        '--plugin-config', '{"source":"tests/fixtures/musicxml/swan_lake.musicxml","mode":"paged"}',
+        '--json', '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    $scoreViewTabState = Invoke-Draxul @(
+        'tab', 'get', $scoreViewTab.created_id, '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    if ($scoreViewTabState.panes.Count -ne 1 `
+        -or $scoreViewTabState.panes[0].terminal_id `
+        -or $scoreViewTabState.panes[0].client_plugin_id -ne 'dev.draxul.scoreview' `
+        -or $scoreViewTabState.panes[0].client_plugin_config_json -notlike '*swan_lake*') {
+        throw 'ScoreView tab creation did not preserve its terminal-free plugin descriptor.'
     }
 
     $marker = "DRAXUL-CONTEXT:$($applied.created_id):$($applied.aliases.workers):$($applied.aliases.shell)"

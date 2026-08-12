@@ -98,6 +98,10 @@ private:
         void* draw_data, void* imgui_context);
     static int32_t get_imgui_font(void* context, char* path,
         size_t* in_out_size, float* size_pixels);
+    static int32_t set_canvas2d_render_pass(void* context,
+        void* render_pass, uint64_t cpp_abi_fingerprint);
+    static void set_canvas2d_overlay(void* context, void* draw_data,
+        void* imgui_context);
     DraxulPluginViewportV2 plugin_viewport() const;
     void send_input(DraxulPluginInputEventV2 event);
     void send_focus(bool focused);
@@ -113,6 +117,9 @@ private:
     std::unique_ptr<IRenderPass> render_pass_;
     IGridRenderer* renderer_ = nullptr;
     IImGuiHost* imgui_host_ = nullptr;
+    IRenderPass* canvas2d_render_pass_ = nullptr;
+    void* canvas2d_draw_data_ = nullptr;
+    void* canvas2d_imgui_context_ = nullptr;
     std::atomic<IHostCallbacks*> callbacks_{ nullptr };
     void* instance_ = nullptr;
     HostViewport viewport_;
