@@ -54,6 +54,8 @@ draxul tab create --space <space-id> --name <name> --plugin <plugin-id> \
 The bundled `dev.draxul.spinning-triangle` module is a real dynamically loaded
 Vulkan/Metal sample. Its configuration accepts `speed_radians_per_second`,
 `initial_angle`, and `paused`; Space toggles pause and left-click reverses it.
+CTest loads this plugin from the staged application bundle so manifest/library
+filename drift and dynamic-loader or ABI failures are caught on both platforms.
 
 ---
 

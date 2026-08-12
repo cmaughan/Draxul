@@ -402,6 +402,8 @@ add_custom_command(TARGET draxul POST_BUILD
     VERBATIM)
 if(APPLE)
     add_custom_command(TARGET draxul POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E rm -f
+            "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/draxul-spinning-triangle.so"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${TRIANGLE_METALLIB}"
             "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.metallib")
@@ -591,6 +593,19 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
+    if(WIN32 OR APPLE)
+        # Exercise discovery and dlopen/LoadLibrary from the staged application,
+        # catching drift between the manifest and the target's platform suffix.
+        add_test(NAME draxul-bundled-plugin-smoke
+            COMMAND $<TARGET_FILE:draxul> plugin get
+                dev.draxul.spinning-triangle --json)
+        set_tests_properties(draxul-bundled-plugin-smoke
+            PROPERTIES
+                LABELS "integration;plugin;smoke"
+                PASS_REGULAR_EXPRESSION "\"available\": true"
+                TIMEOUT 20)
+    endif()
+
     if(WIN32)
         find_program(DRAXUL_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
         if(DRAXUL_POWERSHELL_EXECUTABLE)

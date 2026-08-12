@@ -16,6 +16,12 @@ set_target_properties(draxul-spinning-triangle PROPERTIES
     OUTPUT_NAME "draxul-spinning-triangle")
 
 if(APPLE)
+    # CMake gives MODULE libraries a .so suffix on macOS by default, while
+    # Draxul's macOS plugin contract and this plugin's manifest use .dylib.
+    # Keep the produced and staged module name identical to the manifest so
+    # discovery can load the bundled Metal plugin.
+    set_target_properties(draxul-spinning-triangle PROPERTIES
+        SUFFIX ".dylib")
     target_link_libraries(draxul-spinning-triangle PRIVATE
         "-framework Metal"
         "-framework Foundation")
