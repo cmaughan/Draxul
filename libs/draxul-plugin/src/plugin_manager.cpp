@@ -107,7 +107,7 @@ PluginManifest parse_manifest(const std::filesystem::path& path, bool user_insta
         const auto version = table_string(document, "version");
         const auto abi = document["abi_version"].value<int64_t>();
         if (!schema || *schema != 1 || !id || !name || !version || !abi
-            || *abi != DRAXUL_PLUGIN_ABI_V1 || !PluginManager::valid_plugin_id(*id))
+            || *abi != DRAXUL_PLUGIN_ABI_VERSION || !PluginManager::valid_plugin_id(*id))
         {
             result.error = "Invalid plugin manifest metadata";
             result.id = id.value_or(path.parent_path().filename().string());
@@ -258,7 +258,7 @@ std::shared_ptr<LoadedPlugin> PluginManager::load(std::string_view id, std::stri
     void* module = open_module(manifest->library_path, error);
     if (!module)
         return {};
-    const auto query = reinterpret_cast<DraxulPluginQueryFn>(
+    const auto query = reinterpret_cast<DraxulPluginQueryFnV2>(
         module_symbol(module, DRAXUL_PLUGIN_QUERY_SYMBOL));
     if (!query)
     {
@@ -266,9 +266,9 @@ std::shared_ptr<LoadedPlugin> PluginManager::load(std::string_view id, std::stri
         close_module(module);
         return {};
     }
-    const DraxulPluginApiV1* api = query(DRAXUL_PLUGIN_ABI_V1);
-    if (!api || api->struct_size < sizeof(DraxulPluginApiV1)
-        || api->abi_version != DRAXUL_PLUGIN_ABI_V1 || !api->plugin_id
+    const DraxulPluginApiV2* api = query(DRAXUL_PLUGIN_ABI_VERSION);
+    if (!api || api->struct_size < sizeof(DraxulPluginApiV2)
+        || api->abi_version != DRAXUL_PLUGIN_ABI_VERSION || !api->plugin_id
         || !api->display_name || !api->plugin_version
         || manifest->id != api->plugin_id
         || manifest->name != api->display_name

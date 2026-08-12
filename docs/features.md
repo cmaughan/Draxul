@@ -38,9 +38,19 @@ restart.
 The server stores only the stable plugin ID and bounded JSON configuration. Each
 attached UI loads its own installed module, so an unavailable or incompatible
 plugin leaves the shared pane intact and shows an actionable placeholder. The
-versioned C ABI in `libs/draxul-plugin/include/draxul/plugin_api.h` supplies
+current-only C ABI v2 in `libs/draxul-plugin/include/draxul/plugin_api.h` supplies
 Vulkan or Metal command-buffer access without transferring swapchain, submission,
-or presentation ownership. Hidden tabs and Spaces stop plugin animation deadlines.
+or presentation ownership. Draxul is pre-release, so the loader intentionally has
+no v1 compatibility path: bundled modules, fixtures, manifests, and the SDK move
+together when the ABI changes.
+
+ABI v2 separates render deadlines from main-thread logic deadlines. Thread-safe
+callbacks can request either kind of work, and plugins quiesce background/device
+callbacks before Draxul waits for renderer idle and destroys the instance. An
+optional presentation extension supplies per-instance display/status text,
+background, cursor, actions, readiness, and print hints. Hidden tabs and Spaces
+stop render animation deadlines; plugins explicitly decide whether any non-render
+logic continues while hidden.
 
 ```text
 draxul plugin list --json
@@ -53,7 +63,9 @@ draxul tab create --space <space-id> --name <name> --plugin <plugin-id> \
 
 The bundled `dev.draxul.spinning-triangle` module is a real dynamically loaded
 Vulkan/Metal sample. Its configuration accepts `speed_radians_per_second`,
-`initial_angle`, and `paused`; Space toggles pause and left-click reverses it.
+`initial_angle`, and `paused`; Space toggles pause and left-click reverses it. Its
+rotation is driven by ABI v2 logic ticks rather than render callbacks, and its
+pause/direction state is also exposed through presentation status and actions.
 
 ---
 

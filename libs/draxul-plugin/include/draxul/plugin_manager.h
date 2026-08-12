@@ -34,16 +34,16 @@ public:
     LoadedPlugin& operator=(const LoadedPlugin&) = delete;
 
     const PluginManifest& manifest() const noexcept { return manifest_; }
-    const DraxulPluginApiV1& api() const noexcept { return *api_; }
+    const DraxulPluginApiV2& api() const noexcept { return *api_; }
 
 private:
     friend class PluginManager;
-    LoadedPlugin(PluginManifest manifest, void* module, const DraxulPluginApiV1* api)
+    LoadedPlugin(PluginManifest manifest, void* module, const DraxulPluginApiV2* api)
         : manifest_(std::move(manifest)), module_(module), api_(api) {}
 
     PluginManifest manifest_;
     void* module_ = nullptr;
-    const DraxulPluginApiV1* api_ = nullptr;
+    const DraxulPluginApiV2* api_ = nullptr;
 };
 
 class PluginManager

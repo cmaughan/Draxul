@@ -13,26 +13,32 @@ extern "C" {
 #define DRAXUL_PLUGIN_EXPORT __attribute__((visibility("default")))
 #endif
 
-#define DRAXUL_PLUGIN_ABI_V1 1u
-#define DRAXUL_PLUGIN_QUERY_SYMBOL "draxul_plugin_query"
+// Draxul is pre-release and accepts only this ABI. Changes to the native
+// contract update the host, bundled plugins, fixtures, and manifest together;
+// there is deliberately no v1 compatibility loader.
+#define DRAXUL_PLUGIN_ABI_VERSION 2u
+#define DRAXUL_PLUGIN_QUERY_SYMBOL "draxul_plugin_query_v2"
 #define DRAXUL_PLUGIN_NO_DEADLINE UINT64_MAX
 
-typedef enum DraxulPluginBackendV1
+#define DRAXUL_PLUGIN_PRESENTATION_EXTENSION_ID "draxul.presentation"
+#define DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION 1u
+
+typedef enum DraxulPluginBackendV2
 {
     DRAXUL_PLUGIN_BACKEND_NONE = 0,
     DRAXUL_PLUGIN_BACKEND_VULKAN = 1u << 0,
     DRAXUL_PLUGIN_BACKEND_METAL = 1u << 1,
-} DraxulPluginBackendV1;
+} DraxulPluginBackendV2;
 
-typedef enum DraxulPluginLogLevelV1
+typedef enum DraxulPluginLogLevelV2
 {
     DRAXUL_PLUGIN_LOG_DEBUG = 0,
     DRAXUL_PLUGIN_LOG_INFO = 1,
     DRAXUL_PLUGIN_LOG_WARNING = 2,
     DRAXUL_PLUGIN_LOG_ERROR = 3,
-} DraxulPluginLogLevelV1;
+} DraxulPluginLogLevelV2;
 
-typedef enum DraxulPluginInputKindV1
+typedef enum DraxulPluginInputKindV2
 {
     DRAXUL_PLUGIN_INPUT_KEY = 1,
     DRAXUL_PLUGIN_INPUT_TEXT = 2,
@@ -41,9 +47,24 @@ typedef enum DraxulPluginInputKindV1
     DRAXUL_PLUGIN_INPUT_POINTER_MOVE = 5,
     DRAXUL_PLUGIN_INPUT_WHEEL = 6,
     DRAXUL_PLUGIN_INPUT_FOCUS = 7,
-} DraxulPluginInputKindV1;
+} DraxulPluginInputKindV2;
 
-typedef struct DraxulPluginViewportV1
+typedef enum DraxulPluginMouseCursorV2
+{
+    DRAXUL_PLUGIN_CURSOR_UNSPECIFIED = 0,
+    DRAXUL_PLUGIN_CURSOR_DEFAULT = 1,
+    DRAXUL_PLUGIN_CURSOR_RESIZE_LEFT_RIGHT = 2,
+    DRAXUL_PLUGIN_CURSOR_RESIZE_UP_DOWN = 3,
+    DRAXUL_PLUGIN_CURSOR_POINTER = 4,
+} DraxulPluginMouseCursorV2;
+
+typedef struct DraxulPluginStringViewV2
+{
+    const char* data;
+    size_t length;
+} DraxulPluginStringViewV2;
+
+typedef struct DraxulPluginViewportV2
 {
     uint32_t struct_size;
     int32_t x;
@@ -52,9 +73,9 @@ typedef struct DraxulPluginViewportV1
     int32_t height;
     float pixel_scale;
     float display_ppi;
-} DraxulPluginViewportV1;
+} DraxulPluginViewportV2;
 
-typedef struct DraxulPluginInputEventV1
+typedef struct DraxulPluginInputEventV2
 {
     uint32_t struct_size;
     uint32_t kind;
@@ -73,29 +94,59 @@ typedef struct DraxulPluginInputEventV1
     size_t text_length;
     int32_t composition_start;
     int32_t composition_length;
-} DraxulPluginInputEventV1;
+} DraxulPluginInputEventV2;
 
-typedef struct DraxulPluginHostApiV1
+// Optional host services are copied into the caller-provided table. A service
+// query returns non-zero only when the complete requested table was supplied.
+typedef int32_t (*DraxulPluginQueryHostServiceFnV2)(void* host_context,
+    const char* service_id, size_t service_id_length, uint32_t requested_version,
+    void* service_table, size_t service_table_size);
+
+typedef struct DraxulPluginHostApiV2
 {
     uint32_t struct_size;
     uint32_t abi_version;
     void* host_context;
+    // Thread-safe. Requests a render of the pane at the next application frame.
     void (*request_redraw)(void* host_context);
-    void (*log)(void* host_context, uint32_t level, const char* message, size_t message_length);
-} DraxulPluginHostApiV1;
+    // Thread-safe. Requests a main-thread tick without implying a render.
+    void (*request_tick)(void* host_context);
+    // Thread-safe. Invalidates chrome metadata such as status and background.
+    void (*notify_presentation_changed)(void* host_context);
+    void (*log)(void* host_context, uint32_t level,
+        const char* message, size_t message_length);
+    DraxulPluginQueryHostServiceFnV2 query_service;
+} DraxulPluginHostApiV2;
 
-typedef struct DraxulPluginCreateInfoV1
+typedef struct DraxulPluginCreateInfoV2
 {
     uint32_t struct_size;
-    const DraxulPluginHostApiV1* host;
+    const DraxulPluginHostApiV2* host;
     const char* plugin_id;
     const char* plugin_directory_utf8;
     const char* config_json;
     size_t config_json_length;
-    DraxulPluginViewportV1 initial_viewport;
-} DraxulPluginCreateInfoV1;
+    DraxulPluginViewportV2 initial_viewport;
+} DraxulPluginCreateInfoV2;
 
-typedef struct DraxulPluginVulkanFrameV1
+typedef struct DraxulPluginTickInfoV2
+{
+    uint32_t struct_size;
+    double monotonic_seconds;
+    int32_t visible;
+    int32_t focused;
+} DraxulPluginTickInfoV2;
+
+typedef struct DraxulPluginTickResultV2
+{
+    uint32_t struct_size;
+    uint64_t next_tick_delay_ns;
+    int32_t request_redraw;
+    int32_t ok;
+    const char* error_message;
+} DraxulPluginTickResultV2;
+
+typedef struct DraxulPluginVulkanFrameV2
 {
     uint32_t struct_size;
     void* instance;
@@ -113,11 +164,11 @@ typedef struct DraxulPluginVulkanFrameV1
     uint64_t target_generation;
     int32_t framebuffer_width;
     int32_t framebuffer_height;
-    DraxulPluginViewportV1 viewport;
+    DraxulPluginViewportV2 viewport;
     double monotonic_seconds;
-} DraxulPluginVulkanFrameV1;
+} DraxulPluginVulkanFrameV2;
 
-typedef struct DraxulPluginMetalFrameV1
+typedef struct DraxulPluginMetalFrameV2
 {
     uint32_t struct_size;
     void* device;
@@ -129,19 +180,63 @@ typedef struct DraxulPluginMetalFrameV1
     uint32_t buffered_frame_count;
     int32_t framebuffer_width;
     int32_t framebuffer_height;
-    DraxulPluginViewportV1 viewport;
+    DraxulPluginViewportV2 viewport;
     double monotonic_seconds;
-} DraxulPluginMetalFrameV1;
+} DraxulPluginMetalFrameV2;
 
-typedef struct DraxulPluginRenderResultV1
+typedef struct DraxulPluginRenderResultV2
 {
     uint32_t struct_size;
     uint64_t next_frame_delay_ns;
     int32_t ok;
     const char* error_message;
-} DraxulPluginRenderResultV1;
+} DraxulPluginRenderResultV2;
 
-typedef struct DraxulPluginApiV1
+typedef struct DraxulPluginPrintHintV2
+{
+    int32_t content_x;
+    int32_t content_y;
+    int32_t content_width;
+    int32_t content_height;
+    int32_t paper_white;
+} DraxulPluginPrintHintV2;
+
+// String views returned in this snapshot need remain valid only until
+// get_state returns; Draxul copies them immediately.
+typedef struct DraxulPluginPresentationStateV2
+{
+    uint32_t struct_size;
+    DraxulPluginStringViewV2 display_name;
+    DraxulPluginStringViewV2 status_text;
+    float background_red;
+    float background_green;
+    float background_blue;
+    float background_alpha;
+    int32_t content_ready;
+    uint32_t mouse_cursor;
+    DraxulPluginPrintHintV2 print_hint;
+} DraxulPluginPresentationStateV2;
+
+typedef struct DraxulPluginPresentationExtensionV2
+{
+    uint32_t struct_size;
+    uint32_t extension_version;
+    int32_t (*get_state)(void* instance,
+        DraxulPluginPresentationStateV2* state);
+    int32_t (*dispatch_action)(void* instance,
+        const char* action, size_t action_length);
+    size_t (*action_count)(void* instance);
+    int32_t (*action_at)(void* instance, size_t index,
+        DraxulPluginStringViewV2* action_id,
+        DraxulPluginStringViewV2* display_name);
+} DraxulPluginPresentationExtensionV2;
+
+typedef int32_t (*DraxulPluginQueryExtensionFnV2)(void* instance,
+    const char* extension_id, size_t extension_id_length,
+    uint32_t requested_version, void* extension_table,
+    size_t extension_table_size);
+
+typedef struct DraxulPluginApiV2
 {
     uint32_t struct_size;
     uint32_t abi_version;
@@ -149,19 +244,29 @@ typedef struct DraxulPluginApiV1
     const char* display_name;
     const char* plugin_version;
     uint32_t supported_backends;
-    void* (*create_instance)(const DraxulPluginCreateInfoV1* create_info);
+    void* (*create_instance)(const DraxulPluginCreateInfoV2* create_info);
+    // Stops background work and external callbacks. GPU resources remain alive
+    // until destroy_instance, which Draxul calls only after renderer idle.
+    void (*quiesce_instance)(void* instance);
     void (*destroy_instance)(void* instance);
-    void (*set_viewport)(void* instance, const DraxulPluginViewportV1* viewport);
+    void (*set_viewport)(void* instance, const DraxulPluginViewportV2* viewport);
     void (*set_visible)(void* instance, int32_t visible);
     void (*set_focused)(void* instance, int32_t focused);
-    int32_t (*handle_input)(void* instance, const DraxulPluginInputEventV1* event);
-    DraxulPluginRenderResultV1 (*render_vulkan)(void* instance, const DraxulPluginVulkanFrameV1* frame);
-    DraxulPluginRenderResultV1 (*render_metal)(void* instance, const DraxulPluginMetalFrameV1* frame);
-} DraxulPluginApiV1;
+    int32_t (*handle_input)(void* instance, const DraxulPluginInputEventV2* event);
+    DraxulPluginTickResultV2 (*tick)(void* instance,
+        const DraxulPluginTickInfoV2* tick_info);
+    DraxulPluginRenderResultV2 (*render_vulkan)(void* instance,
+        const DraxulPluginVulkanFrameV2* frame);
+    DraxulPluginRenderResultV2 (*render_metal)(void* instance,
+        const DraxulPluginMetalFrameV2* frame);
+    DraxulPluginQueryExtensionFnV2 query_extension;
+} DraxulPluginApiV2;
 
-typedef const DraxulPluginApiV1* (*DraxulPluginQueryFn)(uint32_t requested_abi);
+typedef const DraxulPluginApiV2* (*DraxulPluginQueryFnV2)(
+    uint32_t requested_abi);
 
-DRAXUL_PLUGIN_EXPORT const DraxulPluginApiV1* draxul_plugin_query(uint32_t requested_abi);
+DRAXUL_PLUGIN_EXPORT const DraxulPluginApiV2* draxul_plugin_query_v2(
+    uint32_t requested_abi);
 
 #ifdef __cplusplus
 }

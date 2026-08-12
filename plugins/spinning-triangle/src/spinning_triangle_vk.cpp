@@ -7,7 +7,9 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace
@@ -25,15 +27,18 @@ struct PushConstants
 
 struct TriangleInstance
 {
-    const DraxulPluginHostApiV1* host = nullptr;
+    const DraxulPluginHostApiV2* host = nullptr;
     std::filesystem::path directory;
-    DraxulPluginViewportV1 viewport{};
+    DraxulPluginViewportV2 viewport{};
     float speed = 1.0f;
     float angle = 0.0f;
     float direction = 1.0f;
     double last_time = -1.0;
     bool paused = false;
     bool visible = true;
+    bool focused = false;
+    bool quiesced = false;
+    std::string status;
     VkDevice device = VK_NULL_HANDLE;
     VkRenderPass render_pass = VK_NULL_HANDLE;
     VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
@@ -49,6 +54,22 @@ void log(TriangleInstance* instance, uint32_t level,
         instance->host->log(instance->host->host_context,
             level, message.data(), message.size());
     }
+}
+
+void notify_presentation(TriangleInstance* instance)
+{
+    if (instance && instance->host
+        && instance->host->notify_presentation_changed)
+    {
+        instance->host->notify_presentation_changed(
+            instance->host->host_context);
+    }
+}
+
+void request_tick(TriangleInstance* instance)
+{
+    if (instance && instance->host && instance->host->request_tick)
+        instance->host->request_tick(instance->host->host_context);
 }
 
 std::vector<uint32_t> read_spirv(const std::filesystem::path& path)
@@ -78,7 +99,7 @@ void destroy_pipeline(TriangleInstance& instance)
 }
 
 bool create_pipeline(TriangleInstance& instance,
-    const DraxulPluginVulkanFrameV1& frame, std::string& error)
+    const DraxulPluginVulkanFrameV2& frame, std::string& error)
 {
     instance.device = static_cast<VkDevice>(frame.device);
     const auto vertex_words = read_spirv(
@@ -201,14 +222,21 @@ bool create_pipeline(TriangleInstance& instance,
     return true;
 }
 
-DraxulPluginRenderResultV1 render_result(bool ok,
+DraxulPluginRenderResultV2 render_result(bool ok,
     uint64_t deadline, const char* error = nullptr)
 {
-    return { sizeof(DraxulPluginRenderResultV1), deadline,
+    return { sizeof(DraxulPluginRenderResultV2), deadline,
         ok ? 1 : 0, error };
 }
 
-void* create_instance(const DraxulPluginCreateInfoV1* info)
+DraxulPluginTickResultV2 tick_result(bool ok, uint64_t deadline,
+    bool redraw = false, const char* error = nullptr)
+{
+    return { sizeof(DraxulPluginTickResultV2), deadline,
+        redraw ? 1 : 0, ok ? 1 : 0, error };
+}
+
+void* create_instance(const DraxulPluginCreateInfoV2* info)
 {
     if (!info || !info->host)
         return nullptr;
@@ -247,7 +275,14 @@ void destroy_instance(void* opaque)
     delete instance;
 }
 
-void set_viewport(void* opaque, const DraxulPluginViewportV1* viewport)
+void quiesce_instance(void* opaque)
+{
+    auto* instance = static_cast<TriangleInstance*>(opaque);
+    if (instance)
+        instance->quiesced = true;
+}
+
+void set_viewport(void* opaque, const DraxulPluginViewportV2* viewport)
 {
     if (opaque && viewport)
         static_cast<TriangleInstance*>(opaque)->viewport = *viewport;
@@ -260,14 +295,42 @@ void set_visible(void* opaque, int32_t visible)
         return;
     instance->visible = visible != 0;
     instance->last_time = -1.0;
+    request_tick(instance);
     if (instance->visible && instance->host->request_redraw)
         instance->host->request_redraw(instance->host->host_context);
+    notify_presentation(instance);
 }
 
-void set_focused(void*, int32_t) {}
+void set_focused(void* opaque, int32_t focused)
+{
+    auto* instance = static_cast<TriangleInstance*>(opaque);
+    if (!instance)
+        return;
+    instance->focused = focused != 0;
+    notify_presentation(instance);
+}
+
+void toggle_pause(TriangleInstance* instance)
+{
+    instance->paused = !instance->paused;
+    instance->last_time = -1.0;
+    request_tick(instance);
+    if (instance->host->request_redraw)
+        instance->host->request_redraw(instance->host->host_context);
+    notify_presentation(instance);
+}
+
+void reverse_direction(TriangleInstance* instance)
+{
+    instance->direction = -instance->direction;
+    request_tick(instance);
+    if (instance->host->request_redraw)
+        instance->host->request_redraw(instance->host->host_context);
+    notify_presentation(instance);
+}
 
 int32_t handle_input(void* opaque,
-    const DraxulPluginInputEventV1* event)
+    const DraxulPluginInputEventV2* event)
 {
     auto* instance = static_cast<TriangleInstance*>(opaque);
     if (!instance || !event)
@@ -275,22 +338,44 @@ int32_t handle_input(void* opaque,
     if (event->kind == DRAXUL_PLUGIN_INPUT_KEY
         && event->pressed && event->logical_key == 32)
     {
-        instance->paused = !instance->paused;
+        toggle_pause(instance);
     }
     else if (event->kind == DRAXUL_PLUGIN_INPUT_POINTER_BUTTON
         && event->pressed && event->button == 1)
     {
-        instance->direction = -instance->direction;
+        reverse_direction(instance);
     }
     else
         return 0;
-    if (instance->host->request_redraw)
-        instance->host->request_redraw(instance->host->host_context);
     return 1;
 }
 
-DraxulPluginRenderResultV1 render_vulkan(void* opaque,
-    const DraxulPluginVulkanFrameV1* frame)
+DraxulPluginTickResultV2 tick(void* opaque,
+    const DraxulPluginTickInfoV2* info)
+{
+    auto* instance = static_cast<TriangleInstance*>(opaque);
+    if (!instance || !info)
+        return tick_result(false, DRAXUL_PLUGIN_NO_DEADLINE,
+            false, "Spinning Triangle received an invalid tick");
+    if (instance->quiesced || !instance->visible || !info->visible
+        || instance->paused)
+    {
+        instance->last_time = -1.0;
+        return tick_result(true, DRAXUL_PLUGIN_NO_DEADLINE);
+    }
+    if (instance->last_time >= 0.0)
+    {
+        const double elapsed = std::clamp(
+            info->monotonic_seconds - instance->last_time, 0.0, 0.1);
+        instance->angle += instance->speed * instance->direction
+            * static_cast<float>(elapsed);
+    }
+    instance->last_time = info->monotonic_seconds;
+    return tick_result(true, kFrameDelayNs, true);
+}
+
+DraxulPluginRenderResultV2 render_vulkan(void* opaque,
+    const DraxulPluginVulkanFrameV2* frame)
 {
     auto* instance = static_cast<TriangleInstance*>(opaque);
     if (!instance || !frame || !instance->visible)
@@ -308,14 +393,6 @@ DraxulPluginRenderResultV1 render_vulkan(void* opaque,
                 error.c_str());
         }
     }
-    if (instance->last_time >= 0.0 && !instance->paused)
-    {
-        instance->angle += instance->speed * instance->direction
-            * static_cast<float>(frame->monotonic_seconds
-                - instance->last_time);
-    }
-    instance->last_time = frame->monotonic_seconds;
-
     const auto command_buffer
         = static_cast<VkCommandBuffer>(frame->command_buffer);
     VkRenderPassBeginInfo begin{
@@ -360,30 +437,125 @@ DraxulPluginRenderResultV1 render_vulkan(void* opaque,
         VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
     vkCmdDraw(command_buffer, 3, 1, 0, 0);
     vkCmdEndRenderPass(command_buffer);
-    return render_result(true, instance->paused
-            ? DRAXUL_PLUGIN_NO_DEADLINE : kFrameDelayNs);
+    return render_result(true, DRAXUL_PLUGIN_NO_DEADLINE);
 }
 
-DraxulPluginRenderResultV1 render_metal(void*,
-    const DraxulPluginMetalFrameV1*)
+DraxulPluginRenderResultV2 render_metal(void*,
+    const DraxulPluginMetalFrameV2*)
 {
     return render_result(false, DRAXUL_PLUGIN_NO_DEADLINE,
         "Metal is not supported by this module build");
 }
 
-const DraxulPluginApiV1 kApi = {
-    sizeof(DraxulPluginApiV1), DRAXUL_PLUGIN_ABI_V1,
-    kPluginId, "Spinning Triangle", "0.1.0",
-    DRAXUL_PLUGIN_BACKEND_VULKAN,
-    &create_instance, &destroy_instance, &set_viewport,
-    &set_visible, &set_focused, &handle_input,
-    &render_vulkan, &render_metal,
+int32_t get_presentation_state(void* opaque,
+    DraxulPluginPresentationStateV2* state)
+{
+    auto* instance = static_cast<TriangleInstance*>(opaque);
+    if (!instance || !state
+        || state->struct_size < sizeof(DraxulPluginPresentationStateV2))
+        return 0;
+    instance->status = instance->paused ? "paused" : "running";
+    instance->status += instance->direction < 0.0f
+        ? " counter-clockwise" : " clockwise";
+    if (!instance->visible)
+        instance->status += " | hidden";
+    if (instance->focused)
+        instance->status += " | focused";
+    *state = {};
+    state->struct_size = sizeof(*state);
+    state->display_name = { "Spinning Triangle", 17 };
+    state->status_text = {
+        instance->status.data(), instance->status.size() };
+    state->background_red = 0.04f;
+    state->background_green = 0.05f;
+    state->background_blue = 0.08f;
+    state->background_alpha = 1.0f;
+    state->content_ready = instance->quiesced ? 0 : 1;
+    state->mouse_cursor = DRAXUL_PLUGIN_CURSOR_POINTER;
+    return 1;
+}
+
+int32_t dispatch_action(void* opaque, const char* action,
+    size_t action_length)
+{
+    auto* instance = static_cast<TriangleInstance*>(opaque);
+    if (!instance || !action)
+        return 0;
+    const std::string_view value(action, action_length);
+    if (value == "toggle_pause")
+        toggle_pause(instance);
+    else if (value == "reverse")
+        reverse_direction(instance);
+    else
+        return 0;
+    return 1;
+}
+
+constexpr std::string_view kActionIds[] = {
+    "toggle_pause", "reverse" };
+constexpr std::string_view kActionNames[] = {
+    "Toggle Pause", "Reverse Direction" };
+
+size_t action_count(void*)
+{
+    return std::size(kActionIds);
+}
+
+int32_t action_at(void*, size_t index,
+    DraxulPluginStringViewV2* action_id,
+    DraxulPluginStringViewV2* display_name)
+{
+    if (!action_id || !display_name || index >= std::size(kActionIds))
+        return 0;
+    *action_id = { kActionIds[index].data(), kActionIds[index].size() };
+    *display_name = {
+        kActionNames[index].data(), kActionNames[index].size() };
+    return 1;
+}
+
+int32_t query_extension(void*, const char* extension_id,
+    size_t extension_id_length, uint32_t requested_version,
+    void* extension_table, size_t extension_table_size)
+{
+    if (!extension_id || !extension_table
+        || std::string_view(extension_id, extension_id_length)
+            != DRAXUL_PLUGIN_PRESENTATION_EXTENSION_ID
+        || requested_version != DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION
+        || extension_table_size < sizeof(DraxulPluginPresentationExtensionV2))
+        return 0;
+    auto* extension = static_cast<DraxulPluginPresentationExtensionV2*>(
+        extension_table);
+    *extension = {
+        sizeof(*extension), DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION,
+        &get_presentation_state, &dispatch_action,
+        &action_count, &action_at };
+    return 1;
+}
+
+const DraxulPluginApiV2 kApi = {
+    .struct_size = sizeof(DraxulPluginApiV2),
+    .abi_version = DRAXUL_PLUGIN_ABI_VERSION,
+    .plugin_id = kPluginId,
+    .display_name = "Spinning Triangle",
+    .plugin_version = "0.2.0",
+    .supported_backends = DRAXUL_PLUGIN_BACKEND_VULKAN,
+    .create_instance = &create_instance,
+    .quiesce_instance = &quiesce_instance,
+    .destroy_instance = &destroy_instance,
+    .set_viewport = &set_viewport,
+    .set_visible = &set_visible,
+    .set_focused = &set_focused,
+    .handle_input = &handle_input,
+    .tick = &tick,
+    .render_vulkan = &render_vulkan,
+    .render_metal = &render_metal,
+    .query_extension = &query_extension,
 };
 
 } // namespace
 
-extern "C" DRAXUL_PLUGIN_EXPORT const DraxulPluginApiV1*
-draxul_plugin_query(uint32_t requested_abi)
+extern "C" DRAXUL_PLUGIN_EXPORT const DraxulPluginApiV2*
+draxul_plugin_query_v2(uint32_t requested_abi)
 {
-    return requested_abi == DRAXUL_PLUGIN_ABI_V1 ? &kApi : nullptr;
+    return requested_abi == DRAXUL_PLUGIN_ABI_VERSION ? &kApi : nullptr;
 }

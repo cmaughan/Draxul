@@ -40,22 +40,42 @@ public:
     void on_mouse_button(const MouseButtonEvent& event) override;
     void on_mouse_move(const MouseMoveEvent& event) override;
     void on_mouse_wheel(const MouseWheelEvent& event) override;
-    bool dispatch_action(std::string_view) override { return false; }
+    std::optional<MouseCursor> mouse_cursor_at(int px, int py) const override;
+    bool dispatch_action(std::string_view action) override;
     void request_close() override { running_ = false; }
     std::string display_name() const override;
-    std::string status_text() const override { return error_; }
-    Color default_background() const override { return { 0.04f, 0.05f, 0.08f, 1.0f }; }
+    std::string status_text() const override;
+    Color default_background() const override;
     HostRuntimeState runtime_state() const override;
     HostDebugState debug_state() const override;
+    HostPrintHint print_hint() const override;
 
-    void accept_render_result(const DraxulPluginRenderResultV1& result);
+    void accept_render_result(const DraxulPluginRenderResultV2& result);
 
 private:
+    struct PresentationSnapshot
+    {
+        std::string display_name;
+        std::string status_text;
+        Color background{ 0.04f, 0.05f, 0.08f, 1.0f };
+        bool content_ready = true;
+        uint32_t mouse_cursor = DRAXUL_PLUGIN_CURSOR_UNSPECIFIED;
+        HostPrintHint print_hint;
+    };
+
     static void request_redraw(void* context);
+    static void request_tick(void* context);
+    static void notify_presentation_changed(void* context);
     static void log_message(void* context, uint32_t level, const char* message, size_t length);
-    DraxulPluginViewportV1 plugin_viewport() const;
-    void send_input(DraxulPluginInputEventV1 event);
+    static int32_t query_service(void* context, const char* service_id,
+        size_t service_id_length, uint32_t requested_version,
+        void* service_table, size_t service_table_size);
+    DraxulPluginViewportV2 plugin_viewport() const;
+    void send_input(DraxulPluginInputEventV2 event);
     void send_focus(bool focused);
+    void run_tick(std::chrono::steady_clock::time_point now,
+        bool& frame_needed);
+    std::optional<PresentationSnapshot> presentation_snapshot() const;
 
     std::shared_ptr<PluginManager> manager_;
     std::shared_ptr<LoadedPlugin> plugin_;
@@ -64,9 +84,14 @@ private:
     std::atomic<IHostCallbacks*> callbacks_{ nullptr };
     void* instance_ = nullptr;
     HostViewport viewport_;
-    DraxulPluginHostApiV1 host_api_{};
+    DraxulPluginHostApiV2 host_api_{};
+    DraxulPluginPresentationExtensionV2 presentation_{};
     std::atomic<bool> redraw_pending_{ false };
+    std::atomic<bool> tick_pending_{ false };
+    std::atomic<bool> presentation_pending_{ false };
+    std::atomic<bool> shutting_down_{ false };
     std::optional<std::chrono::steady_clock::time_point> next_frame_;
+    std::optional<std::chrono::steady_clock::time_point> next_tick_;
     std::chrono::steady_clock::time_point started_at_{};
     std::string plugin_id_;
     std::string plugin_directory_;
@@ -74,6 +99,8 @@ private:
     std::string error_;
     bool running_ = false;
     bool visible_ = true;
+    bool focused_ = false;
+    bool has_presentation_ = false;
 };
 
 class HostProviderRegistry;

@@ -9,9 +9,36 @@
 #include <draxul/renderer.h>
 
 #include <algorithm>
+#include <cstring>
 
 namespace draxul
 {
+namespace
+{
+
+std::string copy_string(DraxulPluginStringViewV2 value)
+{
+    return value.data ? std::string(value.data, value.length) : std::string{};
+}
+
+std::optional<MouseCursor> map_mouse_cursor(uint32_t cursor)
+{
+    switch (cursor)
+    {
+    case DRAXUL_PLUGIN_CURSOR_DEFAULT:
+        return MouseCursor::Default;
+    case DRAXUL_PLUGIN_CURSOR_RESIZE_LEFT_RIGHT:
+        return MouseCursor::ResizeLeftRight;
+    case DRAXUL_PLUGIN_CURSOR_RESIZE_UP_DOWN:
+        return MouseCursor::ResizeUpDown;
+    case DRAXUL_PLUGIN_CURSOR_POINTER:
+        return MouseCursor::Pointer;
+    default:
+        return std::nullopt;
+    }
+}
+
+} // namespace
 
 PluginHost::PluginHost(std::shared_ptr<PluginManager> manager)
     : manager_(std::move(manager))
@@ -25,6 +52,7 @@ PluginHost::~PluginHost()
 
 bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callbacks)
 {
+    shutting_down_.store(false);
     callbacks_.store(&callbacks);
     renderer_ = context.grid_renderer;
     viewport_ = context.initial_viewport;
@@ -44,15 +72,19 @@ bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callback
         return false;
     }
     plugin_directory_ = plugin_->manifest().directory.string();
+    started_at_ = std::chrono::steady_clock::now();
     host_api_ = {
         .struct_size = sizeof(host_api_),
-        .abi_version = DRAXUL_PLUGIN_ABI_V1,
+        .abi_version = DRAXUL_PLUGIN_ABI_VERSION,
         .host_context = this,
         .request_redraw = &PluginHost::request_redraw,
+        .request_tick = &PluginHost::request_tick,
+        .notify_presentation_changed = &PluginHost::notify_presentation_changed,
         .log = &PluginHost::log_message,
+        .query_service = &PluginHost::query_service,
     };
-    const DraxulPluginCreateInfoV1 create_info{
-        .struct_size = sizeof(DraxulPluginCreateInfoV1),
+    const DraxulPluginCreateInfoV2 create_info{
+        .struct_size = sizeof(DraxulPluginCreateInfoV2),
         .host = &host_api_,
         .plugin_id = plugin_id_.c_str(),
         .plugin_directory_utf8 = plugin_directory_.c_str(),
@@ -66,16 +98,35 @@ bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callback
         error_ = "Plugin instance creation failed";
         return false;
     }
-    started_at_ = std::chrono::steady_clock::now();
+
+    if (plugin_->api().query_extension)
+    {
+        presentation_ = {};
+        presentation_.struct_size = sizeof(presentation_);
+        presentation_.extension_version = DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION;
+        has_presentation_ = plugin_->api().query_extension(instance_,
+            DRAXUL_PLUGIN_PRESENTATION_EXTENSION_ID,
+            std::strlen(DRAXUL_PLUGIN_PRESENTATION_EXTENSION_ID),
+            DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION,
+            &presentation_, sizeof(presentation_))
+            && presentation_.struct_size >= sizeof(presentation_)
+            && presentation_.extension_version == DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION
+            && presentation_.get_state;
+    }
+
     render_pass_ = create_plugin_render_pass(plugin_, instance_, *this, started_at_);
     if (!render_pass_)
     {
         error_ = "Plugin does not support this renderer backend";
+        if (plugin_->api().quiesce_instance)
+            plugin_->api().quiesce_instance(instance_);
         plugin_->api().destroy_instance(instance_);
         instance_ = nullptr;
         return false;
     }
     running_ = true;
+    if (plugin_->api().tick)
+        next_tick_ = started_at_;
     callbacks.request_frame();
     return true;
 }
@@ -83,7 +134,16 @@ bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callback
 void PluginHost::shutdown()
 {
     if (!instance_)
+    {
+        callbacks_.store(nullptr);
         return;
+    }
+    shutting_down_.store(true);
+    callbacks_.store(nullptr);
+    next_frame_.reset();
+    next_tick_.reset();
+    if (plugin_->api().quiesce_instance)
+        plugin_->api().quiesce_instance(instance_);
     render_pass_.reset();
     if (renderer_)
         renderer_->wait_idle();
@@ -91,14 +151,14 @@ void PluginHost::shutdown()
     instance_ = nullptr;
     plugin_.reset();
     running_ = false;
-    callbacks_.store(nullptr);
+    has_presentation_ = false;
     renderer_ = nullptr;
 }
 
-DraxulPluginViewportV1 PluginHost::plugin_viewport() const
+DraxulPluginViewportV2 PluginHost::plugin_viewport() const
 {
     return {
-        .struct_size = sizeof(DraxulPluginViewportV1),
+        .struct_size = sizeof(DraxulPluginViewportV2),
         .x = viewport_.pixel_pos.x,
         .y = viewport_.pixel_pos.y,
         .width = viewport_.pixel_size.x,
@@ -136,6 +196,8 @@ void PluginHost::set_presentation_visible(bool visible)
         next_frame_.reset();
     if (instance_ && plugin_->api().set_visible)
         plugin_->api().set_visible(instance_, visible ? 1 : 0);
+    if (instance_ && plugin_->api().tick)
+        next_tick_ = std::chrono::steady_clock::now();
     if (visible)
     {
         if (auto* callbacks = callbacks_.load())
@@ -143,16 +205,48 @@ void PluginHost::set_presentation_visible(bool visible)
     }
 }
 
+void PluginHost::run_tick(std::chrono::steady_clock::time_point now,
+    bool& frame_needed)
+{
+    if (!instance_ || !plugin_->api().tick)
+        return;
+    DraxulPluginTickInfoV2 info{
+        .struct_size = sizeof(info),
+        .monotonic_seconds = std::chrono::duration<double>(now - started_at_).count(),
+        .visible = visible_ ? 1 : 0,
+        .focused = focused_ ? 1 : 0,
+    };
+    const DraxulPluginTickResultV2 result = plugin_->api().tick(instance_, &info);
+    if (!result.ok)
+    {
+        error_ = result.error_message ? result.error_message : "Plugin tick failed";
+        next_tick_.reset();
+        return;
+    }
+    if (result.request_redraw && visible_)
+        frame_needed = true;
+    if (result.next_tick_delay_ns != DRAXUL_PLUGIN_NO_DEADLINE)
+        next_tick_ = now + std::chrono::nanoseconds(result.next_tick_delay_ns);
+    else
+        next_tick_.reset();
+}
+
 void PluginHost::pump()
 {
-    bool frame_needed = redraw_pending_.exchange(false);
-    if (visible_ && next_frame_
-        && std::chrono::steady_clock::now() >= *next_frame_)
+    const auto now = std::chrono::steady_clock::now();
+    bool frame_needed = redraw_pending_.exchange(false)
+        || presentation_pending_.exchange(false);
+    const bool tick_due = tick_pending_.exchange(false)
+        || (next_tick_ && now >= *next_tick_);
+    if (tick_due)
     {
-        // A host deadline only wakes the application loop. Convert the
-        // elapsed deadline into an explicit frame request, and consume it so
-        // the loop cannot spin before the render callback supplies the next
-        // animation deadline.
+        next_tick_.reset();
+        run_tick(now, frame_needed);
+    }
+    if (visible_ && next_frame_ && now >= *next_frame_)
+    {
+        // A render deadline only wakes the application loop. Consume it so the
+        // loop cannot spin before the render callback supplies another one.
         next_frame_.reset();
         frame_needed = true;
     }
@@ -179,10 +273,13 @@ void PluginHost::draw(IFrameContext& frame)
 
 std::optional<std::chrono::steady_clock::time_point> PluginHost::next_deadline() const
 {
-    return visible_ ? next_frame_ : std::nullopt;
+    std::optional<std::chrono::steady_clock::time_point> result = next_tick_;
+    if (visible_ && next_frame_ && (!result || *next_frame_ < *result))
+        result = next_frame_;
+    return result;
 }
 
-void PluginHost::accept_render_result(const DraxulPluginRenderResultV1& result)
+void PluginHost::accept_render_result(const DraxulPluginRenderResultV2& result)
 {
     if (!result.ok)
     {
@@ -202,7 +299,29 @@ void PluginHost::accept_render_result(const DraxulPluginRenderResultV1& result)
 void PluginHost::request_redraw(void* context)
 {
     auto* host = static_cast<PluginHost*>(context);
+    if (!host || host->shutting_down_.load())
+        return;
     host->redraw_pending_.store(true);
+    if (auto* callbacks = host->callbacks_.load())
+        callbacks->wake_window();
+}
+
+void PluginHost::request_tick(void* context)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    if (!host || host->shutting_down_.load())
+        return;
+    host->tick_pending_.store(true);
+    if (auto* callbacks = host->callbacks_.load())
+        callbacks->wake_window();
+}
+
+void PluginHost::notify_presentation_changed(void* context)
+{
+    auto* host = static_cast<PluginHost*>(context);
+    if (!host || host->shutting_down_.load())
+        return;
+    host->presentation_pending_.store(true);
     if (auto* callbacks = host->callbacks_.load())
         callbacks->wake_window();
 }
@@ -216,7 +335,15 @@ void PluginHost::log_message(void*, uint32_t level, const char* message, size_t 
     log_printf(mapped, LogCategory::Renderer, "Plugin: %s", text.c_str());
 }
 
-void PluginHost::send_input(DraxulPluginInputEventV1 event)
+int32_t PluginHost::query_service(void*, const char*, size_t, uint32_t,
+    void*, size_t)
+{
+    // Slice 1 establishes negotiation. Concrete host services are added by
+    // their consuming vertical slices.
+    return 0;
+}
+
+void PluginHost::send_input(DraxulPluginInputEventV2 event)
 {
     if (instance_ && plugin_->api().handle_input)
         plugin_->api().handle_input(instance_, &event);
@@ -224,9 +351,10 @@ void PluginHost::send_input(DraxulPluginInputEventV1 event)
 
 void PluginHost::send_focus(bool focused)
 {
+    focused_ = focused;
     if (instance_ && plugin_->api().set_focused)
         plugin_->api().set_focused(instance_, focused ? 1 : 0);
-    DraxulPluginInputEventV1 event{};
+    DraxulPluginInputEventV2 event{};
     event.struct_size = sizeof(event);
     event.kind = DRAXUL_PLUGIN_INPUT_FOCUS;
     event.pressed = focused ? 1 : 0;
@@ -238,7 +366,7 @@ void PluginHost::on_focus_lost() { send_focus(false); }
 
 void PluginHost::on_key(const KeyEvent& source)
 {
-    DraxulPluginInputEventV1 event{};
+    DraxulPluginInputEventV2 event{};
     event.struct_size = sizeof(event);
     event.kind = DRAXUL_PLUGIN_INPUT_KEY;
     event.modifiers = source.mod;
@@ -250,7 +378,7 @@ void PluginHost::on_key(const KeyEvent& source)
 
 void PluginHost::on_text_input(const TextInputEvent& source)
 {
-    DraxulPluginInputEventV1 event{};
+    DraxulPluginInputEventV2 event{};
     event.struct_size = sizeof(event);
     event.kind = DRAXUL_PLUGIN_INPUT_TEXT;
     event.text_utf8 = source.text.data();
@@ -260,7 +388,7 @@ void PluginHost::on_text_input(const TextInputEvent& source)
 
 void PluginHost::on_text_editing(const TextEditingEvent& source)
 {
-    DraxulPluginInputEventV1 event{};
+    DraxulPluginInputEventV2 event{};
     event.struct_size = sizeof(event);
     event.kind = DRAXUL_PLUGIN_INPUT_COMPOSITION;
     event.text_utf8 = source.text.data();
@@ -272,7 +400,7 @@ void PluginHost::on_text_editing(const TextEditingEvent& source)
 
 void PluginHost::on_mouse_button(const MouseButtonEvent& source)
 {
-    DraxulPluginInputEventV1 event{};
+    DraxulPluginInputEventV2 event{};
     event.struct_size = sizeof(event);
     event.kind = DRAXUL_PLUGIN_INPUT_POINTER_BUTTON;
     event.modifiers = source.mod;
@@ -286,7 +414,7 @@ void PluginHost::on_mouse_button(const MouseButtonEvent& source)
 
 void PluginHost::on_mouse_move(const MouseMoveEvent& source)
 {
-    DraxulPluginInputEventV1 event{};
+    DraxulPluginInputEventV2 event{};
     event.struct_size = sizeof(event);
     event.kind = DRAXUL_PLUGIN_INPUT_POINTER_MOVE;
     event.modifiers = source.mod;
@@ -300,7 +428,7 @@ void PluginHost::on_mouse_move(const MouseMoveEvent& source)
 
 void PluginHost::on_mouse_wheel(const MouseWheelEvent& source)
 {
-    DraxulPluginInputEventV1 event{};
+    DraxulPluginInputEventV2 event{};
     event.struct_size = sizeof(event);
     event.kind = DRAXUL_PLUGIN_INPUT_WHEEL;
     event.modifiers = source.mod;
@@ -311,20 +439,84 @@ void PluginHost::on_mouse_wheel(const MouseWheelEvent& source)
     send_input(event);
 }
 
+std::optional<PluginHost::PresentationSnapshot> PluginHost::presentation_snapshot() const
+{
+    if (!instance_ || !has_presentation_ || !presentation_.get_state)
+        return std::nullopt;
+    DraxulPluginPresentationStateV2 state{};
+    state.struct_size = sizeof(state);
+    if (!presentation_.get_state(instance_, &state)
+        || state.struct_size < sizeof(state))
+        return std::nullopt;
+    PresentationSnapshot result;
+    result.display_name = copy_string(state.display_name);
+    result.status_text = copy_string(state.status_text);
+    result.background = { state.background_red, state.background_green,
+        state.background_blue, state.background_alpha };
+    result.content_ready = state.content_ready != 0;
+    result.mouse_cursor = state.mouse_cursor;
+    result.print_hint.content_pos = {
+        state.print_hint.content_x, state.print_hint.content_y };
+    result.print_hint.content_size = {
+        state.print_hint.content_width, state.print_hint.content_height };
+    result.print_hint.paper_white = state.print_hint.paper_white != 0;
+    return result;
+}
+
+std::optional<MouseCursor> PluginHost::mouse_cursor_at(int, int) const
+{
+    const auto state = presentation_snapshot();
+    return state ? map_mouse_cursor(state->mouse_cursor) : std::nullopt;
+}
+
+bool PluginHost::dispatch_action(std::string_view action)
+{
+    if (!instance_ || !has_presentation_ || !presentation_.dispatch_action)
+        return false;
+    return presentation_.dispatch_action(instance_, action.data(), action.size()) != 0;
+}
+
 std::string PluginHost::display_name() const
 {
+    if (const auto state = presentation_snapshot(); state && !state->display_name.empty())
+        return state->display_name;
     return plugin_ && plugin_->api().display_name
         ? plugin_->api().display_name : plugin_id_;
 }
 
+std::string PluginHost::status_text() const
+{
+    if (!error_.empty())
+        return error_;
+    if (const auto state = presentation_snapshot())
+        return state->status_text;
+    return {};
+}
+
+Color PluginHost::default_background() const
+{
+    if (const auto state = presentation_snapshot())
+        return state->background;
+    return { 0.04f, 0.05f, 0.08f, 1.0f };
+}
+
 HostRuntimeState PluginHost::runtime_state() const
 {
-    return { .content_ready = running_ && error_.empty() };
+    const auto state = presentation_snapshot();
+    return { .content_ready = running_ && error_.empty()
+            && (!state || state->content_ready) };
 }
 
 HostDebugState PluginHost::debug_state() const
 {
     return { .name = display_name() };
+}
+
+HostPrintHint PluginHost::print_hint() const
+{
+    if (const auto state = presentation_snapshot())
+        return state->print_hint;
+    return {};
 }
 
 void register_plugin_host_provider(HostProviderRegistry& registry,

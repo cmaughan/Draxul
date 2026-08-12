@@ -58,7 +58,7 @@ void install_plugin(const std::filesystem::path& tier,
              << "id = \"" << id << "\"\n"
              << "name = \"Fixture\"\n"
              << "version = \"1.0.0\"\n"
-             << "abi_version = 1\n"
+             << "abi_version = 2\n"
 #ifdef _WIN32
              << "[platform.windows]\n"
 #elif defined(__APPLE__)
@@ -100,11 +100,23 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     const auto count = reinterpret_cast<size_t (*)()>(
         symbol("draxul_fixture_event_count"));
     const auto event_at = reinterpret_cast<int (*)(size_t,
-        DraxulPluginInputEventV1*)>(
+        DraxulPluginInputEventV2*)>(
         symbol("draxul_fixture_event_at"));
+    const auto fixture_request_tick = reinterpret_cast<void (*)()>(
+        symbol("draxul_fixture_request_tick"));
+    const auto fixture_tick_count = reinterpret_cast<size_t (*)()>(
+        symbol("draxul_fixture_tick_count"));
+    const auto fixture_quiesce_count = reinterpret_cast<size_t (*)()>(
+        symbol("draxul_fixture_quiesce_count"));
+    const auto fixture_action_count = reinterpret_cast<size_t (*)()>(
+        symbol("draxul_fixture_action_dispatch_count"));
     REQUIRE(reset);
     REQUIRE(count);
     REQUIRE(event_at);
+    REQUIRE(fixture_request_tick);
+    REQUIRE(fixture_tick_count);
+    REQUIRE(fixture_quiesce_count);
+    REQUIRE(fixture_action_count);
     reset();
 
     draxul::PluginHost host(manager);
@@ -116,15 +128,49 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     context.initial_viewport.pixel_size = { 640, 360 };
     draxul::tests::TestHostCallbacks callbacks;
     REQUIRE(host.initialize(context, callbacks));
-    host.accept_render_result({ sizeof(DraxulPluginRenderResultV1),
+    CHECK(host.display_name() == "Fixture instance");
+    CHECK(host.status_text() == "ready");
+    CHECK(host.runtime_state().content_ready);
+    CHECK(host.default_background().r == 0.1f);
+    CHECK(host.mouse_cursor_at(10, 10) == draxul::MouseCursor::Pointer);
+    CHECK(host.print_hint().content_pos == glm::ivec2(1, 2));
+    CHECK(host.print_hint().content_size == glm::ivec2(30, 40));
+    CHECK(host.print_hint().paper_white);
+
+    // The initial logic deadline invokes the real module's tick callback and
+    // converts its redraw result into a host frame request.
+    REQUIRE(host.next_deadline().has_value());
+    const int frames_before_initial_tick = callbacks.request_frame_calls;
+    host.pump();
+    CHECK(fixture_tick_count() == 1);
+    CHECK(callbacks.request_frame_calls == frames_before_initial_tick + 1);
+    CHECK_FALSE(host.next_deadline().has_value());
+
+    // A module callback requests logic work without directly requesting a
+    // render. PluginHost wakes, ticks on the main thread, then honors the
+    // tick result's redraw bit.
+    const int wakes_before_tick = callbacks.wake_window_calls;
+    fixture_request_tick();
+    CHECK(callbacks.wake_window_calls == wakes_before_tick + 1);
+    host.pump();
+    CHECK(fixture_tick_count() == 2);
+
+    // Render scheduling remains independent from logic scheduling.
+    host.accept_render_result({ sizeof(DraxulPluginRenderResultV2),
         1'000'000, 1, nullptr });
     CHECK(host.next_deadline().has_value());
     host.set_presentation_visible(false);
+    CHECK(host.status_text() == "hidden");
+    REQUIRE(host.next_deadline().has_value());
+    host.pump();
     CHECK_FALSE(host.next_deadline().has_value());
     const int frames_before_show = callbacks.request_frame_calls;
     host.set_presentation_visible(true);
     CHECK(callbacks.request_frame_calls > frames_before_show);
-    host.accept_render_result({ sizeof(DraxulPluginRenderResultV1),
+    REQUIRE(host.next_deadline().has_value());
+    host.pump();
+    CHECK_FALSE(host.next_deadline().has_value());
+    host.accept_render_result({ sizeof(DraxulPluginRenderResultV2),
         0, 1, nullptr });
     const int frames_before_deadline = callbacks.request_frame_calls;
     REQUIRE(host.next_deadline().has_value());
@@ -132,7 +178,14 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     CHECK(callbacks.request_frame_calls
         == frames_before_deadline + 1);
     CHECK_FALSE(host.next_deadline().has_value());
+    CHECK(host.dispatch_action("fixture_action"));
+    CHECK_FALSE(host.dispatch_action("unknown"));
+    CHECK(fixture_action_count() == 1);
+    const int frames_before_metadata = callbacks.request_frame_calls;
+    host.pump();
+    CHECK(callbacks.request_frame_calls == frames_before_metadata + 1);
     host.on_focus_gained();
+    CHECK(host.status_text().find("focused") != std::string::npos);
     host.on_key({ 44, 32, draxul::kModCtrl, true });
     host.on_text_input({ "hello" });
     host.on_text_editing({ "compose", 2, 3 });
@@ -145,7 +198,7 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     host.on_focus_lost();
 
     REQUIRE(count() == 8);
-    DraxulPluginInputEventV1 event{};
+    DraxulPluginInputEventV2 event{};
     REQUIRE(event_at(1, &event));
     CHECK(event.kind == DRAXUL_PLUGIN_INPUT_KEY);
     CHECK(event.physical_key == 44);
@@ -170,6 +223,7 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     CHECK(event.kind == DRAXUL_PLUGIN_INPUT_WHEEL);
     CHECK(event.delta_y == -2.0f);
     host.shutdown();
+    CHECK(fixture_quiesce_count() == 1);
 #ifdef _WIN32
     FreeLibrary(fixture);
 #else
