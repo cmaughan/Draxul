@@ -13,6 +13,7 @@
 #include "score_session_controller.h"
 
 #include <draxul/scoreview/progress_store.h>
+#include <draxul/scoreview/score_device_lease.h>
 
 #include <draxul/host.h>
 
@@ -246,6 +247,34 @@ TEST_CASE("input selection swaps in place and reports requested-vs-engaged",
     CHECK(ScoreHostTestAccess::playing(primed.host));
 }
 
+TEST_CASE("process device leases reject contention and release deterministically",
+    "[scoreview][host][orchestration][devices]")
+{
+    using draxul::scoreview::ScoreDeviceKind;
+    auto provider = draxul::scoreview::create_score_device_lease_provider();
+    int first_owner = 1;
+    int second_owner = 2;
+
+    auto first = provider->acquire(
+        ScoreDeviceKind::AudioOutput, "default", &first_owner);
+    REQUIRE(first.lease);
+    CHECK(first.error.empty());
+
+    auto conflict = provider->acquire(
+        ScoreDeviceKind::AudioOutput, "default", &second_owner);
+    CHECK_FALSE(conflict.lease);
+    CHECK(conflict.error.find("another ScoreView pane") != std::string::npos);
+
+    auto other_device = provider->acquire(
+        ScoreDeviceKind::MidiInput, "Piano A", &second_owner);
+    CHECK(other_device.lease);
+
+    first.lease.reset();
+    auto handed_off = provider->acquire(
+        ScoreDeviceKind::AudioOutput, "default", &second_owner);
+    CHECK(handed_off.lease);
+}
+
 TEST_CASE("hidden presentation pauses transport unless background playback is enabled",
     "[scoreview][host][orchestration][visibility]")
 {
@@ -313,6 +342,8 @@ TEST_CASE("score audio can prefer a staged piano lazily",
     CHECK(audio.selected_soundfont_index() == 0);
     CHECK(audio.loaded_soundfont_index() == -1);
     CHECK_FALSE(audio.audition());
+    CHECK(audio.tick_level() == ScoreAudioController::TickLevel::Off);
+    CHECK_FALSE(audio.wants_pump());
 }
 
 TEST_CASE("the session controller survives a corrupt progress file",

@@ -93,6 +93,8 @@ bool ScoreRuntime::initialize(const HostContext& context,
     callbacks_ = &callbacks;
     source_path_ = context.launch_options.source_path;
     background_ = context.launch_options.terminal_bg.value_or(background_);
+    device_leases_ = paths.device_leases
+        ? std::move(paths.device_leases) : process_score_device_leases();
 
     nanovg_pass_ = create_nanovg_pass();
     if (!nanovg_pass_)
@@ -173,7 +175,6 @@ bool ScoreRuntime::initialize(const HostContext& context,
         // ~118 MB parse happens on first selection, not startup.
         audio_->stage_soundfonts(paths.soundfonts);
         audio_->prefer_piano(0);
-        audio_->set_audition(true);
 
         // Player memory: the per-piece progress file, keyed by the source
         // bytes so renames don't lose history (stream plan S0).
@@ -189,12 +190,6 @@ bool ScoreRuntime::initialize(const HostContext& context,
         flow_dirty_ = true;
         start_in_gate_ = true;
         gate_input_requested_ = GateInput::Keyboard;
-        const std::vector<std::string> startup_midi_ports = PlayerInputRig::list_midi_ports();
-        if (!startup_midi_ports.empty())
-        {
-            gate_input_requested_ = GateInput::Midi;
-            midi_port_requested_ = 0;
-        }
         game_mode_ = FlowController::TransportMode::Roll;
         const std::string& command = context.launch_options.command;
         if (command.find("paged") != std::string::npos)
@@ -331,6 +326,8 @@ void ScoreRuntime::quiesce()
     // Stop the background engraver first: its destructor signals the worker and
     // joins it (bounded by one in-flight engrave), so nothing races teardown.
     stream_->reset_engraver();
+    release_input_device();
+    release_audio_output();
     audio_->shutdown();
     running_ = false;
     quiesced_ = true;
@@ -362,12 +359,20 @@ void ScoreRuntime::set_presentation_visible(bool visible,
         resume_transport_on_show_ = flow_.playing();
         if (resume_transport_on_show_)
             flow_.pause();
+        release_input_device();
+        release_audio_output();
     }
-    else if (visible && resume_transport_on_show_)
+    else if (visible)
     {
-        resume_transport_on_show_ = false;
-        if (!flow_.at_end())
+        if (flow_.mode() != FlowController::TransportMode::Clock
+            && gate_input_requested_ != GateInput::Keyboard)
+        {
+            set_gate_input(gate_input_requested_, 0.0,
+                gate_bot_accuracy_, midi_port_requested_);
+        }
+        if (resume_transport_on_show_ && !flow_.at_end())
             flow_.play();
+        resume_transport_on_show_ = false;
     }
     last_pump_ = std::chrono::steady_clock::now();
     if (callbacks_ != nullptr)
@@ -1188,6 +1193,42 @@ void ScoreRuntime::apply_verdict_update()
 bool ScoreRuntime::set_gate_input(
     GateInput input, double bot_pace_qpm, double bot_accuracy, int midi_port)
 {
+    const GateInput requested = input;
+    release_input_device();
+    device_error_.clear();
+    if (input == GateInput::Mic || input == GateInput::Midi)
+    {
+        if (!device_leases_)
+            device_leases_ = process_score_device_leases();
+        std::string device_name = "default";
+        const ScoreDeviceKind kind = input == GateInput::Mic
+            ? ScoreDeviceKind::Microphone : ScoreDeviceKind::MidiInput;
+        if (input == GateInput::Midi)
+        {
+            const auto ports = PlayerInputRig::list_midi_ports();
+            if (midi_port < 0 || midi_port >= static_cast<int>(ports.size()))
+            {
+                device_error_ = "selected MIDI input is no longer available";
+                input = GateInput::Keyboard;
+            }
+            else
+                device_name = ports[static_cast<size_t>(midi_port)];
+        }
+        if (input == GateInput::Mic || input == GateInput::Midi)
+        {
+            auto acquired = device_leases_->acquire(kind, device_name, this);
+            if (!acquired.lease)
+            {
+                device_error_ = std::move(acquired.error);
+                DRAXUL_LOG_WARN(LogCategory::App, "score: %s",
+                    device_error_.c_str());
+                input = GateInput::Keyboard;
+            }
+            else
+                input_lease_ = std::move(acquired.lease);
+        }
+    }
+
     PlayerInputRig::Selection selection;
     selection.kind = input == GateInput::Bot ? PlayerInputRig::Kind::Bot
         : input == GateInput::Mic            ? PlayerInputRig::Kind::Mic
@@ -1197,7 +1238,54 @@ bool ScoreRuntime::set_gate_input(
     selection.bot_accuracy = bot_accuracy;
     selection.midi_port = midi_port;
     const bool engaged = input_rig_.select(selection, flow_);
-    return engaged;
+    if (!engaged && (selection.kind == PlayerInputRig::Kind::Mic
+            || selection.kind == PlayerInputRig::Kind::Midi))
+        release_input_device();
+    return engaged && input == requested;
+}
+
+bool ScoreRuntime::ensure_audio_output()
+{
+    if (!audio_->wants_pump())
+    {
+        release_audio_output();
+        return true;
+    }
+    if (!audio_lease_)
+    {
+        if (!device_leases_)
+            device_leases_ = process_score_device_leases();
+        auto acquired = device_leases_->acquire(
+            ScoreDeviceKind::AudioOutput, "default", this);
+        if (!acquired.lease)
+        {
+            device_error_ = std::move(acquired.error);
+            DRAXUL_LOG_WARN(LogCategory::App, "score: %s",
+                device_error_.c_str());
+            return false;
+        }
+        audio_lease_ = std::move(acquired.lease);
+    }
+    if (audio_->ensure_output_stream())
+    {
+        device_error_.clear();
+        return true;
+    }
+    device_error_ = "default audio output is unavailable";
+    release_audio_output();
+    return false;
+}
+
+void ScoreRuntime::release_audio_output()
+{
+    audio_->shutdown();
+    audio_lease_.reset();
+}
+
+void ScoreRuntime::release_input_device()
+{
+    input_rig_.clear();
+    input_lease_.reset();
 }
 
 void ScoreRuntime::enter_gate_mode(
@@ -1238,7 +1326,7 @@ void ScoreRuntime::exit_gate_mode()
 {
     end_progress_session();
     stream_->cancel_async();
-    input_rig_.clear();
+    release_input_device();
     flow_.set_mode(FlowController::TransportMode::Clock);
     if (stream_active())
     {
@@ -1270,6 +1358,7 @@ bool ScoreRuntime::handle_gate_key(int keycode)
     {
         const GateInput next = mic_live ? GateInput::Keyboard : GateInput::Mic;
         const bool engaged = set_gate_input(next, 0.0, 1.0);
+        gate_input_requested_ = engaged ? next : GateInput::Keyboard;
         DRAXUL_LOG_INFO(LogCategory::App, "score: gate input -> %s",
             input_rig_.kind() == PlayerInputRig::Kind::Mic ? "microphone" : "keyboard");
         if (next == GateInput::Mic && engaged && !flow_.playing())
@@ -1448,13 +1537,25 @@ void ScoreRuntime::pump()
         const double position_before_q = flow_.position_q();
         flow_.advance(dt);
         if (audio_->wants_pump())
-            audio_->pump(position_before_q, flow_.position_q(), dt, quarters_per_bar_, flow_);
+        {
+            if (ensure_audio_output())
+            {
+                audio_->pump(position_before_q, flow_.position_q(), dt,
+                    quarters_per_bar_, flow_);
+            }
+            else
+            {
+                audio_->set_tick_level(ScoreAudioController::TickLevel::Off);
+                audio_->set_audition(false);
+            }
+        }
         if (flow_.mode() != FlowController::TransportMode::Clock)
         {
             if (input_rig_.mic_failed())
             {
                 DRAXUL_LOG_WARN(LogCategory::App, "score: %s — falling back to keyboard input",
                     input_rig_.mic_error().c_str());
+                gate_input_requested_ = GateInput::Keyboard;
                 set_gate_input(GateInput::Keyboard, 0.0, 1.0);
             }
             if (input_rig_.active())
@@ -1810,15 +1911,19 @@ void ScoreRuntime::apply_inspector_intents(const ScoreInspectorIntents& intents)
     if (intents.tick_level)
     {
         audio_->set_tick_level(static_cast<ScoreAudioController::TickLevel>(*intents.tick_level));
-        if (audio_->tick_level() != ScoreAudioController::TickLevel::Off)
-            audio_->ensure_output_stream();
+        if (!ensure_audio_output())
+            audio_->set_tick_level(ScoreAudioController::TickLevel::Off);
     }
     if (intents.use_synth_voice)
         audio_->use_synth();
     if (intents.use_piano_index)
         audio_->use_piano(*intents.use_piano_index);
     if (intents.audition)
+    {
         audio_->set_audition(*intents.audition);
+        if (!ensure_audio_output())
+            audio_->set_audition(false);
+    }
     if (intents.clear_progress)
         clear_piece_progress();
     if (callbacks_ != nullptr)
@@ -1901,9 +2006,13 @@ void ScoreRuntime::on_key(const KeyEvent& event)
             break;
         case SDLK_T:
             audio_->cycle_tick_level();
+            if (!ensure_audio_output())
+                audio_->set_tick_level(ScoreAudioController::TickLevel::Off);
             break;
         case SDLK_P:
             audio_->toggle_audition();
+            if (!ensure_audio_output())
+                audio_->set_audition(false);
             break;
         default:
             return;
@@ -2085,6 +2194,8 @@ std::string ScoreRuntime::status_text() const
     }
 
     std::string status = "score: " + title;
+    if (!device_error_.empty())
+        status += "  device: " + device_error_;
     if (view_mode_ == ViewMode::Flow && flow_.ready())
     {
         const int qpm = static_cast<int>(std::lround(flow_.tempo_qpm()));

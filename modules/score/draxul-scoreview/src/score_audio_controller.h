@@ -110,7 +110,7 @@ public:
 private:
     bool ensure_piano_voice();
 
-    TickLevel tick_level_ = TickLevel::Eighths;
+    TickLevel tick_level_ = TickLevel::Off;
     bool audition_ = false;
     Voice voice_ = Voice::Synth;
     MetronomeSynth metronome_;

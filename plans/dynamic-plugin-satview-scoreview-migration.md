@@ -611,6 +611,16 @@ behavior and has no main-loop polling dependency.
 
 ### Slice 9: ScoreView audio, microphone, and MIDI
 
+Progress: completed on Windows on 2026-08-12. ScoreView now uses one
+process-local, RAII lease registry for default audio output, default microphone,
+and named MIDI inputs. Passive panes neither enumerate MIDI nor open audio;
+hardware acquisition follows an explicit interaction or launch token. Lease
+conflicts degrade to keyboard/visual operation with actionable status. Hiding a
+non-background pane releases devices, showing it restores its requested input,
+and quiesce clears device-backed inputs before destroying audio. Existing fake
+microphone lifetime, MIDI, contention, and worker-stress suites pass; macOS
+continues to preflight TCC before SDL microphone open.
+
 **User-visible result:** the dynamic ScoreView supports soundfont output,
 metronome/audition, microphone input, and MIDI input with deterministic ownership
 when multiple panes or attached UIs exist.

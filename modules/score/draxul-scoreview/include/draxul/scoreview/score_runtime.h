@@ -11,6 +11,7 @@
 #include <draxul/scoreview/player_input_rig.h>
 #include <draxul/scoreview/player_model.h>
 #include <draxul/scoreview/score_draw_list.h>
+#include <draxul/scoreview/score_device_lease.h>
 #include <draxul/scoreview/score_highlight.h>
 #include <draxul/scoreview/window_engraver.h>
 
@@ -72,6 +73,7 @@ struct ScoreRuntimePaths
     std::filesystem::path verovio_data;
     std::filesystem::path soundfonts;
     std::filesystem::path progress;
+    std::shared_ptr<IScoreDeviceLeaseProvider> device_leases;
 };
 
 class ScoreRuntime
@@ -252,6 +254,9 @@ private:
     // the microphone can't open; returns whether the requested input engaged.
     bool set_gate_input(
         GateInput input, double bot_pace_qpm, double bot_accuracy, int midi_port = -1);
+    bool ensure_audio_output();
+    void release_audio_output();
+    void release_input_device();
     bool handle_gate_key(int keycode);
     // The ImGui debug/learning inspector: reads ONE per-frame snapshot and
     // requests every mutation through intents, applied at one defined point
@@ -414,6 +419,10 @@ private:
     // staging. Internal component — SDL-audio details never cross into the
     // host. Never null (constructed with the host).
     std::unique_ptr<ScoreAudioController> audio_;
+    std::shared_ptr<IScoreDeviceLeaseProvider> device_leases_;
+    std::unique_ptr<IScoreDeviceLease> audio_lease_;
+    std::unique_ptr<IScoreDeviceLease> input_lease_;
+    std::string device_error_;
     double quarters_per_bar_ = 4.0;
 
     // ImGui debug/learning inspector. Its own context (like the other 3D

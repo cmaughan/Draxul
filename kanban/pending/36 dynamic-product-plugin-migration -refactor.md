@@ -14,7 +14,7 @@ to move SatView and ScoreView onto the trusted native plugin architecture.
 - [x] Slice 6: extract `ScoreRuntime` and the backend-neutral score canvas seam.
 - [x] Slice 7: ship ScoreView reading modes through the dynamic plugin route.
 - [x] Slice 8: move ScoreView transport, workers, and player persistence across.
-- [ ] Slice 9: add deterministic audio, microphone, and MIDI device ownership.
+- [x] Slice 9: add deterministic audio, microphone, and MIDI device ownership.
 - [ ] Slice 10: remove the static ScoreView route and complete packaging/docs cleanup.
 
 Acceptance is defined per slice in the plan. Prefer isolated-server, attached-UI,

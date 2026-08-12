@@ -44,8 +44,6 @@ void ScoreAudioController::cycle_tick_level()
     tick_level_ = tick_level_ == TickLevel::Off
         ? TickLevel::Beats
         : (tick_level_ == TickLevel::Beats ? TickLevel::Eighths : TickLevel::Off);
-    if (tick_level_ != TickLevel::Off && !ensure_output_stream())
-        tick_level_ = TickLevel::Off;
     if (tick_level_ == TickLevel::Off && tick_stream_ != nullptr)
     {
         SDL_ClearAudioStream(tick_stream_);
@@ -61,8 +59,6 @@ void ScoreAudioController::set_audition(bool on)
     audition_ = on;
     if (audition_ && voice_ == Voice::Piano && !ensure_piano_voice())
         use_synth();
-    if (audition_ && !ensure_output_stream())
-        audition_ = false;
     if (!audition_)
     {
         tones_.clear();
@@ -100,7 +96,6 @@ bool ScoreAudioController::use_piano(int index)
         return false;
     voice_ = Voice::Piano;
     tones_.clear();
-    ensure_output_stream();
     return true;
 }
 
