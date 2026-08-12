@@ -493,6 +493,12 @@ with an actionable error, not a fallback to compiled-in SatView code.
 
 ### Slice 6: ScoreView runtime and canvas seam behind the existing host
 
+Progress: completed on Windows on 2026-08-12. The prior ScoreHost orchestration
+is now `ScoreRuntime`: it owns the product state and workers without inheriting
+`IHost` or accepting `IFrameContext`. Rendering exits through a product-owned
+`ScoreFrameSink`; the small retained static adapter supplies NanoVG and ImGui
+frame sinks for parity tests while the dynamic canvas route is introduced.
+
 **User-visible result:** the existing ScoreView still supports paged and flow
 modes, scrolling, zooming, engraving, playback, and its inspector, but product
 logic no longer owns a Draxul NanoVG pass or `IHost` implementation details.

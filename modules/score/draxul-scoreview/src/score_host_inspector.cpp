@@ -1,4 +1,4 @@
-#include <draxul/scoreview/score_host.h>
+#include <draxul/scoreview/score_runtime.h>
 
 // The ImGui debug/learning inspector (kanban 21, the ScoreViewModel seam):
 // reads ONE per-frame snapshot (build_view_model) and requests every
@@ -29,7 +29,7 @@ namespace scoreview
 // note_name(midi) lives in draxul-score-learn (piece_analysis.h), reached here
 // through score_view_model.h; the inspector no longer carries its own copy.
 
-void ScoreHost::render_debug_ui(float dt)
+void ScoreRuntime::render_debug_ui(float dt)
 {
     if (imgui_context_ == nullptr || imgui_backend_ == nullptr)
         return;

@@ -225,7 +225,7 @@ Good place for:
 | `modules/kanban/` | Always built | `draxul-kanban` owns board storage, layout/navigation, and the native Kanban host |
 | `modules/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Code semantics/tree-sitter, geometry, scene, renderer, host helpers, and the `draxul-megacity` product host; see its nested `AGENTS.md` |
 | `modules/satview/` | `DRAXUL_ENABLE_SATVIEW` | Satellite core, scene, services, and `SatViewRuntime`, linked privately into `plugins/satview`; the retained static adapter is test-only parity support and is not registered or linked by the executable |
-| `modules/score/` | `DRAXUL_ENABLE_SCOREVIEW` | Notation, learning, MIDI/audio input, ScoreView model, and `draxul-scoreview-host` |
+| `modules/score/` | `DRAXUL_ENABLE_SCOREVIEW` | Notation, learning, MIDI/audio input, `ScoreRuntime`, and a temporary static `draxul-scoreview-host` frame-sink adapter during plugin migration |
 
 Markdown and Kanban are linked directly into `draxul`. Optional static product
 hosts are linked only at the executable boundary; SatView is staged and loaded as
