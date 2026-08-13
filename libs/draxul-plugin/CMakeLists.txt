@@ -5,6 +5,7 @@ add_library(draxul-plugin
 target_include_directories(draxul-plugin PUBLIC include)
 
 target_link_libraries(draxul-plugin PUBLIC
+    Draxul::PluginSDK
     draxul-types
 )
 target_link_libraries(draxul-plugin PRIVATE

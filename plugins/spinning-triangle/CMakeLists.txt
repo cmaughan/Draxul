@@ -1,3 +1,36 @@
+cmake_minimum_required(VERSION 3.25)
+
+set(DRAXUL_TRIANGLE_STANDALONE OFF)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(DRAXUL_TRIANGLE_STANDALONE ON)
+    project(draxul-spinning-triangle VERSION 0.2.0 LANGUAGES CXX)
+    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    if(APPLE)
+        enable_language(OBJCXX)
+        set(CMAKE_OBJCXX_STANDARD 20)
+        set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+        set(CMAKE_OBJCXX_FLAGS "${CMAKE_OBJCXX_FLAGS} -fobjc-arc")
+    endif()
+endif()
+
+if(NOT TARGET Draxul::PluginSDK)
+    find_package(DraxulPluginSDK CONFIG REQUIRED)
+endif()
+if(NOT APPLE AND NOT TARGET Vulkan::Vulkan)
+    find_package(Vulkan REQUIRED COMPONENTS glslc)
+endif()
+if(NOT TARGET nlohmann_json::nlohmann_json)
+    include(FetchContent)
+    FetchContent_Declare(
+        nlohmann_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG v3.11.3
+        GIT_SHALLOW TRUE)
+    set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(nlohmann_json)
+endif()
+
 set(DRAXUL_TRIANGLE_PLUGIN_ID dev.draxul.spinning-triangle)
 
 if(APPLE)
@@ -7,9 +40,8 @@ else()
 endif()
 
 add_library(draxul-spinning-triangle MODULE ${DRAXUL_TRIANGLE_SOURCE})
-target_include_directories(draxul-spinning-triangle PRIVATE
-    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
 target_link_libraries(draxul-spinning-triangle PRIVATE
+    Draxul::PluginSDK
     nlohmann_json::nlohmann_json)
 set_target_properties(draxul-spinning-triangle PROPERTIES
     PREFIX ""
@@ -63,11 +95,13 @@ else()
         compile_spinning_triangle_vulkan)
 endif()
 
-set(DRAXUL_TRIANGLE_PLUGIN_TARGET draxul-spinning-triangle
-    PARENT_SCOPE)
-if(APPLE)
-    set(TRIANGLE_METALLIB ${TRIANGLE_METALLIB} PARENT_SCOPE)
-else()
-    set(TRIANGLE_VERTEX_SPV ${TRIANGLE_VERTEX_SPV} PARENT_SCOPE)
-    set(TRIANGLE_FRAGMENT_SPV ${TRIANGLE_FRAGMENT_SPV} PARENT_SCOPE)
+if(NOT DRAXUL_TRIANGLE_STANDALONE)
+    set(DRAXUL_TRIANGLE_PLUGIN_TARGET draxul-spinning-triangle
+        PARENT_SCOPE)
+    if(APPLE)
+        set(TRIANGLE_METALLIB ${TRIANGLE_METALLIB} PARENT_SCOPE)
+    else()
+        set(TRIANGLE_VERTEX_SPV ${TRIANGLE_VERTEX_SPV} PARENT_SCOPE)
+        set(TRIANGLE_FRAGMENT_SPV ${TRIANGLE_FRAGMENT_SPV} PARENT_SCOPE)
+    endif()
 endif()

@@ -98,10 +98,11 @@ does not rebuild or extend the universal value-type archive.
 
 | Directory | Ownership |
 |---|---|
+| `sdk/` | Installable, versioned native plugin C ABI and the dependency-free `Draxul::PluginSDK` CMake target |
 | `libs/draxul-performance/` | Runtime timing collection and the `PERF_MEASURE` instrumentation API |
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
-| `libs/draxul-plugin/` | Trusted native plugin SDK, manifest discovery, platform dynamic loading, ABI/identity validation, and process-lifetime module cache |
+| `libs/draxul-plugin/` | Manifest discovery, platform dynamic loading, ABI/identity validation, and process-lifetime module cache; consumes the public SDK but does not own it |
 | `libs/draxul-agent/` | Neutral agent identity/profile/runtime values plus bundled, versioned terminal-status and process-discovery evaluators |
 | `libs/draxul-session-model/` | Renderer-free durable Session/Space/tab/pane snapshot values, validation, versioned TOML codec, and transactional file replacement shared by the app and server |
 | `libs/draxul-control/` | Versioned, authenticated local Session control transport and client (Windows named pipe; Unix-domain socket elsewhere) |

@@ -281,27 +281,23 @@ target_link_libraries(draxul-test-app PRIVATE
 target_compile_definitions(draxul-test-app PRIVATE DRAXUL_TEST_REGISTER_APP_HOSTS)
 
 add_library(draxul-plugin-fixture MODULE fixtures/plugin_fixture.cpp)
-target_include_directories(draxul-plugin-fixture PRIVATE
-    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
+target_link_libraries(draxul-plugin-fixture PRIVATE Draxul::PluginSDK)
 set_target_properties(draxul-plugin-fixture PROPERTIES PREFIX "")
 
 add_library(draxul-plugin-fixture-bad-abi MODULE fixtures/plugin_fixture.cpp)
-target_include_directories(draxul-plugin-fixture-bad-abi PRIVATE
-    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
+target_link_libraries(draxul-plugin-fixture-bad-abi PRIVATE Draxul::PluginSDK)
 target_compile_definitions(draxul-plugin-fixture-bad-abi PRIVATE
     DRAXUL_FIXTURE_REJECT_ABI)
 set_target_properties(draxul-plugin-fixture-bad-abi PROPERTIES PREFIX "")
 
 add_library(draxul-plugin-fixture-wrong-id MODULE fixtures/plugin_fixture.cpp)
-target_include_directories(draxul-plugin-fixture-wrong-id PRIVATE
-    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
+target_link_libraries(draxul-plugin-fixture-wrong-id PRIVATE Draxul::PluginSDK)
 target_compile_definitions(draxul-plugin-fixture-wrong-id PRIVATE
     DRAXUL_FIXTURE_PLUGIN_ID="dev.draxul.wrong")
 set_target_properties(draxul-plugin-fixture-wrong-id PROPERTIES PREFIX "")
 
 add_library(draxul-plugin-fixture-unsupported MODULE fixtures/plugin_fixture.cpp)
-target_include_directories(draxul-plugin-fixture-unsupported PRIVATE
-    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
+target_link_libraries(draxul-plugin-fixture-unsupported PRIVATE Draxul::PluginSDK)
 target_compile_definitions(draxul-plugin-fixture-unsupported PRIVATE
     DRAXUL_FIXTURE_BACKENDS=0)
 set_target_properties(draxul-plugin-fixture-unsupported PROPERTIES PREFIX "")
@@ -393,6 +389,33 @@ if(DRAXUL_ENABLE_SCOREVIEW)
 endif()
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+set(DRAXUL_EXTERNAL_SDK_SMOKE_COMMAND
+    ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external_plugin_sdk_smoke.py
+    --cmake ${CMAKE_COMMAND}
+    --source-root ${CMAKE_SOURCE_DIR}
+    --build-root ${CMAKE_BINARY_DIR}
+    --draxul $<TARGET_FILE:draxul>
+    --config $<CONFIG>
+    --generator ${CMAKE_GENERATOR}
+    --platform=${CMAKE_GENERATOR_PLATFORM}
+    --toolset=${CMAKE_GENERATOR_TOOLSET})
+
+add_test(
+    NAME draxul-external-plugin-sdk-smoke
+    COMMAND ${DRAXUL_EXTERNAL_SDK_SMOKE_COMMAND})
+set_tests_properties(draxul-external-plugin-sdk-smoke
+    PROPERTIES
+        LABELS "integration;plugin;sdk"
+        TIMEOUT 600)
+
+add_custom_target(draxul-sdk-external-smoke
+    COMMAND ${DRAXUL_EXTERNAL_SDK_SMOKE_COMMAND}
+    DEPENDS draxul
+    USES_TERMINAL
+    VERBATIM)
+
 add_test(
     NAME draxul-do-py-tests
     COMMAND ${Python3_EXECUTABLE} -m unittest tests.do_py_tests

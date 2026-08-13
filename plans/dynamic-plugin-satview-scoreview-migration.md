@@ -37,7 +37,7 @@ pre-release break instead of carrying compatibility machinery forward.
 ## ABI additions
 
 Replace the existing ABI v1 tables in
-`libs/draxul-plugin/include/draxul/plugin_api.h` with a coherent current-only
+`sdk/include/draxul/plugin_api.h` with a coherent current-only
 ABI v2. Add two generic extension mechanisms:
 
 ```c

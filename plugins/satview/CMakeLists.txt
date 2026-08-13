@@ -7,9 +7,8 @@ endif()
 add_library(draxul-satview-plugin MODULE
     ${DRAXUL_SATVIEW_PLUGIN_SOURCE}
     src/satview_plugin_scene_stub.cpp)
-target_include_directories(draxul-satview-plugin PRIVATE
-    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
 target_link_libraries(draxul-satview-plugin PRIVATE
+    Draxul::PluginSDK
     nlohmann_json::nlohmann_json
     draxul-satview-runtime)
 set_target_properties(draxul-satview-plugin PROPERTIES

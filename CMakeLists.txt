@@ -141,6 +141,7 @@ else()
 endif()
 
 # --- Libraries ---
+add_subdirectory(sdk)
 add_subdirectory(libs/draxul-performance)
 add_subdirectory(libs/draxul-host-identity)
 add_subdirectory(libs/draxul-types)

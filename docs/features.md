@@ -38,11 +38,17 @@ restart.
 The server stores only the stable plugin ID and bounded JSON configuration. Each
 attached UI loads its own installed module, so an unavailable or incompatible
 plugin leaves the shared pane intact and shows an actionable placeholder. The
-current-only C ABI v2 in `libs/draxul-plugin/include/draxul/plugin_api.h` supplies
+current-only C ABI v2 in `sdk/include/draxul/plugin_api.h` supplies
 Vulkan or Metal command-buffer access without transferring swapchain, submission,
 or presentation ownership. Draxul is pre-release, so the loader intentionally has
 no v1 compatibility path: bundled modules, fixtures, manifests, and the SDK move
 together when the ABI changes.
+
+The public header is also exported as the installable CMake package
+`DraxulPluginSDK`; external plugins link `Draxul::PluginSDK` and do not need a
+Draxul source checkout. The spinning-triangle example supports a standalone
+CMake build, and the `draxul-sdk-external-smoke` target installs the SDK, builds
+that example from a clean copied tree, and loads the resulting module.
 
 ABI v2 separates render deadlines from main-thread logic deadlines. Thread-safe
 callbacks can request either kind of work, and plugins quiesce background/device
