@@ -1,4 +1,5 @@
 add_library(draxul-runtime-support
+    src/autorelease_pool.cpp
     src/cursor_blinker.cpp
     src/grid_rendering_pipeline.cpp
     src/pane_print.cpp
@@ -25,7 +26,9 @@ target_link_libraries(draxul-runtime-support PRIVATE draxul-performance)
 # pane_print composes the A4 PDF with CoreGraphics on macOS and presents
 # the native print dialog through PDFKit/AppKit.
 if(APPLE)
-    target_sources(draxul-runtime-support PRIVATE src/pane_print_mac.mm)
+    target_sources(draxul-runtime-support PRIVATE
+        src/autorelease_pool_mac.mm
+        src/pane_print_mac.mm)
     set_source_files_properties(src/pane_print_mac.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
     find_library(PDFKIT_FRAMEWORK PDFKit REQUIRED)

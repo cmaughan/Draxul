@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <draxul/atlas_upload.h>
+#include <draxul/autorelease_pool.h>
 #include <draxul/client_recovery.h>
 #include <draxul/control_plane.h>
 #include <draxul/grid_host_base.h>
@@ -760,9 +761,7 @@ bool App::initialize_chrome_host()
                                      std::string name) {
         if (auto renamed = rename_space(space_id, name); !renamed)
         {
-            push_toast(2, renamed.error().message.empty()
-                    ? "Could not rename the Space."
-                    : renamed.error().message);
+            push_toast(2, renamed.error().message.empty() ? "Could not rename the Space." : renamed.error().message);
         }
     };
     chrome_deps.set_pane_name = [this](LeafId leaf, std::string name) {
@@ -1287,9 +1286,7 @@ void App::wire_gui_actions()
         }
         else
         {
-            push_toast(2, result.error.empty()
-                    ? "Failed to create tab."
-                    : result.error);
+            push_toast(2, result.error.empty() ? "Failed to create tab." : result.error);
         }
     };
     gui_deps.on_close_tab = [this]() {
@@ -2267,6 +2264,7 @@ bool App::render_frame()
 
 bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_deadline)
 {
+    ScopedAutoreleasePool autorelease_pool;
     PERF_MEASURE();
     while (running_)
     {
@@ -2623,9 +2621,7 @@ bool App::show_markdown_preview(std::string_view path)
         }
         if (!result.accepted())
         {
-            push_toast(2, result.error.empty()
-                    ? std::string("Failed to open Markdown preview")
-                    : result.error);
+            push_toast(2, result.error.empty() ? std::string("Failed to open Markdown preview") : result.error);
             return false;
         }
         if (!existed)
@@ -2680,9 +2676,7 @@ void App::hide_markdown_preview()
         });
         if (!result.accepted())
         {
-            push_toast(2, result.error.empty()
-                    ? std::string("Failed to close Markdown preview")
-                    : result.error);
+            push_toast(2, result.error.empty() ? std::string("Failed to close Markdown preview") : result.error);
         }
         request_frame();
         return;
@@ -3166,7 +3160,7 @@ void App::consume_remote_session_state()
             if (completion.command.kind
                     == TopologyCommandKind::SplitPane
                 && !completion.command
-                        .companion_owner_pane_id.empty())
+                    .companion_owner_pane_id.empty())
             {
                 markdown_preview_split_pending_ = false;
                 markdown_preview_close_after_create_ = false;
@@ -3230,8 +3224,8 @@ void App::consume_remote_session_state()
     if (!topology_apply_failed)
     {
         for (auto& pending : topology_projection_
-                                 .take_ready_command_activations(
-                                     remote_topology_snapshot_.revision))
+                 .take_ready_command_activations(
+                     remote_topology_snapshot_.revision))
         {
             apply_remote_command_activation(
                 pending.command,
@@ -3969,7 +3963,8 @@ App::apply_local_topology_mutation(
             launch.client_plugin_id = mutation.plugin_id;
             launch.client_plugin_config_json
                 = mutation.plugin_config_json.empty()
-                ? "{}" : mutation.plugin_config_json;
+                ? "{}"
+                : mutation.plugin_config_json;
             id = space->tab_controller.add_tab(
                 *this, mutation.pixel_width,
                 mutation.pixel_height,
@@ -4070,7 +4065,8 @@ App::apply_local_topology_mutation(
                     = mutation.plugin_id;
                 launch.client_plugin_config_json
                     = mutation.plugin_config_json.empty()
-                    ? "{}" : mutation.plugin_config_json;
+                    ? "{}"
+                    : mutation.plugin_config_json;
                 new_leaf = panes.split_focused(
                     direction, std::move(launch), *this);
             }
@@ -4136,7 +4132,7 @@ App::apply_local_topology_mutation(
         Tab* tab = find_tab();
         if (!tab
             || !tab->pane_manager
-                    .swap_focused_with_next())
+                .swap_focused_with_next())
         {
             return TopologyMutationResult::rejected(
                 "Focused pane could not be reordered.");
