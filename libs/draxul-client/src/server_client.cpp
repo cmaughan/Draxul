@@ -247,6 +247,56 @@ struct RuntimeEvidence
 RuntimeEvidence inspect_runtime(const std::filesystem::path& runtime_directory)
 {
     RuntimeEvidence evidence;
+    std::error_code runtime_error;
+    const auto runtime_status
+        = std::filesystem::status(runtime_directory, runtime_error);
+    if (runtime_error)
+    {
+        if (runtime_error
+            == std::make_error_code(std::errc::no_such_file_or_directory))
+        {
+            auto ancestor = runtime_directory.parent_path();
+            while (!ancestor.empty())
+            {
+                std::error_code ancestor_error;
+                const auto ancestor_status
+                    = std::filesystem::status(ancestor, ancestor_error);
+                if (!ancestor_error
+                    && std::filesystem::exists(ancestor_status))
+                {
+                    if (std::filesystem::is_directory(ancestor_status))
+                        return evidence;
+                    evidence.inspection_error
+                        = "Unable to inspect the Draxul server runtime directory: "
+                        + std::make_error_code(std::errc::not_a_directory)
+                              .message();
+                    return evidence;
+                }
+                if (ancestor_error
+                    && ancestor_error
+                        != std::make_error_code(
+                            std::errc::no_such_file_or_directory))
+                {
+                    evidence.inspection_error
+                        = "Unable to inspect the Draxul server runtime directory: "
+                        + ancestor_error.message();
+                    return evidence;
+                }
+                const auto parent = ancestor.parent_path();
+                if (parent == ancestor)
+                    break;
+                ancestor = parent;
+            }
+            return evidence;
+        }
+        evidence.inspection_error
+            = "Unable to inspect the Draxul server runtime directory: "
+            + runtime_error.message();
+        return evidence;
+    }
+    if (!std::filesystem::exists(runtime_status))
+        return evidence;
+
     const auto metadata_path = server_metadata_path(runtime_directory);
     std::error_code metadata_error;
     evidence.metadata_exists
@@ -510,7 +560,8 @@ std::filesystem::path windows_server_helper_executable(
     const std::filesystem::path& client_executable)
 {
     if (_wcsicmp(client_executable.filename().c_str(),
-            L"draxul-server.exe") == 0)
+            L"draxul-server.exe")
+        == 0)
     {
         return client_executable;
     }
@@ -522,7 +573,8 @@ std::filesystem::path windows_client_executable(
     const std::filesystem::path& current_executable)
 {
     if (_wcsicmp(current_executable.filename().c_str(),
-            L"draxul-server.exe") != 0)
+            L"draxul-server.exe")
+        != 0)
     {
         return current_executable;
     }
