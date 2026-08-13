@@ -201,6 +201,9 @@ void ServerTerminalRuntime::retire_process_async()
         input_queue_->wake.notify_all();
     }
 
+#ifndef _WIN32
+    process_->request_close();
+#endif
     auto process = std::move(process_);
     auto writer = std::move(input_writer_);
     input_queue_.reset();
@@ -215,7 +218,6 @@ void ServerTerminalRuntime::retire_process_async()
                 writer.join();
             }
 #else
-            process->request_close();
             if (writer.joinable())
                 writer.join();
 #endif
@@ -450,10 +452,10 @@ bool ServerTerminalRuntime::resize(int cols, int rows)
             || requested_reservation
                 > maximum - previous_reservation
             || !options_.resource_budget
-                    ->replace_scrollback_reservation(
-                        previous_reservation,
-                        previous_reservation
-                            + requested_reservation))
+                ->replace_scrollback_reservation(
+                    previous_reservation,
+                    previous_reservation
+                        + requested_reservation))
         {
             return false;
         }
@@ -596,7 +598,7 @@ ServerTerminalRuntime::capture_agent_observation(
     observation.bottom_rows.reserve(
         static_cast<size_t>(grid_.rows() - first_row));
     for (int row = first_row;
-         row < grid_.rows() && remaining > 0; ++row)
+        row < grid_.rows() && remaining > 0; ++row)
     {
         std::string text;
         for (int col = 0; col < grid_.cols(); ++col)

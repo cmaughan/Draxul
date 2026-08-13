@@ -224,10 +224,12 @@ class SnapshotTests(unittest.TestCase):
                     "",
                 )
 
+            windows_os = mock.Mock(wraps=review.os)
+            windows_os.name = "nt"
             with (
                 mock.patch.object(review, "executable_prefix", return_value=["codex"]),
                 mock.patch.object(review, "run_process", side_effect=fake_run_process),
-                mock.patch.object(review.os, "name", "nt"),
+                mock.patch.object(review, "os", windows_os),
                 mock.patch.object(review.time, "monotonic", side_effect=[0.0, 7.0, 8.0]),
             ):
                 result = review.execute_agent(reviewer, root, "review prompt", 10)
@@ -300,9 +302,10 @@ class ArtifactTests(unittest.TestCase):
             selected, name, missing = review.resolve_review_inputs(root, output, "abc", [], [])
             self.assertEqual("review", name)
             self.assertEqual([], missing)
-            self.assertEqual([reports / "one.md"], selected)
+            expected = (reports / "one.md").resolve()
+            self.assertEqual([expected], selected)
             selected, _, _ = review.resolve_review_inputs(root, output, None, [], ["plans/reviews/runs/**/one.md"])
-            self.assertEqual([reports / "one.md"], selected)
+            self.assertEqual([expected], selected)
 
     def test_failure_text_is_not_accepted_as_review(self) -> None:
         with self.assertRaises(review.ReviewError):
@@ -503,7 +506,7 @@ Dependencies: `00 first-boundary -refactor.md`, `02 collision -refactor.md`.
             )
             selected, name, missing = review.resolve_review_inputs(root, output, "partial", [], [])
             self.assertEqual("sample", name)
-            self.assertEqual([reports / "openai.codex.model.md"], selected)
+            self.assertEqual([(reports / "openai.codex.model.md").resolve()], selected)
             self.assertEqual(["anthropic/claude/opus: timed out"], missing)
 
 

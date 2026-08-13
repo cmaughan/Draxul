@@ -1023,6 +1023,7 @@ def resolve_review_inputs(
     unique: list[pathlib.Path] = []
     seen: set[pathlib.Path] = set()
     for path in selected:
+        path = path.resolve()
         if path.is_file() and path not in seen:
             seen.add(path)
             unique.append(path)
