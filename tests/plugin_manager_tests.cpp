@@ -111,6 +111,62 @@ void install_plugin(const std::filesystem::path& tier,
 
 } // namespace
 
+#ifdef DRAXUL_ENABLE_MEGACITY
+TEST_CASE("MegaCity module creates the real City and Biology products",
+    "[plugin][megacity][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    install_plugin(bundled, "megacity", "dev.draxul.megacity",
+        DRAXUL_MEGACITY_PLUGIN_PATH, {}, "MegaCity / BioView", "0.1.0");
+    const auto manager = draxul::PluginManager::discover(bundled, user);
+    const auto source = temp.root / "source";
+    std::filesystem::create_directories(source);
+    {
+        std::ofstream file(source / "widget.cpp");
+        file << "namespace demo { class Widget { public: void run(); "
+                "int value = 0; }; void Widget::run() {} }\n";
+    }
+    const std::string source_json = source.generic_string();
+
+    for (const auto& [mode, expected_name] : {
+             std::pair{ "city", "MegaCity" },
+             std::pair{ "biology", "BioView" } })
+    {
+        draxul::HostContext context;
+        context.launch_options.kind = draxul::HostKind::Plugin;
+        context.launch_options.client_plugin_id = "dev.draxul.megacity";
+        context.launch_options.client_plugin_config_json =
+            std::string("{\"mode\":\"") + mode
+            + "\",\"source\":\"" + source_json + "\"}";
+        context.pane_id = std::string("megacity-") + mode;
+        context.initial_viewport.pixel_size = { 640, 360 };
+
+        draxul::PluginHost host(manager, temp.root / "storage");
+        draxul::tests::TestHostCallbacks callbacks;
+        REQUIRE(host.initialize(context, callbacks));
+        CHECK(host.display_name() == expected_name);
+        CHECK(host.runtime_state().content_ready);
+
+        const auto scan_deadline = std::chrono::steady_clock::now()
+            + std::chrono::seconds(10);
+        while (host.status_text().find(" objects") == std::string::npos
+            && std::chrono::steady_clock::now() < scan_deadline)
+        {
+            host.pump();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        INFO(host.status_text());
+        CHECK(host.status_text().find(" objects") != std::string::npos);
+        CHECK(host.status_text().find(" | 0 objects") == std::string::npos);
+        host.set_presentation_visible(false);
+        CHECK(host.status_text().find("hidden") != std::string::npos);
+        host.shutdown();
+    }
+}
+#endif
+
 TEST_CASE("spinning triangle persists pane-local state through host services",
     "[plugin][integration]")
 {

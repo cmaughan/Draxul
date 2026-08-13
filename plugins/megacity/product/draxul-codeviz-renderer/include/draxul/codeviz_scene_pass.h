@@ -2,11 +2,16 @@
 
 #include <draxul/codeviz_scene_types.h>
 #include <draxul/base_renderer.h>
+#include <filesystem>
 #include <memory>
 #include <utility>
 
 namespace draxul
 {
+
+void set_codeviz_product_root(std::filesystem::path root);
+[[nodiscard]] std::filesystem::path codeviz_product_path(
+    const std::filesystem::path& relative_path);
 
 class CodeVizScenePass : public IRenderPass
 {

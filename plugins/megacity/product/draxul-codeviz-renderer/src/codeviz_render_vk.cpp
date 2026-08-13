@@ -10,7 +10,6 @@
 #include <cstring>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
-#include <draxul/runtime_path.h>
 #include <draxul/vulkan/vk_render_context.h>
 #include <imgui.h>
 #include <vector>
@@ -1343,7 +1342,7 @@ struct CodeVizScenePass::State
         if (render_pass == VK_NULL_HANDLE || present_pipeline != VK_NULL_HANDLE)
             return true;
 
-        const auto shader_dir = bundled_asset_path("shaders");
+        const auto shader_dir = codeviz_product_path("shaders");
         auto present_vert = load_shader(device, (shader_dir / "megacity_post.vert.spv").string());
         auto present_frag = load_shader(device, (shader_dir / "megacity_present.frag.spv").string());
         if (!present_vert || !present_frag)
@@ -1637,7 +1636,7 @@ struct CodeVizScenePass::State
     bool create_pipeline()
     {
         PERF_MEASURE();
-        const auto shader_dir = bundled_asset_path("shaders");
+        const auto shader_dir = codeviz_product_path("shaders");
         auto vert = load_shader(device, (shader_dir / "megacity_scene.vert.spv").string());
         auto frag = load_shader(device, (shader_dir / "megacity_scene.frag.spv").string());
         if (!vert || !frag)
@@ -2494,7 +2493,7 @@ struct CodeVizScenePass::State
         }
 
         // Load GBuffer shaders
-        const auto shader_dir = bundled_asset_path("shaders");
+        const auto shader_dir = codeviz_product_path("shaders");
         auto vert = load_shader(device, (shader_dir / "megacity_gbuffer.vert.spv").string());
         auto frag = load_shader(device, (shader_dir / "megacity_gbuffer.frag.spv").string());
         if (!vert || !frag)

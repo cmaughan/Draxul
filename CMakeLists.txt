@@ -25,12 +25,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(DRAXUL_ENABLE_SANITIZERS "Enable AddressSanitizer (and LeakSanitizer on non-Windows)" OFF)
 option(DRAXUL_ENABLE_TSAN "Enable ThreadSanitizer (Clang/GCC only, incompatible with ASan)" OFF)
 option(DRAXUL_ENABLE_COVERAGE "Enable LLVM source-based code coverage (Clang/Apple Clang only)" OFF)
-# DRAXUL_ENABLE_MEGACITY controls whether the spinning-cube 3D demo host is compiled and linked.
-# Defaults to ON to preserve the existing default build behaviour. Set to OFF for lightweight
-# builds that only care about terminal correctness. Long-term, once this flag exists the
-# unconditional dynamic_cast / I3DPassProvider surface in IRenderer can be guarded or removed
-# when megacity is disabled, yielding a cleaner renderer interface.
-option(DRAXUL_ENABLE_MEGACITY "Build and include the Megacity 3D demo host" ON)
+option(DRAXUL_ENABLE_MEGACITY "Build and bundle the MegaCity/BioView plugin" ON)
 option(DRAXUL_ENABLE_SATVIEW "Build and bundle the SatView plugin" ON)
 if(APPLE OR WIN32)
     set(DRAXUL_SCOREVIEW_DEFAULT ON)
@@ -173,7 +168,7 @@ add_subdirectory(libs/draxul-host)
 add_subdirectory(modules/kanban)
 add_subdirectory(libs/draxul-nanovg)
 if(DRAXUL_ENABLE_MEGACITY)
-    add_subdirectory(modules/megacity)
+    add_subdirectory(plugins/megacity)
 endif()
 if(DRAXUL_ENABLE_SATVIEW)
     add_subdirectory(plugins/satview)
@@ -220,6 +215,9 @@ if(DRAXUL_ENABLE_MEGACITY)
     draxul_apply_sanitizers(draxul-megacity)
     draxul_apply_coverage(draxul-megacity)
     draxul_apply_msvc_parallel_pdb_fix(draxul-megacity)
+    draxul_apply_sanitizers(draxul-megacity-plugin)
+    draxul_apply_coverage(draxul-megacity-plugin)
+    draxul_apply_msvc_parallel_pdb_fix(draxul-megacity-plugin)
 endif()
 if(DRAXUL_ENABLE_SATVIEW)
     draxul_apply_sanitizers(draxul-satview-core)
@@ -426,6 +424,58 @@ else()
             "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.frag.spv")
 endif()
 add_dependencies(draxul draxul-stage-spinning-triangle)
+if(DRAXUL_ENABLE_MEGACITY)
+if(APPLE)
+    set(DRAXUL_MEGACITY_PLUGIN_STAGE
+        "$<TARGET_BUNDLE_DIR:draxul>/Contents/PlugIns/dev.draxul.megacity")
+else()
+    set(DRAXUL_MEGACITY_PLUGIN_STAGE
+        "$<TARGET_FILE_DIR:draxul>/plugins/dev.draxul.megacity")
+endif()
+set(DRAXUL_MEGACITY_STAGE_DEPENDS
+    draxul-megacity-plugin
+    "${CMAKE_SOURCE_DIR}/plugins/megacity/plugin.toml")
+if(APPLE)
+    list(APPEND DRAXUL_MEGACITY_STAGE_DEPENDS ${MEGACITY_PLUGIN_METALLIBS})
+else()
+    list(APPEND DRAXUL_MEGACITY_STAGE_DEPENDS ${MEGACITY_PLUGIN_SHADER_OUTPUTS})
+endif()
+add_custom_target(draxul-stage-megacity-plugin
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "${DRAXUL_MEGACITY_PLUGIN_STAGE}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "${DRAXUL_MEGACITY_PLUGIN_STAGE}/shaders"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/plugins/megacity/plugin.toml"
+        "${DRAXUL_MEGACITY_PLUGIN_STAGE}/plugin.toml"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:draxul-megacity-plugin>"
+        "${DRAXUL_MEGACITY_PLUGIN_STAGE}/$<TARGET_FILE_NAME:draxul-megacity-plugin>"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/plugins/megacity/assets"
+        "${DRAXUL_MEGACITY_PLUGIN_STAGE}/assets"
+    DEPENDS ${DRAXUL_MEGACITY_STAGE_DEPENDS}
+    VERBATIM)
+if(APPLE)
+    foreach(MEGACITY_METALLIB IN LISTS MEGACITY_PLUGIN_METALLIBS)
+        get_filename_component(MEGACITY_METALLIB_NAME "${MEGACITY_METALLIB}" NAME)
+        add_custom_command(TARGET draxul-stage-megacity-plugin POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MEGACITY_METALLIB}"
+                "${DRAXUL_MEGACITY_PLUGIN_STAGE}/shaders/${MEGACITY_METALLIB_NAME}")
+    endforeach()
+else()
+    foreach(MEGACITY_SHADER_OUTPUT IN LISTS MEGACITY_PLUGIN_SHADER_OUTPUTS)
+        get_filename_component(MEGACITY_SHADER_OUTPUT_NAME
+            "${MEGACITY_SHADER_OUTPUT}" NAME)
+        add_custom_command(TARGET draxul-stage-megacity-plugin POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MEGACITY_SHADER_OUTPUT}"
+                "${DRAXUL_MEGACITY_PLUGIN_STAGE}/shaders/${MEGACITY_SHADER_OUTPUT_NAME}")
+    endforeach()
+endif()
+add_dependencies(draxul draxul-stage-megacity-plugin)
+endif()
 if(DRAXUL_ENABLE_SATVIEW)
 if(APPLE)
     set(DRAXUL_SATVIEW_PLUGIN_STAGE
@@ -508,10 +558,6 @@ add_custom_target(draxul-stage-scoreview-plugin
     VERBATIM)
 add_dependencies(draxul draxul-stage-scoreview-plugin)
 endif()
-if(DRAXUL_ENABLE_MEGACITY)
-    target_link_libraries(draxul PRIVATE draxul-megacity)
-    target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_MEGACITY)
-endif()
 if(DRAXUL_ENABLE_RENDER_TESTS)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_RENDER_TESTS)
 endif()
@@ -563,21 +609,6 @@ if(APPLE)
         stage_grid_metal_shader
         stage_gui_metal_shader
         stage_markdown_metal_shader)
-    if(DRAXUL_ENABLE_MEGACITY)
-        draxul_stage_metal_shader(stage_megacity_scene_metal_shader
-            ${CMAKE_BINARY_DIR}/shaders/megacity_scene.metallib)
-        draxul_stage_metal_shader(stage_megacity_gbuffer_metal_shader
-            ${CMAKE_BINARY_DIR}/shaders/megacity_gbuffer.metallib)
-        draxul_stage_metal_shader(stage_megacity_ao_metal_shader
-            ${CMAKE_BINARY_DIR}/shaders/megacity_ao.metallib)
-        list(APPEND DRAXUL_METAL_SHADER_DEPS
-            compile_megacity_shaders
-            compile_megacity_gbuffer_shaders
-            compile_megacity_ao_shaders
-            stage_megacity_scene_metal_shader
-            stage_megacity_gbuffer_metal_shader
-            stage_megacity_ao_metal_shader)
-    endif()
     add_dependencies(draxul ${DRAXUL_METAL_SHADER_DEPS})
 else()
     add_dependencies(draxul compile_shaders)
@@ -588,16 +619,6 @@ else()
             ${CMAKE_BINARY_DIR}/shaders
             $<TARGET_FILE_DIR:draxul>/shaders
     )
-endif()
-
-if(DRAXUL_ENABLE_MEGACITY AND EXISTS "${CMAKE_SOURCE_DIR}/assets/megacity")
-    add_custom_target(stage_megacity_assets
-        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:draxul>/assets
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/assets/megacity
-            $<TARGET_FILE_DIR:draxul>/assets/megacity
-    )
-    add_dependencies(draxul stage_megacity_assets)
 endif()
 
 # Copy fonts to build directory

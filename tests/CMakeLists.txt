@@ -68,12 +68,7 @@ file(GLOB DRAXUL_MARKDOWN_KANBAN_TEST_SOURCES CONFIGURE_DEPENDS
 )
 
 file(GLOB DRAXUL_MEGACITY_TEST_SOURCES CONFIGURE_DEPENDS
-    RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
-    city_presentation_*_tests.cpp
-    draxul_geometry_tests.cpp
-    lcov_coverage_tests.cpp
-    megacity_*_tests.cpp
-    treesitter*_tests.cpp
+    "${CMAKE_SOURCE_DIR}/plugins/megacity/tests/*_tests.cpp"
 )
 
 file(GLOB DRAXUL_SCOREVIEW_TEST_SOURCES CONFIGURE_DEPENDS
@@ -118,6 +113,7 @@ set(DRAXUL_PARTITIONED_TEST_SOURCES
 )
 set(DRAXUL_SORTED_ALL_TEST_SOURCES
     ${DRAXUL_ALL_TEST_SOURCES}
+    ${DRAXUL_MEGACITY_TEST_SOURCES}
     ${DRAXUL_SATVIEW_TEST_SOURCES})
 set(DRAXUL_SORTED_PARTITIONED_TEST_SOURCES ${DRAXUL_PARTITIONED_TEST_SOURCES})
 list(SORT DRAXUL_SORTED_ALL_TEST_SOURCES)
@@ -180,6 +176,7 @@ endfunction()
 
 draxul_scan_catch_source_metadata(DRAXUL_ALL
     ${DRAXUL_ALL_TEST_SOURCES}
+    ${DRAXUL_MEGACITY_TEST_SOURCES}
     ${DRAXUL_SATVIEW_TEST_SOURCES})
 draxul_scan_catch_source_metadata(DRAXUL_PARTITIONED ${DRAXUL_PARTITIONED_TEST_SOURCES})
 if(NOT DRAXUL_ALL_REGISTRATION_COUNT EQUAL DRAXUL_PARTITIONED_REGISTRATION_COUNT
@@ -329,8 +326,11 @@ target_compile_definitions(draxul-test-app PRIVATE
     DRAXUL_FIXTURE_NO_SYMBOL_PATH="$<TARGET_FILE:draxul-plugin-fixture-no-symbol>"
 )
 if(DRAXUL_ENABLE_MEGACITY)
+    add_dependencies(draxul-test-app draxul-megacity-plugin)
     target_link_libraries(draxul-test-app PRIVATE draxul-megacity)
-    target_compile_definitions(draxul-test-app PRIVATE DRAXUL_ENABLE_MEGACITY)
+    target_compile_definitions(draxul-test-app PRIVATE
+        DRAXUL_ENABLE_MEGACITY
+        DRAXUL_MEGACITY_PLUGIN_PATH="$<TARGET_FILE:draxul-megacity-plugin>")
 endif()
 
 draxul_add_test_target(

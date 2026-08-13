@@ -225,12 +225,13 @@ Good place for:
 |---|---|---|
 | `modules/markdown/` | Always built | `draxul-markdown` parses/layouts documents; `draxul-markdown-host` integrates the native pane and platform render pass |
 | `modules/kanban/` | Always built | `draxul-kanban` owns board storage, layout/navigation, and the native Kanban host |
-| `modules/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Code semantics/tree-sitter, geometry, scene, renderer, host helpers, and the `draxul-megacity` product host; see its nested `AGENTS.md` |
+| `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Self-contained MegaCity/BioView product: code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic module |
 | `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Self-contained satellite product: core, scene, services, runtime, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |
 | `modules/score/` | `DRAXUL_ENABLE_SCOREVIEW` | Notation, learning, MIDI/audio input, and `draxul-scoreview-runtime`, linked privately into `plugins/scoreview` |
 
-Markdown and Kanban are linked directly into `draxul`. SatView and ScoreView are
-staged and loaded only as native modules; neither has a compiled-in host fallback.
+Markdown and Kanban are linked directly into `draxul`. MegaCity/BioView, SatView,
+and ScoreView are staged and loaded only as native modules; none is registered by
+the production executable as a compiled-in host.
 
 ## Generated Views
 

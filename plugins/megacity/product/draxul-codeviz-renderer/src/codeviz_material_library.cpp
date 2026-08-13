@@ -2,13 +2,15 @@
 
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
-#include <draxul/runtime_path.h>
+#include <draxul/codeviz_scene_pass.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
 namespace draxul
 {
+
+static std::filesystem::path product_root;
 
 namespace
 {
@@ -48,24 +50,37 @@ LoadedTextureImage make_solid_rgba8(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 
 } // namespace
 
+void set_codeviz_product_root(std::filesystem::path root)
+{
+    product_root = std::move(root);
+}
+
+std::filesystem::path codeviz_product_path(
+    const std::filesystem::path& relative_path)
+{
+    if (!product_root.empty())
+        return product_root / relative_path;
+#ifdef DRAXUL_MEGACITY_SOURCE_ROOT
+    return std::filesystem::path(DRAXUL_MEGACITY_SOURCE_ROOT) / relative_path;
+#else
+    return relative_path;
+#endif
+}
+
 std::filesystem::path resolve_codeviz_material_asset_path(const std::filesystem::path& relative_path)
 {
     PERF_MEASURE();
-    const auto bundled = bundled_asset_path(std::filesystem::path("assets/megacity") / relative_path);
+    const auto bundled = codeviz_product_path(std::filesystem::path("assets") / relative_path);
     if (std::filesystem::exists(bundled))
         return bundled;
-
-#ifdef DRAXUL_REPO_ROOT
-    const auto repo_path = std::filesystem::path(DRAXUL_REPO_ROOT) / "assets" / "megacity" / relative_path;
-    if (std::filesystem::exists(repo_path))
-        return repo_path;
-#endif
 
     return bundled;
 }
 
 namespace
 {
+
+std::filesystem::path product_root;
 
 TexturedMaterialImages load_textured_material0_images()
 {

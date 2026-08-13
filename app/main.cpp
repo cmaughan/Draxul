@@ -31,9 +31,6 @@
 #include <draxul/server_kernel.h>
 #include <draxul/server_protocol.h>
 #include <draxul/topology_client.h>
-#ifdef DRAXUL_ENABLE_MEGACITY
-#include <draxul/megacity_host.h>
-#endif
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
 #include <draxul/render_test.h>
 #endif
@@ -732,9 +729,6 @@ static int draxul_main(std::vector<std::string> args)
     draxul::register_nanovg_demo_host_provider(host_registry);
     draxul::markdown::register_markdown_host_provider(host_registry);
     draxul::kanban::register_kanban_host_provider(host_registry);
-#ifdef DRAXUL_ENABLE_MEGACITY
-    draxul::register_megacity_host_provider(host_registry);
-#endif
 
     if (const auto host_error = draxul::validate_host_provider_availability(parsed, host_registry))
     {

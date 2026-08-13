@@ -826,7 +826,7 @@ bool App::initialize_chrome_host()
 
         // Skip session restore when the user explicitly specified --host on the
         // command line. The explicit host kind should win over a saved session
-        // that may contain a different host type (e.g. --host megacity should
+        // that may contain a different host type (e.g. an explicit local host should
         // not restore a saved shell session).
         if (!options_.host_kind_explicit)
         {

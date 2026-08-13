@@ -9,7 +9,7 @@ separation in
 - [x] Slice 1: installable public SDK and isolated triangle consumer proof.
 - [x] Slice 2: raw Vulkan/Metal ABI proven through the triangle.
 - [x] Slice 3: self-contained SatView plugin with its real renderer and runtime.
-- [ ] Slice 4: self-contained MegaCity plugin including BioView mode.
+- [x] Slice 4: self-contained MegaCity plugin including BioView mode.
 - [ ] Slice 5: self-contained ScoreView plugin with no Draxul C++ bridge.
 - [ ] Slice 6: remove the old product host/module layer; retain Kanban and Markdown.
 - [ ] Slice 7: prove repository extraction, packaging, UI behavior, and macOS parity.

@@ -128,8 +128,8 @@ cmake --build build --parallel
 
 With no arguments, Draxul discovers or starts the per-user Draxul server and opens
 its shared default shell Session. Closing the UI leaves the server, shells, Spaces,
-and agents running; the next UI reconnects to them. Select a standalone product
-explicitly with `--host`.
+and agents running; the next UI reconnects to them. Core hosts use `--host`;
+standalone products are created as plugin panes or tabs through the shared server.
 
 ### Windows
 
@@ -137,7 +137,8 @@ explicitly with `--host`.
 .\build-ninja-release\draxul.exe                         # shared PowerShell Session
 .\build-ninja-release\draxul.exe --host nvim             # embedded Neovim
 .\build-ninja-release\draxul.exe --host powershell       # shared PowerShell Session
-.\build-ninja-release\draxul.exe --host megacity --source C:\dev\linux
+.\build-ninja-release\draxul.exe plugin get dev.draxul.megacity --json
+.\build-ninja-release\draxul.exe tab create --space <space-id> --name MegaCity --plugin dev.draxul.megacity --plugin-config '{"mode":"city","source":"C:/dev/linux"}' --json
 .\build-ninja-release\draxul.exe --server-status
 .\build-ninja-release\draxul.exe --list-sessions          # live server Sessions
 .\build-ninja-release\draxul.exe --delete-session --session work --yes
@@ -153,7 +154,7 @@ status counts, log access, and guarded stop actions.
 ./build/draxul.app/Contents/MacOS/draxul                # shared login-shell Session
 ./build/draxul.app/Contents/MacOS/draxul --host nvim    # embedded Neovim
 ./build/draxul.app/Contents/MacOS/draxul --host zsh     # shared Zsh Session
-./build/draxul.app/Contents/MacOS/draxul --host megacity --source ~/dev/linux  # MegaCity scan root override
+./build/draxul.app/Contents/MacOS/draxul tab create --space <space-id> --name BioView --plugin dev.draxul.megacity --plugin-config '{"mode":"biology","source":"/Users/me/dev/linux"}' --json
 ```
 
 Or launch via Finder / `open`:
@@ -162,10 +163,10 @@ Or launch via Finder / `open`:
 open ./build/draxul.app
 ```
 
-Supported `--host` values include `nvim`, `zsh`, `bash`, `powershell` / `pwsh`
-(Windows), `wsl` (Windows), and built product hosts such as `megacity`.
-
-`--source <path>` overrides the MegaCity Tree-sitter scan root when launching `--host megacity`.
+Supported `--host` values include `nvim`, `markdown`, `kanban`, `zsh`, `bash`,
+`powershell` / `pwsh` (Windows), and `wsl` (Windows). MegaCity and BioView use
+the stable plugin ID `dev.draxul.megacity`; `mode` selects the view and `source`
+sets the local Tree-sitter scan root.
 
 ## Configuration
 
@@ -226,8 +227,6 @@ do run release           # Release build + run
 do run relwithdebinfo    # Windows: optimized build with PDB symbols
 do run release --vs      # Release build with VS generator (Windows)
 do run --console         # Attach a debug console (Windows)
-do run release --host megacity --parser graphify
-                         # Configure MegaCity to use graphify-out/graph.json, then launch
 do smoke                 # Smoke test
 do test                  # Fast unit suite
 do clean                 # Remove build/ and build-*/

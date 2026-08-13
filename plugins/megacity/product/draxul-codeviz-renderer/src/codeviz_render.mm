@@ -237,9 +237,8 @@ struct CodeVizScenePass::State
 
         initialized = true;
         NSError* error = nil;
-        NSString* exePath = [[NSBundle mainBundle] executablePath];
-        NSString* exeDir = [exePath stringByDeletingLastPathComponent];
-        NSString* libPath = [exeDir stringByAppendingPathComponent:@"shaders/megacity_scene.metallib"];
+        const auto scene_path = codeviz_product_path("shaders/megacity_scene.metallib").string();
+        NSString* libPath = [NSString stringWithUTF8String:scene_path.c_str()];
         NSURL* libURL = [NSURL fileURLWithPath:libPath];
 
         id<MTLLibrary> library = [device newLibraryWithURL:libURL error:&error];
@@ -252,13 +251,14 @@ struct CodeVizScenePass::State
             return false;
         }
 
-        NSString* guiLibPath = [exeDir stringByAppendingPathComponent:@"shaders/gui.metallib"];
+        const auto tooltip_path = codeviz_product_path("shaders/megacity_tooltip.metallib").string();
+        NSString* guiLibPath = [NSString stringWithUTF8String:tooltip_path.c_str()];
         NSURL* guiLibURL = [NSURL fileURLWithPath:guiLibPath];
         id<MTLLibrary> guiLibrary = [device newLibraryWithURL:guiLibURL error:&error];
         if (!guiLibrary)
         {
             DRAXUL_LOG_ERROR(LogCategory::App,
-                "MegaCity: failed to load gui.metallib from %s: %s",
+                "MegaCity: failed to load megacity_tooltip.metallib from %s: %s",
                 [guiLibPath UTF8String],
                 error ? [[error localizedDescription] UTF8String] : "unknown");
             return false;
@@ -788,9 +788,8 @@ struct CodeVizScenePass::State
         gbuffer_initialized = true;
 
         NSError* error = nil;
-        NSString* exePath = [[NSBundle mainBundle] executablePath];
-        NSString* exeDir = [exePath stringByDeletingLastPathComponent];
-        NSString* libPath = [exeDir stringByAppendingPathComponent:@"shaders/megacity_gbuffer.metallib"];
+        const auto gbuffer_path = codeviz_product_path("shaders/megacity_gbuffer.metallib").string();
+        NSString* libPath = [NSString stringWithUTF8String:gbuffer_path.c_str()];
         NSURL* libURL = [NSURL fileURLWithPath:libPath];
 
         id<MTLLibrary> library = [device newLibraryWithURL:libURL error:&error];
@@ -890,7 +889,8 @@ struct CodeVizScenePass::State
         }
         point_shadow_pipeline.reset(point_shadow_pso);
 
-        NSString* aoLibPath = [exeDir stringByAppendingPathComponent:@"shaders/megacity_ao.metallib"];
+        const auto ao_path = codeviz_product_path("shaders/megacity_ao.metallib").string();
+        NSString* aoLibPath = [NSString stringWithUTF8String:ao_path.c_str()];
         NSURL* aoLibURL = [NSURL fileURLWithPath:aoLibPath];
         id<MTLLibrary> aoLibrary = [device newLibraryWithURL:aoLibURL error:&error];
         if (!aoLibrary)

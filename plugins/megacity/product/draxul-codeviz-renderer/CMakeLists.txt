@@ -46,7 +46,7 @@ target_link_libraries(draxul-codeviz-renderer
 )
 
 target_compile_definitions(draxul-codeviz-renderer PRIVATE
-    "DRAXUL_REPO_ROOT=\"${CMAKE_SOURCE_DIR}\""
+    "DRAXUL_MEGACITY_SOURCE_ROOT=\"${CMAKE_CURRENT_SOURCE_DIR}/../..\""
 )
 
 if(APPLE)

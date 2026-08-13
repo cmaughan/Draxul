@@ -273,7 +273,7 @@ TEST_CASE("Code semantic snapshot groups files by repository module boundary", "
     add_class_file("libs/draxul-grid/src/grid.cpp", "Grid");
     add_class_file("modules/markdown/draxul-markdown/src/markdown_document.cpp", "MarkdownDocument");
     add_class_file("modules/kanban/draxul-kanban/src/kanban_board.cpp", "KanbanBoard");
-    add_class_file("modules/megacity/draxul-code-semantics/src/code_semantic_model.cpp", "CitySource");
+    add_class_file("plugins/megacity/product/draxul-code-semantics/src/code_semantic_model.cpp", "CitySource");
 
     const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
 
@@ -283,7 +283,7 @@ TEST_CASE("Code semantic snapshot groups files by repository module boundary", "
         "libs/draxul-grid",
         "modules/kanban",
         "modules/markdown",
-        "modules/megacity",
+        "plugins",
     });
 
     MegaCityCodeConfig config;

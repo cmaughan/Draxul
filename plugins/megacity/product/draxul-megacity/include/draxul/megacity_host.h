@@ -47,11 +47,14 @@ public:
     ~MegaCityHost() override;
 
     bool initialize(const HostContext& context, IHostCallbacks& callbacks) override;
+    // Stop background work while retaining GPU resources for safe retirement.
+    void quiesce();
     void shutdown() override;
     bool is_running() const override;
     std::string init_error() const override;
 
     void set_viewport(const HostViewport& viewport) override;
+    bool requires_periodic_wake() const override;
     void on_focus_lost() override;
     void on_key(const KeyEvent& event) override;
     void on_text_input(const TextInputEvent& event) override;

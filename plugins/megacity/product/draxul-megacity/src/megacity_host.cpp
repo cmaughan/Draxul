@@ -540,7 +540,8 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
         if (std::filesystem::exists(ini_path))
             ImGui::LoadIniSettingsFromDisk(imgui_ini_path_.c_str());
     }
-    sign_font_path_ = context.text_service->primary_font_path();
+    sign_font_path_ = context.text_service
+        ? context.text_service->primary_font_path() : std::string{};
     display_ppi_ = context.display_ppi;
     viewport_ = context.initial_viewport;
     pixel_w_ = viewport_.pixel_size.x > 0 ? viewport_.pixel_size.x : 800;
@@ -1192,12 +1193,8 @@ void MegaCityHost::render_host_imgui(float dt)
     panel_frame.finish();
 }
 
-void MegaCityHost::shutdown()
+void MegaCityHost::quiesce()
 {
-    PERF_MEASURE();
-
-    // Signal all worker threads to stop FIRST, before joining any.
-    // This lets them wind down in parallel while we wait for each join.
     {
         std::lock_guard<std::mutex> lock(route_mutex_);
         route_worker_stop_ = true;
@@ -1210,6 +1207,14 @@ void MegaCityHost::shutdown()
     join_all_grid_threads();
     if (route_thread_.joinable())
         route_thread_.join();
+    running_ = false;
+}
+
+void MegaCityHost::shutdown()
+{
+    PERF_MEASURE();
+
+    quiesce();
     city_grid_.reset();
     semantic_layout_.reset();
     code_semantics_.reset();
@@ -1249,12 +1254,20 @@ void MegaCityHost::shutdown()
     code_semantics_.reset();
     camera_.reset();
     world_.reset();
-    running_ = false;
 }
 
 bool MegaCityHost::is_running() const
 {
     return running_;
+}
+
+bool MegaCityHost::requires_periodic_wake() const
+{
+    return running_ && (
+        (semantic_source_ && semantic_source_->started()
+            && !semantic_source_->ready())
+        || grid_build_in_progress_.load()
+        || route_build_in_progress_.load());
 }
 
 std::string MegaCityHost::init_error() const
@@ -1934,7 +1947,14 @@ void MegaCityHost::request_close()
 
 std::string MegaCityHost::status_text() const
 {
-    return visualization_host_name(visualization_mode_);
+    std::string status = visualization_host_name(visualization_mode_);
+    if (semantic_source_ && semantic_source_->started()
+        && !semantic_source_->ready())
+        return status + " | scanning";
+    if (scene_pass_)
+        status += " | " + std::to_string(scene_pass_->scene().objects.size())
+            + " objects";
+    return status;
 }
 
 Color MegaCityHost::default_background() const
