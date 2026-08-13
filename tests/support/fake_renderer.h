@@ -116,6 +116,10 @@ public:
         return 0;
     }
     void set_default_background(Color) override {}
+    void wait_idle() override
+    {
+        ++wait_idle_calls;
+    }
     bool initialize_imgui_backend() override
     {
         return true;
@@ -162,6 +166,7 @@ public:
     int set_cell_size_calls = 0;
     int begin_frame_calls = 0;
     int end_frame_calls = 0;
+    int wait_idle_calls = 0;
     FakeFrameContext frame_context;
 
     void reset()
@@ -182,6 +187,7 @@ public:
         set_cell_size_calls = 0;
         begin_frame_calls = 0;
         end_frame_calls = 0;
+        wait_idle_calls = 0;
     }
 };
 

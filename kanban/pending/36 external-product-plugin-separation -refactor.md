@@ -7,8 +7,8 @@ separation in
 [`plans/external-product-plugin-separation.md`](../../plans/external-product-plugin-separation.md).
 
 - [x] Slice 1: installable public SDK and isolated triangle consumer proof.
-- [ ] Slice 2: raw Vulkan/Metal ABI proven through the triangle.
-- [ ] Slice 3: self-contained SatView plugin with its real renderer and runtime.
+- [x] Slice 2: raw Vulkan/Metal ABI proven through the triangle.
+- [x] Slice 3: self-contained SatView plugin with its real renderer and runtime.
 - [ ] Slice 4: self-contained MegaCity plugin including BioView mode.
 - [ ] Slice 5: self-contained ScoreView plugin with no Draxul C++ bridge.
 - [ ] Slice 6: remove the old product host/module layer; retain Kanban and Markdown.

@@ -63,12 +63,23 @@ cache, and temporary directories plus bounded atomic JSON documents. Storage is
 client-local and main-thread-only; background workers request a logic tick before
 reading or writing it.
 
-The build-matched `draxul.imgui-overlay` and `draxul.canvas2d` services let bundled first-party plugins
-reuse Draxul's font, input, and Vulkan/Metal ImGui backend while Draxul retains
-submission and presentation. It rejects an ImGui version or draw-layout mismatch.
-Bundled IDs currently include `dev.draxul.satview`, `dev.draxul.scoreview`, and the ABI example
-`dev.draxul.spinning-triangle`. Product preferences are pane-local and durable;
-shared launch JSON remains limited to values every attached UI should see.
+The installed SDK exposes only C-owned lifecycle, input, service, presentation,
+and raw Vulkan/Metal frame structures. No Draxul C++ renderer, ImGui type, or
+build-matched object crosses that public boundary. Vulkan callbacks begin with no
+active render pass and a color-attachment-optimal target; Metal callbacks begin
+with no encoder and a load/store continuation descriptor. Plugins end every pass
+or encoder they create, restore the documented continuation state, and never
+submit, present, retain, release, or destroy borrowed host objects.
+
+Bundled IDs currently include `dev.draxul.satview`, `dev.draxul.scoreview`, and
+the ABI example `dev.draxul.spinning-triangle`. Product preferences are pane-local
+and durable; shared launch JSON remains limited to values every attached UI should
+see. SatView now owns its complete product stack under `plugins/satview`: model,
+services, simulation, UI, Vulkan/Metal HDR renderer, shaders, catalogs, textures,
+and tests. Its dynamic module renders the actual satellite application rather
+than the earlier procedural stand-in. ScoreView still uses a source-tree-only
+compatibility header pending its own product cut; that header is not installed
+with `DraxulPluginSDK`.
 
 ```text
 draxul plugin list --json

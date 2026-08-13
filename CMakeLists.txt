@@ -176,7 +176,6 @@ if(DRAXUL_ENABLE_MEGACITY)
     add_subdirectory(modules/megacity)
 endif()
 if(DRAXUL_ENABLE_SATVIEW)
-    add_subdirectory(modules/satview)
     add_subdirectory(plugins/satview)
 endif()
 if(DRAXUL_ENABLE_SCOREVIEW)
@@ -441,12 +440,13 @@ set(DRAXUL_SATVIEW_STAGE_DEPENDS
 if(APPLE)
     list(APPEND DRAXUL_SATVIEW_STAGE_DEPENDS "${SATVIEW_PLUGIN_METALLIB}")
 else()
-    list(APPEND DRAXUL_SATVIEW_STAGE_DEPENDS
-        "${SATVIEW_PLUGIN_VERTEX_SPV}" "${SATVIEW_PLUGIN_FRAGMENT_SPV}")
+    list(APPEND DRAXUL_SATVIEW_STAGE_DEPENDS ${SATVIEW_PLUGIN_SHADER_OUTPUTS})
 endif()
 add_custom_target(draxul-stage-satview-plugin
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "${DRAXUL_SATVIEW_PLUGIN_STAGE}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "${DRAXUL_SATVIEW_PLUGIN_STAGE}/shaders"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/plugins/satview/plugin.toml"
         "${DRAXUL_SATVIEW_PLUGIN_STAGE}/plugin.toml"
@@ -454,7 +454,7 @@ add_custom_target(draxul-stage-satview-plugin
         "$<TARGET_FILE:draxul-satview-plugin>"
         "${DRAXUL_SATVIEW_PLUGIN_STAGE}/$<TARGET_FILE_NAME:draxul-satview-plugin>"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/assets/satview"
+        "${CMAKE_SOURCE_DIR}/plugins/satview/assets"
         "${DRAXUL_SATVIEW_PLUGIN_STAGE}/assets"
     DEPENDS ${DRAXUL_SATVIEW_STAGE_DEPENDS}
     VERBATIM)
@@ -462,15 +462,15 @@ if(APPLE)
     add_custom_command(TARGET draxul-stage-satview-plugin POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${SATVIEW_PLUGIN_METALLIB}"
-            "${DRAXUL_SATVIEW_PLUGIN_STAGE}/satview_plugin.metallib")
+            "${DRAXUL_SATVIEW_PLUGIN_STAGE}/shaders/satview_scene.metallib")
 else()
-    add_custom_command(TARGET draxul-stage-satview-plugin POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${SATVIEW_PLUGIN_VERTEX_SPV}"
-            "${DRAXUL_SATVIEW_PLUGIN_STAGE}/satview_plugin.vert.spv"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${SATVIEW_PLUGIN_FRAGMENT_SPV}"
-            "${DRAXUL_SATVIEW_PLUGIN_STAGE}/satview_plugin.frag.spv")
+    foreach(SATVIEW_SHADER_OUTPUT IN LISTS SATVIEW_PLUGIN_SHADER_OUTPUTS)
+        get_filename_component(SATVIEW_SHADER_OUTPUT_NAME "${SATVIEW_SHADER_OUTPUT}" NAME)
+        add_custom_command(TARGET draxul-stage-satview-plugin POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${SATVIEW_SHADER_OUTPUT}"
+                "${DRAXUL_SATVIEW_PLUGIN_STAGE}/shaders/${SATVIEW_SHADER_OUTPUT_NAME}")
+    endforeach()
 endif()
 add_dependencies(draxul draxul-stage-satview-plugin)
 endif()

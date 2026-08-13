@@ -38,7 +38,7 @@ TEST_CASE("SatView rings use opaque depth-writing render state", "[satview][ring
 {
     const auto metal_source = read_text_file(
         std::filesystem::path(DRAXUL_PROJECT_ROOT)
-        / "modules" / "satview" / "draxul-satview-renderer" / "src" / "satview_render.mm");
+        / "plugins" / "satview" / "src" / "render" / "satview_render.mm");
     REQUIRE(!metal_source.empty());
 
     const std::string metal_ring_pipeline = source_block(
@@ -54,7 +54,7 @@ TEST_CASE("SatView rings use opaque depth-writing render state", "[satview][ring
 
     const auto vulkan_source = read_text_file(
         std::filesystem::path(DRAXUL_PROJECT_ROOT)
-        / "modules" / "satview" / "draxul-satview-renderer" / "src" / "satview_render_vk.cpp");
+        / "plugins" / "satview" / "src" / "render" / "satview_render_vk.cpp");
     REQUIRE(!vulkan_source.empty());
 
     const std::string vulkan_ring_pipeline = source_block(

@@ -143,8 +143,9 @@ draxul pane split <pane-id> --direction right \
   --plugin dev.draxul.satview --json
 ```
 
-SatView's control panels, camera input, background catalog work, status/actions,
-and local preferences belong to the UI-side module. Do not use `--host satview`:
+SatView's full product implementation—control panels, camera input, simulation,
+catalog/cloud work, Vulkan/Metal rendering, shaders, assets, status/actions, and
+local preferences—lives in `plugins/satview`. Do not use `--host satview`:
 there is deliberately no compiled-in fallback. If `plugin get` reports it missing,
 preserve the shared pane and repair that UI's plugin installation.
 

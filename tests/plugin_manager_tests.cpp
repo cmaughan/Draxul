@@ -4,6 +4,7 @@
 #include <draxul/plugin_host.h>
 #include <draxul/events.h>
 #include <draxul/imgui_host.h>
+#include <draxul/legacy_product_plugin_services.h>
 #include <draxul/base_renderer.h>
 #include "support/fake_renderer.h"
 #include "support/test_host_callbacks.h"
@@ -142,6 +143,33 @@ TEST_CASE("spinning triangle persists pane-local state through host services",
         CHECK(host.dispatch_action("toggle_pause"));
         CHECK(host.status_text().find("paused counter-clockwise")
             != std::string::npos);
+
+        auto resized = context.initial_viewport;
+        resized.pixel_size = { 800, 450 };
+        host.set_viewport(resized);
+        CHECK(host.status_text().find("800x450") != std::string::npos);
+
+        host.set_presentation_visible(false);
+        CHECK(host.status_text().find("hidden") != std::string::npos);
+        host.set_presentation_visible(true);
+        host.on_focus_gained();
+        CHECK(host.status_text().find("focused") != std::string::npos);
+
+        // Exercise SDK-owned input against the independently built product
+        // boundary, then restore the durable state asserted below.
+        host.on_key({ 44, 32, draxul::kModNone, true });
+        CHECK(host.status_text().find("running counter-clockwise")
+            != std::string::npos);
+        host.on_key({ 44, 32, draxul::kModNone, true });
+        host.on_mouse_button({ 1, true, draxul::kModNone,
+            { 20, 20 }, 1 });
+        CHECK(host.status_text().find("paused clockwise")
+            != std::string::npos);
+        host.on_mouse_button({ 1, true, draxul::kModNone,
+            { 20, 20 }, 1 });
+        CHECK(host.status_text().find("paused counter-clockwise")
+            != std::string::npos);
+        host.on_focus_lost();
         host.shutdown();
     }
 
@@ -241,6 +269,7 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     REQUIRE(fixture_query_service);
     reset();
 
+    draxul::tests::FakeTermRenderer renderer;
     draxul::PluginHost host(manager, temp.root / "storage");
     draxul::HostContext context;
     context.launch_options.kind = draxul::HostKind::Plugin;
@@ -249,6 +278,7 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     context.pane_id = "fixture-pane";
     context.initial_viewport.pixel_pos = { 100, 50 };
     context.initial_viewport.pixel_size = { 640, 360 };
+    context.grid_renderer = &renderer;
     draxul::tests::TestHostCallbacks callbacks;
     REQUIRE(host.initialize(context, callbacks));
 
@@ -305,7 +335,6 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
 
     // Both the plugin GPU pass and the borrowed Canvas 2D pass are clipped to
     // the same pane-local viewport; deferred overlay data follows the canvas.
-    draxul::tests::FakeTermRenderer renderer;
     canvas.set_overlay(canvas.service_context,
         reinterpret_cast<void*>(1), overlay_context);
     host.draw(renderer.frame_context);
@@ -482,6 +511,7 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     CHECK(event.delta_y == -2.0f);
     host.shutdown();
     CHECK(fixture_quiesce_count() == 1);
+    CHECK(renderer.wait_idle_calls == 1);
 #ifdef _WIN32
     FreeLibrary(fixture);
 #else

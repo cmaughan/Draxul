@@ -2,7 +2,7 @@
 
 Every SatView binary catalog uses the same little-endian container framing,
 mirrored by the C++ reader in
-``modules/satview/draxul-satview/src/satview_catalog_container.h``:
+``plugins/satview/product/include/draxul/satview/satview_catalog_container.h``:
 
   prologue (16 bytes, common to every catalog)::
 

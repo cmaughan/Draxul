@@ -379,9 +379,9 @@ struct SatViewScenePass::State
             return false;
 
         NSError* error = nil;
-        NSString* exe_path = [[NSBundle mainBundle] executablePath];
-        NSString* exe_dir = [exe_path stringByDeletingLastPathComponent];
-        NSString* lib_path = [exe_dir stringByAppendingPathComponent:@"shaders/satview_scene.metallib"];
+        const std::string plugin_shader_path =
+            resolve_satview_asset_path("../shaders/satview_scene.metallib").string();
+        NSString* lib_path = [NSString stringWithUTF8String:plugin_shader_path.c_str()];
         NSURL* lib_url = [NSURL fileURLWithPath:lib_path];
         id<MTLLibrary> library = [new_device newLibraryWithURL:lib_url error:&error];
         if (!library)

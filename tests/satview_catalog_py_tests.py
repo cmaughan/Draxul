@@ -20,7 +20,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
-CATALOG_DIR = REPO_ROOT / "assets" / "satview" / "catalog"
+CATALOG_DIR = REPO_ROOT / "plugins" / "satview" / "assets" / "catalog"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 

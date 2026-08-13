@@ -21,6 +21,9 @@ file(GLOB DRAXUL_ALL_TEST_SOURCES CONFIGURE_DEPENDS
     RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     *_tests.cpp
 )
+file(GLOB DRAXUL_SATVIEW_TEST_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/plugins/satview/tests/satview_*_tests.cpp"
+)
 
 set(DRAXUL_APP_TEST_SOURCES
     active_tab_invariant_tests.cpp
@@ -73,11 +76,6 @@ file(GLOB DRAXUL_MEGACITY_TEST_SOURCES CONFIGURE_DEPENDS
     treesitter*_tests.cpp
 )
 
-file(GLOB DRAXUL_SATVIEW_TEST_SOURCES CONFIGURE_DEPENDS
-    RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
-    satview_*_tests.cpp
-)
-
 file(GLOB DRAXUL_SCOREVIEW_TEST_SOURCES CONFIGURE_DEPENDS
     RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     notation_*_tests.cpp
@@ -118,7 +116,9 @@ set(DRAXUL_PARTITIONED_TEST_SOURCES
     ${DRAXUL_CORE_TEST_SOURCES}
     ${DRAXUL_CLASSIFIED_TEST_SOURCES}
 )
-set(DRAXUL_SORTED_ALL_TEST_SOURCES ${DRAXUL_ALL_TEST_SOURCES})
+set(DRAXUL_SORTED_ALL_TEST_SOURCES
+    ${DRAXUL_ALL_TEST_SOURCES}
+    ${DRAXUL_SATVIEW_TEST_SOURCES})
 set(DRAXUL_SORTED_PARTITIONED_TEST_SOURCES ${DRAXUL_PARTITIONED_TEST_SOURCES})
 list(SORT DRAXUL_SORTED_ALL_TEST_SOURCES)
 list(SORT DRAXUL_SORTED_PARTITIONED_TEST_SOURCES)
@@ -132,7 +132,12 @@ function(draxul_scan_catch_source_metadata prefix)
     set(registration_count 0)
     set(tag_tokens)
     foreach(test_source IN LISTS ARGN)
-        file(READ "${CMAKE_CURRENT_SOURCE_DIR}/${test_source}" source_text)
+        if(IS_ABSOLUTE "${test_source}")
+            set(test_source_path "${test_source}")
+        else()
+            set(test_source_path "${CMAKE_CURRENT_SOURCE_DIR}/${test_source}")
+        endif()
+        file(READ "${test_source_path}" source_text)
 
         # Every current C++ suite uses Catch2 TEST_CASE. Counting registrations
         # statically also sees platform/option-gated cases that cannot be listed
@@ -173,7 +178,9 @@ function(draxul_scan_catch_source_metadata prefix)
     set(${prefix}_TAGS ${tag_tokens} PARENT_SCOPE)
 endfunction()
 
-draxul_scan_catch_source_metadata(DRAXUL_ALL ${DRAXUL_ALL_TEST_SOURCES})
+draxul_scan_catch_source_metadata(DRAXUL_ALL
+    ${DRAXUL_ALL_TEST_SOURCES}
+    ${DRAXUL_SATVIEW_TEST_SOURCES})
 draxul_scan_catch_source_metadata(DRAXUL_PARTITIONED ${DRAXUL_PARTITIONED_TEST_SOURCES})
 if(NOT DRAXUL_ALL_REGISTRATION_COUNT EQUAL DRAXUL_PARTITIONED_REGISTRATION_COUNT
    OR NOT "${DRAXUL_ALL_TAGS}" STREQUAL "${DRAXUL_PARTITIONED_TAGS}")
@@ -189,7 +196,7 @@ set(DRAXUL_TEST_REGISTRATION_BASELINE 1815)
 # The Workspace -> Tab terminology migration consolidated the old [workspace]
 # tag into the existing [tab] token without removing any test registrations.
 set(DRAXUL_TEST_TAG_TOKEN_BASELINE 228)
-list(LENGTH DRAXUL_ALL_TEST_SOURCES DRAXUL_TEST_SOURCE_COUNT)
+list(LENGTH DRAXUL_SORTED_ALL_TEST_SOURCES DRAXUL_TEST_SOURCE_COUNT)
 if(DRAXUL_TEST_SOURCE_COUNT LESS DRAXUL_TEST_SOURCE_BASELINE
    OR DRAXUL_ALL_REGISTRATION_COUNT LESS DRAXUL_TEST_REGISTRATION_BASELINE
    OR DRAXUL_ALL_TAG_COUNT LESS DRAXUL_TEST_TAG_TOKEN_BASELINE)
@@ -401,6 +408,9 @@ set(DRAXUL_EXTERNAL_SDK_SMOKE_COMMAND
     --generator ${CMAKE_GENERATOR}
     --platform=${CMAKE_GENERATOR_PLATFORM}
     --toolset=${CMAKE_GENERATOR_TOOLSET})
+if(DRAXUL_ENABLE_RENDER_TESTS)
+    list(APPEND DRAXUL_EXTERNAL_SDK_SMOKE_COMMAND --render)
+endif()
 
 add_test(
     NAME draxul-external-plugin-sdk-smoke
@@ -408,6 +418,7 @@ add_test(
 set_tests_properties(draxul-external-plugin-sdk-smoke
     PROPERTIES
         LABELS "integration;plugin;sdk"
+        RESOURCE_LOCK draxul_gpu
         TIMEOUT 600)
 
 add_custom_target(draxul-sdk-external-smoke
@@ -461,6 +472,11 @@ draxul_apply_msvc_parallel_pdb_fix(draxul-rpc-fake)
 add_executable(draxul-bmp-link-isolation link_isolation/bmp_public_header.cpp)
 target_link_libraries(draxul-bmp-link-isolation PRIVATE draxul-bmp)
 
+add_executable(draxul-plugin-sdk-c-link-isolation
+    link_isolation/plugin_sdk_c_header.c)
+target_link_libraries(draxul-plugin-sdk-c-link-isolation PRIVATE
+    Draxul::PluginSDK)
+
 add_executable(draxul-performance-link-isolation link_isolation/performance_public_header.cpp)
 target_link_libraries(draxul-performance-link-isolation PRIVATE draxul-performance)
 
@@ -484,6 +500,7 @@ target_link_libraries(draxul-server-link-isolation PRIVATE draxul-server)
 
 add_dependencies(draxul-tests
     draxul-bmp-link-isolation
+    draxul-plugin-sdk-c-link-isolation
     draxul-performance-link-isolation
     draxul-host-link-isolation
     draxul-terminal-core-link-isolation

@@ -35,6 +35,8 @@ public:
         frame.instance = vk.instance();
         frame.physical_device = vk.physical_device();
         frame.device = vk.device();
+        frame.graphics_queue = vk.graphics_queue();
+        frame.graphics_queue_family = vk.graphics_queue_family();
         frame.command_buffer = vk.command_buffer();
         frame.target_image = handle_bits(vk.swapchain_image());
         frame.target_image_view = handle_bits(vk.swapchain_image_view());

@@ -26,11 +26,6 @@ extern "C" {
 #define DRAXUL_PLUGIN_PATH_SERVICE_VERSION 1u
 #define DRAXUL_PLUGIN_STORAGE_SERVICE_ID "draxul.storage"
 #define DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION 1u
-#define DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_ID "draxul.imgui-overlay"
-#define DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_VERSION 1u
-#define DRAXUL_PLUGIN_CANVAS2D_SERVICE_ID "draxul.canvas2d"
-#define DRAXUL_PLUGIN_CANVAS2D_SERVICE_VERSION 1u
-#define DRAXUL_PLUGIN_CANVAS2D_CPP_ABI_FINGERPRINT UINT64_C(0x4452584c43324401)
 #define DRAXUL_PLUGIN_MAX_STORAGE_JSON_BYTES (1024u * 1024u)
 
 typedef enum DraxulPluginBackendV2
@@ -130,45 +125,6 @@ typedef struct DraxulPluginStorageServiceV2
         const char* key, size_t key_length);
 } DraxulPluginStorageServiceV2;
 
-// First-party, build-matched ImGui bridge. ImGuiContext and ImDrawData remain
-// opaque at the C boundary; the version and type sizes must match before a
-// plugin uses the service. Calls are main-thread-only. The host owns all GPU
-// backend state and submission.
-typedef struct DraxulPluginImGuiOverlayServiceV2
-{
-    uint32_t struct_size;
-    uint32_t service_version;
-    uint32_t imgui_version_num;
-    uint32_t draw_vert_size;
-    uint32_t draw_idx_size;
-    void* service_context;
-    int32_t (*initialize)(void* service_context, void* imgui_context);
-    void (*shutdown)(void* service_context, void* imgui_context);
-    void (*rebuild_font_texture)(void* service_context, void* imgui_context);
-    int32_t (*begin_frame)(void* service_context, void* imgui_context);
-    int32_t (*render_draw_data)(void* service_context, void* draw_data,
-        void* imgui_context);
-    // Two-call UTF-8 path contract. The returned size includes the NUL.
-    int32_t (*get_font)(void* service_context, char* path,
-        size_t* in_out_size, float* size_pixels);
-} DraxulPluginImGuiOverlayServiceV2;
-
-// Build-matched first-party Canvas 2D bridge. The opaque render pass is owned
-// by the plugin instance and must implement the exact Draxul IRenderPass ABI
-// identified by cpp_abi_fingerprint. Draxul only borrows it between plugin
-// render and quiesce. Overlay data is similarly frame-local.
-typedef struct DraxulPluginCanvas2DServiceV2
-{
-    uint32_t struct_size;
-    uint32_t service_version;
-    uint64_t cpp_abi_fingerprint;
-    void* service_context;
-    int32_t (*set_render_pass)(void* service_context,
-        void* opaque_render_pass, uint64_t cpp_abi_fingerprint);
-    void (*set_overlay)(void* service_context, void* draw_data,
-        void* imgui_context);
-} DraxulPluginCanvas2DServiceV2;
-
 typedef struct DraxulPluginViewportV2
 {
     uint32_t struct_size;
@@ -254,9 +210,18 @@ typedef struct DraxulPluginTickResultV2
 typedef struct DraxulPluginVulkanFrameV2
 {
     uint32_t struct_size;
+    // No render pass is active. Every handle is borrowed for this callback.
+    // The target is in VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL on entry.
+    // Plugins may create passes on command_buffer but must end them and return
+    // the target to that layout. They must not submit, present, retain, or
+    // destroy any borrowed object.
     void* instance;
     void* physical_device;
     void* device;
+    // Borrowed graphics queue identity is supplied for resource ownership and
+    // allocator setup. Plugins must never submit to or wait on this queue.
+    void* graphics_queue;
+    uint32_t graphics_queue_family;
     void* command_buffer;
     uint64_t target_image;
     uint64_t target_image_view;
@@ -276,6 +241,10 @@ typedef struct DraxulPluginVulkanFrameV2
 typedef struct DraxulPluginMetalFrameV2
 {
     uint32_t struct_size;
+    // No encoder is active. Every object is unretained and borrowed for this
+    // callback. continuation_render_pass_descriptor uses Load/Store and fills
+    // the drawable. Plugins must end every encoder they create and must not
+    // commit, present, retain, release, or destroy host-owned objects.
     void* device;
     void* command_buffer;
     void* drawable_texture;

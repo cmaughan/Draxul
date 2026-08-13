@@ -27,7 +27,7 @@ TEST_CASE("SatView Solar System catalogue has unique, renderable bodies", "[satv
         CHECK_FALSE(body.texture_path.empty());
         CHECK(std::filesystem::exists(
             std::filesystem::path(DRAXUL_PROJECT_ROOT)
-            / "assets" / "satview" / body.texture_path));
+            / "plugins" / "satview" / "assets" / body.texture_path));
         CHECK(satview_camera_pov_from_config_name(body.config_name) == body.id);
         if (body.parent.has_value())
             CHECK(ids.contains(static_cast<int>(*body.parent)));

@@ -328,7 +328,10 @@ void save_state(TriangleInstance* instance)
 
 void* create_instance(const DraxulPluginCreateInfoV2* info)
 {
-    if (!info || !info->host)
+    if (!info || info->struct_size < sizeof(DraxulPluginCreateInfoV2)
+        || !info->host
+        || info->host->struct_size < sizeof(DraxulPluginHostApiV2)
+        || info->host->abi_version != DRAXUL_PLUGIN_ABI_VERSION)
         return nullptr;
     auto* instance = new TriangleInstance;
     instance->host = info->host;
@@ -399,7 +402,8 @@ void quiesce_instance(void* opaque)
 
 void set_viewport(void* opaque, const DraxulPluginViewportV2* viewport)
 {
-    if (opaque && viewport)
+    if (opaque && viewport
+        && viewport->struct_size >= sizeof(DraxulPluginViewportV2))
         static_cast<TriangleInstance*>(opaque)->viewport = *viewport;
 }
 
@@ -450,7 +454,8 @@ int32_t handle_input(void* opaque,
     const DraxulPluginInputEventV2* event)
 {
     auto* instance = static_cast<TriangleInstance*>(opaque);
-    if (!instance || !event)
+    if (!instance || !event
+        || event->struct_size < sizeof(DraxulPluginInputEventV2))
         return 0;
     if (event->kind == DRAXUL_PLUGIN_INPUT_KEY
         && event->pressed && event->logical_key == 32)
@@ -471,7 +476,8 @@ DraxulPluginTickResultV2 tick(void* opaque,
     const DraxulPluginTickInfoV2* info)
 {
     auto* instance = static_cast<TriangleInstance*>(opaque);
-    if (!instance || !info)
+    if (!instance || !info
+        || info->struct_size < sizeof(DraxulPluginTickInfoV2))
         return tick_result(false, DRAXUL_PLUGIN_NO_DEADLINE,
             false, "Spinning Triangle received an invalid tick");
     if (instance->quiesced || !instance->visible || !info->visible
@@ -495,7 +501,19 @@ DraxulPluginRenderResultV2 render_vulkan(void* opaque,
     const DraxulPluginVulkanFrameV2* frame)
 {
     auto* instance = static_cast<TriangleInstance*>(opaque);
-    if (!instance || !frame || !instance->visible)
+    if (!instance || !instance->visible)
+        return render_result(true, DRAXUL_PLUGIN_NO_DEADLINE);
+    if (!frame || frame->struct_size < sizeof(DraxulPluginVulkanFrameV2)
+        || !frame->device || !frame->command_buffer
+        || !frame->target_image || !frame->target_image_view
+        || !frame->continuation_render_pass
+        || !frame->continuation_framebuffer
+        || frame->framebuffer_width <= 0 || frame->framebuffer_height <= 0)
+    {
+        return render_result(false, DRAXUL_PLUGIN_NO_DEADLINE,
+            "Spinning Triangle received an incomplete Vulkan frame");
+    }
+    if (frame->viewport.width <= 0 || frame->viewport.height <= 0)
         return render_result(true, DRAXUL_PLUGIN_NO_DEADLINE);
     static thread_local std::string error;
     error.clear();
@@ -583,6 +601,8 @@ int32_t get_presentation_state(void* opaque,
             ? " | remembered" : " | storage unavailable";
     if (instance->paths_ready && !instance->data_directory.empty())
         instance->status += " | paths ready";
+    instance->status += " | " + std::to_string(instance->viewport.width)
+        + "x" + std::to_string(instance->viewport.height);
     if (!instance->storage_warning.empty())
         instance->status += " | " + instance->storage_warning;
     *state = {};

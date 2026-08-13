@@ -92,7 +92,8 @@ TEST_CASE("SatView Metal labels convert top-left pixel offsets to Metal clip spa
     "[satview][labels][shader]")
 {
     const auto source = read_text_file(
-        std::filesystem::path(DRAXUL_PROJECT_ROOT) / "shaders" / "satview_scene.metal");
+        std::filesystem::path(DRAXUL_PROJECT_ROOT)
+        / "plugins" / "satview" / "shaders" / "satview_scene.metal");
     REQUIRE(!source.empty());
 
     CHECK(source.find("float2 clip_pixel_offset = float2(pixel_offset.x, -pixel_offset.y);")

@@ -120,6 +120,8 @@ private:
     IRenderPass* canvas2d_render_pass_ = nullptr;
     void* canvas2d_draw_data_ = nullptr;
     void* canvas2d_imgui_context_ = nullptr;
+    void* plugin_imgui_draw_data_ = nullptr;
+    void* plugin_imgui_context_ = nullptr;
     std::atomic<IHostCallbacks*> callbacks_{ nullptr };
     void* instance_ = nullptr;
     HostViewport viewport_;

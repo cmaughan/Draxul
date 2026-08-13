@@ -103,6 +103,7 @@ does not rebuild or extend the universal value-type archive.
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
 | `libs/draxul-plugin/` | Manifest discovery, platform dynamic loading, ABI/identity validation, and process-lifetime module cache; consumes the public SDK but does not own it |
+| `libs/draxul-host/include/draxul/legacy_product_plugin_services.h` | Temporary, non-installed ImGui/Canvas compatibility for unmigrated in-tree product plugins; forbidden to external plugins and deleted by the product cutover |
 | `libs/draxul-agent/` | Neutral agent identity/profile/runtime values plus bundled, versioned terminal-status and process-discovery evaluators |
 | `libs/draxul-session-model/` | Renderer-free durable Session/Space/tab/pane snapshot values, validation, versioned TOML codec, and transactional file replacement shared by the app and server |
 | `libs/draxul-control/` | Versioned, authenticated local Session control transport and client (Windows named pipe; Unix-domain socket elsewhere) |
@@ -225,7 +226,7 @@ Good place for:
 | `modules/markdown/` | Always built | `draxul-markdown` parses/layouts documents; `draxul-markdown-host` integrates the native pane and platform render pass |
 | `modules/kanban/` | Always built | `draxul-kanban` owns board storage, layout/navigation, and the native Kanban host |
 | `modules/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Code semantics/tree-sitter, geometry, scene, renderer, host helpers, and the `draxul-megacity` product host; see its nested `AGENTS.md` |
-| `modules/satview/` | `DRAXUL_ENABLE_SATVIEW` | Satellite core, scene, services, renderer, and `draxul-satview-runtime`, linked privately into `plugins/satview` |
+| `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Self-contained satellite product: core, scene, services, runtime, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |
 | `modules/score/` | `DRAXUL_ENABLE_SCOREVIEW` | Notation, learning, MIDI/audio input, and `draxul-scoreview-runtime`, linked privately into `plugins/scoreview` |
 
 Markdown and Kanban are linked directly into `draxul`. SatView and ScoreView are
@@ -297,7 +298,8 @@ Use this when:
   behavior, or reusable scrollback storage, start in `draxul-terminal-core`.
 - If it is about a shell process, PTY/ConPTY lifecycle, selection, copy mode, or
   client presentation, start in `draxul-host`.
-- If the issue belongs only to Markdown, Kanban, Megacity, SatView, or ScoreView, start in that product's `modules/` directory.
+- If the issue belongs only to SatView, start in `plugins/satview/`. For Markdown,
+  Kanban, Megacity, or ScoreView, start in that product's `modules/` directory.
 - If the issue crosses several modules, start in `app/` to trace orchestration, then move reusable logic downward. Shared Session identity/split projection belongs in `draxul-client::TopologyProjection`; `app/` only adapts it to controllers and pane hosts.
 
 ## Why This Exists

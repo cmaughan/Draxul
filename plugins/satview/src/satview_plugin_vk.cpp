@@ -1,17 +1,19 @@
 #include <draxul/plugin_api.h>
+#include <draxul/satview/satview_scene_pass.h>
 #include <draxul/satview/satview_runtime.h>
+#include <draxul/satview/satview_texture_assets.h>
+#include <draxul/vulkan/vk_render_context.h>
 
 #include "satview_imgui_adapter.h"
 
 #include <nlohmann/json.hpp>
 #include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -22,13 +24,6 @@ namespace
 
 constexpr const char* kSatViewPluginId = "dev.draxul.satview";
 constexpr uint64_t kFrameDelayNs = 16'666'667;
-
-struct PushConstants
-{
-    float angle = 0.0f;
-    float aspect = 1.0f;
-    int mode = 0;
-};
 
 class RuntimeCallbacks final
     : public draxul::satview::SatViewRuntimeCallbacks
@@ -70,12 +65,11 @@ struct SatViewPluginInstance
     RuntimeCallbacks runtime_callbacks;
     draxul::satview::plugin::ImGuiOverlayAdapter imgui_overlay;
     std::unique_ptr<draxul::satview::SatViewRuntime> runtime;
-    VkDevice device = VK_NULL_HANDLE;
-    VkRenderPass render_pass = VK_NULL_HANDLE;
-    VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
-    VkPipeline pipeline = VK_NULL_HANDLE;
-    uint64_t target_generation = 0;
+    VmaAllocator allocator = VK_NULL_HANDLE;
 };
+
+bool ensure_allocator(SatViewPluginInstance& instance,
+    const DraxulPluginVulkanFrameV2& frame, std::string& error);
 
 void log(SatViewPluginInstance* instance, uint32_t level,
     const std::string& message)
@@ -101,163 +95,6 @@ void request_tick(SatViewPluginInstance* instance)
 {
     if (instance && instance->host && instance->host->request_tick)
         instance->host->request_tick(instance->host->host_context);
-}
-
-std::vector<uint32_t> read_spirv(const std::filesystem::path& path)
-{
-    std::ifstream input(path, std::ios::binary | std::ios::ate);
-    if (!input)
-        return {};
-    const auto size = input.tellg();
-    if (size <= 0 || size % 4 != 0)
-        return {};
-    std::vector<uint32_t> words(static_cast<size_t>(size) / 4);
-    input.seekg(0);
-    input.read(reinterpret_cast<char*>(words.data()), size);
-    return input ? words : std::vector<uint32_t>{};
-}
-
-void destroy_pipeline(SatViewPluginInstance& instance)
-{
-    if (instance.pipeline)
-        vkDestroyPipeline(instance.device, instance.pipeline, nullptr);
-    if (instance.pipeline_layout)
-        vkDestroyPipelineLayout(instance.device,
-            instance.pipeline_layout, nullptr);
-    instance.pipeline = VK_NULL_HANDLE;
-    instance.pipeline_layout = VK_NULL_HANDLE;
-    instance.render_pass = VK_NULL_HANDLE;
-}
-
-bool create_pipeline(SatViewPluginInstance& instance,
-    const DraxulPluginVulkanFrameV2& frame, std::string& error)
-{
-    instance.device = static_cast<VkDevice>(frame.device);
-    const auto vertex_words = read_spirv(
-        instance.directory / "satview_plugin.vert.spv");
-    const auto fragment_words = read_spirv(
-        instance.directory / "satview_plugin.frag.spv");
-    if (vertex_words.empty() || fragment_words.empty())
-    {
-        error = "SatView shader assets are missing";
-        return false;
-    }
-
-    const auto make_shader = [&](const std::vector<uint32_t>& words) {
-        VkShaderModuleCreateInfo create_info{
-            VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-        create_info.codeSize = words.size() * sizeof(uint32_t);
-        create_info.pCode = words.data();
-        VkShaderModule module = VK_NULL_HANDLE;
-        return vkCreateShaderModule(instance.device, &create_info,
-                   nullptr, &module)
-                == VK_SUCCESS
-            ? module : VK_NULL_HANDLE;
-    };
-    const VkShaderModule vertex = make_shader(vertex_words);
-    const VkShaderModule fragment = make_shader(fragment_words);
-    if (!vertex || !fragment)
-    {
-        if (vertex)
-            vkDestroyShaderModule(instance.device, vertex, nullptr);
-        if (fragment)
-            vkDestroyShaderModule(instance.device, fragment, nullptr);
-        error = "SatView could not create shader modules";
-        return false;
-    }
-
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT
-        | VK_SHADER_STAGE_FRAGMENT_BIT;
-    push_range.size = sizeof(PushConstants);
-    VkPipelineLayoutCreateInfo layout_info{
-        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-    layout_info.pushConstantRangeCount = 1;
-    layout_info.pPushConstantRanges = &push_range;
-    if (vkCreatePipelineLayout(instance.device, &layout_info,
-            nullptr, &instance.pipeline_layout) != VK_SUCCESS)
-    {
-        vkDestroyShaderModule(instance.device, vertex, nullptr);
-        vkDestroyShaderModule(instance.device, fragment, nullptr);
-        error = "SatView could not create pipeline layout";
-        return false;
-    }
-
-    VkPipelineShaderStageCreateInfo stages[2] = {};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = vertex;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = fragment;
-    stages[1].pName = "main";
-    VkPipelineVertexInputStateCreateInfo vertex_input{
-        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-    VkPipelineInputAssemblyStateCreateInfo assembly{
-        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
-    assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    VkPipelineViewportStateCreateInfo viewport{
-        VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
-    viewport.viewportCount = 1;
-    viewport.scissorCount = 1;
-    VkPipelineRasterizationStateCreateInfo raster{
-        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
-    raster.polygonMode = VK_POLYGON_MODE_FILL;
-    raster.cullMode = VK_CULL_MODE_NONE;
-    raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    raster.lineWidth = 1.0f;
-    VkPipelineMultisampleStateCreateInfo multisample{
-        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
-    multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-    VkPipelineDepthStencilStateCreateInfo depth_stencil{
-        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
-    depth_stencil.depthTestEnable = VK_FALSE;
-    depth_stencil.depthWriteEnable = VK_FALSE;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
-    VkPipelineColorBlendAttachmentState blend_attachment{};
-    blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT
-        | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT
-        | VK_COLOR_COMPONENT_A_BIT;
-    VkPipelineColorBlendStateCreateInfo blend{
-        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
-    blend.attachmentCount = 1;
-    blend.pAttachments = &blend_attachment;
-    const VkDynamicState dynamic_states[] = {
-        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-    VkPipelineDynamicStateCreateInfo dynamic{
-        VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
-    dynamic.dynamicStateCount = 2;
-    dynamic.pDynamicStates = dynamic_states;
-    VkGraphicsPipelineCreateInfo pipeline_info{
-        VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
-    pipeline_info.stageCount = 2;
-    pipeline_info.pStages = stages;
-    pipeline_info.pVertexInputState = &vertex_input;
-    pipeline_info.pInputAssemblyState = &assembly;
-    pipeline_info.pViewportState = &viewport;
-    pipeline_info.pRasterizationState = &raster;
-    pipeline_info.pMultisampleState = &multisample;
-    pipeline_info.pDepthStencilState = &depth_stencil;
-    pipeline_info.pColorBlendState = &blend;
-    pipeline_info.pDynamicState = &dynamic;
-    pipeline_info.layout = instance.pipeline_layout;
-    pipeline_info.renderPass = reinterpret_cast<VkRenderPass>(
-        static_cast<uintptr_t>(frame.continuation_render_pass));
-    pipeline_info.subpass = 0;
-    const VkResult result = vkCreateGraphicsPipelines(instance.device,
-        VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &instance.pipeline);
-    vkDestroyShaderModule(instance.device, vertex, nullptr);
-    vkDestroyShaderModule(instance.device, fragment, nullptr);
-    if (result != VK_SUCCESS)
-    {
-        destroy_pipeline(instance);
-        error = "SatView could not create graphics pipeline";
-        return false;
-    }
-    instance.render_pass = pipeline_info.renderPass;
-    instance.target_generation = frame.target_generation;
-    return true;
 }
 
 DraxulPluginRenderResultV2 render_result(bool ok,
@@ -368,6 +205,7 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
     instance->directory = info->plugin_directory_utf8
         ? std::filesystem::u8path(info->plugin_directory_utf8)
         : std::filesystem::path{};
+    draxul::satview::set_satview_asset_root(instance->directory / "assets");
     instance->viewport = info->initial_viewport;
     try
     {
@@ -431,6 +269,8 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
         delete instance;
         return nullptr;
     }
+    if (instance->paused)
+        instance->runtime->dispatch_action("satview_toggle_pause");
     if (!instance->saved_config_toml.empty())
     {
         if (const auto config = draxul::satview::parse_satview_config_toml(
@@ -451,7 +291,8 @@ void destroy_instance(void* opaque)
         return;
     if (instance->runtime)
         instance->runtime->shutdown();
-    destroy_pipeline(*instance);
+    if (instance->allocator)
+        vmaDestroyAllocator(instance->allocator);
     delete instance;
 }
 
@@ -461,7 +302,7 @@ void quiesce_instance(void* opaque)
     if (instance)
     {
         if (instance->runtime)
-            instance->runtime->shutdown();
+            instance->runtime->quiesce();
         save_state(instance);
         instance->quiesced = true;
     }
@@ -618,23 +459,38 @@ DraxulPluginRenderResultV2 render_vulkan(void* opaque,
         instance->runtime->draw(sink);
     static thread_local std::string error;
     error.clear();
-    if (!instance->pipeline
-        || instance->target_generation != frame->target_generation)
+    if (!sink.scene_pass())
+        return render_result(false, DRAXUL_PLUGIN_NO_DEADLINE,
+            "SatView runtime did not provide its scene");
+    if (!ensure_allocator(*instance, *frame, error))
     {
-        destroy_pipeline(*instance);
-        if (!create_pipeline(*instance, *frame, error))
-        {
-            log(instance, DRAXUL_PLUGIN_LOG_ERROR, error);
-            return render_result(false, DRAXUL_PLUGIN_NO_DEADLINE,
-                error.c_str());
-        }
+        log(instance, DRAXUL_PLUGIN_LOG_ERROR, error);
+        return render_result(false, DRAXUL_PLUGIN_NO_DEADLINE,
+            error.c_str());
     }
     const auto command_buffer
         = static_cast<VkCommandBuffer>(frame->command_buffer);
+    const auto render_pass = reinterpret_cast<VkRenderPass>(
+        static_cast<uintptr_t>(frame->continuation_render_pass));
+    draxul::VkRenderContext scene_context(command_buffer,
+        static_cast<VkPhysicalDevice>(frame->physical_device),
+        static_cast<VkDevice>(frame->device), instance->allocator,
+        render_pass, frame->frame_index, frame->buffered_frame_count,
+        frame->framebuffer_width, frame->framebuffer_height,
+        sink.scene_x(), sink.scene_y(),
+        std::max(1, sink.scene_width()), std::max(1, sink.scene_height()),
+        reinterpret_cast<VkImage>(static_cast<uintptr_t>(frame->target_image)),
+        reinterpret_cast<VkImageView>(static_cast<uintptr_t>(frame->target_image_view)),
+        static_cast<VkFormat>(frame->target_format),
+        static_cast<VkQueue>(frame->graphics_queue),
+        frame->graphics_queue_family,
+        static_cast<VkInstance>(frame->instance), render_pass,
+        reinterpret_cast<VkFramebuffer>(static_cast<uintptr_t>(frame->continuation_framebuffer)),
+        static_cast<VkFormat>(frame->depth_format), frame->target_generation);
+    sink.scene_pass()->record_prepass(scene_context);
     VkRenderPassBeginInfo begin{
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-    begin.renderPass = reinterpret_cast<VkRenderPass>(
-        static_cast<uintptr_t>(frame->continuation_render_pass));
+    begin.renderPass = render_pass;
     begin.framebuffer = reinterpret_cast<VkFramebuffer>(
         static_cast<uintptr_t>(frame->continuation_framebuffer));
     begin.renderArea.extent = {
@@ -642,33 +498,7 @@ DraxulPluginRenderResultV2 render_vulkan(void* opaque,
         static_cast<uint32_t>(frame->framebuffer_height) };
     vkCmdBeginRenderPass(command_buffer, &begin,
         VK_SUBPASS_CONTENTS_INLINE);
-    VkViewport viewport{};
-    viewport.x = static_cast<float>(frame->viewport.x);
-    viewport.y = static_cast<float>(frame->viewport.y);
-    viewport.width = static_cast<float>(frame->viewport.width);
-    viewport.height = static_cast<float>(frame->viewport.height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    VkRect2D scissor{
-        { std::max(0, frame->viewport.x),
-            std::max(0, frame->viewport.y) },
-        { static_cast<uint32_t>(std::max(0, frame->viewport.width)),
-            static_cast<uint32_t>(std::max(0, frame->viewport.height)) } };
-    vkCmdSetViewport(command_buffer, 0, 1, &viewport);
-    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-    vkCmdBindPipeline(command_buffer,
-        VK_PIPELINE_BIND_POINT_GRAPHICS, instance->pipeline);
-    PushConstants push;
-    push.angle = instance->angle;
-    push.aspect = frame->viewport.height > 0
-        ? static_cast<float>(frame->viewport.width)
-            / static_cast<float>(frame->viewport.height)
-        : 1.0f;
-    push.mode = 0;
-    vkCmdPushConstants(command_buffer, instance->pipeline_layout,
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-        0, sizeof(push), &push);
-    vkCmdDraw(command_buffer, 3, 1, 0, 0);
+    sink.scene_pass()->record(scene_context);
     vkCmdEndRenderPass(command_buffer);
     sink.render();
     return render_result(true, DRAXUL_PLUGIN_NO_DEADLINE);
@@ -798,6 +628,30 @@ const DraxulPluginApiV2 kApi = {
     .render_metal = &render_metal,
     .query_extension = &query_extension,
 };
+
+bool ensure_allocator(SatViewPluginInstance& instance,
+    const DraxulPluginVulkanFrameV2& frame, std::string& error)
+{
+    if (instance.allocator != VK_NULL_HANDLE)
+        return true;
+    VmaVulkanFunctions functions{};
+    functions.vkGetInstanceProcAddr = &vkGetInstanceProcAddr;
+    functions.vkGetDeviceProcAddr = &vkGetDeviceProcAddr;
+    VmaAllocatorCreateInfo info{};
+    info.instance = static_cast<VkInstance>(frame.instance);
+    info.physicalDevice = static_cast<VkPhysicalDevice>(frame.physical_device);
+    info.device = static_cast<VkDevice>(frame.device);
+    info.pVulkanFunctions = &functions;
+    info.vulkanApiVersion = VK_API_VERSION_1_2;
+    const VkResult result = vmaCreateAllocator(&info, &instance.allocator);
+    if (result != VK_SUCCESS)
+    {
+        error = "SatView could not create its Vulkan allocator ("
+            + std::to_string(result) + ")";
+        return false;
+    }
+    return true;
+}
 
 } // namespace
 

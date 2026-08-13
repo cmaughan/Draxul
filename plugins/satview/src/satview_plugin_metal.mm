@@ -1,5 +1,8 @@
 #include <draxul/plugin_api.h>
+#include <draxul/metal/metal_render_context.h>
+#include <draxul/satview/satview_scene_pass.h>
 #include <draxul/satview/satview_runtime.h>
+#include <draxul/satview/satview_texture_assets.h>
 
 #include "satview_imgui_adapter.h"
 
@@ -20,13 +23,6 @@ namespace
 
 constexpr const char* kSatViewPluginId = "dev.draxul.satview";
 constexpr uint64_t kFrameDelayNs = 16'666'667;
-
-struct PushConstants
-{
-    float angle = 0.0f;
-    float aspect = 1.0f;
-    int mode = 0;
-};
 
 class RuntimeCallbacks final
     : public draxul::satview::SatViewRuntimeCallbacks
@@ -68,9 +64,6 @@ struct SatViewPluginInstance
     RuntimeCallbacks runtime_callbacks;
     draxul::satview::plugin::ImGuiOverlayAdapter imgui_overlay;
     std::unique_ptr<draxul::satview::SatViewRuntime> runtime;
-    id<MTLDevice> device = nil;
-    id<MTLRenderPipelineState> pipeline = nil;
-    MTLPixelFormat format = MTLPixelFormatInvalid;
 };
 
 DraxulPluginRenderResultV2 result(bool ok, uint64_t deadline,
@@ -198,48 +191,6 @@ void request_tick(SatViewPluginInstance* instance)
         instance->host->request_tick(instance->host->host_context);
 }
 
-bool ensure_pipeline(SatViewPluginInstance& instance,
-    id<MTLDevice> device, MTLPixelFormat format,
-    std::string& error_message)
-{
-    if (instance.pipeline && instance.device == device
-        && instance.format == format)
-        return true;
-    instance.pipeline = nil;
-    instance.device = device;
-    instance.format = format;
-    NSString* directory = [NSString
-        stringWithUTF8String:instance.directory.c_str()];
-    NSString* path = [directory
-        stringByAppendingPathComponent:@"satview_plugin.metallib"];
-    NSError* error = nil;
-    id<MTLLibrary> library = [device newLibraryWithFile:path error:&error];
-    if (!library)
-    {
-        error_message = "SatView could not load metallib: ";
-        error_message += error.localizedDescription.UTF8String ?: "unknown error";
-        return false;
-    }
-    id<MTLFunction> vertex = [library
-        newFunctionWithName:@"satview_vertex"];
-    id<MTLFunction> fragment = [library
-        newFunctionWithName:@"satview_fragment"];
-    MTLRenderPipelineDescriptor* descriptor
-        = [[MTLRenderPipelineDescriptor alloc] init];
-    descriptor.vertexFunction = vertex;
-    descriptor.fragmentFunction = fragment;
-    descriptor.colorAttachments[0].pixelFormat = format;
-    instance.pipeline = [device
-        newRenderPipelineStateWithDescriptor:descriptor error:&error];
-    if (!instance.pipeline)
-    {
-        error_message = "SatView could not create pipeline: ";
-        error_message += error.localizedDescription.UTF8String ?: "unknown error";
-        return false;
-    }
-    return true;
-}
-
 void* create_instance(const DraxulPluginCreateInfoV2* info)
 {
     if (!info || !info->host)
@@ -248,6 +199,8 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
     instance->host = info->host;
     instance->directory = info->plugin_directory_utf8
         ? info->plugin_directory_utf8 : "";
+    draxul::satview::set_satview_asset_root(
+        std::filesystem::u8path(instance->directory) / "assets");
     instance->viewport = info->initial_viewport;
     try
     {
@@ -313,6 +266,8 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
         delete instance;
         return nullptr;
     }
+    if (instance->paused)
+        instance->runtime->dispatch_action("satview_toggle_pause");
     if (!instance->saved_config_toml.empty())
     {
         if (const auto config = draxul::satview::parse_satview_config_toml(
@@ -340,7 +295,7 @@ void quiesce_instance(void* opaque)
     if (instance)
     {
         if (instance->runtime)
-            instance->runtime->shutdown();
+            instance->runtime->quiesce();
         save_state(instance);
         instance->quiesced = true;
     }
@@ -510,42 +465,28 @@ DraxulPluginRenderResultV2 render_metal(void* opaque,
     MTLRenderPassDescriptor* descriptor
         = (__bridge MTLRenderPassDescriptor*)
             frame->continuation_render_pass_descriptor;
-    static thread_local std::string error;
-    error.clear();
-    if (!ensure_pipeline(*instance, device,
-            texture.pixelFormat, error))
-    {
-        log(instance, DRAXUL_PLUGIN_LOG_ERROR, error);
+    if (!sink.scene_pass())
         return result(false, DRAXUL_PLUGIN_NO_DEADLINE,
-            error.c_str());
-    }
+            "SatView runtime did not provide its scene");
+    draxul::MetalRenderContext prepass_context(command_buffer, nil,
+        frame->frame_index, frame->buffered_frame_count,
+        frame->framebuffer_width, frame->framebuffer_height,
+        sink.scene_x(), sink.scene_y(),
+        std::max(1, sink.scene_width()), std::max(1, sink.scene_height()),
+        device, texture, descriptor, frame->target_generation);
+    sink.scene_pass()->record_prepass(prepass_context);
     id<MTLRenderCommandEncoder> encoder
         = [command_buffer renderCommandEncoderWithDescriptor:descriptor];
     if (!encoder)
         return result(false, DRAXUL_PLUGIN_NO_DEADLINE,
             "SatView could not create render encoder");
-    const auto& viewport = frame->viewport;
-    [encoder setViewport:MTLViewport{
-        static_cast<double>(viewport.x),
-        static_cast<double>(viewport.y),
-        static_cast<double>(std::max(0, viewport.width)),
-        static_cast<double>(std::max(0, viewport.height)), 0.0, 1.0 }];
-    [encoder setScissorRect:MTLScissorRect{
-        static_cast<NSUInteger>(std::max(0, viewport.x)),
-        static_cast<NSUInteger>(std::max(0, viewport.y)),
-        static_cast<NSUInteger>(std::max(0, viewport.width)),
-        static_cast<NSUInteger>(std::max(0, viewport.height)) }];
-    [encoder setRenderPipelineState:instance->pipeline];
-    PushConstants push;
-    push.angle = instance->angle;
-    push.aspect = viewport.height > 0
-        ? static_cast<float>(viewport.width)
-            / static_cast<float>(viewport.height)
-        : 1.0f;
-    push.mode = 0;
-    [encoder setFragmentBytes:&push length:sizeof(push) atIndex:0];
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangle
-        vertexStart:0 vertexCount:3];
+    draxul::MetalRenderContext scene_context(command_buffer, encoder,
+        frame->frame_index, frame->buffered_frame_count,
+        frame->framebuffer_width, frame->framebuffer_height,
+        sink.scene_x(), sink.scene_y(),
+        std::max(1, sink.scene_width()), std::max(1, sink.scene_height()),
+        device, texture, descriptor, frame->target_generation);
+    sink.scene_pass()->record(scene_context);
     [encoder endEncoding];
     sink.render();
     return result(true, DRAXUL_PLUGIN_NO_DEADLINE);

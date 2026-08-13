@@ -1,4 +1,5 @@
 #include <draxul/imgui_host.h>
+#include <draxul/legacy_product_plugin_services.h>
 #include <draxul/plugin_api.h>
 #include <draxul/scoreview/score_runtime.h>
 

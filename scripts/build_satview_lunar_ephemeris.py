@@ -222,8 +222,8 @@ def write_catalog(path: Path, rows: list[tuple[object, ...]]) -> None:
 
 def main() -> int:
     repository_root = Path(__file__).resolve().parents[1]
-    default_targets = repository_root / "assets/satview/catalog/lunar_ephemeris_targets.json"
-    default_output = repository_root / "assets/satview/catalog/lunar_ephemeris.csv"
+    default_targets = repository_root / "plugins/satview/assets/catalog/lunar_ephemeris_targets.json"
+    default_output = repository_root / "plugins/satview/assets/catalog/lunar_ephemeris.csv"
     today = dt.datetime.now(dt.timezone.utc).date()
 
     parser = argparse.ArgumentParser(description=__doc__)

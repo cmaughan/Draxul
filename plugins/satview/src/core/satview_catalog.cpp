@@ -1,8 +1,8 @@
 #include <draxul/satview/satview_catalog.h>
+#include <draxul/satview/satview_texture_assets.h>
 
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
-#include <draxul/runtime_path.h>
 
 #include <algorithm>
 #include <array>
@@ -687,17 +687,17 @@ std::optional<SatelliteRecord> make_record(const JsonObject& object)
 
 std::filesystem::path resolve_satview_catalog_path(const std::filesystem::path& relative_path)
 {
-    const auto bundled = bundled_asset_path(std::filesystem::path("assets/satview") / relative_path);
-    if (std::filesystem::exists(bundled))
-        return bundled;
+    const auto explicit_asset = resolve_satview_asset_path(relative_path);
+    if (std::filesystem::exists(explicit_asset))
+        return explicit_asset;
 
-#ifdef DRAXUL_REPO_ROOT
-    const auto repo_path = std::filesystem::path(DRAXUL_REPO_ROOT) / "assets" / "satview" / relative_path;
+#ifdef DRAXUL_SATVIEW_SOURCE_ROOT
+    const auto repo_path = std::filesystem::path(DRAXUL_SATVIEW_SOURCE_ROOT) / "assets" / relative_path;
     if (std::filesystem::exists(repo_path))
         return repo_path;
 #endif
 
-    return bundled;
+    return explicit_asset;
 }
 
 std::optional<std::string> read_text_file(const std::filesystem::path& path, std::string& error)

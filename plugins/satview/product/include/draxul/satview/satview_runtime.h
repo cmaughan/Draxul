@@ -71,6 +71,7 @@ public:
         std::filesystem::path asset_root = {},
         std::filesystem::path cache_root = {});
     void shutdown();
+    void quiesce();
     bool is_running() const;
     std::string init_error() const;
 

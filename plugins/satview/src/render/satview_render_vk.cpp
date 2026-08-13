@@ -1433,7 +1433,7 @@ struct SatViewScenePass::State
 
     bool create_hdr_pipelines()
     {
-        const auto shader_dir = bundled_asset_path("shaders");
+        const auto shader_dir = resolve_satview_asset_path("../shaders");
         VkShaderModule vert = load_shader(device, (shader_dir / "satview_post.vert.spv").string());
         VkShaderModule post_frag = load_shader(device, (shader_dir / "satview_post.frag.spv").string());
         VkShaderModule present_frag = load_shader(device, (shader_dir / "satview_present.frag.spv").string());
@@ -1709,7 +1709,7 @@ struct SatViewScenePass::State
         if (device == VK_NULL_HANDLE || render_pass == VK_NULL_HANDLE || layout == VK_NULL_HANDLE)
             return false;
 
-        const auto shader_dir = bundled_asset_path("shaders");
+        const auto shader_dir = resolve_satview_asset_path("../shaders");
         VkShaderModule vert = load_shader(device, (shader_dir / "satview_earth.vert.spv").string());
         VkShaderModule frag = load_shader(device, (shader_dir / "satview_earth.frag.spv").string());
         VkShaderModule moon_vert = load_shader(device, (shader_dir / "satview_moon.vert.spv").string());

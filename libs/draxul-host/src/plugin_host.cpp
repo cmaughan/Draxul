@@ -5,6 +5,7 @@
 #include <draxul/base_renderer.h>
 #include <draxul/host_registry.h>
 #include <draxul/imgui_host.h>
+#include <draxul/legacy_product_plugin_services.h>
 #include <draxul/log.h>
 #include <draxul/plugin_manager.h>
 #include <draxul/renderer.h>
@@ -208,6 +209,8 @@ void PluginHost::shutdown()
     canvas2d_render_pass_ = nullptr;
     canvas2d_draw_data_ = nullptr;
     canvas2d_imgui_context_ = nullptr;
+    plugin_imgui_draw_data_ = nullptr;
+    plugin_imgui_context_ = nullptr;
     if (renderer_)
         renderer_->wait_idle();
     plugin_->api().destroy_instance(instance_);
@@ -350,6 +353,14 @@ void PluginHost::draw(IFrameContext& frame)
         viewport_.pixel_size.y,
     };
     frame.record_render_pass(*render_pass_, viewport);
+    if (imgui_host_ && plugin_imgui_draw_data_ && plugin_imgui_context_)
+    {
+        imgui_host_->render_imgui_draw_data(
+            static_cast<ImDrawData*>(plugin_imgui_draw_data_),
+            static_cast<ImGuiContext*>(plugin_imgui_context_));
+    }
+    plugin_imgui_draw_data_ = nullptr;
+    plugin_imgui_context_ = nullptr;
     if (canvas2d_render_pass_)
         frame.record_render_pass(*canvas2d_render_pass_, viewport);
     if (imgui_host_ && canvas2d_draw_data_ && canvas2d_imgui_context_)
@@ -633,10 +644,9 @@ int32_t PluginHost::render_imgui_draw_data(void* context,
     if (!host || !host->imgui_host_ || !draw_data || !imgui_context
         || std::this_thread::get_id() != host->main_thread_id_)
         return 0;
-    return host->imgui_host_->render_imgui_draw_data(
-        static_cast<ImDrawData*>(draw_data),
-        static_cast<ImGuiContext*>(imgui_context))
-        ? 1 : 0;
+    host->plugin_imgui_draw_data_ = draw_data;
+    host->plugin_imgui_context_ = imgui_context;
+    return 1;
 }
 
 int32_t PluginHost::get_imgui_font(void* context, char* path,

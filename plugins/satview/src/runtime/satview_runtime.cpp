@@ -1189,6 +1189,16 @@ void SatViewRuntime::shutdown()
     }
 }
 
+void SatViewRuntime::quiesce()
+{
+    catalog_service_.stop();
+    if (cloud_service_)
+        cloud_service_->stop();
+    if (simulation_worker_)
+        simulation_worker_->stop();
+    running_ = false;
+}
+
 bool SatViewRuntime::is_running() const
 {
     return running_;
