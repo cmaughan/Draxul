@@ -1,5 +1,46 @@
 cmake_minimum_required(VERSION 3.25)
 
+set(DRAXUL_SCOREVIEW_STANDALONE OFF)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(DRAXUL_SCOREVIEW_STANDALONE ON)
+    project(draxul-scoreview-plugin VERSION 0.1.0 LANGUAGES C CXX)
+    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    find_program(DRAXUL_SCOREVIEW_COMPILER_CACHE NAMES ccache sccache)
+    if(DRAXUL_SCOREVIEW_COMPILER_CACHE)
+        set(CMAKE_C_COMPILER_LAUNCHER
+            "${DRAXUL_SCOREVIEW_COMPILER_CACHE}" CACHE FILEPATH "" FORCE)
+        set(CMAKE_CXX_COMPILER_LAUNCHER
+            "${DRAXUL_SCOREVIEW_COMPILER_CACHE}" CACHE FILEPATH "" FORCE)
+    endif()
+    if(APPLE)
+        enable_language(OBJCXX)
+        set(CMAKE_OBJCXX_STANDARD 20)
+        set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+        if(DRAXUL_SCOREVIEW_COMPILER_CACHE)
+            set(CMAKE_OBJCXX_COMPILER_LAUNCHER
+                "${DRAXUL_SCOREVIEW_COMPILER_CACHE}" CACHE FILEPATH "" FORCE)
+        endif()
+    endif()
+endif()
+
+if(NOT TARGET Draxul::PluginSDK)
+    find_package(DraxulPluginSDK CONFIG REQUIRED)
+endif()
+
+if(DRAXUL_SCOREVIEW_STANDALONE)
+    include(cmake/Dependencies.cmake)
+    if(NOT TARGET Draxul::PluginImGui)
+        if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../support/imgui/CMakeLists.txt")
+            message(FATAL_ERROR
+                "ScoreView standalone builds require the copied plugins/support/imgui tree")
+        endif()
+        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../support/imgui"
+            "${CMAKE_CURRENT_BINARY_DIR}/plugin-imgui")
+    endif()
+endif()
+
 # ScoreView owns its complete product stack. Draxul consumes only the native
 # module through the installed C ABI; no app, library, or module target is
 # linked across the DLL boundary.
@@ -43,5 +84,7 @@ set_target_properties(draxul-scoreview-plugin PROPERTIES
     PREFIX ""
     OUTPUT_NAME "draxul-scoreview")
 
-set(SCOREVIEW_PLUGIN_SHADER_OUTPUTS
-    ${SCOREVIEW_PLUGIN_SHADER_OUTPUTS} PARENT_SCOPE)
+if(NOT DRAXUL_SCOREVIEW_STANDALONE)
+    set(SCOREVIEW_PLUGIN_SHADER_OUTPUTS
+        ${SCOREVIEW_PLUGIN_SHADER_OUTPUTS} PARENT_SCOPE)
+endif()

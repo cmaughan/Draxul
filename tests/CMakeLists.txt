@@ -439,6 +439,30 @@ add_custom_target(draxul-sdk-external-smoke
     USES_TERMINAL
     VERBATIM)
 
+# Product extraction deliberately remains an opt-in acceptance target: a cold
+# ScoreView build compiles Verovio and is too expensive for the ordinary smoke
+# loop. It copies the product outside the repository, installs the public SDK,
+# builds there, and proves that a clean Draxul package loads the resulting DLL.
+set(DRAXUL_EXTERNAL_PRODUCT_SMOKE_COMMAND
+    ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external_product_plugin_smoke.py
+    --cmake ${CMAKE_COMMAND}
+    --source-root ${CMAKE_SOURCE_DIR}
+    --build-root ${CMAKE_BINARY_DIR}
+    --draxul $<TARGET_FILE:draxul>
+    --config $<CONFIG>
+    --generator ${CMAKE_GENERATOR}
+    --platform=${CMAKE_GENERATOR_PLATFORM}
+    --toolset=${CMAKE_GENERATOR_TOOLSET})
+if(DRAXUL_ENABLE_RENDER_TESTS)
+    list(APPEND DRAXUL_EXTERNAL_PRODUCT_SMOKE_COMMAND --render)
+endif()
+add_custom_target(draxul-scoreview-extraction-smoke
+    COMMAND ${DRAXUL_EXTERNAL_PRODUCT_SMOKE_COMMAND}
+    DEPENDS draxul
+    USES_TERMINAL
+    VERBATIM)
+
 add_test(
     NAME draxul-do-py-tests
     COMMAND ${Python3_EXECUTABLE} -m unittest tests.do_py_tests

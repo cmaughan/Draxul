@@ -49,6 +49,11 @@ The public header is also exported as the installable CMake package
 Draxul source checkout. The spinning-triangle example supports a standalone
 CMake build, and the `draxul-sdk-external-smoke` target installs the SDK, builds
 that example from a clean copied tree, and loads the resulting module.
+ScoreView has the same repository-extraction proof through the opt-in
+`draxul-scoreview-extraction-smoke` target. It copies only the product and shared
+plugin ImGui support beside an installed SDK, performs a cold build, and loads
+the resulting module in a clean Draxul package. The target is intentionally not
+part of ordinary CTest because compiling Verovio from a cold tree is expensive.
 
 ABI v2 separates render deadlines from main-thread logic deadlines. Thread-safe
 callbacks can request either kind of work, and plugins quiesce background/device

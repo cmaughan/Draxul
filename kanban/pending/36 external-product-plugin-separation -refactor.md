@@ -14,6 +14,13 @@ separation in
 - [x] Slice 6: remove the old product host/module layer; retain Kanban and Markdown.
 - [ ] Slice 7: prove repository extraction, packaging, UI behavior, and macOS parity.
 
+Slice 7 progress: ScoreView now has an opt-in copied-tree extraction smoke that
+builds against only the installed SDK and plugin-owned support, then loads the
+result in a clean Draxul package. The same audit found that SatView and MegaCity
+still consume Draxul C++ infrastructure targets while compiling in-tree; those
+dependencies must be replaced with product-owned abstractions before the final
+slice can be checked off.
+
 Slice 5 correction: the public `draxul.ui-style` service now carries Draxul's
 recommended font, scale, and change generation. ScoreView consumes it while
 retaining its own Vulkan/Metal ImGui renderer, restoring the original inspector
