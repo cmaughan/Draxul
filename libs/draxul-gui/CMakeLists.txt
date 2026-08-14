@@ -4,8 +4,6 @@
 # ImGui diagnostics live in libs/draxul-ui. See README.md for the ownership
 # contract and when code belongs here.
 add_library(draxul-gui STATIC
-    src/tooltip.cpp
-    src/overlay_text.cpp
     src/palette_renderer.cpp
     src/toast_renderer.cpp
 )
@@ -20,6 +18,7 @@ target_include_directories(draxul-gui PUBLIC
 # Deliberately nothing else — this library must stay usable from pure unit
 # tests without a window, GPU, or ImGui context.
 target_link_libraries(draxul-gui PUBLIC
+    draxul-plugin-tooltip-support
     draxul-types
     draxul-font
     draxul-renderer

@@ -1,5 +1,5 @@
 #pragma once
-#include "vk_resource_ownership.h"
+#include <draxul/vulkan/vk_resource_ownership.h>
 
 #include <cstdint>
 #include <vk_mem_alloc.h>

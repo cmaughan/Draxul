@@ -1,6 +1,6 @@
 add_library(draxul-config
     src/app_config_io.cpp
-    src/config_document.cpp
+    src/config_document_core.cpp
     src/config_schema.cpp
     src/keybinding_parser.cpp
 )
@@ -14,6 +14,7 @@ target_compile_definitions(draxul-config PRIVATE
 )
 
 target_link_libraries(draxul-config PUBLIC
+    draxul-plugin-config-support
     draxul-types
     tomlplusplus::tomlplusplus
 )

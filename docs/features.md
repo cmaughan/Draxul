@@ -53,7 +53,11 @@ non-blank raw-GPU frame. When mounted in the Draxul tree, the same example owns
 its manifest, shader payload, and staging declaration through the generic
 `draxul_register_bundled_plugin` contract. Shared same-build C++ helpers must use
 an explicitly allowed `Draxul::PluginSupport::*` target; only the SDK C ABI is a
-runtime contract.
+runtime contract. The allowlist exposes narrow leaves for raw-ABI host services,
+render-pass/context types, configuration documents, text and tooltip rasterizing,
+HTTP, logging/performance types, ImGui, and Vulkan resource ownership. A
+configure-time graph check rejects any support leaf that reaches Draxul's host,
+window, renderer implementation, topology, terminal, or app orchestration.
 ScoreView has the same repository-extraction proof through the opt-in
 `draxul-scoreview-extraction-smoke` target. It copies only the product and shared
 plugin ImGui support beside an installed SDK, performs a cold build, and loads

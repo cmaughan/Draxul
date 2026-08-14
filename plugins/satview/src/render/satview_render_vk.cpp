@@ -15,7 +15,7 @@
 #include <imgui.h>
 #include <limits>
 #include <vector>
-#include "vk_resource_helpers.h"
+#include <draxul/vulkan/vk_resource_helpers.h>
 
 namespace draxul::satview
 {

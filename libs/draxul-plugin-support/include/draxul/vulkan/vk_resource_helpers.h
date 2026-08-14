@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vk_resource_ownership.h"
+#include <draxul/vulkan/vk_resource_ownership.h>
 
 #include <filesystem>
 #include <string>

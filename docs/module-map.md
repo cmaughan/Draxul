@@ -100,6 +100,7 @@ does not rebuild or extend the universal value-type archive.
 |---|---|
 | `sdk/` | Installable, versioned native plugin C ABI and the dependency-free `Draxul::PluginSDK` CMake target |
 | `plugins/support/imgui/` | Product-owned optional ImGui Vulkan/Metal encoder and public UI-style service client, linked inside native plugin modules and never exposed across the ABI |
+| `libs/draxul-plugin-support/` | Same-build plugin leaves: C-ABI path/storage/UI-style wrappers, backend-neutral render contracts, Vulkan resource ownership, explicit-path TOML documents, and tooltip layout; exports only `Draxul::PluginSupport::*` targets |
 | `libs/draxul-performance/` | Runtime timing collection and the `PERF_MEASURE` instrumentation API |
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
@@ -119,7 +120,8 @@ These targets must not depend on product modules. Configure-time checks in
 Mounted native products register their module, manifest, runtime payload,
 product targets, and focused test targets through `cmake/DraxulPlugins.cmake`.
 That file owns platform-neutral staging and accepts shared C++ dependencies only
-through the explicit `Draxul::PluginSupport::*` allowlist. Root CMake can enable
+through the explicit `Draxul::PluginSupport::*` allowlist. It also verifies that
+the allowlisted leaves cannot reach broader core libraries. Root CMake can enable
 a mounted plugin without knowing its shader names or packaging layout; removing
 the plugin directory therefore cannot leave reverse product dependencies in
 core. The shared C++ support is statically linked into a same-build plugin and
@@ -129,8 +131,8 @@ renderer adapter, including client-local viewport/selection/mouse/paste behavior
 It also owns the generic `PluginHost` and its Vulkan/Metal render-pass adapters;
 plugin modules remain dynamically linked and are never product dependencies of the
 server. The spinning-triangle is the first module staged through the generic
-registration contract; the three product plugins migrate in the following
-submodule-integration slices.
+registration contract; the product plugins cut from their legacy broad links to
+the new leaves in the following submodule-integration slice.
 The process adapter, client, and server libraries remain free of host, window,
 renderer, font, SDL, and product dependencies.
 
@@ -153,8 +155,7 @@ Good place for:
 Public renderer API plus Vulkan/Metal backends.
 
 Owns:
-- renderer interface hierarchy (`IBaseRenderer` → `I3DRenderer` → `IGridRenderer`)
-- render pass abstraction (`IRenderPass` / `IRenderContext`) replacing legacy `void*` callbacks
+- renderer implementation hierarchy (`IBaseRenderer` → `I3DRenderer` → `IGridRenderer`)
 - shared renderer CPU-side state
 - GPU upload/submission code
 - frame capture for render snapshots
@@ -171,6 +172,11 @@ Good place for:
 - backend-specific GPU work
 - readback/capture paths
 - new render pass implementations (implement `IRenderPass::record(IRenderContext&)`)
+
+The generic `IBaseRenderer`/`IFrameContext`/`IRenderPass` contract and typed
+Vulkan/Metal render contexts live in `libs/draxul-plugin-support`; the renderer
+implements that leaf contract but plugins do not inherit its window, swapchain,
+grid, capture, or presentation dependencies.
 
 ### libs/draxul-font/
 

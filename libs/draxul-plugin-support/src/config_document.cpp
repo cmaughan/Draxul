@@ -1,5 +1,4 @@
 #include <draxul/config_document.h>
-#include <draxul/config_schema.h>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/toml_support.h>
@@ -192,29 +191,6 @@ toml::table& ConfigDocument::ensure_table(std::string_view dotted_path)
         current = child;
     }
     return *current;
-}
-
-void ConfigDocument::merge_core_config(const AppConfig& config)
-{
-    PERF_MEASURE();
-    std::string parse_error;
-    auto parsed = toml_support::parse_document(config.serialize(), &parse_error);
-    if (!parsed)
-    {
-        DRAXUL_LOG_WARN(LogCategory::App, "Failed to merge core config into document: %s", parse_error.c_str());
-        return;
-    }
-
-    // The ownership inventory -- the only keys a core merge replaces -- comes
-    // from the schema. Unlisted top-level tables belong to optional modules and
-    // are deliberately preserved verbatim in the document tree. Iteration order
-    // is irrelevant: each key's erase+insert is independent and toml++ emits
-    // tables in sorted key order regardless.
-    config_schema::for_each_core_top_level_key([&](std::string_view key) {
-        document_.erase(key);
-        if (const toml::node* node = parsed->get(key))
-            document_.insert_or_assign(std::string(key), *node);
-    });
 }
 
 } // namespace draxul

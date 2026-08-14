@@ -15,7 +15,7 @@ separation in
 - [ ] Slice 7: finish generic submodule integration, packaging, UI behavior, and macOS parity.
   - [x] 7A: generic plugin registration, shared-support allowlist, and dependency guards.
   - [x] 7B: move product dependencies, tests, shaders, and staging into each submodule.
-  - [ ] 7C: narrow broad core dependencies into generic plugin-support leaf targets.
+  - [x] 7C: narrow broad core dependencies into generic plugin-support leaf targets.
   - [ ] 7D: cut SatView, MegaCity/BioView, and ScoreView over to that contract.
   - [ ] 7E: prove no-plugin/one-plugin/all-plugin builds plus Windows/macOS runtime acceptance.
 
@@ -44,7 +44,18 @@ feature switches and plugin mount directories. The unchanged 204-source/2072-
 registration/307-tag inventory built successfully; all product shards passed,
 and real staged SatView, MegaCity, BioView, and Grieg ScoreView render captures
 were exported on Windows. Product support links remain explicitly marked
-`MIGRATING` until Slice 7C replaces their broad core dependencies.
+`MIGRATING` until Slice 7D replaces their broad core dependencies.
+
+Slice 7C introduces the physical `libs/draxul-plugin-support` boundary. Generic
+render contracts and typed Vulkan/Metal contexts moved out of the renderer;
+Vulkan resource ownership, explicit-path TOML documents, and tooltip rasterizing
+became independent leaves. Existing text, HTTP, type, performance, and ImGui
+libraries now have explicit `Draxul::PluginSupport::*` names. A product-neutral
+C++ wrapper copies the versioned path, storage, and UI-style service tables
+without owning any Draxul object, and a real dynamically loaded fixture proved
+those wrappers across the DLL boundary. Configure now rejects any allowlisted
+leaf that links back into broad core. Products remain marked `MIGRATING` for the
+7D source and link cutover.
 
 Slice 5 correction: the public `draxul.ui-style` service now carries Draxul's
 recommended font, scale, and change generation. ScoreView consumes it while

@@ -2,7 +2,7 @@
 #include <catch2/catch_all.hpp>
 
 #include <draxul/pending_atlas_upload.h>
-#include "vulkan/vk_resource_ownership.h"
+#include <draxul/vulkan/vk_resource_ownership.h>
 
 using namespace draxul;
 

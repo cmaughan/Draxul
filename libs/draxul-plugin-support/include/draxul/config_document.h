@@ -1,6 +1,5 @@
 #pragma once
 
-#include <draxul/app_config_types.h>
 #include <draxul/result.h>
 #include <filesystem>
 #include <string_view>
@@ -8,6 +7,8 @@
 
 namespace draxul
 {
+
+struct AppConfig;
 
 class ConfigDocument
 {

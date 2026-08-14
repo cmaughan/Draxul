@@ -1,4 +1,4 @@
-#include "vk_resource_helpers.h"
+#include <draxul/vulkan/vk_resource_helpers.h>
 
 #include <fstream>
 #include <vector>

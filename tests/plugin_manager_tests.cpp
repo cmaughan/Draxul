@@ -318,6 +318,19 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     const auto fixture_query_service = reinterpret_cast<int (*)(const char*,
         size_t, uint32_t, void*, size_t)>(
         symbol("draxul_fixture_query_host_service"));
+    const auto support_path = reinterpret_cast<int (*)(uint32_t, char*, size_t*)>(
+        symbol("draxul_fixture_support_path"));
+    const auto support_write_json = reinterpret_cast<uint32_t (*)(uint32_t,
+        const char*, size_t, const char*, size_t)>(
+        symbol("draxul_fixture_support_write_json"));
+    const auto support_read_json = reinterpret_cast<uint32_t (*)(uint32_t,
+        const char*, size_t, char*, size_t*)>(
+        symbol("draxul_fixture_support_read_json"));
+    const auto support_remove = reinterpret_cast<uint32_t (*)(uint32_t,
+        const char*, size_t)>(symbol("draxul_fixture_support_remove"));
+    const auto support_ui_style = reinterpret_cast<int (*)(char*, size_t*,
+        float*, float*, uint64_t*)>(
+        symbol("draxul_fixture_support_ui_style"));
     REQUIRE(reset);
     REQUIRE(count);
     REQUIRE(event_at);
@@ -326,6 +339,11 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     REQUIRE(fixture_quiesce_count);
     REQUIRE(fixture_action_count);
     REQUIRE(fixture_query_service);
+    REQUIRE(support_path);
+    REQUIRE(support_write_json);
+    REQUIRE(support_read_json);
+    REQUIRE(support_remove);
+    REQUIRE(support_ui_style);
     reset();
 
     draxul::tests::FakeTermRenderer renderer;
@@ -355,6 +373,15 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     REQUIRE(paths.get_path(paths.service_context, DRAXUL_PLUGIN_PATH_DATA,
         data_path.data(), &path_size));
     CHECK(std::filesystem::exists(std::filesystem::u8path(data_path.c_str())));
+
+    size_t support_path_size = 0;
+    REQUIRE(support_path(DRAXUL_PLUGIN_PATH_DATA, nullptr,
+        &support_path_size));
+    std::string support_data_path(support_path_size, '\0');
+    REQUIRE(support_path(DRAXUL_PLUGIN_PATH_DATA,
+        support_data_path.data(), &support_path_size));
+    CHECK(std::string_view(support_data_path.c_str())
+        == std::string_view(data_path.c_str()));
 
     DraxulPluginStorageServiceV2 storage{};
     REQUIRE(fixture_query_service(DRAXUL_PLUGIN_STORAGE_SERVICE_ID,
@@ -389,6 +416,21 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
         &display_scale, &updated_style_generation));
     CHECK(std::string_view(recommended_path.c_str()) == "fixture-font.ttf");
     CHECK(recommended_size == 17.0f);
+    size_t support_font_path_size = 0;
+    float support_font_size = 0.0f;
+    float support_display_scale = 0.0f;
+    uint64_t support_style_generation = 0;
+    REQUIRE(support_ui_style(nullptr, &support_font_path_size,
+        &support_font_size, &support_display_scale,
+        &support_style_generation));
+    std::string support_font_path(support_font_path_size, '\0');
+    REQUIRE(support_ui_style(support_font_path.data(),
+        &support_font_path_size, &support_font_size,
+        &support_display_scale, &support_style_generation));
+    CHECK(std::string_view(support_font_path.c_str()) == "fixture-font.ttf");
+    CHECK(support_font_size == 17.0f);
+    CHECK(support_display_scale == 1.5f);
+    CHECK(support_style_generation == updated_style_generation);
     host.draw(renderer.frame_context);
     REQUIRE(renderer.recorded_render_viewports.size() == 1);
     CHECK(renderer.recorded_render_viewports[0].x == 100);
@@ -413,6 +455,21 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
         DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
         saved_state.data(), &state_size) == DRAXUL_PLUGIN_STORAGE_OK);
     CHECK(std::string_view(saved_state.c_str()) == second_json);
+    constexpr std::string_view support_key = "support-state";
+    CHECK(support_write_json(DRAXUL_PLUGIN_STORAGE_PANE,
+        support_key.data(), support_key.size(), second_json.data(),
+        second_json.size()) == DRAXUL_PLUGIN_STORAGE_OK);
+    size_t support_state_size = 0;
+    REQUIRE(support_read_json(DRAXUL_PLUGIN_STORAGE_PANE,
+        support_key.data(), support_key.size(), nullptr,
+        &support_state_size) == DRAXUL_PLUGIN_STORAGE_OK);
+    std::string support_state(support_state_size, '\0');
+    REQUIRE(support_read_json(DRAXUL_PLUGIN_STORAGE_PANE,
+        support_key.data(), support_key.size(), support_state.data(),
+        &support_state_size) == DRAXUL_PLUGIN_STORAGE_OK);
+    CHECK(std::string_view(support_state.c_str()) == second_json);
+    CHECK(support_remove(DRAXUL_PLUGIN_STORAGE_PANE,
+        support_key.data(), support_key.size()) == DRAXUL_PLUGIN_STORAGE_OK);
     CHECK(storage.write_json(storage.service_context,
         DRAXUL_PLUGIN_STORAGE_PANE, "../escape", 9,
         second_json.data(), second_json.size())

@@ -1,5 +1,8 @@
 #include <draxul/plugin_api.h>
+#include <draxul/plugin_host_services.h>
 
+#include <cstring>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -18,6 +21,7 @@ namespace
 struct FixtureInstance
 {
     const DraxulPluginHostApiV2* host = nullptr;
+    std::unique_ptr<draxul::plugin_support::HostServices> services;
     bool visible = true;
     bool focused = false;
     std::string status = "ready";
@@ -41,6 +45,8 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
         return nullptr;
     auto* instance = new FixtureInstance;
     instance->host = info->host;
+    instance->services
+        = std::make_unique<draxul::plugin_support::HostServices>(*info);
     live_instance = instance;
     return instance;
 }
@@ -270,4 +276,103 @@ extern "C" DRAXUL_PLUGIN_EXPORT int draxul_fixture_query_host_service(
         live_instance->host->host_context, service_id,
         service_id_length, requested_version, service_table,
         service_table_size);
+}
+
+extern "C" DRAXUL_PLUGIN_EXPORT int draxul_fixture_support_path(
+    uint32_t kind, char* buffer, size_t* in_out_size)
+{
+    if (!live_instance || !live_instance->services || !in_out_size)
+        return 0;
+    const auto utf8 = live_instance->services->path(kind).u8string();
+    const size_t required = utf8.size() + 1;
+    if (!buffer)
+    {
+        *in_out_size = required;
+        return 1;
+    }
+    if (*in_out_size < required)
+    {
+        *in_out_size = required;
+        return 0;
+    }
+    std::memcpy(buffer, utf8.c_str(), required);
+    *in_out_size = required;
+    return 1;
+}
+
+extern "C" DRAXUL_PLUGIN_EXPORT uint32_t draxul_fixture_support_write_json(
+    uint32_t scope, const char* key, size_t key_length,
+    const char* json, size_t json_length)
+{
+    if (!live_instance || !live_instance->services || !key || !json)
+        return DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
+    return live_instance->services->write_json(scope,
+        std::string_view(key, key_length), std::string_view(json, json_length));
+}
+
+extern "C" DRAXUL_PLUGIN_EXPORT uint32_t draxul_fixture_support_read_json(
+    uint32_t scope, const char* key, size_t key_length,
+    char* buffer, size_t* in_out_size)
+{
+    if (!live_instance || !live_instance->services || !key || !in_out_size)
+        return DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
+    const auto result = live_instance->services->read_json(
+        scope, std::string_view(key, key_length));
+    if (!result.ok())
+        return result.result;
+    const size_t required = result.json.size() + 1;
+    if (!buffer)
+    {
+        *in_out_size = required;
+        return DRAXUL_PLUGIN_STORAGE_OK;
+    }
+    if (*in_out_size < required)
+    {
+        *in_out_size = required;
+        return DRAXUL_PLUGIN_STORAGE_BUFFER_TOO_SMALL;
+    }
+    std::memcpy(buffer, result.json.c_str(), required);
+    *in_out_size = required;
+    return DRAXUL_PLUGIN_STORAGE_OK;
+}
+
+extern "C" DRAXUL_PLUGIN_EXPORT uint32_t draxul_fixture_support_remove(
+    uint32_t scope, const char* key, size_t key_length)
+{
+    if (!live_instance || !live_instance->services || !key)
+        return DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
+    return live_instance->services->remove(
+        scope, std::string_view(key, key_length));
+}
+
+extern "C" DRAXUL_PLUGIN_EXPORT int draxul_fixture_support_ui_style(
+    char* buffer, size_t* in_out_size, float* size_pixels,
+    float* display_scale, uint64_t* generation)
+{
+    if (!live_instance || !live_instance->services || !in_out_size
+        || !size_pixels || !display_scale || !generation)
+    {
+        return 0;
+    }
+    const auto style = live_instance->services->ui_style();
+    if (!style)
+        return 0;
+    const auto utf8 = style->font_path.u8string();
+    const size_t required = utf8.size() + 1;
+    *size_pixels = style->size_pixels;
+    *display_scale = style->display_scale;
+    *generation = style->generation;
+    if (!buffer)
+    {
+        *in_out_size = required;
+        return 1;
+    }
+    if (*in_out_size < required)
+    {
+        *in_out_size = required;
+        return 0;
+    }
+    std::memcpy(buffer, utf8.c_str(), required);
+    *in_out_size = required;
+    return 1;
 }

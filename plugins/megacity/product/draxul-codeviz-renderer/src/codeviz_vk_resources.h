@@ -1,7 +1,7 @@
 #pragma once
 
 #include "codeviz_material_library.h"
-#include "vk_resource_helpers.h"
+#include <draxul/vulkan/vk_resource_helpers.h>
 
 #include <array>
 #include <cstddef>

@@ -146,9 +146,10 @@ add_subdirectory(plugins/spinning-triangle)
 add_subdirectory(libs/draxul-bmp)
 add_subdirectory(libs/draxul-http)
 add_subdirectory(libs/draxul-window)
+add_subdirectory(libs/draxul-font)
+add_subdirectory(libs/draxul-plugin-support)
 add_subdirectory(libs/draxul-renderer)
 add_subdirectory(libs/draxul-ui)
-add_subdirectory(libs/draxul-font)
 add_subdirectory(libs/draxul-grid)
 add_subdirectory(libs/draxul-terminal-core)
 add_subdirectory(libs/draxul-nvim)
@@ -182,15 +183,26 @@ if(DRAXUL_ENABLE_SCOREVIEW)
 endif()
 
 # This namespace is the explicit shared C++ surface for mounted product
-# submodules. Slice 7C will add narrowly factored leaf targets here; broad core
-# libraries are deliberately not made public merely because current products
-# happen to reach them.
+# submodules. Broad core libraries are deliberately unavailable.
 if(TARGET draxul-plugin-imgui)
     add_library(Draxul::PluginSupport::ImGui ALIAS draxul-plugin-imgui)
 endif()
 draxul_allow_plugin_support_targets(
     Draxul::PluginSDK
-    Draxul::PluginSupport::ImGui)
+    Draxul::PluginSupport::ImGui
+    Draxul::PluginSupport::Runtime
+    Draxul::PluginSupport::Render
+    Draxul::PluginSupport::Config
+    Draxul::PluginSupport::Tooltip
+    Draxul::PluginSupport::Types
+    Draxul::PluginSupport::Performance
+    Draxul::PluginSupport::Text
+    Draxul::PluginSupport::Http)
+if(TARGET Draxul::PluginSupport::VulkanResources)
+    draxul_allow_plugin_support_targets(
+        Draxul::PluginSupport::VulkanResources)
+endif()
+draxul_check_plugin_support_dependencies()
 draxul_check_registered_plugin_dependencies()
 
 include(cmake/CheckDependencyBoundaries.cmake)
@@ -199,7 +211,9 @@ draxul_check_core_source_product_isolation("${CMAKE_SOURCE_DIR}")
 
 # Apply sanitizers/coverage to all draxul library targets (not FetchContent deps)
 foreach(_draxul_lib
-    draxul-performance draxul-types draxul-plugin draxul-bmp draxul-http draxul-window draxul-renderer draxul-ui
+    draxul-performance draxul-types draxul-plugin draxul-bmp draxul-http draxul-window
+    draxul-plugin-runtime-support draxul-plugin-config-support draxul-plugin-tooltip-support
+    draxul-renderer draxul-ui
     draxul-font draxul-grid draxul-nvim
     draxul-terminal-core draxul-terminal-process
     draxul-config draxul-session-model draxul-protocol draxul-control draxul-client draxul-server

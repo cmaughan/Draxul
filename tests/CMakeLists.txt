@@ -258,23 +258,27 @@ target_link_libraries(draxul-test-app PRIVATE
 target_compile_definitions(draxul-test-app PRIVATE DRAXUL_TEST_REGISTER_APP_HOSTS)
 
 add_library(draxul-plugin-fixture MODULE fixtures/plugin_fixture.cpp)
-target_link_libraries(draxul-plugin-fixture PRIVATE Draxul::PluginSDK)
+target_link_libraries(draxul-plugin-fixture PRIVATE
+    Draxul::PluginSDK Draxul::PluginSupport::Runtime)
 set_target_properties(draxul-plugin-fixture PROPERTIES PREFIX "")
 
 add_library(draxul-plugin-fixture-bad-abi MODULE fixtures/plugin_fixture.cpp)
-target_link_libraries(draxul-plugin-fixture-bad-abi PRIVATE Draxul::PluginSDK)
+target_link_libraries(draxul-plugin-fixture-bad-abi PRIVATE
+    Draxul::PluginSDK Draxul::PluginSupport::Runtime)
 target_compile_definitions(draxul-plugin-fixture-bad-abi PRIVATE
     DRAXUL_FIXTURE_REJECT_ABI)
 set_target_properties(draxul-plugin-fixture-bad-abi PROPERTIES PREFIX "")
 
 add_library(draxul-plugin-fixture-wrong-id MODULE fixtures/plugin_fixture.cpp)
-target_link_libraries(draxul-plugin-fixture-wrong-id PRIVATE Draxul::PluginSDK)
+target_link_libraries(draxul-plugin-fixture-wrong-id PRIVATE
+    Draxul::PluginSDK Draxul::PluginSupport::Runtime)
 target_compile_definitions(draxul-plugin-fixture-wrong-id PRIVATE
     DRAXUL_FIXTURE_PLUGIN_ID="dev.draxul.wrong")
 set_target_properties(draxul-plugin-fixture-wrong-id PROPERTIES PREFIX "")
 
 add_library(draxul-plugin-fixture-unsupported MODULE fixtures/plugin_fixture.cpp)
-target_link_libraries(draxul-plugin-fixture-unsupported PRIVATE Draxul::PluginSDK)
+target_link_libraries(draxul-plugin-fixture-unsupported PRIVATE
+    Draxul::PluginSDK Draxul::PluginSupport::Runtime)
 target_compile_definitions(draxul-plugin-fixture-unsupported PRIVATE
     DRAXUL_FIXTURE_BACKENDS=0)
 set_target_properties(draxul-plugin-fixture-unsupported PROPERTIES PREFIX "")
