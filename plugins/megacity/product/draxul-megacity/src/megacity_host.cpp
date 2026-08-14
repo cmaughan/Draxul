@@ -36,10 +36,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#ifndef DRAXUL_REPO_ROOT
-#define DRAXUL_REPO_ROOT "."
-#endif
-
 namespace draxul
 {
 
@@ -233,10 +229,11 @@ std::vector<std::filesystem::path> candidate_impl_files(const std::filesystem::p
     return candidates;
 }
 
-std::optional<std::filesystem::path> resolve_scan_root(const HostLaunchOptions& launch, std::string* error_message)
+std::optional<std::filesystem::path> resolve_scan_root(
+    const PluginRuntimeLaunchOptions& launch, std::string* error_message)
 {
     const std::filesystem::path requested = launch.source_path.empty()
-        ? std::filesystem::path(DRAXUL_REPO_ROOT)
+        ? std::filesystem::current_path()
         : std::filesystem::path(launch.source_path);
 
     std::error_code ec;
@@ -266,11 +263,7 @@ std::optional<std::filesystem::path> resolve_scan_root(const HostLaunchOptions& 
 std::filesystem::path fallback_scan_root()
 {
     std::error_code ec;
-    std::filesystem::path root = std::filesystem::weakly_canonical(std::filesystem::path(DRAXUL_REPO_ROOT), ec);
-    if (!ec && !root.empty())
-        return root;
-
-    root = std::filesystem::current_path(ec);
+    std::filesystem::path root = std::filesystem::current_path(ec);
     if (!ec && !root.empty())
         return root;
 
@@ -498,7 +491,7 @@ void MegaCityHost::refresh_sign_text_service()
     }
 }
 
-bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callbacks)
+bool MegaCityHost::initialize(const PluginRuntimeContext& context, PluginRuntimeCallbacks& callbacks)
 {
     PERF_MEASURE();
     init_error_.clear();
@@ -511,7 +504,7 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
         ? load_megacity_code_config(*config_document_, renderer_defaults_)
         : renderer_defaults_;
     pending_renderer_config_ = renderer_config_;
-    show_ui_panels_ = renderer_config_.show_ui_panels && context.launch_options.show_host_ui_panels;
+    show_ui_panels_ = renderer_config_.show_ui_panels && context.launch_options.show_ui_panels;
     continuous_refresh_enabled_ = context.launch_options.request_continuous_refresh;
     restore_camera_after_initial_build_ = renderer_config_.camera_state_valid;
 
@@ -519,10 +512,14 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     if (!resolved_scan_root)
         return false;
     semantic_source_->set_root(*resolved_scan_root);
+    metrics_overlay_->set_source_root(*resolved_scan_root);
 
     // Create MegaCity's own ImGui context for isolated docking and layout.
     {
-        std::filesystem::path ini_path = ConfigDocument::default_path().parent_path()
+        const std::filesystem::path settings_root = context.storage_directory.empty()
+            ? ConfigDocument::default_path().parent_path()
+            : context.storage_directory;
+        std::filesystem::path ini_path = settings_root
             / (is_biology_view(visualization_mode_) ? "bioview_imgui.ini" : "megacity_imgui.ini");
         imgui_ini_path_ = ini_path.string();
 
@@ -1274,7 +1271,7 @@ std::string MegaCityHost::init_error() const
     return init_error_;
 }
 
-void MegaCityHost::set_viewport(const HostViewport& viewport)
+void MegaCityHost::set_viewport(const PluginRuntimeViewport& viewport)
 {
     PERF_MEASURE();
     viewport_ = viewport;
@@ -1963,17 +1960,17 @@ Color MegaCityHost::default_background() const
     return Color(0.05f, 0.05f, 0.10f, 1.0f);
 }
 
-HostRuntimeState MegaCityHost::runtime_state() const
+PluginRuntimeState MegaCityHost::runtime_state() const
 {
-    HostRuntimeState s;
+    PluginRuntimeState s;
     s.content_ready = true;
     s.last_activity_time = last_activity_time_;
     return s;
 }
 
-HostDebugState MegaCityHost::debug_state() const
+PluginDebugState MegaCityHost::debug_state() const
 {
-    HostDebugState s;
+    PluginDebugState s;
     s.name = visualization_host_name(visualization_mode_);
     s.grid_cols = 0;
     s.grid_rows = 0;
@@ -2258,19 +2255,19 @@ void MegaCityHost::handle_double_click(const glm::ivec2& screen_pos)
 
             if (open_as_type)
             {
-                callbacks_->dispatch_to_nvim_host(
+                callbacks_->dispatch_source_action(
                     "open_file_at_type:" + target.file.string() + "|" + nav_qualified_name);
             }
             else if (!target.function_name.empty())
             {
                 // Format: open_file_at_function:path|qualified_name|function_name
-                callbacks_->dispatch_to_nvim_host(
+                callbacks_->dispatch_source_action(
                     "open_file_at_function:" + target.file.string() + "|"
                     + nav_qualified_name + "|" + target.function_name);
             }
             else
             {
-                callbacks_->dispatch_to_nvim_host("open_file:" + target.file.string());
+                callbacks_->dispatch_source_action("open_file:" + target.file.string());
             }
             return;
         }

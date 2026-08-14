@@ -106,6 +106,12 @@ void MetricsOverlayController::reset()
     last_refresh_ = std::chrono::steady_clock::now();
 }
 
+void MetricsOverlayController::set_source_root(std::filesystem::path source_root)
+{
+    source_root_ = std::move(source_root);
+    lcov_lookup_.reset();
+}
+
 void MetricsOverlayController::set_collection_enabled(bool biology_view, OverlayMode mode)
 {
     runtime_perf_collector().set_enabled(!biology_view && is_live_perf_overlay(mode));
@@ -202,7 +208,9 @@ void MetricsOverlayController::rebuild_lcov_metrics(OverlayMode mode, const Sema
 
 bool MetricsOverlayController::load_lcov_lookup(bool prefer_newest_report)
 {
-    const std::filesystem::path repo_root(DRAXUL_REPO_ROOT);
+    const std::filesystem::path repo_root = source_root_.empty()
+        ? std::filesystem::current_path()
+        : source_root_;
     const std::filesystem::path db_lcov = repo_root / "db" / "coverage.lcov";
     const std::filesystem::path build_lcov = repo_root / "build" / "coverage.lcov";
     std::filesystem::path lcov_path = build_lcov;

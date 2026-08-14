@@ -16,7 +16,7 @@ separation in
   - [x] 7A: generic plugin registration, shared-support allowlist, and dependency guards.
   - [x] 7B: move product dependencies, tests, shaders, and staging into each submodule.
   - [x] 7C: narrow broad core dependencies into generic plugin-support leaf targets.
-  - [ ] 7D: cut SatView, MegaCity/BioView, and ScoreView over to that contract.
+  - [x] 7D: cut SatView, MegaCity/BioView, and ScoreView over to that contract.
   - [ ] 7E: prove no-plugin/one-plugin/all-plugin builds plus Windows/macOS runtime acceptance.
 
 Slice 7 progress: ScoreView now has an opt-in copied-tree extraction smoke that
@@ -56,6 +56,17 @@ without owning any Draxul object, and a real dynamically loaded fixture proved
 those wrappers across the DLL boundary. Configure now rejects any allowlisted
 leaf that links back into broad core. Products remain marked `MIGRATING` for the
 7D source and link cutover.
+
+Slice 7D removes that migration exemption. SatView and MegaCity/BioView now use
+the generic plugin runtime/viewport and render contracts rather than
+`draxul-host`, and every product target links only its own targets, third-party
+libraries, or named `Draxul::PluginSupport::*` leaves. ScoreView uses the same
+strict in-tree support name while retaining its standalone SDK build. Packaged
+asset roots, source scan roots, LCOV lookup, and product UI state are resolved
+from explicit plugin configuration/services rather than compile-time Draxul
+source paths. All three registrations now pass the strict configure-time graph
+check; focused Windows product builds and test shards pass. Cross-platform and
+feature-matrix runtime proof remains 7E.
 
 Slice 5 correction: the public `draxul.ui-style` service now carries Draxul's
 recommended font, scale, and change generation. ScoreView consumes it while

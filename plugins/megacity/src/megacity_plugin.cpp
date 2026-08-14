@@ -1,5 +1,6 @@
 #include <draxul/plugin_api.h>
 #include <draxul/plugin_gpu_imgui.h>
+#include <draxul/plugin_host_services.h>
 #include <draxul/base_renderer.h>
 #include <draxul/codeviz_scene_pass.h>
 #include <draxul/megacity_host.h>
@@ -29,29 +30,20 @@ namespace
 
 constexpr const char* kPluginId = "dev.draxul.megacity";
 
-struct Callbacks final : draxul::IHostCallbacks
+struct Callbacks final : draxul::PluginRuntimeCallbacks
 {
     void request_frame() override
     {
         if (!api)
             return;
-        // IHost's request_frame historically guaranteed that the main loop
-        // would both pump product state and redraw it. Preserve both halves
-        // across the plugin ABI so completed scanner/route/grid work is
-        // consumed before the requested frame is rendered.
+        // Product redraw requests must pump state before rendering so completed
+        // scanner, route, and grid work becomes visible immediately.
         if (api->request_tick)
             api->request_tick(api->host_context);
         if (api->request_redraw)
             api->request_redraw(api->host_context);
     }
     void request_quit() override {}
-    void wake_window() override
-    {
-        if (api && api->request_tick)
-            api->request_tick(api->host_context);
-    }
-    void set_window_title(const std::string&) override {}
-    void set_text_input_area(int, int, int, int) override {}
     const DraxulPluginHostApiV2* api = nullptr;
 };
 
@@ -167,16 +159,17 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
     instance->imgui = draxul::plugin_support::create_gpu_imgui_host();
     instance->host = std::make_unique<draxul::MegaCityHost>(instance->mode);
 
-    draxul::HostContext context;
-    context.launch_options.kind = draxul::HostKind::Plugin;
+    draxul::PluginRuntimeContext context;
     context.launch_options.source_path = source;
     context.launch_options.request_continuous_refresh = continuous_refresh;
-    context.launch_options.show_host_ui_panels = show_ui && instance->imgui;
+    context.launch_options.show_ui_panels = show_ui && instance->imgui;
     context.initial_viewport.pixel_pos = {
         info->initial_viewport.x, info->initial_viewport.y };
     context.initial_viewport.pixel_size = {
         info->initial_viewport.width, info->initial_viewport.height };
     context.initial_viewport.pixel_scale = info->initial_viewport.pixel_scale;
+    draxul::plugin_support::HostServices services(*info);
+    context.storage_directory = services.path(DRAXUL_PLUGIN_PATH_DATA);
     context.display_ppi = info->initial_viewport.display_ppi;
     if (!instance->host->initialize(context, instance->callbacks))
         return nullptr;
@@ -219,7 +212,7 @@ void set_viewport(void* opaque, const DraxulPluginViewportV2* viewport)
     if (!instance || !viewport)
         return;
     instance->viewport = *viewport;
-    draxul::HostViewport value;
+    draxul::PluginRuntimeViewport value;
     value.pixel_pos = { viewport->x, viewport->y };
     value.pixel_size = { viewport->width, viewport->height };
     value.pixel_scale = viewport->pixel_scale;

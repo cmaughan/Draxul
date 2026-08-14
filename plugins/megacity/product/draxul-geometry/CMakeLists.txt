@@ -12,6 +12,6 @@ target_include_directories(draxul-geometry PUBLIC
 
 target_link_libraries(draxul-geometry PUBLIC
     glm
-    draxul-types
+    Draxul::PluginSupport::Types
 )
-target_link_libraries(draxul-geometry PRIVATE draxul-performance)
+target_link_libraries(draxul-geometry PRIVATE Draxul::PluginSupport::Performance)

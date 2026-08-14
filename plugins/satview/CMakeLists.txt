@@ -37,9 +37,8 @@ add_library(draxul-satview-core STATIC
     src/core/satview_surface_catalog.cpp
     src/core/satview_texture_assets.cpp)
 target_include_directories(draxul-satview-core PUBLIC "${SATVIEW_INCLUDE_DIR}" PRIVATE src/core ${stb_SOURCE_DIR})
-target_compile_definitions(draxul-satview-core PRIVATE
-    "DRAXUL_SATVIEW_SOURCE_ROOT=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
-target_link_libraries(draxul-satview-core PUBLIC draxul-types PRIVATE celestrak-sgp4 draxul-performance)
+target_link_libraries(draxul-satview-core PUBLIC Draxul::PluginSupport::Types
+    PRIVATE celestrak-sgp4 Draxul::PluginSupport::Performance)
 
 add_library(draxul-satview-scene STATIC
     src/scene/satview_constellation_catalog.cpp
@@ -47,13 +46,17 @@ add_library(draxul-satview-scene STATIC
     src/scene/satview_landscape.cpp
     src/scene/satview_star_catalog.cpp)
 target_include_directories(draxul-satview-scene PUBLIC "${SATVIEW_INCLUDE_DIR}" PRIVATE src/scene)
-target_link_libraries(draxul-satview-scene PUBLIC draxul-satview-core draxul-renderer PRIVATE draxul-performance)
+target_link_libraries(draxul-satview-scene PUBLIC
+    draxul-satview-core Draxul::PluginSupport::Render
+    PRIVATE Draxul::PluginSupport::Performance)
 
 add_library(draxul-satview-services STATIC
     src/services/satview_catalog_service.cpp
     src/services/satview_cloud_service.cpp)
 target_include_directories(draxul-satview-services PUBLIC "${SATVIEW_INCLUDE_DIR}" PRIVATE src/services)
-target_link_libraries(draxul-satview-services PUBLIC draxul-satview-core draxul-http PRIVATE draxul-performance)
+target_link_libraries(draxul-satview-services PUBLIC
+    draxul-satview-core Draxul::PluginSupport::Http
+    PRIVATE Draxul::PluginSupport::Performance)
 
 if(APPLE)
     set(SATVIEW_RENDERER_SOURCE src/render/satview_render.mm)
@@ -62,17 +65,16 @@ else()
 endif()
 add_library(draxul-satview-renderer STATIC ${SATVIEW_RENDERER_SOURCE})
 target_include_directories(draxul-satview-renderer PRIVATE src/render)
-target_compile_definitions(draxul-satview-renderer PRIVATE
-    "DRAXUL_SATVIEW_SOURCE_ROOT=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
 target_link_libraries(draxul-satview-renderer PUBLIC draxul-satview-scene)
-target_link_libraries(draxul-satview-renderer PRIVATE draxul-performance draxul-satview-core imgui)
+target_link_libraries(draxul-satview-renderer PRIVATE
+    Draxul::PluginSupport::Performance draxul-satview-core imgui)
 if(APPLE)
     find_library(SATVIEW_METAL_FRAMEWORK Metal REQUIRED)
     target_link_libraries(draxul-satview-renderer PRIVATE ${SATVIEW_METAL_FRAMEWORK})
     set_source_files_properties(src/render/satview_render.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 else()
     target_link_libraries(draxul-satview-renderer PRIVATE
-        draxul-vulkan-resources Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)
+        Draxul::PluginSupport::VulkanResources Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)
 endif()
 
 add_library(draxul-satview-runtime STATIC
@@ -82,8 +84,11 @@ add_library(draxul-satview-runtime STATIC
 target_include_directories(draxul-satview-runtime PUBLIC "${SATVIEW_INCLUDE_DIR}" PRIVATE src/runtime)
 target_link_libraries(draxul-satview-runtime PUBLIC
     draxul-satview-core draxul-satview-scene draxul-satview-services
-    draxul-satview-renderer draxul-host draxul-renderer imgui)
-target_link_libraries(draxul-satview-runtime PRIVATE draxul-config draxul-font draxul-ui SDL3::SDL3)
+    draxul-satview-renderer Draxul::PluginSupport::Runtime
+    Draxul::PluginSupport::Render imgui)
+target_link_libraries(draxul-satview-runtime PRIVATE
+    Draxul::PluginSupport::Config Draxul::PluginSupport::Text
+    Draxul::PluginSupport::ImGui SDL3::SDL3)
 
 add_library(draxul-satview-renderer-test-internals INTERFACE)
 target_include_directories(draxul-satview-renderer-test-internals INTERFACE src/render)
@@ -100,7 +105,7 @@ endif()
 add_library(draxul-satview-plugin MODULE ${DRAXUL_SATVIEW_PLUGIN_SOURCE})
 target_include_directories(draxul-satview-plugin PRIVATE "${SATVIEW_INCLUDE_DIR}" src)
 target_link_libraries(draxul-satview-plugin PRIVATE
-    Draxul::PluginSDK Draxul::PluginImGui
+    Draxul::PluginSDK Draxul::PluginSupport::ImGui
     nlohmann_json::nlohmann_json draxul-satview-runtime)
 if(NOT APPLE)
     target_link_libraries(draxul-satview-plugin PRIVATE
@@ -177,7 +182,7 @@ draxul_register_bundled_plugin(
     TARGET draxul-satview-plugin
     MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.toml"
     FEATURE DRAXUL_ENABLE_SATVIEW
-    DEPENDENCY_MODE MIGRATING
+    DEPENDENCY_MODE STRICT
     PRODUCT_TARGETS ${_satview_product_targets}
     TEST_SOURCES ${_satview_test_sources}
     TEST_CMAKE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Tests.cmake"

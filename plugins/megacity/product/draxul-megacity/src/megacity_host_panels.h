@@ -1,7 +1,7 @@
 #pragma once
 
 #include <draxul/events.h>
-#include <draxul/host.h>
+#include <draxul/plugin_runtime.h>
 #include <memory>
 
 struct ImGuiContext;
@@ -27,7 +27,7 @@ public:
     MegacityHostPanelFrame(
         ImGuiContext* context,
         IImGuiHost* backend,
-        const HostViewport& viewport,
+        const PluginRuntimeViewport& viewport,
         int pixel_w,
         int pixel_h,
         float dt,

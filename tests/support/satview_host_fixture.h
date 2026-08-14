@@ -228,15 +228,13 @@ struct OfflineSatViewHost
             },
             cache.path.string());
 
-        HostLaunchOptions launch;
-        launch.kind = HostKind::Plugin;
+        PluginRuntimeLaunchOptions launch;
 
-        HostViewport viewport;
+        PluginRuntimeViewport viewport;
         viewport.pixel_size = { 800, 600 };
         viewport.grid_size = { 1, 1 };
 
-        HostContext context{
-            .grid_renderer = &renderer,
+        PluginRuntimeContext context{
             .config_document = config_document,
             .launch_options = std::move(launch),
             .initial_viewport = viewport,

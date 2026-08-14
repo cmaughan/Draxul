@@ -10,7 +10,8 @@ add_library(draxul-megacity-plugin MODULE src/megacity_plugin.cpp)
 target_include_directories(draxul-megacity-plugin PRIVATE src)
 target_link_libraries(draxul-megacity-plugin PRIVATE
     Draxul::PluginSDK
-    Draxul::PluginImGui
+    Draxul::PluginSupport::ImGui
+    Draxul::PluginSupport::Runtime
     draxul-megacity
     draxul-codeviz-renderer
     nlohmann_json::nlohmann_json)
@@ -110,7 +111,7 @@ draxul_register_bundled_plugin(
     TARGET draxul-megacity-plugin
     MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.toml"
     FEATURE DRAXUL_ENABLE_MEGACITY
-    DEPENDENCY_MODE MIGRATING
+    DEPENDENCY_MODE STRICT
     PRODUCT_TARGETS ${_megacity_product_targets}
     TEST_SOURCES ${_megacity_test_sources}
     TEST_CMAKE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Tests.cmake"

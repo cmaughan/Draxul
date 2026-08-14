@@ -1,7 +1,7 @@
 #pragma once
 
 #include <chrono>
-#include <draxul/host.h>
+#include <draxul/plugin_runtime.h>
 #include <draxul/satview/satview_catalog_service.h>
 #include <draxul/satview/satview_config.h>
 #include <draxul/satview/satview_filter.h>
@@ -19,7 +19,7 @@ struct ImGuiContext;
 
 namespace draxul
 {
-class HostProviderRegistry;
+class IImGuiHost;
 struct TextAtlas;
 } // namespace draxul
 
@@ -66,7 +66,7 @@ public:
     SatViewRuntime();
     ~SatViewRuntime();
 
-    bool initialize(const draxul::HostContext& context,
+    bool initialize(const draxul::PluginRuntimeContext& context,
         SatViewRuntimeCallbacks& callbacks,
         std::filesystem::path asset_root = {},
         std::filesystem::path cache_root = {});
@@ -75,7 +75,7 @@ public:
     bool is_running() const;
     std::string init_error() const;
 
-    void set_viewport(const draxul::HostViewport& viewport);
+    void set_viewport(const draxul::PluginRuntimeViewport& viewport);
     void on_font_metrics_changed();
     void pump();
     void draw(SatViewFrameSink& frame);
@@ -92,8 +92,8 @@ public:
     void request_close();
     std::string status_text() const;
     draxul::Color default_background() const;
-    draxul::HostRuntimeState runtime_state() const;
-    draxul::HostDebugState debug_state() const;
+    draxul::PluginRuntimeState runtime_state() const;
+    draxul::PluginDebugState debug_state() const;
     [[nodiscard]] SatViewConfig current_config() const;
     void apply_config(const SatViewConfig& config);
 
@@ -207,8 +207,8 @@ private:
     std::filesystem::path asset_root_;
     std::filesystem::path cache_root_;
     draxul::ConfigDocument* config_document_ = nullptr;
-    draxul::HostViewport viewport_;
-    draxul::HostViewport scene_viewport_;
+    draxul::PluginRuntimeViewport viewport_;
+    draxul::PluginRuntimeViewport scene_viewport_;
     std::shared_ptr<SatViewScenePass> scene_pass_;
     SatViewCatalogService catalog_service_;
     std::unique_ptr<SatViewCloudService> cloud_service_;

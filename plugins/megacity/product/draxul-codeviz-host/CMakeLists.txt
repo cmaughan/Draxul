@@ -12,8 +12,8 @@ target_include_directories(draxul-codeviz-host PUBLIC
 target_link_libraries(draxul-codeviz-host
     PUBLIC
         draxul-codeviz-scene
-        draxul-types
+        Draxul::PluginSupport::Types
     PRIVATE
-        draxul-performance
+        Draxul::PluginSupport::Performance
         SDL3::SDL3
 )

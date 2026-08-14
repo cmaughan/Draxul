@@ -39,6 +39,9 @@ if(DRAXUL_SCOREVIEW_STANDALONE)
         add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../support/imgui"
             "${CMAKE_CURRENT_BINARY_DIR}/plugin-imgui")
     endif()
+    set(DRAXUL_SCOREVIEW_IMGUI_TARGET Draxul::PluginImGui)
+else()
+    set(DRAXUL_SCOREVIEW_IMGUI_TARGET Draxul::PluginSupport::ImGui)
 endif()
 
 # ScoreView owns its complete product stack. Draxul consumes only the native
@@ -53,7 +56,7 @@ target_link_libraries(draxul-scoreview-plugin PRIVATE
     draxul-scoreview-runtime
     draxul-score-canvas
     draxul-score-runtime-support
-    Draxul::PluginImGui
+    ${DRAXUL_SCOREVIEW_IMGUI_TARGET}
     nlohmann_json::nlohmann_json
     imgui)
 if(APPLE)
@@ -117,7 +120,7 @@ if(NOT DRAXUL_SCOREVIEW_STANDALONE)
         TARGET draxul-scoreview-plugin
         MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.toml"
         FEATURE DRAXUL_ENABLE_SCOREVIEW
-        DEPENDENCY_MODE MIGRATING
+        DEPENDENCY_MODE STRICT
         PRODUCT_TARGETS ${_scoreview_product_targets}
         TEST_SOURCES ${_scoreview_test_sources}
         TEST_CMAKE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Tests.cmake"

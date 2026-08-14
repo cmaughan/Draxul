@@ -206,21 +206,18 @@ TEST_CASE("megacity camera perspective screen drag moves content in the same dir
 TEST_CASE("megacity host mouse drag pans and alt-drag rotates", "[megacity]")
 {
     tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
+    tests::PluginRuntimeTestCallbacks callbacks;
     TextService text_service;
     tests::FakeTermRenderer renderer;
     MegaCityHost host;
 
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Plugin;
+    auto launch = megacity_test_launch_options();
 
-    HostViewport viewport;
+    PluginRuntimeViewport viewport;
     viewport.pixel_size = { 800, 600 };
     viewport.grid_size = { 1, 1 };
 
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
+    PluginRuntimeContext context{
         .text_service = &text_service,
         .launch_options = std::move(launch),
         .initial_viewport = viewport,
@@ -271,21 +268,18 @@ TEST_CASE("megacity host mouse drag pans and alt-drag rotates", "[megacity]")
 TEST_CASE("megacity host honors fractional mouse delta for drag input", "[megacity]")
 {
     tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
+    tests::PluginRuntimeTestCallbacks callbacks;
     TextService text_service;
     tests::FakeTermRenderer renderer;
     MegaCityHost host;
 
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Plugin;
+    auto launch = megacity_test_launch_options();
 
-    HostViewport viewport;
+    PluginRuntimeViewport viewport;
     viewport.pixel_size = { 800, 600 };
     viewport.grid_size = { 1, 1 };
 
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
+    PluginRuntimeContext context{
         .text_service = &text_service,
         .launch_options = std::move(launch),
         .initial_viewport = viewport,
@@ -329,21 +323,18 @@ TEST_CASE("megacity host honors fractional mouse delta for drag input", "[megaci
 TEST_CASE("megacity host forwards text input into its ImGui context", "[megacity]")
 {
     tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
+    tests::PluginRuntimeTestCallbacks callbacks;
     TextService text_service;
     tests::FakeTermRenderer renderer;
     MegaCityHost host;
 
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Plugin;
+    auto launch = megacity_test_launch_options();
 
-    HostViewport viewport;
+    PluginRuntimeViewport viewport;
     viewport.pixel_size = { 800, 600 };
     viewport.grid_size = { 1, 1 };
 
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
+    PluginRuntimeContext context{
         .text_service = &text_service,
         .launch_options = std::move(launch),
         .initial_viewport = viewport,
@@ -377,21 +368,18 @@ TEST_CASE("megacity host forwards text input into its ImGui context", "[megacity
 TEST_CASE("megacity host destroys scene pass before shutting down its imgui backend", "[megacity]")
 {
     tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
+    tests::PluginRuntimeTestCallbacks callbacks;
     TextService text_service;
     tests::FakeTermRenderer renderer;
     MegaCityHost host;
 
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Plugin;
+    auto launch = megacity_test_launch_options();
 
-    HostViewport viewport;
+    PluginRuntimeViewport viewport;
     viewport.pixel_size = { 800, 600 };
     viewport.grid_size = { 1, 1 };
 
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
+    PluginRuntimeContext context{
         .text_service = &text_service,
         .launch_options = std::move(launch),
         .initial_viewport = viewport,
@@ -421,22 +409,19 @@ TEST_CASE("megacity host source override controls the Tree-sitter scan root", "[
     }
 
     tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
+    tests::PluginRuntimeTestCallbacks callbacks;
     TextService text_service;
     tests::FakeTermRenderer renderer;
     MegaCityHost host;
 
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Plugin;
+    auto launch = megacity_test_launch_options();
     launch.source_path = scan_root.string();
 
-    HostViewport viewport;
+    PluginRuntimeViewport viewport;
     viewport.pixel_size = { 800, 600 };
     viewport.grid_size = { 1, 1 };
 
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
+    PluginRuntimeContext context{
         .text_service = &text_service,
         .launch_options = std::move(launch),
         .initial_viewport = viewport,
@@ -467,22 +452,19 @@ TEST_CASE("megacity host publishes a code semantic snapshot without database sta
     }
 
     tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
+    tests::PluginRuntimeTestCallbacks callbacks;
     TextService text_service;
     tests::FakeTermRenderer renderer;
     MegaCityHost host;
 
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Plugin;
+    auto launch = megacity_test_launch_options();
     launch.source_path = temp.path.string();
 
-    HostViewport viewport;
+    PluginRuntimeViewport viewport;
     viewport.pixel_size = { 800, 600 };
     viewport.grid_size = { 1, 1 };
 
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
+    PluginRuntimeContext context{
         .text_service = &text_service,
         .launch_options = std::move(launch),
         .initial_viewport = viewport,
@@ -530,22 +512,19 @@ TEST_CASE("megacity host treats stale graphify config as Tree-sitter source", "[
     code_table.insert_or_assign("graphify_graph_path", missing_graph_path.string());
 
     tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
+    tests::PluginRuntimeTestCallbacks callbacks;
     TextService text_service;
     tests::FakeTermRenderer renderer;
     MegaCityHost host;
 
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Plugin;
+    auto launch = megacity_test_launch_options();
     launch.source_path = temp.path.string();
 
-    HostViewport viewport;
+    PluginRuntimeViewport viewport;
     viewport.pixel_size = { 800, 600 };
     viewport.grid_size = { 1, 1 };
 
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
+    PluginRuntimeContext context{
         .text_service = &text_service,
         .config_document = &document,
         .launch_options = std::move(launch),
@@ -590,22 +569,19 @@ TEST_CASE("bioview host builds from neutral semantics without a city model", "[m
     }
 
     tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
+    tests::PluginRuntimeTestCallbacks callbacks;
     TextService text_service;
     tests::FakeTermRenderer renderer;
     MegaCityHost host(MegaCityVisualizationMode::Biology);
 
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Plugin;
+    auto launch = megacity_test_launch_options();
     launch.source_path = temp.path.string();
 
-    HostViewport viewport;
+    PluginRuntimeViewport viewport;
     viewport.pixel_size = { 800, 600 };
     viewport.grid_size = { 1, 1 };
 
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
+    PluginRuntimeContext context{
         .text_service = &text_service,
         .launch_options = std::move(launch),
         .initial_viewport = viewport,
@@ -636,21 +612,18 @@ TEST_CASE("bioview host builds from neutral semantics without a city model", "[m
 TEST_CASE("megacity host retries focused routes once the grid becomes available", "[megacity]")
 {
     tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
+    tests::PluginRuntimeTestCallbacks callbacks;
     TextService text_service;
     tests::FakeTermRenderer renderer;
     MegaCityHost host;
 
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Plugin;
+    auto launch = megacity_test_launch_options();
 
-    HostViewport viewport;
+    PluginRuntimeViewport viewport;
     viewport.pixel_size = { 800, 600 };
     viewport.grid_size = { 1, 1 };
 
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
+    PluginRuntimeContext context{
         .text_service = &text_service,
         .launch_options = std::move(launch),
         .initial_viewport = viewport,
@@ -738,21 +711,18 @@ TEST_CASE("megacity grid rebuild request does not join an in-flight worker", "[m
 TEST_CASE("megacity host scene click on roof sign function emits focused dependency route", "[megacity][integration]")
 {
     tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
+    tests::PluginRuntimeTestCallbacks callbacks;
     TextService text_service;
     tests::FakeTermRenderer renderer;
     MegaCityHost host;
 
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Plugin;
+    auto launch = megacity_test_launch_options();
 
-    HostViewport viewport;
+    PluginRuntimeViewport viewport;
     viewport.pixel_size = { 800, 600 };
     viewport.grid_size = { 1, 1 };
 
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
+    PluginRuntimeContext context{
         .text_service = &text_service,
         .launch_options = std::move(launch),
         .initial_viewport = viewport,
@@ -972,21 +942,18 @@ TEST_CASE("megacity host preserves externally edited core config when saving meg
     ConfigDocument document = ConfigDocument::load();
 
     tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
+    tests::PluginRuntimeTestCallbacks callbacks;
     TextService text_service;
     tests::FakeTermRenderer renderer;
     MegaCityHost host;
 
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Plugin;
+    auto launch = megacity_test_launch_options();
 
-    HostViewport viewport;
+    PluginRuntimeViewport viewport;
     viewport.pixel_size = { 800, 600 };
     viewport.grid_size = { 1, 1 };
 
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
+    PluginRuntimeContext context{
         .text_service = &text_service,
         .config_document = &document,
         .launch_options = std::move(launch),
@@ -1016,21 +983,18 @@ TEST_CASE("megacity host preserves externally edited core config when saving meg
 TEST_CASE("megacity host keeps catching up between mouse samples", "[megacity]")
 {
     tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
+    tests::PluginRuntimeTestCallbacks callbacks;
     TextService text_service;
     tests::FakeTermRenderer renderer;
     MegaCityHost host;
 
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Plugin;
+    auto launch = megacity_test_launch_options();
 
-    HostViewport viewport;
+    PluginRuntimeViewport viewport;
     viewport.pixel_size = { 800, 600 };
     viewport.grid_size = { 1, 1 };
 
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
+    PluginRuntimeContext context{
         .text_service = &text_service,
         .launch_options = std::move(launch),
         .initial_viewport = viewport,
@@ -1070,21 +1034,18 @@ TEST_CASE("megacity host keeps catching up between mouse samples", "[megacity]")
 TEST_CASE("megacity host draw does not schedule a follow-up frame for selection opacity", "[megacity]")
 {
     tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
+    tests::PluginRuntimeTestCallbacks callbacks;
     TextService text_service;
     tests::FakeTermRenderer renderer;
     MegaCityHost host;
 
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Plugin;
+    auto launch = megacity_test_launch_options();
 
-    HostViewport viewport;
+    PluginRuntimeViewport viewport;
     viewport.pixel_size = { 800, 600 };
     viewport.grid_size = { 1, 1 };
 
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
+    PluginRuntimeContext context{
         .text_service = &text_service,
         .launch_options = std::move(launch),
         .initial_viewport = viewport,

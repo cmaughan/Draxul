@@ -1,5 +1,6 @@
 add_library(draxul-plugin-imgui STATIC
-    src/plugin_ui_style.cpp)
+    src/plugin_ui_style.cpp
+    src/sdl_imgui_input.cpp)
 
 if(APPLE)
     target_sources(draxul-plugin-imgui PRIVATE
@@ -24,5 +25,5 @@ target_include_directories(draxul-plugin-imgui
     PRIVATE src)
 target_link_libraries(draxul-plugin-imgui
     PUBLIC Draxul::PluginSDK
-    PRIVATE imgui)
+    PRIVATE imgui SDL3::SDL3)
 add_library(Draxul::PluginImGui ALIAS draxul-plugin-imgui)

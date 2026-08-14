@@ -14,7 +14,11 @@ namespace draxul::satview
 namespace
 {
 
-std::filesystem::path g_asset_root;
+std::filesystem::path& asset_root()
+{
+    static std::filesystem::path root;
+    return root;
+}
 
 LoadedTextureImage load_rgba8_image_impl(const std::filesystem::path& path)
 {
@@ -59,21 +63,15 @@ LoadedTextureImage load_rgba8_image(const std::filesystem::path& path)
 std::filesystem::path resolve_satview_asset_path(const std::filesystem::path& relative_path)
 {
     PERF_MEASURE();
-    if (!g_asset_root.empty())
-        return g_asset_root / relative_path;
-
-#ifdef DRAXUL_SATVIEW_SOURCE_ROOT
-    const auto repo_path = std::filesystem::path(DRAXUL_SATVIEW_SOURCE_ROOT) / "assets" / relative_path;
-    if (std::filesystem::exists(repo_path))
-        return repo_path;
-#endif
+    if (!asset_root().empty())
+        return asset_root() / relative_path;
 
     return relative_path;
 }
 
 void set_satview_asset_root(std::filesystem::path root)
 {
-    g_asset_root = std::move(root);
+    asset_root() = std::move(root);
 }
 
 EarthTextureImages load_earth_texture_images()

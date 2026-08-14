@@ -58,6 +58,12 @@ render-pass/context types, configuration documents, text and tooltip rasterizing
 HTTP, logging/performance types, ImGui, and Vulkan resource ownership. A
 configure-time graph check rejects any support leaf that reaches Draxul's host,
 window, renderer implementation, topology, terminal, or app orchestration.
+SatView, MegaCity/BioView, and ScoreView are all registered in strict dependency
+mode: their product targets may link only other product-owned targets,
+third-party libraries, the public SDK, or these named plugin-support leaves.
+SatView and MegaCity use the generic plugin lifecycle/viewport contract rather
+than `IHost`, and resolve packaged assets and source roots explicitly instead of
+assuming a Draxul checkout path.
 ScoreView has the same repository-extraction proof through the opt-in
 `draxul-scoreview-extraction-smoke` target. It copies only the product and shared
 plugin ImGui support beside an installed SDK, performs a cold build, and loads
@@ -133,9 +139,9 @@ per pane for this UI; another attached UI resolves the shared pane independently
 - An ordinary `draxul` launch discovers or starts the singleton, opens the default
   shared shell Session, and reconnects to the same server-owned Spaces, panes,
   terminals, and agents after the UI closes. Shells have no client-owned fallback.
-  Explicit hosts such as `--host nvim`, Markdown, Kanban, and MegaCity remain
-  client-owned and do not start the server. SatView and ScoreView are client-local
-  plugin panes created in shared server topology.
+  Explicit hosts such as `--host nvim`, Markdown, and Kanban remain client-owned
+  and do not start the server. MegaCity/BioView, SatView, and ScoreView are
+  client-local plugin panes created in shared server topology.
 - The server owns a Windows notification-area or macOS menu-bar status item. Its menu
   reports connected clients, Sessions, Spaces, terminals, live terminals, and agents,
   and provides Open Draxul, refresh, open-log, and one guarded Stop Server action.

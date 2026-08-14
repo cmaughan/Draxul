@@ -691,12 +691,6 @@ std::filesystem::path resolve_satview_catalog_path(const std::filesystem::path& 
     if (std::filesystem::exists(explicit_asset))
         return explicit_asset;
 
-#ifdef DRAXUL_SATVIEW_SOURCE_ROOT
-    const auto repo_path = std::filesystem::path(DRAXUL_SATVIEW_SOURCE_ROOT) / "assets" / relative_path;
-    if (std::filesystem::exists(repo_path))
-        return repo_path;
-#endif
-
     return explicit_asset;
 }
 

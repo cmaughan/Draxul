@@ -13,4 +13,4 @@ target_link_libraries(draxul-codeviz-scene PUBLIC
     draxul-geometry
     EnTT::EnTT
 )
-target_link_libraries(draxul-codeviz-scene PRIVATE draxul-performance)
+target_link_libraries(draxul-codeviz-scene PRIVATE Draxul::PluginSupport::Performance)

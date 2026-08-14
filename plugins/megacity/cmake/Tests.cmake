@@ -7,7 +7,9 @@ draxul_add_test_target(
 target_link_libraries(draxul-test-megacity PRIVATE
     draxul-geometry
     draxul-megacity-test-internals
-    draxul-codeviz-renderer-test-internals)
+    draxul-codeviz-renderer-test-internals
+    draxul-host
+    draxul-renderer)
 target_compile_definitions(draxul-test-megacity PRIVATE DRAXUL_ENABLE_MEGACITY)
 
 add_dependencies(draxul-test-app draxul-megacity-plugin)

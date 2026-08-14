@@ -3,7 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <draxul/host.h>
+#include <draxul/plugin_runtime.h>
 #include <draxul/megacity_code_config.h>
 #include <filesystem>
 #include <memory>
@@ -30,6 +30,10 @@ struct SemanticMegacityModel;
 struct SemanticMegacityLayout;
 struct CityGrid;
 class CodeVizSceneWorld;
+class IFrameContext;
+class IImGuiHost;
+class TextService;
+class ConfigDocument;
 
 enum class MegaCityVisualizationMode
 {
@@ -40,45 +44,46 @@ enum class MegaCityVisualizationMode
 // MegaCityHost is a non-terminal host that renders a small 3D scene directly
 // into the GPU render pass. It does not use the grid path, but it does use the
 // font pipeline for semantic-city rooftop labels.
-class MegaCityHost final : public IHost
+class MegaCityHost final
 {
 public:
     explicit MegaCityHost(MegaCityVisualizationMode mode = MegaCityVisualizationMode::City);
-    ~MegaCityHost() override;
+    ~MegaCityHost();
 
-    bool initialize(const HostContext& context, IHostCallbacks& callbacks) override;
+    bool initialize(const PluginRuntimeContext& context, PluginRuntimeCallbacks& callbacks);
     // Stop background work while retaining GPU resources for safe retirement.
     void quiesce();
-    void shutdown() override;
-    bool is_running() const override;
-    std::string init_error() const override;
+    void shutdown();
+    bool is_running() const;
+    std::string init_error() const;
 
-    void set_viewport(const HostViewport& viewport) override;
-    bool requires_periodic_wake() const override;
-    void on_focus_lost() override;
-    void on_key(const KeyEvent& event) override;
-    void on_text_input(const TextInputEvent& event) override;
-    // on_font_metrics_changed() — inherited no-op from IHost is correct;
-    // MegaCityHost renders 3D geometry, not a text grid.
-    void pump() override;
-    void draw(IFrameContext& frame) override;
-    std::optional<std::chrono::steady_clock::time_point> next_deadline() const override;
+    void set_viewport(const PluginRuntimeViewport& viewport);
+    void set_presentation_visible(bool /*visible*/) {}
+    bool requires_periodic_wake() const;
+    void on_focus_gained() {}
+    void on_focus_lost();
+    void on_key(const KeyEvent& event);
+    void on_text_input(const TextInputEvent& event);
+    void on_text_editing(const TextEditingEvent& /*event*/) {}
+    void pump();
+    void draw(IFrameContext& frame);
+    std::optional<std::chrono::steady_clock::time_point> next_deadline() const;
 
-    void on_mouse_button(const MouseButtonEvent& event) override;
-    void on_mouse_move(const MouseMoveEvent& event) override;
-    void on_mouse_wheel(const MouseWheelEvent& event) override;
+    void on_mouse_button(const MouseButtonEvent& event);
+    void on_mouse_move(const MouseMoveEvent& event);
+    void on_mouse_wheel(const MouseWheelEvent& event);
 
-    bool dispatch_action(std::string_view action) override;
-    void request_close() override;
-    std::string status_text() const override;
-    Color default_background() const override;
-    HostRuntimeState runtime_state() const override;
-    HostDebugState debug_state() const override;
+    bool dispatch_action(std::string_view action);
+    void request_close();
+    std::string status_text() const;
+    Color default_background() const;
+    PluginRuntimeState runtime_state() const;
+    PluginDebugState debug_state() const;
 
     void launch_grid_build(const SemanticMegacityLayout& layout, const SemanticMegacityModel& model);
 
-    void attach_imgui_host(IImGuiHost& host) override;
-    void set_imgui_font(const std::string& path, float size_pixels) override;
+    void attach_imgui_host(IImGuiHost& host);
+    void set_imgui_font(const std::string& path, float size_pixels);
 
 private:
     void render_host_imgui(float dt);
@@ -111,8 +116,8 @@ private:
 
     MegaCityVisualizationMode visualization_mode_ = MegaCityVisualizationMode::City;
     std::unique_ptr<MegacityCameraInput> camera_input_;
-    IHostCallbacks* callbacks_ = nullptr;
-    HostViewport viewport_;
+    PluginRuntimeCallbacks* callbacks_ = nullptr;
+    PluginRuntimeViewport viewport_;
     std::shared_ptr<CodeVizScenePass> scene_pass_;
     std::unique_ptr<CodeVizSceneWorld> world_;
     std::unique_ptr<IsometricCamera> camera_;

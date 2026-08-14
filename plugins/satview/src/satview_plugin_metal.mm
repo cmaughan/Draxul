@@ -257,9 +257,8 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
     load_saved_state(instance);
     instance->runtime_callbacks.host = instance->host;
     instance->runtime = std::make_unique<draxul::satview::SatViewRuntime>();
-    draxul::HostContext context;
-    context.launch_options.kind = draxul::HostKind::Plugin;
-    context.launch_options.show_host_ui_panels
+    draxul::PluginRuntimeContext context;
+    context.launch_options.show_ui_panels
         = instance->imgui_overlay != nullptr;
     context.initial_viewport.pixel_pos = {
         info->initial_viewport.x, info->initial_viewport.y };
@@ -323,7 +322,7 @@ void set_viewport(void* opaque,
     instance->viewport = *viewport;
     if (instance->runtime)
     {
-        draxul::HostViewport value;
+        draxul::PluginRuntimeViewport value;
         value.pixel_pos = { viewport->x, viewport->y };
         value.pixel_size = { viewport->width, viewport->height };
         value.pixel_scale = viewport->pixel_scale;

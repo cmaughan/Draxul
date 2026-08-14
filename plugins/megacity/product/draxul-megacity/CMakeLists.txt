@@ -32,29 +32,26 @@ target_include_directories(draxul-megacity
 )
 
 target_link_libraries(draxul-megacity PUBLIC
-    draxul-performance
-    draxul-types
-    draxul-host
-    draxul-renderer
-    draxul-font
-    draxul-config
+    Draxul::PluginSupport::Performance
+    Draxul::PluginSupport::Types
+    Draxul::PluginSupport::Runtime
+    Draxul::PluginSupport::Render
+    Draxul::PluginSupport::Text
+    Draxul::PluginSupport::Config
+    Draxul::PluginSupport::Tooltip
     draxul-codeviz-scene
     draxul-codeviz-renderer
     draxul-codeviz-host
     draxul-code-semantics
     draxul-treesitter
-    draxul-gui
+    Draxul::PluginSupport::ImGui
     imgui
+    SDL3::SDL3
 )
 
 target_link_libraries(draxul-megacity PRIVATE
     draxul-geometry
-    draxul-ui
-)
-
-# Bake in the source root so the scanner can find the repo at runtime.
-target_compile_definitions(draxul-megacity PRIVATE
-    "DRAXUL_REPO_ROOT=\"${CMAKE_SOURCE_DIR}\""
+    Draxul::PluginSupport::ImGui
 )
 
 # Pure layout/cache white-box tests use a narrow internal surface while the

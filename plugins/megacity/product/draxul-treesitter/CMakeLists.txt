@@ -9,6 +9,6 @@ target_include_directories(draxul-treesitter PUBLIC include)
 target_link_libraries(draxul-treesitter PUBLIC
     tree_sitter_core
     tree_sitter_cpp_grammar
-    draxul-types
+    Draxul::PluginSupport::Types
 )
-target_link_libraries(draxul-treesitter PRIVATE draxul-performance)
+target_link_libraries(draxul-treesitter PRIVATE Draxul::PluginSupport::Performance)

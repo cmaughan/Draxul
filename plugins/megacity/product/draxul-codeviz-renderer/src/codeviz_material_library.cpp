@@ -60,11 +60,7 @@ std::filesystem::path codeviz_product_path(
 {
     if (!product_root.empty())
         return product_root / relative_path;
-#ifdef DRAXUL_MEGACITY_SOURCE_ROOT
-    return std::filesystem::path(DRAXUL_MEGACITY_SOURCE_ROOT) / relative_path;
-#else
     return relative_path;
-#endif
 }
 
 std::filesystem::path resolve_codeviz_material_asset_path(const std::filesystem::path& relative_path)

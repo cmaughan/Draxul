@@ -82,7 +82,7 @@ void route_megacity_imgui_mouse_wheel(ImGuiContext* context, const MouseWheelEve
 MegacityHostPanelFrame::MegacityHostPanelFrame(
     ImGuiContext* context,
     IImGuiHost* backend,
-    const HostViewport& viewport,
+    const PluginRuntimeViewport& viewport,
     int pixel_w,
     int pixel_h,
     float dt,

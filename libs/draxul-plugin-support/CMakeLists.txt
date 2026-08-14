@@ -4,7 +4,9 @@
 add_library(draxul-plugin-runtime-support STATIC
     src/plugin_host_services.cpp)
 target_include_directories(draxul-plugin-runtime-support PUBLIC include)
-target_link_libraries(draxul-plugin-runtime-support PUBLIC Draxul::PluginSDK)
+target_link_libraries(draxul-plugin-runtime-support PUBLIC
+    Draxul::PluginSDK
+    draxul-types)
 
 add_library(draxul-plugin-render-support INTERFACE)
 target_include_directories(draxul-plugin-render-support INTERFACE include)
@@ -33,7 +35,8 @@ target_link_libraries(draxul-plugin-tooltip-support
 
 if(NOT APPLE)
     add_library(draxul-vulkan-resources STATIC
-        src/vulkan/vk_resource_helpers.cpp)
+        src/vulkan/vk_resource_helpers.cpp
+        src/vulkan/vma_impl.cpp)
     target_include_directories(draxul-vulkan-resources PUBLIC include)
     target_link_libraries(draxul-vulkan-resources PRIVATE
         Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)

@@ -38,15 +38,11 @@ target_include_directories(draxul-codeviz-renderer
 target_link_libraries(draxul-codeviz-renderer
     PUBLIC
         draxul-codeviz-scene
-        draxul-renderer
+        Draxul::PluginSupport::Render
     PRIVATE
-        draxul-performance
+        Draxul::PluginSupport::Performance
         draxul-geometry
         imgui
-)
-
-target_compile_definitions(draxul-codeviz-renderer PRIVATE
-    "DRAXUL_MEGACITY_SOURCE_ROOT=\"${CMAKE_CURRENT_SOURCE_DIR}/../..\""
 )
 
 if(APPLE)
@@ -57,7 +53,7 @@ if(APPLE)
     )
 else()
     target_link_libraries(draxul-codeviz-renderer PRIVATE
-        draxul-vulkan-resources
+        Draxul::PluginSupport::VulkanResources
         Vulkan::Vulkan
         GPUOpen::VulkanMemoryAllocator
     )

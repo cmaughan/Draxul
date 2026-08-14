@@ -99,8 +99,8 @@ does not rebuild or extend the universal value-type archive.
 | Directory | Ownership |
 |---|---|
 | `sdk/` | Installable, versioned native plugin C ABI and the dependency-free `Draxul::PluginSDK` CMake target |
-| `plugins/support/imgui/` | Product-owned optional ImGui Vulkan/Metal encoder and public UI-style service client, linked inside native plugin modules and never exposed across the ABI |
-| `libs/draxul-plugin-support/` | Same-build plugin leaves: C-ABI path/storage/UI-style wrappers, backend-neutral render contracts, Vulkan resource ownership, explicit-path TOML documents, and tooltip layout; exports only `Draxul::PluginSupport::*` targets |
+| `plugins/support/imgui/` | Product-owned optional ImGui Vulkan/Metal encoder, SDL-to-ImGui input translation, and public UI-style service client, linked inside native plugin modules and never exposed across the ABI |
+| `libs/draxul-plugin-support/` | Same-build plugin leaves: C-ABI path/storage/UI-style wrappers, product lifecycle/viewport vocabulary, backend-neutral render contracts, Vulkan resource ownership, explicit-path TOML documents, and tooltip layout; exports only `Draxul::PluginSupport::*` targets |
 | `libs/draxul-performance/` | Runtime timing collection and the `PERF_MEASURE` instrumentation API |
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
@@ -251,6 +251,12 @@ payload, test source inventory, and focused CTest wiring. The root build contain
 only their feature switches and mount-point `add_subdirectory` calls. SatView's
 catalog and texture generators likewise live under `plugins/satview/tools/`, so
 the product can become a submodule without leaving maintenance scripts in core.
+Their registrations use strict dependency checking: SatView and MegaCity/BioView
+consume the generic plugin runtime, render, configuration, text, HTTP,
+performance, tooltip/ImGui, and platform GPU leaves as needed; ScoreView keeps
+its standalone product stack and uses the same in-tree registration/support
+naming. None of the product targets links `draxul-host`, the renderer
+implementation, app orchestration, or another product.
 
 Markdown and Kanban are linked directly into `draxul`. MegaCity/BioView, SatView,
 and ScoreView are staged and loaded only as native modules. Core has no product
@@ -322,8 +328,8 @@ Use this when:
   behavior, or reusable scrollback storage, start in `draxul-terminal-core`.
 - If it is about a shell process, PTY/ConPTY lifecycle, selection, copy mode, or
   client presentation, start in `draxul-host`.
-- If the issue belongs only to SatView, start in `plugins/satview/`. For Markdown,
-  Kanban, Megacity, or ScoreView, start in that product's `modules/` directory.
+- If the issue belongs to SatView, MegaCity/BioView, or ScoreView, start in its
+  directory under `plugins/`. Markdown and Kanban remain under `modules/`.
 - If the issue crosses several modules, start in `app/` to trace orchestration, then move reusable logic downward. Shared Session identity/split projection belongs in `draxul-client::TopologyProjection`; `app/` only adapts it to controllers and pane hosts.
 
 ## Why This Exists

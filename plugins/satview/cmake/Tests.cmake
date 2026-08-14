@@ -6,8 +6,14 @@ draxul_add_test_target(
     draxul-test-satview satview 2 ${_satview_test_sources})
 target_link_libraries(draxul-test-satview PRIVATE
     draxul-satview-runtime-test-internals
-    draxul-satview-renderer-test-internals)
-target_compile_definitions(draxul-test-satview PRIVATE DRAXUL_ENABLE_SATVIEW)
+    draxul-satview-renderer-test-internals
+    Draxul::PluginSupport::Config
+    SDL3::SDL3
+    draxul-host
+    draxul-renderer)
+target_compile_definitions(draxul-test-satview PRIVATE
+    DRAXUL_ENABLE_SATVIEW
+    "DRAXUL_SATVIEW_TEST_ASSET_ROOT=\"${_satview_root}/assets\"")
 
 add_test(
     NAME draxul-satview-catalog-py-tests

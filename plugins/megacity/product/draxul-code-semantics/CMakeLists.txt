@@ -11,6 +11,6 @@ target_include_directories(draxul-code-semantics
 
 target_link_libraries(draxul-code-semantics PUBLIC
     draxul-treesitter
-    draxul-types
+    Draxul::PluginSupport::Types
 )
-target_link_libraries(draxul-code-semantics PRIVATE draxul-performance)
+target_link_libraries(draxul-code-semantics PRIVATE Draxul::PluginSupport::Performance)

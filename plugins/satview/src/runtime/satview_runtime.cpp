@@ -32,7 +32,6 @@
 #include <cmath>
 #include <cstring>
 #include <draxul/config_document.h>
-#include <draxul/host_registry.h>
 #include <draxul/imgui_host.h>
 #include <draxul/log.h>
 #include <draxul/sdl_imgui_input.h>
@@ -194,7 +193,7 @@ float clamp_ground_marker_scale(float scale)
         kGroundMaximumMarkerScale);
 }
 
-glm::vec2 screen_ndc(glm::ivec2 screen_pos, const HostViewport& viewport)
+glm::vec2 screen_ndc(glm::ivec2 screen_pos, const PluginRuntimeViewport& viewport)
 {
     const glm::vec2 local = glm::vec2(screen_pos - viewport.pixel_pos);
     const glm::vec2 size = glm::max(glm::vec2(viewport.pixel_size), glm::vec2(1.0f));
@@ -203,7 +202,7 @@ glm::vec2 screen_ndc(glm::ivec2 screen_pos, const HostViewport& viewport)
         1.0f - local.y / size.y * 2.0f);
 }
 
-bool viewport_contains(const HostViewport& viewport, glm::ivec2 position)
+bool viewport_contains(const PluginRuntimeViewport& viewport, glm::ivec2 position)
 {
     const glm::ivec2 end = viewport.pixel_pos + viewport.pixel_size;
     return position.x >= viewport.pixel_pos.x
@@ -212,7 +211,7 @@ bool viewport_contains(const HostViewport& viewport, glm::ivec2 position)
         && position.y < end.y;
 }
 
-bool imgui_mouse_targets_scene(const HostViewport& scene_viewport, glm::ivec2 position)
+bool imgui_mouse_targets_scene(const PluginRuntimeViewport& scene_viewport, glm::ivec2 position)
 {
     if (!viewport_contains(scene_viewport, position))
         return false;
@@ -1010,7 +1009,7 @@ SatViewRuntime::~SatViewRuntime()
     shutdown();
 }
 
-bool SatViewRuntime::initialize(const HostContext& context,
+bool SatViewRuntime::initialize(const PluginRuntimeContext& context,
     SatViewRuntimeCallbacks& callbacks,
     std::filesystem::path asset_root,
     std::filesystem::path cache_root)
@@ -1025,7 +1024,7 @@ bool SatViewRuntime::initialize(const HostContext& context,
     scene_font_path_ = app_text_service_ ? app_text_service_->primary_font_path() : std::string{};
     viewport_ = context.initial_viewport;
     scene_viewport_ = viewport_;
-    show_ui_panel_ = context.launch_options.show_host_ui_panels;
+    show_ui_panel_ = context.launch_options.show_ui_panels;
     continuous_refresh_enabled_ = context.launch_options.request_continuous_refresh;
     apply_config(config_document_ ? load_satview_config(*config_document_) : SatViewConfig{});
     IMGUI_CHECKVERSION();
@@ -1209,7 +1208,7 @@ std::string SatViewRuntime::init_error() const
     return init_error_;
 }
 
-void SatViewRuntime::set_viewport(const HostViewport& viewport)
+void SatViewRuntime::set_viewport(const PluginRuntimeViewport& viewport)
 {
     viewport_ = viewport;
     if (!show_ui_panel_ || !imgui_context_ || !imgui_backend_)
@@ -2184,17 +2183,17 @@ Color SatViewRuntime::default_background() const
     return Color(0.005f, 0.008f, 0.018f, 1.0f);
 }
 
-HostRuntimeState SatViewRuntime::runtime_state() const
+PluginRuntimeState SatViewRuntime::runtime_state() const
 {
-    HostRuntimeState state;
+    PluginRuntimeState state;
     state.content_ready = true;
     state.last_activity_time = last_activity_time_;
     return state;
 }
 
-HostDebugState SatViewRuntime::debug_state() const
+PluginDebugState SatViewRuntime::debug_state() const
 {
-    HostDebugState state;
+    PluginDebugState state;
     state.name = "SatView";
     state.grid_cols = 0;
     state.grid_rows = 0;

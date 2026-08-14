@@ -6,6 +6,7 @@
 #include <chrono>
 #include <draxul/megacity_code_config.h>
 #include <draxul/perf_timing.h>
+#include <filesystem>
 #include <memory>
 
 namespace draxul
@@ -25,6 +26,7 @@ public:
     static std::chrono::milliseconds refresh_interval();
 
     void reset();
+    void set_source_root(std::filesystem::path source_root);
     void set_collection_enabled(bool biology_view, OverlayMode mode);
 
     void adopt_build_metrics(std::shared_ptr<const LiveCityMetricsSnapshot> metrics);
@@ -48,6 +50,7 @@ private:
     bool load_lcov_lookup(bool prefer_newest_report);
 
     std::shared_ptr<const LiveCityMetricsSnapshot> metrics_;
+    std::filesystem::path source_root_;
     std::shared_ptr<const LcovFunctionLookup> lcov_lookup_;
     RuntimePerfSnapshot coverage_snapshot_;
     uint64_t last_live_generation_ = 0;
