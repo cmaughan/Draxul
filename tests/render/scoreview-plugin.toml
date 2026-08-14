@@ -5,6 +5,7 @@ plugin_config_json = '{"source":"plugins/scoreview/tests/fixtures/musicxml/grieg
 width = 960
 height = 640
 settle_ms = 1200
+timeout_ms = 60000
 pixel_tolerance = 4
 changed_pixels_threshold_pct = 0.05
 commands = [""]

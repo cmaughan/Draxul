@@ -24,5 +24,5 @@ extrapolates them beyond the generated window.
 
 The exact spacecraft IDs, NORAD mappings, sample cadences, and any known
 coverage bounds are pinned in `lunar_ephemeris_targets.json`. Regenerate the
-CSV using `scripts/build_satview_lunar_ephemeris.py`; do not edit generated
+CSV using `plugins/satview/tools/build_satview_lunar_ephemeris.py`; do not edit generated
 vectors by hand.

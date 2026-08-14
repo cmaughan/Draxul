@@ -39,14 +39,14 @@ that request author citation retain that request below.
 | `iapetus_usgs_1k.jpg` | [Iapetus Cassini–Voyager Global Mosaic 803m](https://astrogeology.usgs.gov/search/map/iapetus_cassini_voyager_global_mosaic_803m), Space Science Institute, Cassini Team, JPL / USGS Astrogeology |
 
 The browse images were downloaded without geometric or color modification.
-`scripts/build_satview_solar_system_textures.py` pins their source URLs and
+`plugins/satview/tools/build_satview_solar_system_textures.py` pins their source URLs and
 SHA-256 digests.
 
 ## Procedural Presentation Maps
 
 Complete, directly usable color mosaics are not available for every selected
 moon. The following maps are deterministic presentation stand-ins generated
-locally by `scripts/build_satview_procedural_moon_textures.py`:
+locally by `plugins/satview/tools/build_satview_procedural_moon_textures.py`:
 
 - Deimos
 - Mimas

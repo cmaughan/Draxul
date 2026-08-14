@@ -239,6 +239,13 @@ Good place for:
 | `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Self-contained satellite product: core, scene, services, runtime, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |
 | `plugins/scoreview/` | `DRAXUL_ENABLE_SCOREVIEW` | Self-contained notation, learning, transport, worker, MIDI/audio/microphone, UI, NanoVG Vulkan/Metal rendering, assets, tests, and dynamic module |
 
+All three optional product directories own their third-party dependency
+declarations, sanitizer/coverage target lists, shader compilation, package
+payload, test source inventory, and focused CTest wiring. The root build contains
+only their feature switches and mount-point `add_subdirectory` calls. SatView's
+catalog and texture generators likewise live under `plugins/satview/tools/`, so
+the product can become a submodule without leaving maintenance scripts in core.
+
 Markdown and Kanban are linked directly into `draxul`. MegaCity/BioView, SatView,
 and ScoreView are staged and loaded only as native modules. Core has no product
 host kinds, provider factories, renderer bridge, or compiled-in fallback.

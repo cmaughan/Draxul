@@ -2,7 +2,7 @@
 
 Covers three areas:
 * golden framing of the shipped catalog assets (byte-exact headers),
-* validation errors in scripts/satview_catalog_container.py,
+* validation errors in the product-owned tools/satview_catalog_container.py,
 * generator determinism: each build script run twice on small synthetic
   inputs must produce byte-identical output (the real inputs are network
   downloads, so determinism is verified on synthetic data offline).
@@ -18,9 +18,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS_DIR = REPO_ROOT / "scripts"
-CATALOG_DIR = REPO_ROOT / "plugins" / "satview" / "assets" / "catalog"
+SATVIEW_ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS_DIR = SATVIEW_ROOT / "tools"
+CATALOG_DIR = SATVIEW_ROOT / "assets" / "catalog"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 

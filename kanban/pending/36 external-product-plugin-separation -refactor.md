@@ -14,7 +14,7 @@ separation in
 - [x] Slice 6: remove the old product host/module layer; retain Kanban and Markdown.
 - [ ] Slice 7: finish generic submodule integration, packaging, UI behavior, and macOS parity.
   - [x] 7A: generic plugin registration, shared-support allowlist, and dependency guards.
-  - [ ] 7B: move product dependencies, tests, shaders, and staging into each submodule.
+  - [x] 7B: move product dependencies, tests, shaders, and staging into each submodule.
   - [ ] 7C: narrow broad core dependencies into generic plugin-support leaf targets.
   - [ ] 7D: cut SatView, MegaCity/BioView, and ScoreView over to that contract.
   - [ ] 7E: prove no-plugin/one-plugin/all-plugin builds plus Windows/macOS runtime acceptance.
@@ -34,6 +34,17 @@ core-to-product links, product-header includes from core, and registered plugins
 that link Draxul targets outside the explicit `Draxul::PluginSupport::*`
 allowlist. The installed-SDK triangle smoke built an isolated DLL, loaded it in a
 clean Draxul package, and rendered a non-blank 960x640 frame on Windows.
+
+Slice 7B moves SGP4, Tree-sitter/EnTT, and the ScoreView notation/audio
+dependency stack out of root FetchDependencies and into their products. Each
+plugin now registers its own shaders, assets, runtime libraries, build policy,
+test inventory, and focused test CMake; SatView's Python catalog test and all
+catalog/texture generators moved with SatView. Root CMake now knows only the
+feature switches and plugin mount directories. The unchanged 204-source/2072-
+registration/307-tag inventory built successfully; all product shards passed,
+and real staged SatView, MegaCity, BioView, and Grieg ScoreView render captures
+were exported on Windows. Product support links remain explicitly marked
+`MIGRATING` until Slice 7C replaces their broad core dependencies.
 
 Slice 5 correction: the public `draxul.ui-style` service now carries Draxul's
 recommended font, scale, and change generation. ScoreView consumes it while

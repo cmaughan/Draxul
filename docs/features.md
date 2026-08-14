@@ -837,6 +837,13 @@ On Windows, every test executable that links ScoreView stages `verovio.dll`
 beside itself, so Debug and Release CTest runs do not depend on a stale DLL or
 the developer's `PATH`.
 
+Each optional product owns its FetchContent declarations, focused test wiring,
+shader compilation, assets, tools, and runtime payload declaration beneath its
+`plugins/<product>/` directory. Root CMake only enables the mounted directory;
+generic registration stages the declared payload and the generic test harness
+includes the product-owned test file. Removing a product therefore removes its
+downloads and focused tests from the build graph without editing core wiring.
+
 ### Dependencies (FetchContent, automatic)
 SDL3, FreeType, HarfBuzz, MPack, ImGui, GLM, Catch2, vk-bootstrap (Windows), VMA (Windows)
 

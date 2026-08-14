@@ -8,7 +8,7 @@
 // prologue to the 32-byte SingleTableCatalogHeader; multi-table catalogs
 // (DXCBND01) append their own u32 fields (per-table record sizes, counts and
 // offsets, string blob bounds). The Python writer counterpart lives in
-// scripts/satview_catalog_container.py.
+// tools/satview_catalog_container.py.
 //
 // Compatibility:
 // - Structures are packed (no padding) and stored little-endian; loaders run

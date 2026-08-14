@@ -51,17 +51,19 @@ FetchContent_Declare(imgui
     GIT_TAG v1.90.8-docking
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(imgui)
-add_library(imgui STATIC
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
-target_include_directories(imgui SYSTEM PUBLIC
-    ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
-if(MSVC)
-    target_compile_options(imgui PRIVATE /w)
-else()
-    target_compile_options(imgui PRIVATE -w)
+if(NOT TARGET imgui)
+    add_library(imgui STATIC
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
+    target_include_directories(imgui SYSTEM PUBLIC
+        ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+    if(MSVC)
+        target_compile_options(imgui PRIVATE /w)
+    else()
+        target_compile_options(imgui PRIVATE -w)
+    endif()
 endif()
 
 FetchContent_Declare(verovio

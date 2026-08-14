@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
+include(cmake/Dependencies.cmake)
+
 # Everything below this directory is product-owned. Draxul consumes only the
 # native module and its public C ABI.
 add_subdirectory(product)
@@ -67,5 +69,51 @@ else()
     add_dependencies(draxul-megacity-plugin compile_megacity_plugin_vulkan)
 endif()
 
-set(MEGACITY_PLUGIN_SHADER_OUTPUTS ${MEGACITY_PLUGIN_SHADER_OUTPUTS} PARENT_SCOPE)
-set(MEGACITY_PLUGIN_METALLIBS ${MEGACITY_PLUGIN_METALLIBS} PARENT_SCOPE)
+set(_megacity_product_targets
+    draxul-geometry
+    draxul-codeviz-scene
+    draxul-codeviz-renderer
+    draxul-codeviz-host
+    draxul-treesitter
+    draxul-code-semantics
+    draxul-megacity
+    draxul-megacity-plugin)
+foreach(_target IN LISTS _megacity_product_targets)
+    if(COMMAND draxul_apply_sanitizers)
+        draxul_apply_sanitizers(${_target})
+        draxul_apply_coverage(${_target})
+        draxul_apply_msvc_parallel_pdb_fix(${_target})
+    endif()
+endforeach()
+
+set(_megacity_shader_payload)
+file(GLOB _megacity_test_sources CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/*_tests.cpp")
+if(APPLE)
+    foreach(_shader IN LISTS MEGACITY_PLUGIN_METALLIBS)
+        get_filename_component(_shader_name "${_shader}" NAME)
+        list(APPEND _megacity_shader_payload
+            "${_shader}=>shaders/${_shader_name}")
+    endforeach()
+    set(_megacity_shader_dependencies ${MEGACITY_PLUGIN_METALLIBS})
+else()
+    foreach(_shader IN LISTS MEGACITY_PLUGIN_SHADER_OUTPUTS)
+        get_filename_component(_shader_name "${_shader}" NAME)
+        list(APPEND _megacity_shader_payload
+            "${_shader}=>shaders/${_shader_name}")
+    endforeach()
+    set(_megacity_shader_dependencies ${MEGACITY_PLUGIN_SHADER_OUTPUTS})
+endif()
+
+draxul_register_bundled_plugin(
+    ID dev.draxul.megacity
+    TARGET draxul-megacity-plugin
+    MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.toml"
+    FEATURE DRAXUL_ENABLE_MEGACITY
+    DEPENDENCY_MODE MIGRATING
+    PRODUCT_TARGETS ${_megacity_product_targets}
+    TEST_SOURCES ${_megacity_test_sources}
+    TEST_CMAKE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Tests.cmake"
+    COPY_FILES ${_megacity_shader_payload}
+    COPY_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/assets=>assets"
+    DEPENDS ${_megacity_shader_dependencies})

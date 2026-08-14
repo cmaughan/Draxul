@@ -39,9 +39,10 @@ function(draxul_allow_plugin_support_targets)
 endfunction()
 
 function(draxul_register_bundled_plugin)
-    set(_single_value ID TARGET MANIFEST FEATURE)
+    set(_single_value ID TARGET MANIFEST FEATURE TEST_CMAKE DEPENDENCY_MODE)
     set(_multi_value
-        COPY_FILES COPY_DIRECTORIES DEPENDS PRODUCT_TARGETS TEST_TARGETS)
+        COPY_FILES COPY_DIRECTORIES DEPENDS PRODUCT_TARGETS TEST_TARGETS
+        TEST_SOURCES)
     cmake_parse_arguments(PLUGIN "" "${_single_value}" "${_multi_value}" ${ARGN})
 
     foreach(_required ID TARGET MANIFEST)
@@ -53,6 +54,13 @@ function(draxul_register_bundled_plugin)
     if(PLUGIN_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR
             "Unknown arguments to draxul_register_bundled_plugin: ${PLUGIN_UNPARSED_ARGUMENTS}")
+    endif()
+    if(NOT PLUGIN_DEPENDENCY_MODE)
+        set(PLUGIN_DEPENDENCY_MODE STRICT)
+    endif()
+    if(NOT PLUGIN_DEPENDENCY_MODE MATCHES "^(STRICT|MIGRATING)$")
+        message(FATAL_ERROR
+            "Plugin '${PLUGIN_ID}' DEPENDENCY_MODE must be STRICT or MIGRATING")
     endif()
     if(NOT PLUGIN_ID MATCHES "^[a-z0-9._-]+$")
         message(FATAL_ERROR
@@ -69,6 +77,10 @@ function(draxul_register_bundled_plugin)
     if(NOT EXISTS "${PLUGIN_MANIFEST}")
         message(FATAL_ERROR
             "Plugin '${PLUGIN_ID}' names missing manifest '${PLUGIN_MANIFEST}'")
+    endif()
+    if(PLUGIN_TEST_CMAKE AND NOT EXISTS "${PLUGIN_TEST_CMAKE}")
+        message(FATAL_ERROR
+            "Plugin '${PLUGIN_ID}' names missing test wiring '${PLUGIN_TEST_CMAKE}'")
     endif()
 
     get_property(_plugin_ids GLOBAL PROPERTY DRAXUL_REGISTERED_PLUGIN_IDS)
@@ -98,13 +110,31 @@ function(draxul_register_bundled_plugin)
     set_property(GLOBAL PROPERTY "DRAXUL_PLUGIN_${_key}_COPY_DIRECTORIES" "${PLUGIN_COPY_DIRECTORIES}")
     set_property(GLOBAL PROPERTY "DRAXUL_PLUGIN_${_key}_DEPENDS" "${PLUGIN_DEPENDS}")
     set_property(GLOBAL PROPERTY "DRAXUL_PLUGIN_${_key}_FEATURE" "${PLUGIN_FEATURE}")
+    set_property(GLOBAL PROPERTY "DRAXUL_PLUGIN_${_key}_TEST_CMAKE"
+        "${PLUGIN_TEST_CMAKE}")
+    set_property(GLOBAL PROPERTY "DRAXUL_PLUGIN_${_key}_DEPENDENCY_MODE"
+        "${PLUGIN_DEPENDENCY_MODE}")
     set_property(GLOBAL PROPERTY "DRAXUL_PLUGIN_${_key}_TEST_TARGETS"
         "${PLUGIN_TEST_TARGETS}")
+    set_property(GLOBAL PROPERTY "DRAXUL_PLUGIN_${_key}_TEST_SOURCES"
+        "${PLUGIN_TEST_SOURCES}")
     set(_all_product_targets ${PLUGIN_TARGET} ${PLUGIN_PRODUCT_TARGETS})
     list(REMOVE_ITEM _all_product_targets "")
     list(REMOVE_DUPLICATES _all_product_targets)
     set_property(GLOBAL PROPERTY "DRAXUL_PLUGIN_${_key}_PRODUCT_TARGETS"
         "${_all_product_targets}")
+endfunction()
+
+function(draxul_get_registered_plugin_test_sources output)
+    set(_sources)
+    get_property(_plugin_ids GLOBAL PROPERTY DRAXUL_REGISTERED_PLUGIN_IDS)
+    foreach(_plugin_id IN LISTS _plugin_ids)
+        _draxul_plugin_property_key(_key "${_plugin_id}")
+        get_property(_plugin_sources GLOBAL
+            PROPERTY "DRAXUL_PLUGIN_${_key}_TEST_SOURCES")
+        list(APPEND _sources ${_plugin_sources})
+    endforeach()
+    set(${output} "${_sources}" PARENT_SCOPE)
 endfunction()
 
 function(_draxul_unwrap_link_item output item)
@@ -123,6 +153,13 @@ function(draxul_check_registered_plugin_dependencies)
 
     foreach(_plugin_id IN LISTS _plugin_ids)
         _draxul_plugin_property_key(_key "${_plugin_id}")
+        get_property(_dependency_mode GLOBAL
+            PROPERTY "DRAXUL_PLUGIN_${_key}_DEPENDENCY_MODE")
+        if(_dependency_mode STREQUAL "MIGRATING")
+            message(STATUS
+                "Plugin '${_plugin_id}' is registered with migrating C++ support dependencies")
+            continue()
+        endif()
         get_property(_product_targets GLOBAL
             PROPERTY "DRAXUL_PLUGIN_${_key}_PRODUCT_TARGETS")
 
@@ -153,6 +190,18 @@ function(draxul_check_registered_plugin_dependencies)
                 endforeach()
             endforeach()
         endforeach()
+    endforeach()
+endfunction()
+
+function(draxul_configure_registered_plugin_tests)
+    get_property(_plugin_ids GLOBAL PROPERTY DRAXUL_REGISTERED_PLUGIN_IDS)
+    foreach(_plugin_id IN LISTS _plugin_ids)
+        _draxul_plugin_property_key(_key "${_plugin_id}")
+        get_property(_test_cmake GLOBAL
+            PROPERTY "DRAXUL_PLUGIN_${_key}_TEST_CMAKE")
+        if(_test_cmake)
+            include("${_test_cmake}")
+        endif()
     endforeach()
 endfunction()
 

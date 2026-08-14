@@ -15,7 +15,7 @@ without duplication.
 The source linear half-float OpenEXR was transformed to the sRGB transfer
 function and encoded as a full-resolution 4:4:4 JPEG. It was not cropped,
 rotated, or resized. The reproducible conversion is in
-`scripts/build_satview_milky_way_texture.py`.
+`plugins/satview/tools/build_satview_milky_way_texture.py`.
 
 Credit: NASA/Goddard Space Flight Center Scientific Visualization Studio. Gaia
 DR2 data: ESA/Gaia/DPAC.

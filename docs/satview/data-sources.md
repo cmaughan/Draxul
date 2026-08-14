@@ -55,14 +55,14 @@ generator converts their data into a common Moon-relative sampled catalogue:
 - provider/target manifest:
   [`lunar_ephemeris_targets.json`](../../plugins/satview/assets/catalog/lunar_ephemeris_targets.json);
 - generator:
-  [`scripts/build_satview_lunar_ephemeris.py`](../../scripts/build_satview_lunar_ephemeris.py);
+  [`plugins/satview/tools/build_satview_lunar_ephemeris.py`](../../plugins/satview/tools/build_satview_lunar_ephemeris.py);
 - provenance:
   [`LUNAR_EPHEMERIS_ATTRIBUTION.md`](../../plugins/satview/assets/catalog/LUNAR_EPHEMERIS_ATTRIBUTION.md).
 
 Regenerate it from the repository root with:
 
 ```powershell
-py scripts\build_satview_lunar_ephemeris.py
+py plugins\satview\tools\build_satview_lunar_ephemeris.py
 ```
 
 The default generated interval begins four days before the generation date and
@@ -162,9 +162,9 @@ and loaded without network access at runtime.
 
 | Data | Upstream source | Repository storage | Update process and cadence |
 |---|---|---|---|
-| Stars | Hipparcos main catalogue `I/239/hip_main` through [CDS VizieR](https://cdsarc.cds.unistra.fr/viz-bin/cat/I/239) | [`stars.dxstar`](../../plugins/satview/assets/catalog/stars.dxstar) | Manual: `py scripts/build_satview_star_catalog.py --max-stars 100000`. No scheduled cadence. The bundled file contains the 100,000 brightest usable records. |
-| Constellation figures | [ConstellationLines v1.3](https://github.com/MarcvdSluys/ConstellationLines/tree/v1.3), cross-matched through the VizieR Bright Star Catalogue and Hipparcos | [`constellations.dxline`](../../plugins/satview/assets/catalog/constellations.dxline) | Manual: `py scripts/build_satview_constellation_catalog.py`. The source release is pinned; no periodic update. |
-| IAU constellation boundaries and names | [D3-Celestial](https://github.com/ofrohn/d3-celestial), pinned commit `7e720a3de062059d4c5400a379146a601d9010e0`; original boundary catalogue VizieR VI/49 | [`constellation_boundaries.dxbnd`](../../plugins/satview/assets/catalog/constellation_boundaries.dxbnd) | Manual: `py scripts/build_satview_constellation_boundary_catalog.py`. No periodic update. |
+| Stars | Hipparcos main catalogue `I/239/hip_main` through [CDS VizieR](https://cdsarc.cds.unistra.fr/viz-bin/cat/I/239) | [`stars.dxstar`](../../plugins/satview/assets/catalog/stars.dxstar) | Manual: `py plugins/satview/tools/build_satview_star_catalog.py --max-stars 100000`. No scheduled cadence. The bundled file contains the 100,000 brightest usable records. |
+| Constellation figures | [ConstellationLines v1.3](https://github.com/MarcvdSluys/ConstellationLines/tree/v1.3), cross-matched through the VizieR Bright Star Catalogue and Hipparcos | [`constellations.dxline`](../../plugins/satview/assets/catalog/constellations.dxline) | Manual: `py plugins/satview/tools/build_satview_constellation_catalog.py`. The source release is pinned; no periodic update. |
+| IAU constellation boundaries and names | [D3-Celestial](https://github.com/ofrohn/d3-celestial), pinned commit `7e720a3de062059d4c5400a379146a601d9010e0`; original boundary catalogue VizieR VI/49 | [`constellation_boundaries.dxbnd`](../../plugins/satview/assets/catalog/constellation_boundaries.dxbnd) | Manual: `py plugins/satview/tools/build_satview_constellation_boundary_catalog.py`. No periodic update. |
 
 Constellation figures are an interpretive Western stick-figure set. The
 separate boundary asset represents the official IAU-defined sky regions.
@@ -178,10 +178,10 @@ separate boundary asset represents the official IAU-defined sky regions.
 | Bundled fallback clouds | Solar System Scope | `plugins/satview/assets/textures/earth_clouds_8k.jpg` | Manual replacement only. This is distinct from the three-hour live-cloud cache. |
 | Moon surface | [NASA SVS CGI Moon Kit](https://svs.gsfc.nasa.gov/4720/), derived from the LROC WAC mosaic | `plugins/satview/assets/textures/moon_lroc_8k.jpg` | Manual conversion/replacement only. |
 | Sun surface | Solar System Scope, based on NASA imagery | `plugins/satview/assets/textures/sun_solar_system_scope_4k.jpg` | Manual replacement only. |
-| Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune | [Solar System Scope](https://www.solarsystemscope.com/textures/), based on NASA elevation and imagery | `plugins/satview/assets/textures/*_solar_system_scope_2k.jpg` | Manual: `py scripts/build_satview_solar_system_textures.py`. URLs and SHA-256 digests are pinned. |
+| Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune | [Solar System Scope](https://www.solarsystemscope.com/textures/), based on NASA elevation and imagery | `plugins/satview/assets/textures/*_solar_system_scope_2k.jpg` | Manual: `py plugins/satview/tools/build_satview_solar_system_textures.py`. URLs and SHA-256 digests are pinned. |
 | Phobos, Galilean moons, Enceladus, Titan, Iapetus | [USGS Astrogeology/PDS global mosaics](https://astrogeology.usgs.gov/) | `plugins/satview/assets/textures/*_usgs_1k.jpg` | Manual: the same pinned downloader verifies the upstream browse products. |
-| Incompletely mapped selected moons | Deterministic procedural presentation maps; not scientific geography | `plugins/satview/assets/textures/*_procedural_2k.jpg` | Manual: `py scripts/build_satview_procedural_moon_textures.py`. Stable seeds make output reproducible. |
-| Milky Way background | [NASA SVS Deep Star Maps 2020](https://svs.gsfc.nasa.gov/4851/), including Gaia DR2 data | [`milky_way_nasa_4k.jpg`](../../plugins/satview/assets/textures/milky_way_nasa_4k.jpg) | Manual: `py scripts/build_satview_milky_way_texture.py`. The upstream OpenEXR checksum is pinned. |
+| Incompletely mapped selected moons | Deterministic procedural presentation maps; not scientific geography | `plugins/satview/assets/textures/*_procedural_2k.jpg` | Manual: `py plugins/satview/tools/build_satview_procedural_moon_textures.py`. Stable seeds make output reproducible. |
+| Milky Way background | [NASA SVS Deep Star Maps 2020](https://svs.gsfc.nasa.gov/4851/), including Gaia DR2 data | [`milky_way_nasa_4k.jpg`](../../plugins/satview/assets/textures/milky_way_nasa_4k.jpg) | Manual: `py plugins/satview/tools/build_satview_milky_way_texture.py`. The upstream OpenEXR checksum is pinned. |
 
 Detailed licensing and transformations are in
 [`plugins/satview/assets/README.md`](../../plugins/satview/assets/README.md) and the attribution
@@ -202,7 +202,7 @@ periodically downloaded datasets.
 
 | Model | Source/storage | Update behavior |
 |---|---|---|
-| Earth satellite propagation | Vallado/CelesTrak AIAA-2006-6753 SGP4 reference implementation | CMake downloads the upstream archive when the dependency is absent. The URL content is pinned by SHA-256 in `cmake/FetchDependencies.cmake`, so it cannot silently change. It is not a runtime feed. |
+| Earth satellite propagation | Vallado/CelesTrak AIAA-2006-6753 SGP4 reference implementation | SatView CMake downloads the upstream archive when the dependency is absent. The URL content is pinned by SHA-256 in `plugins/satview/cmake/Dependencies.cmake`, so it cannot silently change. It is not a runtime feed. |
 | Moon position around Earth | Internal analytical lunar ephemeris in [`satview_moon_ephemeris.cpp`](../../plugins/satview/src/core/satview_moon_ephemeris.cpp) | Computed from simulation time; no network or daily data file. |
 | Sun position, orientation, and Earth orbit | Internal analytical solar model in [`satview_sun_ephemeris.cpp`](../../plugins/satview/src/core/satview_sun_ephemeris.cpp) | Computed from simulation time. |
 | Planet and major-moon local-system layout | Mean-element Kepler model in [`satview_solar_system.cpp`](../../plugins/satview/src/core/satview_solar_system.cpp), sourced from JPL/NAIF reference data | Computed from simulation time. Approximate presentation fidelity is explicit; no runtime update. |

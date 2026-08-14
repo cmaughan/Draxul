@@ -29,8 +29,8 @@ if(NOT TARGET Draxul::PluginSDK)
     find_package(DraxulPluginSDK CONFIG REQUIRED)
 endif()
 
+include(cmake/Dependencies.cmake)
 if(DRAXUL_SCOREVIEW_STANDALONE)
-    include(cmake/Dependencies.cmake)
     if(NOT TARGET Draxul::PluginImGui)
         if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../support/imgui/CMakeLists.txt")
             message(FATAL_ERROR
@@ -85,6 +85,48 @@ set_target_properties(draxul-scoreview-plugin PROPERTIES
     OUTPUT_NAME "draxul-scoreview")
 
 if(NOT DRAXUL_SCOREVIEW_STANDALONE)
-    set(SCOREVIEW_PLUGIN_SHADER_OUTPUTS
-        ${SCOREVIEW_PLUGIN_SHADER_OUTPUTS} PARENT_SCOPE)
+    set(_scoreview_product_targets
+        draxul-score-runtime-support
+        draxul-notation
+        draxul-score-learn
+        draxul-score-input
+        draxul-score-audio
+        draxul-score-canvas
+        draxul-scoreview
+        draxul-scoreview-runtime
+        draxul-scoreview-plugin)
+    foreach(_target IN LISTS _scoreview_product_targets)
+        if(COMMAND draxul_apply_sanitizers)
+            draxul_apply_sanitizers(${_target})
+            draxul_apply_coverage(${_target})
+            draxul_apply_msvc_parallel_pdb_fix(${_target})
+        endif()
+    endforeach()
+
+    set(_scoreview_shader_payload)
+    file(GLOB _scoreview_test_sources CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/notation_*_tests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/scoreview_*_tests.cpp")
+    foreach(_shader IN LISTS SCOREVIEW_PLUGIN_SHADER_OUTPUTS)
+        get_filename_component(_shader_name "${_shader}" NAME)
+        list(APPEND _scoreview_shader_payload
+            "${_shader}=>shaders/${_shader_name}")
+    endforeach()
+    draxul_register_bundled_plugin(
+        ID dev.draxul.scoreview
+        TARGET draxul-scoreview-plugin
+        MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.toml"
+        FEATURE DRAXUL_ENABLE_SCOREVIEW
+        DEPENDENCY_MODE MIGRATING
+        PRODUCT_TARGETS ${_scoreview_product_targets}
+        TEST_SOURCES ${_scoreview_test_sources}
+        TEST_CMAKE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Tests.cmake"
+        COPY_FILES
+            ${_scoreview_shader_payload}
+            "$<TARGET_FILE:verovio>=>$<TARGET_FILE_NAME:verovio>"
+            "${verovio_SOURCE_DIR}/fonts/Leipzig/Leipzig.ttf=>verovio-data/Leipzig.ttf"
+        COPY_DIRECTORIES
+            "${verovio_SOURCE_DIR}/data=>verovio-data"
+            "${ydp_grand_piano_SOURCE_DIR}=>soundfonts"
+        DEPENDS verovio ${SCOREVIEW_PLUGIN_SHADER_OUTPUTS})
 endif()

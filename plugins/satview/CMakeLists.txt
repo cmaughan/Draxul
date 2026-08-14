@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
+include(cmake/Dependencies.cmake)
+
 # SatView owns its complete product stack. Draxul links only the resulting
 # native module; these private libraries keep product tests and backends small.
 set(SATVIEW_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/product/include")
@@ -138,6 +140,47 @@ else()
     add_dependencies(draxul-satview-plugin compile_satview_plugin_vulkan)
 endif()
 
-set(DRAXUL_SATVIEW_PLUGIN_TARGET draxul-satview-plugin PARENT_SCOPE)
-set(SATVIEW_PLUGIN_SHADER_OUTPUTS ${SATVIEW_PLUGIN_SHADER_OUTPUTS} PARENT_SCOPE)
-set(SATVIEW_PLUGIN_METALLIB ${SATVIEW_PLUGIN_METALLIB} PARENT_SCOPE)
+set(_satview_product_targets
+    celestrak-sgp4
+    draxul-satview-core
+    draxul-satview-scene
+    draxul-satview-services
+    draxul-satview-renderer
+    draxul-satview-runtime
+    draxul-satview-plugin)
+foreach(_target IN LISTS _satview_product_targets)
+    if(COMMAND draxul_apply_sanitizers)
+        draxul_apply_sanitizers(${_target})
+        draxul_apply_coverage(${_target})
+        draxul_apply_msvc_parallel_pdb_fix(${_target})
+    endif()
+endforeach()
+
+set(_satview_shader_payload)
+file(GLOB _satview_test_sources CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/satview_*_tests.cpp")
+if(APPLE)
+    list(APPEND _satview_shader_payload
+        "${SATVIEW_PLUGIN_METALLIB}=>shaders/satview_scene.metallib")
+    set(_satview_shader_dependencies "${SATVIEW_PLUGIN_METALLIB}")
+else()
+    foreach(_shader IN LISTS SATVIEW_PLUGIN_SHADER_OUTPUTS)
+        get_filename_component(_shader_name "${_shader}" NAME)
+        list(APPEND _satview_shader_payload
+            "${_shader}=>shaders/${_shader_name}")
+    endforeach()
+    set(_satview_shader_dependencies ${SATVIEW_PLUGIN_SHADER_OUTPUTS})
+endif()
+
+draxul_register_bundled_plugin(
+    ID dev.draxul.satview
+    TARGET draxul-satview-plugin
+    MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.toml"
+    FEATURE DRAXUL_ENABLE_SATVIEW
+    DEPENDENCY_MODE MIGRATING
+    PRODUCT_TARGETS ${_satview_product_targets}
+    TEST_SOURCES ${_satview_test_sources}
+    TEST_CMAKE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Tests.cmake"
+    COPY_FILES ${_satview_shader_payload}
+    COPY_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/assets=>assets"
+    DEPENDS ${_satview_shader_dependencies})

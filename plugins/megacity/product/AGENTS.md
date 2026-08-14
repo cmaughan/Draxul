@@ -33,7 +33,7 @@ Avoid publishing Megacity-specific types outside this module unless another prod
 - Windows rendering lives in `draxul-codeviz-renderer/src/codeviz_render_vk.cpp`; macOS rendering lives in `draxul-codeviz-renderer/src/codeviz_render.mm`.
 - Shared CPU scene and snapshot definitions must stay backend-neutral. Do not expose Vulkan or Metal types through public headers or shared scene records.
 - A rendering feature is incomplete until both backends have been inspected and kept behaviorally aligned. When changing vertex formats, uniforms, materials, attachments, passes, resource lifetimes, debug views, or bindings, update the Vulkan/GLSL and Metal/MSL paths together or explicitly report the remaining platform gap.
-- MegaCity shader sources live under `plugins/megacity/shaders/`; plugin CMake owns their compilation and the root integration owns only package staging. Keep shader structs, binding indices, formats, and color-space assumptions synchronized with the C++/Objective-C++ code.
+- MegaCity shader sources live under `plugins/megacity/shaders/`; plugin CMake owns their compilation and declares their package staging through the generic registration API. Keep shader structs, binding indices, formats, and color-space assumptions synchronized with the C++/Objective-C++ code.
 - Material assets live under `plugins/megacity/assets/`. New runtime assets need plugin-package copy wiring and a useful failure log when missing.
 - Keep GPU and ImGui state on the main thread. Worker threads may build CPU-only immutable results, but must not create, mutate, or destroy renderer resources.
 

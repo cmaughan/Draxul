@@ -10,7 +10,6 @@ add_library(draxul-test-support INTERFACE)
 target_include_directories(draxul-test-support INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/support
-    ${CMAKE_SOURCE_DIR}/plugins/scoreview/tests
 )
 target_link_libraries(draxul-test-support INTERFACE Catch2::Catch2)
 
@@ -22,10 +21,7 @@ file(GLOB DRAXUL_ALL_TEST_SOURCES CONFIGURE_DEPENDS
     RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     *_tests.cpp
 )
-file(GLOB DRAXUL_SATVIEW_TEST_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/plugins/satview/tests/satview_*_tests.cpp"
-)
-
+draxul_get_registered_plugin_test_sources(DRAXUL_PLUGIN_TEST_SOURCES)
 set(DRAXUL_APP_TEST_SOURCES
     active_tab_invariant_tests.cpp
     app_config_tests.cpp
@@ -68,31 +64,10 @@ file(GLOB DRAXUL_MARKDOWN_KANBAN_TEST_SOURCES CONFIGURE_DEPENDS
     kanban_*_tests.cpp
 )
 
-file(GLOB DRAXUL_MEGACITY_TEST_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/plugins/megacity/tests/*_tests.cpp"
-)
-
-file(GLOB DRAXUL_SCOREVIEW_TEST_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/notation_*_tests.cpp"
-    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_*_tests.cpp"
-)
-set(DRAXUL_SCOREVIEW_HOST_TEST_SOURCES
-    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_composer_tests.cpp"
-    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_host_orchestration_tests.cpp"
-    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_host_rebuild_tests.cpp"
-    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_microphone_tests.cpp"
-    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_overlay_tests.cpp"
-    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_worker_stress_tests.cpp"
-)
-list(REMOVE_ITEM DRAXUL_SCOREVIEW_TEST_SOURCES ${DRAXUL_SCOREVIEW_HOST_TEST_SOURCES})
-
 set(DRAXUL_CLASSIFIED_TEST_SOURCES
     ${DRAXUL_APP_TEST_SOURCES}
     ${DRAXUL_MARKDOWN_KANBAN_TEST_SOURCES}
-    ${DRAXUL_MEGACITY_TEST_SOURCES}
-    ${DRAXUL_SATVIEW_TEST_SOURCES}
-    ${DRAXUL_SCOREVIEW_TEST_SOURCES}
-    ${DRAXUL_SCOREVIEW_HOST_TEST_SOURCES}
+    ${DRAXUL_PLUGIN_TEST_SOURCES}
 )
 list(LENGTH DRAXUL_CLASSIFIED_TEST_SOURCES DRAXUL_CLASSIFIED_COUNT)
 list(REMOVE_DUPLICATES DRAXUL_CLASSIFIED_TEST_SOURCES)
@@ -113,10 +88,7 @@ set(DRAXUL_PARTITIONED_TEST_SOURCES
 )
 set(DRAXUL_SORTED_ALL_TEST_SOURCES
     ${DRAXUL_ALL_TEST_SOURCES}
-    ${DRAXUL_MEGACITY_TEST_SOURCES}
-    ${DRAXUL_SATVIEW_TEST_SOURCES}
-    ${DRAXUL_SCOREVIEW_TEST_SOURCES}
-    ${DRAXUL_SCOREVIEW_HOST_TEST_SOURCES})
+    ${DRAXUL_PLUGIN_TEST_SOURCES})
 set(DRAXUL_SORTED_PARTITIONED_TEST_SOURCES ${DRAXUL_PARTITIONED_TEST_SOURCES})
 list(SORT DRAXUL_SORTED_ALL_TEST_SOURCES)
 list(SORT DRAXUL_SORTED_PARTITIONED_TEST_SOURCES)
@@ -178,10 +150,7 @@ endfunction()
 
 draxul_scan_catch_source_metadata(DRAXUL_ALL
     ${DRAXUL_ALL_TEST_SOURCES}
-    ${DRAXUL_MEGACITY_TEST_SOURCES}
-    ${DRAXUL_SATVIEW_TEST_SOURCES}
-    ${DRAXUL_SCOREVIEW_TEST_SOURCES}
-    ${DRAXUL_SCOREVIEW_HOST_TEST_SOURCES})
+    ${DRAXUL_PLUGIN_TEST_SOURCES})
 draxul_scan_catch_source_metadata(DRAXUL_PARTITIONED ${DRAXUL_PARTITIONED_TEST_SOURCES})
 if(NOT DRAXUL_ALL_REGISTRATION_COUNT EQUAL DRAXUL_PARTITIONED_REGISTRATION_COUNT
    OR NOT "${DRAXUL_ALL_TAGS}" STREQUAL "${DRAXUL_PARTITIONED_TAGS}")
@@ -329,12 +298,6 @@ target_compile_definitions(draxul-test-app PRIVATE
     DRAXUL_FIXTURE_UNSUPPORTED_PATH="$<TARGET_FILE:draxul-plugin-fixture-unsupported>"
     DRAXUL_FIXTURE_NO_SYMBOL_PATH="$<TARGET_FILE:draxul-plugin-fixture-no-symbol>"
 )
-if(DRAXUL_ENABLE_MEGACITY)
-    add_dependencies(draxul-test-app draxul-megacity-plugin)
-    target_compile_definitions(draxul-test-app PRIVATE
-        DRAXUL_MEGACITY_PLUGIN_PATH="$<TARGET_FILE:draxul-megacity-plugin>")
-endif()
-
 draxul_add_test_target(
     draxul-test-markdown-kanban "markdown;kanban" 1
     ${DRAXUL_MARKDOWN_KANBAN_TEST_SOURCES}
@@ -345,69 +308,8 @@ target_link_libraries(draxul-test-markdown-kanban PRIVATE
     draxul-kanban
 )
 
-if(DRAXUL_ENABLE_MEGACITY)
-    draxul_add_test_target(draxul-test-megacity megacity 2 ${DRAXUL_MEGACITY_TEST_SOURCES})
-    target_link_libraries(draxul-test-megacity PRIVATE
-        draxul-geometry
-        draxul-megacity-test-internals
-        draxul-codeviz-renderer-test-internals
-    )
-    target_compile_definitions(draxul-test-megacity PRIVATE DRAXUL_ENABLE_MEGACITY)
-endif()
-
-if(DRAXUL_ENABLE_SATVIEW)
-    draxul_add_test_target(draxul-test-satview satview 2 ${DRAXUL_SATVIEW_TEST_SOURCES})
-    target_link_libraries(draxul-test-satview PRIVATE
-        draxul-satview-runtime-test-internals
-        draxul-satview-renderer-test-internals
-    )
-    target_compile_definitions(draxul-test-satview PRIVATE DRAXUL_ENABLE_SATVIEW)
-endif()
-
-if(DRAXUL_ENABLE_SCOREVIEW)
-    add_dependencies(draxul-test-app draxul-scoreview-plugin)
-    target_compile_definitions(draxul-test-app PRIVATE
-        DRAXUL_SCOREVIEW_PLUGIN_PATH="$<TARGET_FILE:draxul-scoreview-plugin>")
-
-    draxul_add_test_target(draxul-test-scoreview scoreview 2 ${DRAXUL_SCOREVIEW_TEST_SOURCES})
-    target_link_libraries(draxul-test-scoreview PRIVATE
-        draxul-score-runtime-support draxul-notation draxul-scoreview)
-
-    # Host lifecycle, microphone, NanoVG overlay, and worker orchestration tests
-    # carry the full host dependency without imposing it on the ScoreView core.
-    draxul_add_test_target(
-        draxul-test-scoreview-runtime "scoreview;scoreview-runtime" 1
-        ${DRAXUL_SCOREVIEW_HOST_TEST_SOURCES}
-    )
-    target_link_libraries(draxul-test-scoreview-runtime PRIVATE
-        draxul-scoreview-runtime-test-internals
-    )
-
-    foreach(scoreview_target
-        draxul-test-scoreview
-        draxul-test-scoreview-runtime)
-        target_compile_definitions(${scoreview_target} PRIVATE
-            DRAXUL_ENABLE_SCOREVIEW
-            DRAXUL_VEROVIO_DATA_DIR="${verovio_SOURCE_DIR}/data"
-            DRAXUL_SOUNDFONT_DIR="${ydp_grand_piano_SOURCE_DIR}"
-        )
-        if(WIN32)
-            add_custom_command(TARGET ${scoreview_target} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    $<TARGET_FILE:verovio>
-                    $<TARGET_FILE_DIR:${scoreview_target}>
-            )
-        endif()
-    endforeach()
-    if(WIN32)
-        add_custom_command(TARGET draxul-test-app POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:verovio>
-                $<TARGET_FILE_DIR:draxul-test-app>)
-    endif()
-endif()
-
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+draxul_configure_registered_plugin_tests()
 
 set(DRAXUL_EXTERNAL_SDK_SMOKE_COMMAND
     ${Python3_EXECUTABLE}
@@ -439,30 +341,6 @@ add_custom_target(draxul-sdk-external-smoke
     USES_TERMINAL
     VERBATIM)
 
-# Product extraction deliberately remains an opt-in acceptance target: a cold
-# ScoreView build compiles Verovio and is too expensive for the ordinary smoke
-# loop. It copies the product outside the repository, installs the public SDK,
-# builds there, and proves that a clean Draxul package loads the resulting DLL.
-set(DRAXUL_EXTERNAL_PRODUCT_SMOKE_COMMAND
-    ${Python3_EXECUTABLE}
-    ${CMAKE_CURRENT_SOURCE_DIR}/external_product_plugin_smoke.py
-    --cmake ${CMAKE_COMMAND}
-    --source-root ${CMAKE_SOURCE_DIR}
-    --build-root ${CMAKE_BINARY_DIR}
-    --draxul $<TARGET_FILE:draxul>
-    --config $<CONFIG>
-    --generator ${CMAKE_GENERATOR}
-    --platform=${CMAKE_GENERATOR_PLATFORM}
-    --toolset=${CMAKE_GENERATOR_TOOLSET})
-if(DRAXUL_ENABLE_RENDER_TESTS)
-    list(APPEND DRAXUL_EXTERNAL_PRODUCT_SMOKE_COMMAND --render)
-endif()
-add_custom_target(draxul-scoreview-extraction-smoke
-    COMMAND ${DRAXUL_EXTERNAL_PRODUCT_SMOKE_COMMAND}
-    DEPENDS draxul
-    USES_TERMINAL
-    VERBATIM)
-
 add_test(
     NAME draxul-do-py-tests
     COMMAND ${Python3_EXECUTABLE} -m unittest tests.do_py_tests
@@ -484,19 +362,6 @@ set_tests_properties(draxul-review-skill-py-tests
         TIMEOUT 120
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
-
-if(DRAXUL_ENABLE_SATVIEW)
-    add_test(
-        NAME draxul-satview-catalog-py-tests
-        COMMAND ${Python3_EXECUTABLE} -m unittest tests.satview_catalog_py_tests
-    )
-    set_tests_properties(draxul-satview-catalog-py-tests
-        PROPERTIES
-            LABELS "unit;satview;python"
-            TIMEOUT 120
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    )
-endif()
 
 draxul_apply_sanitizers(draxul-rpc-fake)
 draxul_apply_coverage(draxul-rpc-fake)
