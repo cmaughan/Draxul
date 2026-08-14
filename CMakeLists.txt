@@ -127,6 +127,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 include(cmake/FetchDependencies.cmake)
+include(cmake/DraxulPlugins.cmake)
 
 # Compile shaders
 if(APPLE)
@@ -180,8 +181,21 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     add_subdirectory(plugins/scoreview)
 endif()
 
+# This namespace is the explicit shared C++ surface for mounted product
+# submodules. Slice 7C will add narrowly factored leaf targets here; broad core
+# libraries are deliberately not made public merely because current products
+# happen to reach them.
+if(TARGET draxul-plugin-imgui)
+    add_library(Draxul::PluginSupport::ImGui ALIAS draxul-plugin-imgui)
+endif()
+draxul_allow_plugin_support_targets(
+    Draxul::PluginSDK
+    Draxul::PluginSupport::ImGui)
+draxul_check_registered_plugin_dependencies()
+
 include(cmake/CheckDependencyBoundaries.cmake)
 draxul_check_dependency_boundaries()
+draxul_check_core_source_product_isolation("${CMAKE_SOURCE_DIR}")
 
 # Apply sanitizers/coverage to all draxul library targets (not FetchContent deps)
 foreach(_draxul_lib
@@ -389,48 +403,8 @@ target_link_libraries(draxul PRIVATE
     draxul-performance
     draxul-server
 )
-if(APPLE)
-    set(DRAXUL_TRIANGLE_PLUGIN_STAGE
-        "$<TARGET_BUNDLE_DIR:draxul>/Contents/PlugIns/dev.draxul.spinning-triangle")
-else()
-    set(DRAXUL_TRIANGLE_PLUGIN_STAGE
-        "$<TARGET_FILE_DIR:draxul>/plugins/dev.draxul.spinning-triangle")
-endif()
-set(DRAXUL_TRIANGLE_STAGE_DEPENDS
-    draxul-spinning-triangle
-    "${CMAKE_SOURCE_DIR}/plugins/spinning-triangle/plugin.toml")
-if(APPLE)
-    list(APPEND DRAXUL_TRIANGLE_STAGE_DEPENDS "${TRIANGLE_METALLIB}")
-else()
-    list(APPEND DRAXUL_TRIANGLE_STAGE_DEPENDS
-        "${TRIANGLE_VERTEX_SPV}" "${TRIANGLE_FRAGMENT_SPV}")
-endif()
-add_custom_target(draxul-stage-spinning-triangle
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-        "${DRAXUL_TRIANGLE_PLUGIN_STAGE}"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/plugins/spinning-triangle/plugin.toml"
-        "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/plugin.toml"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:draxul-spinning-triangle>"
-        "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/$<TARGET_FILE_NAME:draxul-spinning-triangle>"
-    DEPENDS ${DRAXUL_TRIANGLE_STAGE_DEPENDS}
-    VERBATIM)
-if(APPLE)
-    add_custom_command(TARGET draxul-stage-spinning-triangle POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${TRIANGLE_METALLIB}"
-            "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.metallib")
-else()
-    add_custom_command(TARGET draxul-stage-spinning-triangle POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${TRIANGLE_VERTEX_SPV}"
-            "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.vert.spv"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${TRIANGLE_FRAGMENT_SPV}"
-            "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.frag.spv")
-endif()
-add_dependencies(draxul draxul-stage-spinning-triangle)
+draxul_check_core_product_isolation()
+draxul_stage_registered_plugins(draxul)
 if(DRAXUL_ENABLE_MEGACITY)
 if(APPLE)
     set(DRAXUL_MEGACITY_PLUGIN_STAGE

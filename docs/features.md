@@ -48,7 +48,12 @@ The public header is also exported as the installable CMake package
 `DraxulPluginSDK`; external plugins link `Draxul::PluginSDK` and do not need a
 Draxul source checkout. The spinning-triangle example supports a standalone
 CMake build, and the `draxul-sdk-external-smoke` target installs the SDK, builds
-that example from a clean copied tree, and loads the resulting module.
+that example from a clean copied tree, loads the resulting module, and renders a
+non-blank raw-GPU frame. When mounted in the Draxul tree, the same example owns
+its manifest, shader payload, and staging declaration through the generic
+`draxul_register_bundled_plugin` contract. Shared same-build C++ helpers must use
+an explicitly allowed `Draxul::PluginSupport::*` target; only the SDK C ABI is a
+runtime contract.
 ScoreView has the same repository-extraction proof through the opt-in
 `draxul-scoreview-extraction-smoke` target. It copies only the product and shared
 plugin ImGui support beside an installed SDK, performs a cold build, and loads

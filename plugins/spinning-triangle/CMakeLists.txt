@@ -96,12 +96,23 @@ else()
 endif()
 
 if(NOT DRAXUL_TRIANGLE_STANDALONE)
-    set(DRAXUL_TRIANGLE_PLUGIN_TARGET draxul-spinning-triangle
-        PARENT_SCOPE)
     if(APPLE)
-        set(TRIANGLE_METALLIB ${TRIANGLE_METALLIB} PARENT_SCOPE)
+        set(_triangle_payload
+            "${TRIANGLE_METALLIB}=>spinning_triangle.metallib")
+        set(_triangle_payload_dependencies "${TRIANGLE_METALLIB}")
     else()
-        set(TRIANGLE_VERTEX_SPV ${TRIANGLE_VERTEX_SPV} PARENT_SCOPE)
-        set(TRIANGLE_FRAGMENT_SPV ${TRIANGLE_FRAGMENT_SPV} PARENT_SCOPE)
+        set(_triangle_payload
+            "${TRIANGLE_VERTEX_SPV}=>spinning_triangle.vert.spv"
+            "${TRIANGLE_FRAGMENT_SPV}=>spinning_triangle.frag.spv")
+        set(_triangle_payload_dependencies
+            "${TRIANGLE_VERTEX_SPV}"
+            "${TRIANGLE_FRAGMENT_SPV}")
     endif()
+
+    draxul_register_bundled_plugin(
+        ID "${DRAXUL_TRIANGLE_PLUGIN_ID}"
+        TARGET draxul-spinning-triangle
+        MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.toml"
+        COPY_FILES ${_triangle_payload}
+        DEPENDS ${_triangle_payload_dependencies})
 endif()

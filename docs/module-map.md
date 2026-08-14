@@ -116,11 +116,21 @@ does not rebuild or extend the universal value-type archive.
 These targets must not depend on product modules. Configure-time checks in
 `cmake/CheckDependencyBoundaries.cmake` enforce that direction and the direct
 `draxul-host` dependencies needed by its public and implementation headers.
+Mounted native products register their module, manifest, runtime payload,
+product targets, and focused test targets through `cmake/DraxulPlugins.cmake`.
+That file owns platform-neutral staging and accepts shared C++ dependencies only
+through the explicit `Draxul::PluginSupport::*` allowlist. Root CMake can enable
+a mounted plugin without knowing its shader names or packaging layout; removing
+the plugin directory therefore cannot leave reverse product dependencies in
+core. The shared C++ support is statically linked into a same-build plugin and
+does not change the runtime boundary, which remains `Draxul::PluginSDK`'s C ABI.
 `draxul-host` privately consumes `draxul-client` for the `RemoteTerminalHost`
 renderer adapter, including client-local viewport/selection/mouse/paste behavior.
 It also owns the generic `PluginHost` and its Vulkan/Metal render-pass adapters;
 plugin modules remain dynamically linked and are never product dependencies of the
-server. Bundled spinning-triangle, SatView, and ScoreView modules live under `plugins/`.
+server. The spinning-triangle is the first module staged through the generic
+registration contract; the three product plugins migrate in the following
+submodule-integration slices.
 The process adapter, client, and server libraries remain free of host, window,
 renderer, font, SDL, and product dependencies.
 

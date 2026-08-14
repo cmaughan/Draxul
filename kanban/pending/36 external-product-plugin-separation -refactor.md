@@ -12,14 +12,28 @@ separation in
 - [x] Slice 4: self-contained MegaCity plugin including BioView mode.
 - [x] Slice 5: self-contained ScoreView plugin with no Draxul C++ bridge.
 - [x] Slice 6: remove the old product host/module layer; retain Kanban and Markdown.
-- [ ] Slice 7: prove repository extraction, packaging, UI behavior, and macOS parity.
+- [ ] Slice 7: finish generic submodule integration, packaging, UI behavior, and macOS parity.
+  - [x] 7A: generic plugin registration, shared-support allowlist, and dependency guards.
+  - [ ] 7B: move product dependencies, tests, shaders, and staging into each submodule.
+  - [ ] 7C: narrow broad core dependencies into generic plugin-support leaf targets.
+  - [ ] 7D: cut SatView, MegaCity/BioView, and ScoreView over to that contract.
+  - [ ] 7E: prove no-plugin/one-plugin/all-plugin builds plus Windows/macOS runtime acceptance.
 
 Slice 7 progress: ScoreView now has an opt-in copied-tree extraction smoke that
 builds against only the installed SDK and plugin-owned support, then loads the
-result in a clean Draxul package. The same audit found that SatView and MegaCity
-still consume Draxul C++ infrastructure targets while compiling in-tree; those
-dependencies must be replaced with product-owned abstractions before the final
-slice can be checked off.
+result in a clean Draxul package. That remains a useful extra portability check,
+but it is no longer the required model for every product. SatView and MegaCity
+may consume whitelisted generic same-build support libraries while mounted as
+submodules; product code and dependencies must remain inside the submodule, core
+must have no reverse dependency, and the runtime boundary remains C-only.
+
+Slice 7A adds `cmake/DraxulPlugins.cmake` as the generic mounted-submodule
+contract. The triangle now registers and stages its own manifest, module, and
+platform shader payload through that API. Configure-time checks reject reverse
+core-to-product links, product-header includes from core, and registered plugins
+that link Draxul targets outside the explicit `Draxul::PluginSupport::*`
+allowlist. The installed-SDK triangle smoke built an isolated DLL, loaded it in a
+clean Draxul package, and rendered a non-blank 960x640 frame on Windows.
 
 Slice 5 correction: the public `draxul.ui-style` service now carries Draxul's
 recommended font, scale, and change generation. ScoreView consumes it while
