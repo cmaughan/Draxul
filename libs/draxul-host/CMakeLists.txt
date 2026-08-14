@@ -13,10 +13,6 @@ add_library(draxul-host
     src/unavailable_host.cpp
 )
 
-add_library(draxul-legacy-product-plugin-services INTERFACE)
-target_include_directories(draxul-legacy-product-plugin-services INTERFACE
-    include)
-
 if(APPLE)
     target_sources(draxul-host PRIVATE src/plugin_render_pass_metal.mm)
 else()
@@ -41,7 +37,6 @@ target_link_libraries(draxul-host PUBLIC
     draxul-types
 )
 target_link_libraries(draxul-host PRIVATE
-    draxul-legacy-product-plugin-services
     draxul-client
     draxul-font
     draxul-performance

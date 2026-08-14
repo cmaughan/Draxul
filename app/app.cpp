@@ -4886,8 +4886,8 @@ void App::maybe_checkpoint_session(std::chrono::steady_clock::time_point now)
     if (!options_.enable_session_restore || discard_session_state_on_shutdown_)
         return;
 
-    // Saved layouts cover shell panes only, so a single nvim/markdown/kanban/
-    // score/megacity pane anywhere disables every checkpoint AND the shutdown
+    // Saved layouts cover shell panes only, so any non-shell pane disables
+    // every checkpoint AND the shutdown
     // save. That is deliberate, but it used to be completely silent: the user
     // simply stopped getting their layout back. Report the transition once —
     // never the steady state, and never on the very first evaluation, so an

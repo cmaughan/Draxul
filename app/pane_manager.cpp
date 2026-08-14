@@ -626,7 +626,7 @@ bool PaneManager::should_preserve_dead_leaf(LeafId id) const
         const std::optional<int> exit_code = host_it->second->exit_code();
         return exit_code.has_value() && *exit_code != 0;
     }
-    // Non-shell hosts (nvim, megacity) are always preserved when they die.
+    // Non-shell hosts (for example nvim or plugins) are preserved when they die.
     return true;
 }
 

@@ -19,8 +19,6 @@ enum class HostKind
     Zsh,
     Wsl,
     RemoteTerminal,
-    MegaCity,
-    BioView,
     NanoVGDemo,
     Markdown,
     Kanban,
@@ -35,8 +33,6 @@ inline constexpr std::array kAllHostKinds = {
     HostKind::Zsh,
     HostKind::Wsl,
     HostKind::RemoteTerminal,
-    HostKind::MegaCity,
-    HostKind::BioView,
     HostKind::NanoVGDemo,
     HostKind::Markdown,
     HostKind::Kanban,
@@ -62,10 +58,6 @@ inline const char* to_string(HostKind kind)
         return "wsl";
     case HostKind::RemoteTerminal:
         return "remote-terminal";
-    case HostKind::MegaCity:
-        return "megacity";
-    case HostKind::BioView:
-        return "bioview";
     case HostKind::NanoVGDemo:
         return "nanovg-demo";
     case HostKind::Markdown:
@@ -94,8 +86,6 @@ inline constexpr bool is_server_owned_shell_host(HostKind kind)
     case HostKind::RemoteTerminal:
         return true;
     case HostKind::Nvim:
-    case HostKind::MegaCity:
-    case HostKind::BioView:
     case HostKind::NanoVGDemo:
     case HostKind::Markdown:
     case HostKind::Kanban:
@@ -112,7 +102,6 @@ inline std::span<const std::string_view> host_kind_aliases(HostKind kind)
     static constexpr std::array<std::string_view, 0> none = {};
     static constexpr std::array powershell = { std::string_view("pwsh") };
     static constexpr std::array remote_terminal = { std::string_view("remote") };
-    static constexpr std::array bioview = { std::string_view("bio") };
     static constexpr std::array nanovg = { std::string_view("nanovg") };
     static constexpr std::array markdown = { std::string_view("md") };
     static constexpr std::array kanban = { std::string_view("kb") };
@@ -122,8 +111,6 @@ inline std::span<const std::string_view> host_kind_aliases(HostKind kind)
         return powershell;
     case HostKind::RemoteTerminal:
         return remote_terminal;
-    case HostKind::BioView:
-        return bioview;
     case HostKind::NanoVGDemo:
         return nanovg;
     case HostKind::Markdown:

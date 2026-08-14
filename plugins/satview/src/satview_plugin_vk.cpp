@@ -63,7 +63,8 @@ struct SatViewPluginInstance
     std::string data_directory;
     std::string status;
     RuntimeCallbacks runtime_callbacks;
-    draxul::satview::plugin::ImGuiOverlayAdapter imgui_overlay;
+    std::unique_ptr<draxul::plugin_support::GpuImGuiHost> imgui_overlay;
+    draxul::plugin_support::UiStyleClient ui_style;
     std::unique_ptr<draxul::satview::SatViewRuntime> runtime;
     VmaAllocator allocator = VK_NULL_HANDLE;
 };
@@ -95,6 +96,15 @@ void request_tick(SatViewPluginInstance* instance)
 {
     if (instance && instance->host && instance->host->request_tick)
         instance->host->request_tick(instance->host->host_context);
+}
+
+void synchronize_ui_style(SatViewPluginInstance& instance)
+{
+    if (instance.runtime)
+    {
+        if (const auto font = instance.ui_style.poll())
+            instance.runtime->set_imgui_font(font->path, font->size_pixels);
+    }
 }
 
 DraxulPluginRenderResultV2 render_result(bool ok,
@@ -241,8 +251,10 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
             std::strlen(DRAXUL_PLUGIN_STORAGE_SERVICE_ID),
             DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION,
             &instance->storage, sizeof(instance->storage)) != 0;
-        instance->imgui_overlay.discover(*instance->host);
+        instance->ui_style.discover(*instance->host);
     }
+    instance->imgui_overlay
+        = draxul::plugin_support::create_gpu_imgui_host();
     if (instance->paths_ready)
         instance->data_directory = service_path(
             instance->paths, DRAXUL_PLUGIN_PATH_DATA);
@@ -252,7 +264,7 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
     draxul::HostContext context;
     context.launch_options.kind = draxul::HostKind::Plugin;
     context.launch_options.show_host_ui_panels
-        = instance->imgui_overlay.available();
+        = instance->imgui_overlay != nullptr;
     context.initial_viewport.pixel_pos = {
         info->initial_viewport.x, info->initial_viewport.y };
     context.initial_viewport.pixel_size = {
@@ -279,8 +291,9 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
         else
             instance->storage_warning = "saved SatView preferences are corrupt";
     }
-    if (instance->imgui_overlay.available())
-        instance->runtime->attach_imgui_host(instance->imgui_overlay);
+    if (instance->imgui_overlay)
+        instance->runtime->attach_imgui_host(*instance->imgui_overlay);
+    synchronize_ui_style(*instance);
     return instance;
 }
 
@@ -427,7 +440,7 @@ DraxulPluginTickResultV2 tick(void* opaque,
             false, "SatView received an invalid tick");
     if (instance->runtime)
     {
-        instance->imgui_overlay.synchronize_font(*instance->runtime);
+        synchronize_ui_style(*instance);
         instance->runtime->pump();
     }
     if (instance->quiesced || !instance->visible || !info->visible
@@ -454,7 +467,9 @@ DraxulPluginRenderResultV2 render_vulkan(void* opaque,
     if (!instance || !frame || !instance->visible)
         return render_result(true, DRAXUL_PLUGIN_NO_DEADLINE);
     draxul::satview::plugin::DeferredOverlaySink sink(
-        &instance->imgui_overlay);
+        instance->imgui_overlay.get());
+    if (instance->imgui_overlay)
+        instance->imgui_overlay->set_vulkan_frame(frame);
     if (instance->runtime)
         instance->runtime->draw(sink);
     static thread_local std::string error;

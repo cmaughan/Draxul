@@ -219,14 +219,4 @@ private:
     std::atomic<bool> route_build_in_progress_{ false };
 };
 
-// Factory function — used by tests and by register_megacity_host_provider().
-std::unique_ptr<IHost> create_megacity_host();
-std::unique_ptr<IHost> create_bioview_host();
-
-// Registers the MegaCity host kind with the supplied registry. The executable
-// calls this from main.cpp under #ifdef DRAXUL_ENABLE_MEGACITY so that nothing
-// in the core libraries depends on this header.
-class HostProviderRegistry;
-void register_megacity_host_provider(HostProviderRegistry& registry);
-
 } // namespace draxul

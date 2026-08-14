@@ -10,6 +10,7 @@ add_library(draxul-test-support INTERFACE)
 target_include_directories(draxul-test-support INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/support
+    ${CMAKE_SOURCE_DIR}/plugins/scoreview/tests
 )
 target_link_libraries(draxul-test-support INTERFACE Catch2::Catch2)
 
@@ -72,17 +73,16 @@ file(GLOB DRAXUL_MEGACITY_TEST_SOURCES CONFIGURE_DEPENDS
 )
 
 file(GLOB DRAXUL_SCOREVIEW_TEST_SOURCES CONFIGURE_DEPENDS
-    RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
-    notation_*_tests.cpp
-    scoreview_*_tests.cpp
+    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/notation_*_tests.cpp"
+    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_*_tests.cpp"
 )
 set(DRAXUL_SCOREVIEW_HOST_TEST_SOURCES
-    scoreview_composer_tests.cpp
-    scoreview_host_orchestration_tests.cpp
-    scoreview_host_rebuild_tests.cpp
-    scoreview_microphone_tests.cpp
-    scoreview_overlay_tests.cpp
-    scoreview_worker_stress_tests.cpp
+    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_composer_tests.cpp"
+    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_host_orchestration_tests.cpp"
+    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_host_rebuild_tests.cpp"
+    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_microphone_tests.cpp"
+    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_overlay_tests.cpp"
+    "${CMAKE_SOURCE_DIR}/plugins/scoreview/tests/scoreview_worker_stress_tests.cpp"
 )
 list(REMOVE_ITEM DRAXUL_SCOREVIEW_TEST_SOURCES ${DRAXUL_SCOREVIEW_HOST_TEST_SOURCES})
 
@@ -114,7 +114,9 @@ set(DRAXUL_PARTITIONED_TEST_SOURCES
 set(DRAXUL_SORTED_ALL_TEST_SOURCES
     ${DRAXUL_ALL_TEST_SOURCES}
     ${DRAXUL_MEGACITY_TEST_SOURCES}
-    ${DRAXUL_SATVIEW_TEST_SOURCES})
+    ${DRAXUL_SATVIEW_TEST_SOURCES}
+    ${DRAXUL_SCOREVIEW_TEST_SOURCES}
+    ${DRAXUL_SCOREVIEW_HOST_TEST_SOURCES})
 set(DRAXUL_SORTED_PARTITIONED_TEST_SOURCES ${DRAXUL_PARTITIONED_TEST_SOURCES})
 list(SORT DRAXUL_SORTED_ALL_TEST_SOURCES)
 list(SORT DRAXUL_SORTED_PARTITIONED_TEST_SOURCES)
@@ -177,7 +179,9 @@ endfunction()
 draxul_scan_catch_source_metadata(DRAXUL_ALL
     ${DRAXUL_ALL_TEST_SOURCES}
     ${DRAXUL_MEGACITY_TEST_SOURCES}
-    ${DRAXUL_SATVIEW_TEST_SOURCES})
+    ${DRAXUL_SATVIEW_TEST_SOURCES}
+    ${DRAXUL_SCOREVIEW_TEST_SOURCES}
+    ${DRAXUL_SCOREVIEW_HOST_TEST_SOURCES})
 draxul_scan_catch_source_metadata(DRAXUL_PARTITIONED ${DRAXUL_PARTITIONED_TEST_SOURCES})
 if(NOT DRAXUL_ALL_REGISTRATION_COUNT EQUAL DRAXUL_PARTITIONED_REGISTRATION_COUNT
    OR NOT "${DRAXUL_ALL_TAGS}" STREQUAL "${DRAXUL_PARTITIONED_TAGS}")
@@ -327,9 +331,7 @@ target_compile_definitions(draxul-test-app PRIVATE
 )
 if(DRAXUL_ENABLE_MEGACITY)
     add_dependencies(draxul-test-app draxul-megacity-plugin)
-    target_link_libraries(draxul-test-app PRIVATE draxul-megacity)
     target_compile_definitions(draxul-test-app PRIVATE
-        DRAXUL_ENABLE_MEGACITY
         DRAXUL_MEGACITY_PLUGIN_PATH="$<TARGET_FILE:draxul-megacity-plugin>")
 endif()
 
@@ -363,8 +365,13 @@ if(DRAXUL_ENABLE_SATVIEW)
 endif()
 
 if(DRAXUL_ENABLE_SCOREVIEW)
+    add_dependencies(draxul-test-app draxul-scoreview-plugin)
+    target_compile_definitions(draxul-test-app PRIVATE
+        DRAXUL_SCOREVIEW_PLUGIN_PATH="$<TARGET_FILE:draxul-scoreview-plugin>")
+
     draxul_add_test_target(draxul-test-scoreview scoreview 2 ${DRAXUL_SCOREVIEW_TEST_SOURCES})
-    target_link_libraries(draxul-test-scoreview PRIVATE draxul-notation draxul-scoreview)
+    target_link_libraries(draxul-test-scoreview PRIVATE
+        draxul-score-runtime-support draxul-notation draxul-scoreview)
 
     # Host lifecycle, microphone, NanoVG overlay, and worker orchestration tests
     # carry the full host dependency without imposing it on the ScoreView core.
@@ -377,7 +384,6 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     )
 
     foreach(scoreview_target
-        draxul-test-app
         draxul-test-scoreview
         draxul-test-scoreview-runtime)
         target_compile_definitions(${scoreview_target} PRIVATE
@@ -393,6 +399,12 @@ if(DRAXUL_ENABLE_SCOREVIEW)
             )
         endif()
     endforeach()
+    if(WIN32)
+        add_custom_command(TARGET draxul-test-app POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:verovio>
+                $<TARGET_FILE_DIR:draxul-test-app>)
+    endif()
 endif()
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

@@ -212,7 +212,7 @@ TEST_CASE("megacity host mouse drag pans and alt-drag rotates", "[megacity]")
     MegaCityHost host;
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
+    launch.kind = HostKind::Plugin;
 
     HostViewport viewport;
     viewport.pixel_size = { 800, 600 };
@@ -277,7 +277,7 @@ TEST_CASE("megacity host honors fractional mouse delta for drag input", "[megaci
     MegaCityHost host;
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
+    launch.kind = HostKind::Plugin;
 
     HostViewport viewport;
     viewport.pixel_size = { 800, 600 };
@@ -335,7 +335,7 @@ TEST_CASE("megacity host forwards text input into its ImGui context", "[megacity
     MegaCityHost host;
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
+    launch.kind = HostKind::Plugin;
 
     HostViewport viewport;
     viewport.pixel_size = { 800, 600 };
@@ -383,7 +383,7 @@ TEST_CASE("megacity host destroys scene pass before shutting down its imgui back
     MegaCityHost host;
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
+    launch.kind = HostKind::Plugin;
 
     HostViewport viewport;
     viewport.pixel_size = { 800, 600 };
@@ -427,7 +427,7 @@ TEST_CASE("megacity host source override controls the Tree-sitter scan root", "[
     MegaCityHost host;
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
+    launch.kind = HostKind::Plugin;
     launch.source_path = scan_root.string();
 
     HostViewport viewport;
@@ -473,7 +473,7 @@ TEST_CASE("megacity host publishes a code semantic snapshot without database sta
     MegaCityHost host;
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
+    launch.kind = HostKind::Plugin;
     launch.source_path = temp.path.string();
 
     HostViewport viewport;
@@ -536,7 +536,7 @@ TEST_CASE("megacity host treats stale graphify config as Tree-sitter source", "[
     MegaCityHost host;
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
+    launch.kind = HostKind::Plugin;
     launch.source_path = temp.path.string();
 
     HostViewport viewport;
@@ -596,7 +596,7 @@ TEST_CASE("bioview host builds from neutral semantics without a city model", "[m
     MegaCityHost host(MegaCityVisualizationMode::Biology);
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::BioView;
+    launch.kind = HostKind::Plugin;
     launch.source_path = temp.path.string();
 
     HostViewport viewport;
@@ -642,7 +642,7 @@ TEST_CASE("megacity host retries focused routes once the grid becomes available"
     MegaCityHost host;
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
+    launch.kind = HostKind::Plugin;
 
     HostViewport viewport;
     viewport.pixel_size = { 800, 600 };
@@ -744,7 +744,7 @@ TEST_CASE("megacity host scene click on roof sign function emits focused depende
     MegaCityHost host;
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
+    launch.kind = HostKind::Plugin;
 
     HostViewport viewport;
     viewport.pixel_size = { 800, 600 };
@@ -978,7 +978,7 @@ TEST_CASE("megacity host preserves externally edited core config when saving meg
     MegaCityHost host;
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
+    launch.kind = HostKind::Plugin;
 
     HostViewport viewport;
     viewport.pixel_size = { 800, 600 };
@@ -1022,7 +1022,7 @@ TEST_CASE("megacity host keeps catching up between mouse samples", "[megacity]")
     MegaCityHost host;
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
+    launch.kind = HostKind::Plugin;
 
     HostViewport viewport;
     viewport.pixel_size = { 800, 600 };
@@ -1076,7 +1076,7 @@ TEST_CASE("megacity host draw does not schedule a follow-up frame for selection 
     MegaCityHost host;
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
+    launch.kind = HostKind::Plugin;
 
     HostViewport viewport;
     viewport.pixel_size = { 800, 600 };

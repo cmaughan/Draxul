@@ -111,7 +111,7 @@
     },
     {
       "name": "scoreview-plugin",
-      "purpose": "Dynamic ScoreView Canvas 2D plugin composition with a real MusicXML source",
+      "purpose": "Dynamic ScoreView plugin-owned Vulkan/Metal composition with a real MusicXML source",
       "status": "developer",
       "platforms": ["windows", "macos"],
       "ctest": false,

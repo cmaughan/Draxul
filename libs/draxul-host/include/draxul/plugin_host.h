@@ -78,6 +78,9 @@ private:
         void* service_table, size_t service_table_size);
     static int32_t get_service_path(void* context, uint32_t path_kind,
         char* buffer, size_t* in_out_size);
+    static int32_t get_recommended_font(void* context, char* path,
+        size_t* in_out_size, float* size_pixels, float* display_scale,
+        uint64_t* generation);
     static uint32_t read_storage_json(void* context, uint32_t scope,
         const char* key, size_t key_length, char* buffer,
         size_t* in_out_size);
@@ -86,22 +89,6 @@ private:
         size_t json_length);
     static uint32_t remove_storage(void* context, uint32_t scope,
         const char* key, size_t key_length);
-    static int32_t initialize_imgui_overlay(void* context,
-        void* imgui_context);
-    static void shutdown_imgui_overlay(void* context,
-        void* imgui_context);
-    static void rebuild_imgui_font_texture(void* context,
-        void* imgui_context);
-    static int32_t begin_imgui_frame(void* context,
-        void* imgui_context);
-    static int32_t render_imgui_draw_data(void* context,
-        void* draw_data, void* imgui_context);
-    static int32_t get_imgui_font(void* context, char* path,
-        size_t* in_out_size, float* size_pixels);
-    static int32_t set_canvas2d_render_pass(void* context,
-        void* render_pass, uint64_t cpp_abi_fingerprint);
-    static void set_canvas2d_overlay(void* context, void* draw_data,
-        void* imgui_context);
     DraxulPluginViewportV2 plugin_viewport() const;
     void send_input(DraxulPluginInputEventV2 event);
     void send_focus(bool focused);
@@ -116,12 +103,6 @@ private:
     std::shared_ptr<LoadedPlugin> plugin_;
     std::unique_ptr<IRenderPass> render_pass_;
     IGridRenderer* renderer_ = nullptr;
-    IImGuiHost* imgui_host_ = nullptr;
-    IRenderPass* canvas2d_render_pass_ = nullptr;
-    void* canvas2d_draw_data_ = nullptr;
-    void* canvas2d_imgui_context_ = nullptr;
-    void* plugin_imgui_draw_data_ = nullptr;
-    void* plugin_imgui_context_ = nullptr;
     std::atomic<IHostCallbacks*> callbacks_{ nullptr };
     void* instance_ = nullptr;
     HostViewport viewport_;
@@ -152,6 +133,8 @@ private:
     std::thread::id main_thread_id_;
     std::string imgui_font_path_;
     float imgui_font_size_pixels_ = 13.0f;
+    float display_ppi_ = 96.0f;
+    uint64_t ui_style_generation_ = 1;
 };
 
 class HostProviderRegistry;

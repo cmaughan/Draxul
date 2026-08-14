@@ -44,12 +44,6 @@ HostProviderMetadata default_metadata(HostKind kind)
         metadata.palette_visible = false;
         metadata.launch_contexts = HostLaunchContext::None;
         break;
-    case HostKind::MegaCity:
-        metadata.display_name = "MegaCity";
-        break;
-    case HostKind::BioView:
-        metadata.display_name = "BioView";
-        break;
     case HostKind::NanoVGDemo:
         metadata.display_name = "NanoVG Demo";
         metadata.palette_visible = false;

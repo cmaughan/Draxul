@@ -87,8 +87,8 @@ Use the `--log-file` and `--log-level` CLI flags for debug logging. These are re
 - `libs/`: reusable infrastructure libraries; see the complete ownership list in
   [docs/module-map.md](docs/module-map.md#core-libraries).
 - `modules/markdown/` and `modules/kanban/`: product modules built by default.
-- `plugins/megacity/` and `modules/score/`: optional product families gated by
-  `DRAXUL_ENABLE_MEGACITY` and `DRAXUL_ENABLE_SCOREVIEW`.
+- `plugins/megacity/` and `plugins/scoreview/`: self-contained optional product
+  plugins gated by `DRAXUL_ENABLE_MEGACITY` and `DRAXUL_ENABLE_SCOREVIEW`.
 - `plugins/satview/`: the self-contained SatView product plugin, gated by
   `DRAXUL_ENABLE_SATVIEW`; its runtime, GPU backends, assets, and tests live
   beneath the plugin directory.

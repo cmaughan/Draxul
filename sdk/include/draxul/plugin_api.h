@@ -26,6 +26,8 @@ extern "C" {
 #define DRAXUL_PLUGIN_PATH_SERVICE_VERSION 1u
 #define DRAXUL_PLUGIN_STORAGE_SERVICE_ID "draxul.storage"
 #define DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION 1u
+#define DRAXUL_PLUGIN_UI_STYLE_SERVICE_ID "draxul.ui-style"
+#define DRAXUL_PLUGIN_UI_STYLE_SERVICE_VERSION 1u
 #define DRAXUL_PLUGIN_MAX_STORAGE_JSON_BYTES (1024u * 1024u)
 
 typedef enum DraxulPluginBackendV2
@@ -124,6 +126,22 @@ typedef struct DraxulPluginStorageServiceV2
     uint32_t (*remove)(void* service_context, uint32_t scope,
         const char* key, size_t key_length);
 } DraxulPluginStorageServiceV2;
+
+// Supplies presentation recommendations without exposing Draxul's C++ UI or
+// renderer objects. The plugin owns its font atlas and widget rendering. The
+// font query uses a conventional two-call buffer contract; generation changes
+// whenever the recommendation changes so plugins can avoid rebuilding an
+// atlas every tick. display_scale is relative to 96 DPI.
+typedef struct DraxulPluginUiStyleServiceV2
+{
+    uint32_t struct_size;
+    uint32_t service_version;
+    void* service_context;
+    int32_t (*get_recommended_font)(void* service_context,
+        char* path_buffer, size_t* in_out_path_size,
+        float* size_pixels, float* display_scale,
+        uint64_t* generation);
+} DraxulPluginUiStyleServiceV2;
 
 typedef struct DraxulPluginViewportV2
 {

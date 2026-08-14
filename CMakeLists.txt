@@ -167,6 +167,9 @@ add_subdirectory(libs/draxul-app-support)
 add_subdirectory(libs/draxul-host)
 add_subdirectory(modules/kanban)
 add_subdirectory(libs/draxul-nanovg)
+if(DRAXUL_ENABLE_MEGACITY OR DRAXUL_ENABLE_SATVIEW OR DRAXUL_ENABLE_SCOREVIEW)
+    add_subdirectory(plugins/support/imgui)
+endif()
 if(DRAXUL_ENABLE_MEGACITY)
     add_subdirectory(plugins/megacity)
 endif()
@@ -174,7 +177,6 @@ if(DRAXUL_ENABLE_SATVIEW)
     add_subdirectory(plugins/satview)
 endif()
 if(DRAXUL_ENABLE_SCOREVIEW)
-    add_subdirectory(modules/score)
     add_subdirectory(plugins/scoreview)
 endif()
 
@@ -237,6 +239,9 @@ if(DRAXUL_ENABLE_SATVIEW)
     draxul_apply_msvc_parallel_pdb_fix(draxul-satview-runtime)
 endif()
 if(DRAXUL_ENABLE_SCOREVIEW)
+    draxul_apply_sanitizers(draxul-score-runtime-support)
+    draxul_apply_coverage(draxul-score-runtime-support)
+    draxul_apply_msvc_parallel_pdb_fix(draxul-score-runtime-support)
     draxul_apply_sanitizers(draxul-notation)
     draxul_apply_coverage(draxul-notation)
     draxul_apply_msvc_parallel_pdb_fix(draxul-notation)
@@ -246,6 +251,9 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     draxul_apply_sanitizers(draxul-scoreview-runtime)
     draxul_apply_coverage(draxul-scoreview-runtime)
     draxul_apply_msvc_parallel_pdb_fix(draxul-scoreview-runtime)
+    draxul_apply_sanitizers(draxul-score-canvas)
+    draxul_apply_coverage(draxul-score-canvas)
+    draxul_apply_msvc_parallel_pdb_fix(draxul-score-canvas)
 endif()
 
 include(CTest)
@@ -343,9 +351,8 @@ target_link_libraries(draxul-app PUBLIC
     draxul-nanovg
 )
 target_link_libraries(draxul-app PRIVATE draxul-performance)
-# NOTE: draxul-megacity is intentionally NOT linked here. The terminal product
-# library has zero megacity dependency. Megacity is linked into the executable
-# target below, where main.cpp registers it via the host provider registry.
+# Product implementations are linked only into their native plugin modules;
+# neither draxul-app nor the executable links a product library.
 if(DRAXUL_ENABLE_RENDER_TESTS)
     target_compile_definitions(draxul-app PUBLIC DRAXUL_ENABLE_RENDER_TESTS)
 endif()
@@ -553,9 +560,21 @@ add_custom_target(draxul-stage-scoreview-plugin
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${ydp_grand_piano_SOURCE_DIR}"
         "${DRAXUL_SCOREVIEW_PLUGIN_STAGE}/soundfonts"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "${DRAXUL_SCOREVIEW_PLUGIN_STAGE}/shaders"
     DEPENDS draxul-scoreview-plugin verovio
         "${CMAKE_SOURCE_DIR}/plugins/scoreview/plugin.toml"
     VERBATIM)
+if(NOT APPLE)
+    foreach(SCOREVIEW_SHADER_OUTPUT IN LISTS SCOREVIEW_PLUGIN_SHADER_OUTPUTS)
+        get_filename_component(SCOREVIEW_SHADER_NAME
+            "${SCOREVIEW_SHADER_OUTPUT}" NAME)
+        add_custom_command(TARGET draxul-stage-scoreview-plugin POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${SCOREVIEW_SHADER_OUTPUT}"
+                "${DRAXUL_SCOREVIEW_PLUGIN_STAGE}/shaders/${SCOREVIEW_SHADER_NAME}")
+    endforeach()
+endif()
 add_dependencies(draxul draxul-stage-scoreview-plugin)
 endif()
 if(DRAXUL_ENABLE_RENDER_TESTS)

@@ -98,7 +98,7 @@ endif()
 add_library(draxul-satview-plugin MODULE ${DRAXUL_SATVIEW_PLUGIN_SOURCE})
 target_include_directories(draxul-satview-plugin PRIVATE "${SATVIEW_INCLUDE_DIR}" src)
 target_link_libraries(draxul-satview-plugin PRIVATE
-    Draxul::PluginSDK draxul-legacy-product-plugin-services
+    Draxul::PluginSDK Draxul::PluginImGui
     nlohmann_json::nlohmann_json draxul-satview-runtime)
 if(NOT APPLE)
     target_link_libraries(draxul-satview-plugin PRIVATE

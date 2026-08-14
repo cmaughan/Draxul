@@ -18,7 +18,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | MegaCity | `--plugin dev.draxul.megacity` with `{"mode":"city"}` | Dynamic semantic code-city plugin with textured materials, shadows, SSAO, mouse-drag pan, Alt+drag orbit, and a configurable local Tree-sitter scan root |
 | BioView | `--plugin dev.draxul.megacity` with `{"mode":"biology"}` | Biology mode of the same dynamic plugin: modules become tissues, classes become cells, and dependencies become blood vessels; semantic model, procedural geometry, UI, assets, and Vulkan/Metal renderer are plugin-owned |
 | ScoreView | `--plugin dev.draxul.scoreview` on pane/tab commands | Dynamically loaded music score viewer + adaptive learning runner ([docs/features/scoreview.md](features/scoreview.md)); launch JSON accepts `source`, `mode`, and `background_playback` |
-| SatView | `--plugin dev.draxul.satview` on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and build-matched ImGui controls. Full narrative: [docs/features/satview.md](features/satview.md) |
+| SatView | `--plugin dev.draxul.satview` on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and plugin-owned ImGui controls. Full narrative: [docs/features/satview.md](features/satview.md) |
 
 Shell Session splits use the server's platform default shell (Zsh on macOS,
 PowerShell on Windows). Explicit self-contained product windows advertise only
@@ -58,10 +58,11 @@ background, cursor, actions, readiness, and print hints. Hidden tabs and Spaces
 stop render animation deadlines; plugins explicitly decide whether any non-render
 logic continues while hidden.
 
-Versioned path and storage services expose plugin resource, configuration, data,
-cache, and temporary directories plus bounded atomic JSON documents. Storage is
-client-local and main-thread-only; background workers request a logic tick before
-reading or writing it.
+Versioned path, storage, and UI-style services expose plugin resource,
+configuration, data, cache, and temporary directories, bounded atomic JSON
+documents, and Draxul's recommended font/scale with a change generation. Storage
+is client-local and main-thread-only; background workers request a logic tick
+before reading or writing it.
 
 The installed SDK exposes only C-owned lifecycle, input, service, presentation,
 and raw Vulkan/Metal frame structures. No Draxul C++ renderer, ImGui type, or
@@ -77,9 +78,9 @@ and durable; shared launch JSON remains limited to values every attached UI shou
 see. SatView now owns its complete product stack under `plugins/satview`: model,
 services, simulation, UI, Vulkan/Metal HDR renderer, shaders, catalogs, textures,
 and tests. Its dynamic module renders the actual satellite application rather
-than the earlier procedural stand-in. ScoreView still uses a source-tree-only
-compatibility header pending its own product cut; that header is not installed
-with `DraxulPluginSDK`.
+than the earlier procedural stand-in. ScoreView likewise owns its notation,
+learning, transport, worker, device, UI, and raw Vulkan/Metal rendering stack
+under `plugins/scoreview`; no Draxul C++ canvas or ImGui object crosses the ABI.
 
 ```text
 draxul plugin list --json
@@ -816,7 +817,10 @@ Markdown and Kanban are product modules under `modules/markdown/` and `modules/k
 - `draxul-tests` -- Unit test suite (Catch2), compiled with a test-only precompiled header and registered as four disjoint CTest shards labeled `unit`
 - `draxul-rpc-fake` -- Fake RPC server for integration tests
 
-ScoreView builds as five libraries inside the `DRAXUL_ENABLE_SCOREVIEW` gate — `draxul-score-learn`, `draxul-score-input`, `draxul-score-audio`, `draxul-scoreview`, `draxul-scoreview-runtime` — plus the dynamic module; the per-library layering and dependency-isolation rationale is documented in [docs/features/scoreview.md](features/scoreview.md#build-structure).
+ScoreView builds as private product libraries beneath `plugins/scoreview` inside
+the `DRAXUL_ENABLE_SCOREVIEW` gate, plus the dynamic module; the per-library
+layering and dependency-isolation rationale is documented in
+[docs/features/scoreview.md](features/scoreview.md#build-structure).
 
 CTest also registers `tests/do_py_tests.py` under the `unit` label. App smoke and render-snapshot tests use a shared CTest resource lock so full parallel test runs never overlap GPU/application processes.
 On Windows, every test executable that links ScoreView stages `verovio.dll`

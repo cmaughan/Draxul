@@ -99,11 +99,11 @@ does not rebuild or extend the universal value-type archive.
 | Directory | Ownership |
 |---|---|
 | `sdk/` | Installable, versioned native plugin C ABI and the dependency-free `Draxul::PluginSDK` CMake target |
+| `plugins/support/imgui/` | Product-owned optional ImGui Vulkan/Metal encoder and public UI-style service client, linked inside native plugin modules and never exposed across the ABI |
 | `libs/draxul-performance/` | Runtime timing collection and the `PERF_MEASURE` instrumentation API |
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
 | `libs/draxul-plugin/` | Manifest discovery, platform dynamic loading, ABI/identity validation, and process-lifetime module cache; consumes the public SDK but does not own it |
-| `libs/draxul-host/include/draxul/legacy_product_plugin_services.h` | Temporary, non-installed ImGui/Canvas compatibility for unmigrated in-tree product plugins; forbidden to external plugins and deleted by the product cutover |
 | `libs/draxul-agent/` | Neutral agent identity/profile/runtime values plus bundled, versioned terminal-status and process-discovery evaluators |
 | `libs/draxul-session-model/` | Renderer-free durable Session/Space/tab/pane snapshot values, validation, versioned TOML codec, and transactional file replacement shared by the app and server |
 | `libs/draxul-control/` | Versioned, authenticated local Session control transport and client (Windows named pipe; Unix-domain socket elsewhere) |
@@ -227,11 +227,11 @@ Good place for:
 | `modules/kanban/` | Always built | `draxul-kanban` owns board storage, layout/navigation, and the native Kanban host |
 | `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Self-contained MegaCity/BioView product: code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic module |
 | `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Self-contained satellite product: core, scene, services, runtime, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |
-| `modules/score/` | `DRAXUL_ENABLE_SCOREVIEW` | Notation, learning, MIDI/audio input, and `draxul-scoreview-runtime`, linked privately into `plugins/scoreview` |
+| `plugins/scoreview/` | `DRAXUL_ENABLE_SCOREVIEW` | Self-contained notation, learning, transport, worker, MIDI/audio/microphone, UI, NanoVG Vulkan/Metal rendering, assets, tests, and dynamic module |
 
 Markdown and Kanban are linked directly into `draxul`. MegaCity/BioView, SatView,
-and ScoreView are staged and loaded only as native modules; none is registered by
-the production executable as a compiled-in host.
+and ScoreView are staged and loaded only as native modules. Core has no product
+host kinds, provider factories, renderer bridge, or compiled-in fallback.
 
 ## Generated Views
 

@@ -1,9 +1,8 @@
-#include <draxul/imgui_host.h>
-#include <draxul/legacy_product_plugin_services.h>
+#include <draxul/nanovg_pass.h>
 #include <draxul/plugin_api.h>
+#include <draxul/plugin_gpu_imgui.h>
 #include <draxul/scoreview/score_runtime.h>
 
-#include <imgui.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -27,7 +26,11 @@ class RuntimeCallbacks final
 public:
     void request_frame() override
     {
-        if (visible && host && host->request_redraw)
+        if (!host)
+            return;
+        if (host->request_tick)
+            host->request_tick(host->host_context);
+        if (visible && host->request_redraw)
             host->request_redraw(host->host_context);
     }
     void notify_presentation_changed() override
@@ -39,110 +42,36 @@ public:
     bool visible = true;
 };
 
-class OverlayAdapter final : public draxul::IImGuiHost
-{
-public:
-    bool discover(const DraxulPluginHostApiV2& host)
-    {
-        if (!host.query_service)
-            return false;
-        service_ = {};
-        service_.struct_size = sizeof(service_);
-        service_.service_version
-            = DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_VERSION;
-        available_ = host.query_service(host.host_context,
-            DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_ID,
-            std::strlen(DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_ID),
-            DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_VERSION,
-            &service_, sizeof(service_)) != 0
-            && service_.imgui_version_num == IMGUI_VERSION_NUM
-            && service_.draw_vert_size == sizeof(ImDrawVert)
-            && service_.draw_idx_size == sizeof(ImDrawIdx);
-        return available_;
-    }
-    bool initialize_imgui_backend() override
-    {
-        context_ = ImGui::GetCurrentContext();
-        initialized_ = available_ && context_ && service_.initialize(
-            service_.service_context, context_) != 0;
-        return initialized_;
-    }
-    void shutdown_imgui_backend() override
-    {
-        if (initialized_)
-            service_.shutdown(service_.service_context, context_);
-        initialized_ = false;
-        context_ = nullptr;
-    }
-    void rebuild_imgui_font_texture() override
-    {
-        if (initialized_)
-            service_.rebuild_font_texture(service_.service_context, context_);
-    }
-    void begin_imgui_frame() override
-    {
-        if (initialized_ || initialize_imgui_backend())
-            service_.begin_frame(service_.service_context, context_);
-    }
-    bool render_imgui_draw_data(const ImDrawData* data,
-        ImGuiContext* context) override
-    {
-        return initialized_ && service_.render_draw_data(
-            service_.service_context, const_cast<ImDrawData*>(data),
-            context) != 0;
-    }
-    void synchronize_font(draxul::scoreview::ScoreRuntime& runtime)
-    {
-        if (!available_)
-            return;
-        size_t required = 0;
-        float size = 0.0f;
-        if (!service_.get_font(service_.service_context, nullptr,
-                &required, &size) || required == 0)
-            return;
-        std::string path(required, '\0');
-        if (!service_.get_font(service_.service_context, path.data(),
-                &required, &size))
-            return;
-        path.resize(required - 1);
-        if (path == font_path_ && size == font_size_)
-            return;
-        font_path_ = std::move(path);
-        font_size_ = size;
-        runtime.set_imgui_font(font_path_, font_size_);
-    }
-    bool available() const { return available_; }
-
-private:
-    DraxulPluginImGuiOverlayServiceV2 service_{};
-    ImGuiContext* context_ = nullptr;
-    std::string font_path_;
-    float font_size_ = 0.0f;
-    bool available_ = false;
-    bool initialized_ = false;
-};
-
 struct Instance;
 
 class FrameSink final : public draxul::scoreview::ScoreFrameSink
 {
 public:
-    explicit FrameSink(Instance& instance) : instance_(instance) {}
-    void record_canvas(draxul::INanoVGPass&, int, int, int, int) override {}
+    FrameSink(Instance& instance, const DraxulPluginVulkanFrameV2* vulkan,
+        const DraxulPluginMetalFrameV2* metal)
+        : instance_(instance), vulkan_(vulkan), metal_(metal)
+    {
+    }
+    void record_canvas(draxul::INanoVGPass& pass,
+        int, int, int, int) override;
     void render_overlay(void* draw_data, void* context) override;
     void finish() override {}
+    bool ok() const { return ok_; }
 private:
     Instance& instance_;
+    const DraxulPluginVulkanFrameV2* vulkan_ = nullptr;
+    const DraxulPluginMetalFrameV2* metal_ = nullptr;
+    bool ok_ = true;
 };
 
 struct Instance
 {
     const DraxulPluginHostApiV2* host = nullptr;
-    DraxulPluginCanvas2DServiceV2 canvas{};
     DraxulPluginPathServiceV2 paths{};
+    draxul::plugin_support::UiStyleClient ui_style;
     DraxulPluginViewportV2 viewport{};
     RuntimeCallbacks callbacks;
-    OverlayAdapter overlay;
+    std::unique_ptr<draxul::plugin_support::GpuImGuiHost> overlay;
     std::unique_ptr<draxul::scoreview::ScoreRuntime> runtime;
     std::filesystem::path directory;
     std::string status;
@@ -154,9 +83,19 @@ struct Instance
 
 void FrameSink::render_overlay(void* draw_data, void* context)
 {
-    if (instance_.canvas.set_overlay)
-        instance_.canvas.set_overlay(instance_.canvas.service_context,
-            draw_data, context);
+    if (instance_.overlay)
+        ok_ = instance_.overlay->render_imgui_draw_data(
+            static_cast<ImDrawData*>(draw_data),
+            static_cast<ImGuiContext*>(context)) && ok_;
+}
+
+void FrameSink::record_canvas(draxul::INanoVGPass& pass,
+    int, int, int, int)
+{
+    if (vulkan_)
+        ok_ = pass.render_vulkan(*vulkan_) && ok_;
+    else if (metal_)
+        ok_ = pass.render_metal(*metal_) && ok_;
 }
 
 std::string service_path(DraxulPluginPathServiceV2& service,
@@ -172,6 +111,15 @@ std::string service_path(DraxulPluginPathServiceV2& service,
         return {};
     value.resize(required - 1);
     return value;
+}
+
+void synchronize_ui_style(Instance& instance)
+{
+    if (instance.runtime)
+    {
+        if (const auto font = instance.ui_style.poll())
+            instance.runtime->set_imgui_font(font->path, font->size_pixels);
+    }
 }
 
 DraxulPluginTickResultV2 tick_result(bool ok, uint64_t delay,
@@ -190,7 +138,7 @@ DraxulPluginRenderResultV2 render_result(bool ok,
 
 void* create_instance(const DraxulPluginCreateInfoV2* info)
 {
-    if (!info || !info->host || !info->host->query_service)
+    if (!info || !info->host)
         return nullptr;
     auto instance = std::make_unique<Instance>();
     instance->host = info->host;
@@ -200,25 +148,18 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
         ? std::filesystem::u8path(info->plugin_directory_utf8)
         : std::filesystem::path{};
 
-    instance->canvas.struct_size = sizeof(instance->canvas);
-    instance->canvas.service_version = DRAXUL_PLUGIN_CANVAS2D_SERVICE_VERSION;
-    if (!info->host->query_service(info->host->host_context,
-            DRAXUL_PLUGIN_CANVAS2D_SERVICE_ID,
-            std::strlen(DRAXUL_PLUGIN_CANVAS2D_SERVICE_ID),
-            DRAXUL_PLUGIN_CANVAS2D_SERVICE_VERSION,
-            &instance->canvas, sizeof(instance->canvas))
-        || instance->canvas.cpp_abi_fingerprint
-            != DRAXUL_PLUGIN_CANVAS2D_CPP_ABI_FINGERPRINT)
-        return nullptr;
-
     instance->paths.struct_size = sizeof(instance->paths);
     instance->paths.service_version = DRAXUL_PLUGIN_PATH_SERVICE_VERSION;
-    info->host->query_service(info->host->host_context,
-        DRAXUL_PLUGIN_PATH_SERVICE_ID,
-        std::strlen(DRAXUL_PLUGIN_PATH_SERVICE_ID),
-        DRAXUL_PLUGIN_PATH_SERVICE_VERSION,
-        &instance->paths, sizeof(instance->paths));
-    instance->overlay.discover(*info->host);
+    if (info->host->query_service)
+    {
+        info->host->query_service(info->host->host_context,
+            DRAXUL_PLUGIN_PATH_SERVICE_ID,
+            std::strlen(DRAXUL_PLUGIN_PATH_SERVICE_ID),
+            DRAXUL_PLUGIN_PATH_SERVICE_VERSION,
+            &instance->paths, sizeof(instance->paths));
+        instance->ui_style.discover(*info->host);
+    }
+    instance->overlay = draxul::plugin_support::create_gpu_imgui_host();
 
     std::string source;
     std::string mode = "paged";
@@ -239,7 +180,6 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
     }
 
     draxul::HostContext context;
-    context.launch_options.kind = draxul::HostKind::Plugin;
     context.launch_options.source_path = source;
     context.launch_options.command = mode;
     context.initial_viewport.pixel_pos = {
@@ -254,6 +194,7 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
         DRAXUL_PLUGIN_PATH_DATA);
     if (!data.empty())
         paths.progress = std::filesystem::u8path(data) / "progress";
+    draxul::set_nanovg_asset_root(instance->directory);
     instance->runtime = std::make_unique<draxul::scoreview::ScoreRuntime>();
     if (!instance->runtime->initialize(context, instance->callbacks,
             std::move(paths)))
@@ -265,13 +206,9 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
                 DRAXUL_PLUGIN_LOG_ERROR, error.c_str(), error.size());
         return nullptr;
     }
-    if (instance->overlay.available())
-        instance->runtime->attach_imgui_host(instance->overlay);
-    if (!instance->canvas.set_render_pass(
-            instance->canvas.service_context,
-            instance->runtime->canvas_pass(),
-            DRAXUL_PLUGIN_CANVAS2D_CPP_ABI_FINGERPRINT))
-        return nullptr;
+    if (instance->overlay)
+        instance->runtime->attach_imgui_host(*instance->overlay);
+    synchronize_ui_style(*instance);
     return instance.release();
 }
 
@@ -376,7 +313,7 @@ DraxulPluginTickResultV2 tick(void* opaque,
     auto* instance = static_cast<Instance*>(opaque);
     if (!instance || !info || instance->quiesced)
         return tick_result(instance != nullptr, DRAXUL_PLUGIN_NO_DEADLINE);
-    instance->overlay.synchronize_font(*instance->runtime);
+    synchronize_ui_style(*instance);
     instance->runtime->pump();
     const auto deadline = instance->runtime->next_deadline();
     if (!instance->visible || !info->visible)
@@ -389,20 +326,42 @@ DraxulPluginTickResultV2 tick(void* opaque,
         deadline.has_value());
 }
 
-DraxulPluginRenderResultV2 render(void* opaque)
+DraxulPluginRenderResultV2 render_vulkan(void* opaque,
+    const DraxulPluginVulkanFrameV2* frame)
 {
     auto* instance = static_cast<Instance*>(opaque);
     if (!instance || !instance->visible || instance->quiesced)
         return render_result(true);
-    FrameSink sink(*instance);
+    if (!frame || !frame->command_buffer || !frame->device
+        || !frame->continuation_render_pass
+        || !frame->continuation_framebuffer)
+        return render_result(false, "ScoreView received an incomplete Vulkan frame");
+    synchronize_ui_style(*instance);
+    if (instance->overlay)
+        instance->overlay->set_vulkan_frame(frame);
+    FrameSink sink(*instance, frame, nullptr);
     instance->runtime->draw(sink);
-    return render_result(true);
+    return render_result(sink.ok(),
+        sink.ok() ? nullptr : "ScoreView Vulkan rendering failed");
 }
 
-DraxulPluginRenderResultV2 render_vulkan(void* opaque,
-    const DraxulPluginVulkanFrameV2*) { return render(opaque); }
 DraxulPluginRenderResultV2 render_metal(void* opaque,
-    const DraxulPluginMetalFrameV2*) { return render(opaque); }
+    const DraxulPluginMetalFrameV2* frame)
+{
+    auto* instance = static_cast<Instance*>(opaque);
+    if (!instance || !instance->visible || instance->quiesced)
+        return render_result(true);
+    if (!frame || !frame->command_buffer || !frame->device
+        || !frame->continuation_render_pass_descriptor)
+        return render_result(false, "ScoreView received an incomplete Metal frame");
+    synchronize_ui_style(*instance);
+    if (instance->overlay)
+        instance->overlay->set_metal_frame(frame);
+    FrameSink sink(*instance, nullptr, frame);
+    instance->runtime->draw(sink);
+    return render_result(sink.ok(),
+        sink.ok() ? nullptr : "ScoreView Metal rendering failed");
+}
 
 int32_t get_state(void* opaque, DraxulPluginPresentationStateV2* state)
 {

@@ -93,7 +93,7 @@ public:
 
     // Returns true if the action was recognised and handled.
     // Optional args are forwarded to actions that accept parameters (e.g. split commands
-    // accept a host kind like "zsh" or "megacity").
+    // accept a core host kind like "zsh" or "kanban").
     bool execute(std::string_view action, std::string_view args = {});
 
     // Returns a sorted list of all registered action names.

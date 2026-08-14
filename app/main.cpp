@@ -711,11 +711,8 @@ static int draxul_main(std::vector<std::string> args)
 
     draxul::configure_default_logging();
 
-    // Register host providers. The terminal product registers its built-ins
-    // unconditionally; optional modules (megacity) only register when their
-    // build flag is on. Nothing in draxul-app or draxul-host links the
-    // megacity library — this main.cpp file is the sole megacity touchpoint
-    // in the executable.
+    // Register core host providers. External products are resolved only by
+    // stable plugin ID through the generic PluginHost provider.
     auto& host_registry = draxul::HostProviderRegistry::global();
     host_registry.clear();
     draxul::register_builtin_host_providers(host_registry);

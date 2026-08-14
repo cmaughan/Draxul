@@ -1,9 +1,8 @@
 #include <draxul/plugin_api.h>
+#include <draxul/plugin_gpu_imgui.h>
 #include <draxul/base_renderer.h>
 #include <draxul/codeviz_scene_pass.h>
 #include <draxul/megacity_host.h>
-
-#include "megacity_imgui_adapter.h"
 
 #include <nlohmann/json.hpp>
 
@@ -89,7 +88,8 @@ struct Instance
     bool quiesced = false;
     std::string status;
     Callbacks callbacks;
-    draxul::megacity::plugin::ImGuiOverlayAdapter imgui;
+    std::unique_ptr<draxul::plugin_support::GpuImGuiHost> imgui;
+    draxul::plugin_support::UiStyleClient ui_style;
     std::unique_ptr<draxul::MegaCityHost> host;
 #if !defined(__APPLE__)
     VmaAllocator allocator = VK_NULL_HANDLE;
@@ -115,6 +115,15 @@ void notify(Instance* instance)
     if (instance && instance->api
         && instance->api->notify_presentation_changed)
         instance->api->notify_presentation_changed(instance->api->host_context);
+}
+
+void synchronize_ui_style(Instance& instance)
+{
+    if (instance.host)
+    {
+        if (const auto font = instance.ui_style.poll())
+            instance.host->set_imgui_font(font->path, font->size_pixels);
+    }
 }
 
 void* create_instance(const DraxulPluginCreateInfoV2* info)
@@ -154,14 +163,15 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
         ? std::filesystem::u8path(info->plugin_directory_utf8)
         : std::filesystem::path{};
     draxul::set_codeviz_product_root(directory);
-    instance->imgui.discover(*info->host);
+    instance->ui_style.discover(*info->host);
+    instance->imgui = draxul::plugin_support::create_gpu_imgui_host();
     instance->host = std::make_unique<draxul::MegaCityHost>(instance->mode);
 
     draxul::HostContext context;
     context.launch_options.kind = draxul::HostKind::Plugin;
     context.launch_options.source_path = source;
     context.launch_options.request_continuous_refresh = continuous_refresh;
-    context.launch_options.show_host_ui_panels = show_ui && instance->imgui.available();
+    context.launch_options.show_host_ui_panels = show_ui && instance->imgui;
     context.initial_viewport.pixel_pos = {
         info->initial_viewport.x, info->initial_viewport.y };
     context.initial_viewport.pixel_size = {
@@ -170,10 +180,10 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
     context.display_ppi = info->initial_viewport.display_ppi;
     if (!instance->host->initialize(context, instance->callbacks))
         return nullptr;
-    if (instance->imgui.available())
+    if (instance->imgui)
     {
-        instance->host->attach_imgui_host(instance->imgui);
-        instance->imgui.synchronize_font(*instance->host);
+        instance->host->attach_imgui_host(*instance->imgui);
+        synchronize_ui_style(*instance);
     }
     return instance.release();
 }
@@ -295,7 +305,7 @@ DraxulPluginTickResultV2 tick(void* opaque,
             false, "MegaCity received an invalid tick");
     if (instance->quiesced || !instance->visible || !info->visible)
         return tick_result(true, DRAXUL_PLUGIN_NO_DEADLINE);
-    instance->imgui.synchronize_font(*instance->host);
+    synchronize_ui_style(*instance);
     instance->host->pump();
     const auto deadline = instance->host->next_deadline();
     if (!deadline)
@@ -342,6 +352,8 @@ DraxulPluginRenderResultV2 render_vulkan(void* opaque,
     if (!instance || !frame || !instance->visible || instance->quiesced)
         return render_result(true);
     CapturedFrame captured;
+    if (instance->imgui)
+        instance->imgui->set_vulkan_frame(frame);
     instance->host->draw(captured);
     if (!captured.pass_)
         return render_result(false, "MegaCity did not provide a scene pass");
@@ -374,8 +386,9 @@ DraxulPluginRenderResultV2 render_vulkan(void* opaque,
     vkCmdBeginRenderPass(command_buffer, &begin, VK_SUBPASS_CONTENTS_INLINE);
     captured.pass_->record(context);
     vkCmdEndRenderPass(command_buffer);
-    if (captured.draw_data_ && captured.imgui_context_)
-        instance->imgui.render_imgui_draw_data(captured.draw_data_, captured.imgui_context_);
+    if (instance->imgui && captured.draw_data_ && captured.imgui_context_)
+        instance->imgui->render_imgui_draw_data(
+            captured.draw_data_, captured.imgui_context_);
     return render_result(true);
 #endif
 }
@@ -391,6 +404,8 @@ DraxulPluginRenderResultV2 render_metal(void* opaque,
     if (!instance || !frame || !instance->visible || instance->quiesced)
         return render_result(true);
     CapturedFrame captured;
+    if (instance->imgui)
+        instance->imgui->set_metal_frame(frame);
     instance->host->draw(captured);
     if (!captured.pass_)
         return render_result(false, "MegaCity did not provide a scene pass");
@@ -415,8 +430,9 @@ DraxulPluginRenderResultV2 render_metal(void* opaque,
         device, texture, descriptor, frame->target_generation);
     captured.pass_->record(context);
     [encoder endEncoding];
-    if (captured.draw_data_ && captured.imgui_context_)
-        instance->imgui.render_imgui_draw_data(captured.draw_data_, captured.imgui_context_);
+    if (instance->imgui && captured.draw_data_ && captured.imgui_context_)
+        instance->imgui->render_imgui_draw_data(
+            captured.draw_data_, captured.imgui_context_);
     return render_result(true);
 #endif
 }

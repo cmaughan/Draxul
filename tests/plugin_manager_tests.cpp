@@ -3,13 +3,9 @@
 #include <draxul/plugin_manager.h>
 #include <draxul/plugin_host.h>
 #include <draxul/events.h>
-#include <draxul/imgui_host.h>
-#include <draxul/legacy_product_plugin_services.h>
 #include <draxul/base_renderer.h>
 #include "support/fake_renderer.h"
 #include "support/test_host_callbacks.h"
-
-#include <imgui.h>
 
 #include <filesystem>
 #include <fstream>
@@ -26,36 +22,6 @@
 
 namespace
 {
-
-class DummyCanvasPass final : public draxul::IRenderPass
-{
-public:
-    void record(draxul::IRenderContext&) override {}
-};
-
-class RecordingImGuiHost final : public draxul::IImGuiHost
-{
-public:
-    bool initialize_imgui_backend() override
-    {
-        ++initialize_count;
-        return true;
-    }
-    void shutdown_imgui_backend() override { ++shutdown_count; }
-    void rebuild_imgui_font_texture() override { ++font_rebuild_count; }
-    void begin_imgui_frame() override { ++begin_count; }
-    bool render_imgui_draw_data(const ImDrawData*, ImGuiContext*) override
-    {
-        ++render_count;
-        return true;
-    }
-
-    int initialize_count = 0;
-    int shutdown_count = 0;
-    int font_rebuild_count = 0;
-    int begin_count = 0;
-    int render_count = 0;
-};
 
 class TempPlugins
 {
@@ -111,7 +77,7 @@ void install_plugin(const std::filesystem::path& tier,
 
 } // namespace
 
-#ifdef DRAXUL_ENABLE_MEGACITY
+#ifdef DRAXUL_MEGACITY_PLUGIN_PATH
 TEST_CASE("MegaCity module creates the real City and Biology products",
     "[plugin][megacity][integration]")
 {
@@ -164,6 +130,43 @@ TEST_CASE("MegaCity module creates the real City and Biology products",
         CHECK(host.status_text().find("hidden") != std::string::npos);
         host.shutdown();
     }
+}
+#endif
+
+#ifdef DRAXUL_SCOREVIEW_PLUGIN_PATH
+TEST_CASE("ScoreView module creates its real runtime through the public ABI",
+    "[plugin][scoreview][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    install_plugin(bundled, "scoreview", "dev.draxul.scoreview",
+        DRAXUL_SCOREVIEW_PLUGIN_PATH, {}, "ScoreView", "0.1.0");
+    const auto manager = draxul::PluginManager::discover(bundled, user);
+
+    draxul::HostContext context;
+    context.launch_options.kind = draxul::HostKind::Plugin;
+    context.launch_options.client_plugin_id = "dev.draxul.scoreview";
+    context.launch_options.client_plugin_config_json = R"({"mode":"paged"})";
+    context.pane_id = "scoreview-real-module";
+    context.initial_viewport.pixel_size = { 640, 360 };
+
+    draxul::PluginHost host(manager, temp.root / "storage");
+    draxul::tests::TestHostCallbacks callbacks;
+    REQUIRE(host.initialize(context, callbacks));
+    CHECK(host.display_name() == "ScoreView");
+    CHECK(host.status_text().find("ScoreView plugin failed")
+        == std::string::npos);
+
+    auto resized = context.initial_viewport;
+    resized.pixel_size = { 800, 450 };
+    host.set_viewport(resized);
+    host.set_presentation_visible(false);
+    host.set_presentation_visible(true);
+    host.on_focus_gained();
+    host.on_key({ 44, 32, draxul::kModNone, true });
+    host.on_focus_lost();
+    host.shutdown();
 }
 #endif
 
@@ -334,6 +337,8 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     context.pane_id = "fixture-pane";
     context.initial_viewport.pixel_pos = { 100, 50 };
     context.initial_viewport.pixel_size = { 640, 360 };
+    context.initial_viewport.pixel_scale = 1.5f;
+    context.display_ppi = 144.0f;
     context.grid_renderer = &renderer;
     draxul::tests::TestHostCallbacks callbacks;
     REQUIRE(host.initialize(context, callbacks));
@@ -356,75 +361,40 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
         std::strlen(DRAXUL_PLUGIN_STORAGE_SERVICE_ID),
         DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION, &storage, sizeof(storage)));
 
-    DraxulPluginImGuiOverlayServiceV2 overlay{};
-    REQUIRE(fixture_query_service(DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_ID,
-        std::strlen(DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_ID),
-        DRAXUL_PLUGIN_IMGUI_OVERLAY_SERVICE_VERSION,
-        &overlay, sizeof(overlay)));
-    CHECK(overlay.imgui_version_num == IMGUI_VERSION_NUM);
-    CHECK(overlay.draw_vert_size == sizeof(ImDrawVert));
-    CHECK(overlay.draw_idx_size == sizeof(ImDrawIdx));
-    CHECK_FALSE(overlay.initialize(overlay.service_context, nullptr));
+    DraxulPluginUiStyleServiceV2 ui_style{};
+    REQUIRE(fixture_query_service(DRAXUL_PLUGIN_UI_STYLE_SERVICE_ID,
+        std::strlen(DRAXUL_PLUGIN_UI_STYLE_SERVICE_ID),
+        DRAXUL_PLUGIN_UI_STYLE_SERVICE_VERSION,
+        &ui_style, sizeof(ui_style)));
+    size_t recommended_path_size = 0;
+    float recommended_size = 0.0f;
+    float display_scale = 0.0f;
+    uint64_t initial_style_generation = 0;
+    REQUIRE(ui_style.get_recommended_font(ui_style.service_context, nullptr,
+        &recommended_path_size, &recommended_size, &display_scale,
+        &initial_style_generation));
+    CHECK(recommended_path_size == 1);
+    CHECK(recommended_size == 13.0f);
+    CHECK(display_scale == 1.5f);
 
-    DraxulPluginCanvas2DServiceV2 canvas{};
-    REQUIRE(fixture_query_service(DRAXUL_PLUGIN_CANVAS2D_SERVICE_ID,
-        std::strlen(DRAXUL_PLUGIN_CANVAS2D_SERVICE_ID),
-        DRAXUL_PLUGIN_CANVAS2D_SERVICE_VERSION,
-        &canvas, sizeof(canvas)));
-    CHECK(canvas.cpp_abi_fingerprint
-        == DRAXUL_PLUGIN_CANVAS2D_CPP_ABI_FINGERPRINT);
-    DummyCanvasPass canvas_pass;
-    CHECK_FALSE(canvas.set_render_pass(canvas.service_context, &canvas_pass,
-        DRAXUL_PLUGIN_CANVAS2D_CPP_ABI_FINGERPRINT + 1));
-    REQUIRE(canvas.set_render_pass(canvas.service_context, &canvas_pass,
-        DRAXUL_PLUGIN_CANVAS2D_CPP_ABI_FINGERPRINT));
-
-    RecordingImGuiHost imgui_host;
     host.set_imgui_font("fixture-font.ttf", 17.0f);
-    host.attach_imgui_host(imgui_host);
-    ImGuiContext* overlay_context = ImGui::CreateContext();
-    REQUIRE(overlay_context);
-    REQUIRE(overlay.initialize(overlay.service_context, overlay_context));
-    REQUIRE(overlay.begin_frame(overlay.service_context, overlay_context));
-    REQUIRE(overlay.render_draw_data(overlay.service_context,
-        reinterpret_cast<void*>(1), overlay_context));
-
-    // Both the plugin GPU pass and the borrowed Canvas 2D pass are clipped to
-    // the same pane-local viewport; deferred overlay data follows the canvas.
-    canvas.set_overlay(canvas.service_context,
-        reinterpret_cast<void*>(1), overlay_context);
+    uint64_t updated_style_generation = 0;
+    REQUIRE(ui_style.get_recommended_font(ui_style.service_context, nullptr,
+        &recommended_path_size, &recommended_size, &display_scale,
+        &updated_style_generation));
+    REQUIRE(updated_style_generation > initial_style_generation);
+    std::string recommended_path(recommended_path_size, '\0');
+    REQUIRE(ui_style.get_recommended_font(ui_style.service_context,
+        recommended_path.data(), &recommended_path_size, &recommended_size,
+        &display_scale, &updated_style_generation));
+    CHECK(std::string_view(recommended_path.c_str()) == "fixture-font.ttf");
+    CHECK(recommended_size == 17.0f);
     host.draw(renderer.frame_context);
-    REQUIRE(renderer.recorded_render_viewports.size() == 2);
-    CHECK(renderer.last_recorded_render_pass == &canvas_pass);
+    REQUIRE(renderer.recorded_render_viewports.size() == 1);
     CHECK(renderer.recorded_render_viewports[0].x == 100);
     CHECK(renderer.recorded_render_viewports[0].y == 50);
     CHECK(renderer.recorded_render_viewports[0].width == 640);
     CHECK(renderer.recorded_render_viewports[0].height == 360);
-    CHECK(renderer.recorded_render_viewports[1].x
-        == renderer.recorded_render_viewports[0].x);
-    CHECK(renderer.recorded_render_viewports[1].y
-        == renderer.recorded_render_viewports[0].y);
-    CHECK(renderer.recorded_render_viewports[1].width
-        == renderer.recorded_render_viewports[0].width);
-    CHECK(renderer.recorded_render_viewports[1].height
-        == renderer.recorded_render_viewports[0].height);
-    size_t font_path_size = 0;
-    float font_size = 0.0f;
-    REQUIRE(overlay.get_font(overlay.service_context, nullptr,
-        &font_path_size, &font_size));
-    std::string font_path(font_path_size, '\0');
-    REQUIRE(overlay.get_font(overlay.service_context, font_path.data(),
-        &font_path_size, &font_size));
-    CHECK(std::string_view(font_path.c_str()) == "fixture-font.ttf");
-    CHECK(font_size == 17.0f);
-    overlay.rebuild_font_texture(overlay.service_context, overlay_context);
-    overlay.shutdown(overlay.service_context, overlay_context);
-    CHECK(imgui_host.initialize_count == 1);
-    CHECK(imgui_host.begin_count == 1);
-    CHECK(imgui_host.render_count == 2);
-    CHECK(imgui_host.font_rebuild_count == 1);
-    CHECK(imgui_host.shutdown_count == 1);
-    ImGui::DestroyContext(overlay_context);
     constexpr std::string_view state_key = "fixture-state";
     constexpr std::string_view first_json = R"({"value":1})";
     constexpr std::string_view second_json = R"({"value":2})";

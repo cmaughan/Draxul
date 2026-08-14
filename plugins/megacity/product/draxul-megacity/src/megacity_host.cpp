@@ -24,7 +24,6 @@
 #include <draxul/codeviz_scene_sort.h>
 #include <draxul/code_semantic_model.h>
 #include <draxul/config_document.h>
-#include <draxul/host_registry.h>
 #include <draxul/imgui_host.h>
 #include <draxul/log.h>
 #include <draxul/megacity_host.h>
@@ -2417,22 +2416,6 @@ void MegaCityHost::clear_selection()
 
     if (callbacks_)
         callbacks_->request_frame();
-}
-
-std::unique_ptr<IHost> create_megacity_host()
-{
-    return std::make_unique<MegaCityHost>();
-}
-
-std::unique_ptr<IHost> create_bioview_host()
-{
-    return std::make_unique<MegaCityHost>(MegaCityVisualizationMode::Biology);
-}
-
-void register_megacity_host_provider(HostProviderRegistry& registry)
-{
-    registry.register_provider(HostKind::MegaCity, &create_megacity_host);
-    registry.register_provider(HostKind::BioView, &create_bioview_host);
 }
 
 } // namespace draxul

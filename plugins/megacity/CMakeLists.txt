@@ -8,7 +8,7 @@ add_library(draxul-megacity-plugin MODULE src/megacity_plugin.cpp)
 target_include_directories(draxul-megacity-plugin PRIVATE src)
 target_link_libraries(draxul-megacity-plugin PRIVATE
     Draxul::PluginSDK
-    draxul-legacy-product-plugin-services
+    Draxul::PluginImGui
     draxul-megacity
     draxul-codeviz-renderer
     nlohmann_json::nlohmann_json)
