@@ -10,8 +10,16 @@ An experimental **Dark Factory Agentic** project with deep visualization of gene
 
 - **GPU-accelerated terminal host** — cross-platform (Vulkan on Windows, Metal on macOS) terminal for PowerShell, WSL, Bash, Zsh, Git, and more
 - **Neovim GUI frontend** — a full-featured replacement for nvim-qt, with deep `nvim --embed` integration over msgpack-RPC
-- **Interactive city view of a codebase** — a living 3D city where buildings represent code modules, with live performance and test coverage overlays, clickable links back to source. The city is a human metaphor for the code an agent is building: interactive, informative, and introspective. Richard Wettle tried this back in 2007; we are giving it another go! Here's his site: https://wettel.github.io/codecity.html
-- **High-end renderer** — a cross-platform game engine-style rendering pipeline with ambient occlusion, shadow maps, anti-aliasing, HDR, and more
+- **Agentic shell server** — a per-user server owns the shells, Spaces, and agents; GPU clients attach, detach, and reconnect without losing anything
+- **Plugin host** — a versioned C plugin ABI hands raw Vulkan/Metal frames to dynamically loaded product plugins, with Kanban and Markdown panes built in
+
+This repository is the terminal / agentic / host core. The larger GPU products
+are native plugins in their own repositories, mounted here as git submodules
+under `plugins/` and loaded at runtime over the C ABI:
+
+- **[draxul-megacity](https://github.com/cmaughan/draxul-megacity)** — the interactive city view of a codebase: a living 3D city where buildings represent code, with live performance and coverage overlays. The city is a human metaphor for the code an agent is building. (Richard Wettel tried this back in 2007 — https://wettel.github.io/codecity.html — we are giving it another go, plus a BioView organism mode.)
+- **[draxul-satview](https://github.com/cmaughan/draxul-satview)** — satellite and sky visualization: SGP4-propagated CelesTrak catalogs on a 3D globe, Hipparcos starfield, ephemeris Moon/Sun/planets, HDR atmosphere.
+- **[draxul-scoreview](https://github.com/cmaughan/draxul-scoreview)** — MusicXML piano practice: Verovio notation, MIDI and microphone judging, and an adaptive practice stream.
 
 **None of the code has been human-written.** Draxul is 100% agentically coded using multiple agents on Claude, Codex, and Gemini. Code reviews, feature updates, and planning are managed by agents with a human arbiter. A part-time project, built in less than 3 weeks at time of writing — several person-years of equivalent effort.
 
@@ -60,7 +68,7 @@ _Click any image to view full size._
 
 ## Features
 
-For the full user-facing feature reference — config options, keybindings, terminal behaviour, mouse support, scrollback, and more — see **[docs/features.md](docs/features.md)** (detail pages for the larger hosts live under [docs/features/](docs/features/)).
+For the full user-facing feature reference — config options, keybindings, terminal behaviour, mouse support, scrollback, and more — see **[docs/features.md](docs/features.md)**. Product plugin documentation lives in each plugin's own repository ([draxul-megacity](https://github.com/cmaughan/draxul-megacity), [draxul-satview](https://github.com/cmaughan/draxul-satview), [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview)).
 
 - **Terminal emulator** — run `zsh`, `bash`, `powershell`, or any shell; cross-platform
 - **Neovim GUI** — full ext_linegrid UI with deep Neovim integration
@@ -91,6 +99,17 @@ For the full user-facing feature reference — config options, keybindings, term
 All other dependencies are fetched automatically with CMake `FetchContent`.
 
 ## Building
+
+Clone with submodules — the product plugins (MegaCity, SatView, ScoreView)
+live in their own repositories mounted under `plugins/`:
+
+```bash
+git clone --recurse-submodules https://github.com/cmaughan/Draxul
+```
+
+In an existing checkout, `git submodule update --init` fetches them. A checkout
+without the submodules still configures and builds — you get the core terminal
+with Kanban/Markdown and no product plugins.
 
 ### Windows
 
@@ -374,6 +393,13 @@ draxul/
 │   ├── draxul-font/       # Font loading, shaping, glyph cache
 │   ├── draxul-grid/       # Cell grid and highlight state
 │   └── draxul-nvim/       # Neovim process, RPC, redraw handling, input
+├── plugins/
+│   ├── megacity/          # Submodule → github.com/cmaughan/draxul-megacity
+│   ├── satview/           # Submodule → github.com/cmaughan/draxul-satview
+│   ├── scoreview/         # Submodule → github.com/cmaughan/draxul-scoreview
+│   ├── spinning-triangle/ # In-repo reference plugin and ABI test vehicle
+│   └── support/           # Generic plugin-support code (ImGui host)
+├── sdk/                    # Public C plugin ABI (Draxul::PluginSDK)
 ├── shaders/                # Vulkan and Metal shader sources
 ├── fonts/                  # Bundled font assets copied next to the app
 ├── tests/                  # Native test executable and fixture helpers

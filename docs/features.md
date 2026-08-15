@@ -843,7 +843,15 @@ and `draxul integration status` do not pass through the launch-option parser.
 | `DRAXUL_MEGACITY_PLUGIN_DIR` | `plugins/megacity` | MegaCity/BioView submodule mount path; an enabled but absent mount is skipped |
 | `DRAXUL_SATVIEW_PLUGIN_DIR` | `plugins/satview` | SatView submodule mount path; an enabled but absent mount is skipped |
 | `DRAXUL_SCOREVIEW_PLUGIN_DIR` | `plugins/scoreview` | ScoreView submodule mount path; an enabled but absent mount is skipped |
+| `DRAXUL_REQUIRE_ENABLED_PLUGINS` | OFF (ON when `CI` env var set) | Turns the enabled-but-unmounted plugin skip into a configure failure so CI cannot silently drop product coverage |
 | `BUILD_TESTING` | ON | Test targets |
+
+The three product mounts are git submodules of their own repositories:
+[draxul-megacity](https://github.com/cmaughan/draxul-megacity),
+[draxul-satview](https://github.com/cmaughan/draxul-satview), and
+[draxul-scoreview](https://github.com/cmaughan/draxul-scoreview). Clone with
+`--recurse-submodules` (or run `git submodule update --init`); an
+uninitialized submodule leaves a core-only build.
 
 Markdown and Kanban are product modules under `modules/markdown/` and `modules/kanban/`. They are built by default and keep their existing host flags and CMake target names.
 

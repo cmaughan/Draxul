@@ -23,9 +23,9 @@ supersedes the direction of
       coverage target name, disambiguate ScoreView shadow headers.
 - [ ] Phase 0 gate: card 36's 7E macOS runtime acceptance closed; card 36 to
       done.
-- [ ] Phase 1: create and seed `draxul-satview`, `draxul-megacity`,
+- [x] Phase 1: create and seed `draxul-satview`, `draxul-megacity`,
       `draxul-scoreview` repos with product docs, READMEs, and import-commit
-      provenance.
+      provenance (public repos, seeded from `Draxul@01766701`).
 - [ ] Phase 2: replace `plugins/{satview,megacity,scoreview}` with submodules;
       CI `submodules: recursive` plus a fail-if-enabled-but-absent guard;
       refresh README/CLAUDE.md/module-map/features docs; verify initialized,

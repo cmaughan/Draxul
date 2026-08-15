@@ -1,0 +1,9 @@
+[submodule "plugins/megacity"]
+	path = plugins/megacity
+	url = https://github.com/cmaughan/draxul-megacity.git
+[submodule "plugins/scoreview"]
+	path = plugins/scoreview
+	url = https://github.com/cmaughan/draxul-scoreview.git
+[submodule "plugins/satview"]
+	path = plugins/satview
+	url = https://github.com/cmaughan/draxul-satview.git

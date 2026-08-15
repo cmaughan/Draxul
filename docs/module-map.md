@@ -242,9 +242,9 @@ Good place for:
 |---|---|---|
 | `modules/markdown/` | Always built | `draxul-markdown` parses/layouts documents; `draxul-markdown-host` integrates the native pane and platform render pass |
 | `modules/kanban/` | Always built | `draxul-kanban` owns board storage, layout/navigation, and the native Kanban host |
-| `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Self-contained MegaCity/BioView product: code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic module |
-| `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Self-contained satellite product: core, scene, services, runtime, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |
-| `plugins/scoreview/` | `DRAXUL_ENABLE_SCOREVIEW` | Self-contained notation, learning, transport, worker, MIDI/audio/microphone, UI, NanoVG Vulkan/Metal rendering, assets, tests, and dynamic module |
+| `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Submodule → [draxul-megacity](https://github.com/cmaughan/draxul-megacity). Self-contained MegaCity/BioView product: code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic module |
+| `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Submodule → [draxul-satview](https://github.com/cmaughan/draxul-satview). Self-contained satellite product: core, scene, services, runtime, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |
+| `plugins/scoreview/` | `DRAXUL_ENABLE_SCOREVIEW` | Submodule → [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview). Self-contained notation, learning, transport, worker, MIDI/audio/microphone, UI, NanoVG Vulkan/Metal rendering, assets, tests, and dynamic module |
 
 All three optional product directories own their third-party dependency
 declarations, sanitizer/coverage target lists, shader compilation, package

@@ -31,28 +31,6 @@ is (design docs, research, and review output — **not** work items; those live 
 | [multi-space-session-persistence.md](multi-space-session-persistence.md) | active | Source-backed v2 plan: save and restore every loaded Space, retain TOML, use transactional partial restore, and derive the Agents list from pane-owned identity. |
 | [app-shell-layout.md](app-shell-layout.md) | implemented | One authoritative root shell layout, a draggable persisted Spaces/sidebar splitter, and Chrome ownership cleanup without putting app chrome into per-tab pane trees. |
 | [music-notation-research.md](music-notation-research.md) | research | State-of-the-art notes feeding ScoreView; self-labelled research. |
-| [scoreview.md](scoreview.md) | active | ScoreView master plan; rendering foundation shipped, anchors future phases toward the manifesto. |
-| [scoreview-manifesto.md](scoreview-manifesto.md) | active | North-star vision (the adaptive piano-learning runner). Destination, not a milestone. |
-| [scoreview-conveyor.md](scoreview-conveyor.md) | implemented | Milestone 1 — flow/conveyor view. Shipped (see features "Conveyor (flow) mode"). |
-| [scoreview-gate.md](scoreview-gate.md) | implemented | Milestone 2 — wait-gate + adaptive tempo. Shipped (kept for bots/tests). |
-| [scoreview-ear.md](scoreview-ear.md) | implemented | Milestone 3 — acoustic listener (`NoteListener`). Shipped with unit coverage. |
-| [scoreview-runner.md](scoreview-runner.md) | implemented | Milestone 4 — Roll mode ("guitar hero for piano"). Shipped as the default game. |
-| [scoreview-stream.md](scoreview-stream.md) | implemented | Milestone 5 — rolling window + player memory (S0–S4). Shipped. |
-| [scoreview-composer.md](scoreview-composer.md) | active | Science-backed composer go-plan; extends the shipped S0–S4 with further direction. |
-| [scoreview-composition-model.md](scoreview-composition-model.md) | active | Decision note: semantic composition is the destination; string fabrication is the guarded interim. |
-| [scoreview-learning-research.md](scoreview-learning-research.md) | research | Two-pass learning-science evidence review behind the composer. |
-| [satview.md](satview.md) | active | SatView master plan; core (globe/day-night/tracks/live positions) shipped, anchors the module. |
-| [satview-catalog-population-split.md](satview-catalog-population-split.md) | implemented | Active/inactive/rocket/debris/unknown split — shipped (population filtering). |
-| [satview-ground-sky-projections.md](satview-ground-sky-projections.md) | implemented | Stereographic/perspective ground sky — shipped. |
-| [satview-hdr-pipeline.md](satview-hdr-pipeline.md) | implemented | HDR/MSAA/ACES scene pipeline — shipped. |
-| [satview-lunar-orbit-catalog.md](satview-lunar-orbit-catalog.md) | implemented | Moon-centered catalog + ephemeris fidelity tiers — core shipped (lunar ephemeris). |
-| [satview-lunar-surface-artifacts.md](satview-lunar-surface-artifacts.md) | implemented | Lunar surface markers — shipped (70 LROC-confirmed objects). |
-| [satview-observatory-horizon-constellation-boundaries.md](satview-observatory-horizon-constellation-boundaries.md) | implemented | Observatory silhouette + constellation boundaries/labels — shipped. |
-| [satview-threaded-refresh.md](satview-threaded-refresh.md) | implemented | Off-loop refresh + `--continuous-refresh` — shipped (flag present in host code). |
-| [satview-solar-system-data-expansion.md](satview-solar-system-data-expansion.md) | active | Phase 1 (Sun/planet/moon POVs) shipped; later phases explicitly future work. |
-| [satview-bayer-star-labels.md](satview-bayer-star-labels.md) | active | Self-labelled **Deferred** — a scoped future overlay, not yet built. |
-| [satview-earth-moon-rotating-frame.md](satview-earth-moon-rotating-frame.md) | active | Self-labelled **future visualization option**; inertial frame remains the default. |
-| [satview-lunar-data-source-audit.md](satview-lunar-data-source-audit.md) | research | Completed data-source audit; drove two disposition corrections + ARTEMIS ingestion. |
 
 ## `design/`
 
@@ -88,10 +66,7 @@ work that has since shipped; kept for provenance.
 | [superpowers/plans/2026-06-15-kanban-pending-batch.md](superpowers/plans/2026-06-15-kanban-pending-batch.md) | implemented | One-off batch that closed small pending cards; consumed. |
 | [superpowers/plans/2026-06-17-skip-citydb-for-treesitter-semantic-city.md](superpowers/plans/2026-06-17-skip-citydb-for-treesitter-semantic-city.md) | implemented | Build the city straight from the Tree-sitter snapshot — shipped. |
 | [superpowers/plans/2026-06-22-command-palette-save-session-as.md](superpowers/plans/2026-06-22-command-palette-save-session-as.md) | implemented | Palette "save session as" — shipped. |
-| [superpowers/plans/2026-07-07-satview-planet-display-implementation.md](superpowers/plans/2026-07-07-satview-planet-display-implementation.md) | implemented | Saturn rings, moon bodies, Sun-view planet tracks — shipped. |
-| [superpowers/specs/2026-07-07-satview-planet-display-design.md](superpowers/specs/2026-07-07-satview-planet-display-design.md) | implemented | Design spec for the planet-display work above — shipped. |
 | [superpowers/plans/2026-06-16-graphify-semantic-city-source.md](superpowers/plans/2026-06-16-graphify-semantic-city-source.md) | superseded | The Graphify source was removed by the Tree-sitter-only direction. |
-| [superpowers/plans/2026-07-08-satview-mars-orbit-ephemeris.md](superpowers/plans/2026-07-08-satview-mars-orbit-ephemeris.md) | active | Mars orbiters still render catalog-only; the ephemeris import is not yet shipped. |
 
 ## Subdirectories (categorical)
 
@@ -105,3 +80,12 @@ work that has since shipped; kept for provenance.
 | Review | Status | Notes |
 |--------|--------|-------|
 | [reviews/2026-07-30-server-client-runtime-review.md](reviews/2026-07-30-server-client-runtime-review.md) | research | Full review of the `codex/server-client-runtime` branch — protocol, server services, clients, transport/bootstrap, and app integration. Evidence behind `kanban/pending/12`-`27`, with severity reasoning and a recommended fix order. |
+
+## Product plugin plans
+
+SatView and ScoreView design plans (and the satview superpowers plans/specs)
+moved with their products to
+[draxul-satview](https://github.com/cmaughan/draxul-satview/tree/main/plans) and
+[draxul-scoreview](https://github.com/cmaughan/draxul-scoreview/tree/main/plans);
+MegaCity work items live in
+[draxul-megacity](https://github.com/cmaughan/draxul-megacity).

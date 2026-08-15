@@ -1,7 +1,8 @@
 #pragma once
 
-// Deterministic synthetic piano tones for listener tests
-// (plans/scoreview-ear.md E0). Honest about being synthetic — real
+// Deterministic synthetic piano tones for listener tests (ScoreView ear
+// plan E0, plans/scoreview-ear.md in the draxul-scoreview repository).
+// Honest about being synthetic — real
 // recordings supplement these — but it deliberately reproduces the acoustic
 // facts the listener must survive: inharmonic partials (f_n =
 // n*f0*sqrt(1+B*n^2)), exponential decay, a noisy attack transient, and
