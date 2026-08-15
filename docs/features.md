@@ -828,6 +828,9 @@ and `draxul integration status` do not pass through the launch-option parser.
 | `DRAXUL_ENABLE_MEGACITY` | ON | Builds and stages `dev.draxul.megacity` with its private City/Biology implementation, tests, shaders, and assets; the production executable has no static registration |
 | `DRAXUL_ENABLE_SATVIEW` | ON | Builds and stages the `dev.draxul.satview` DLL/dylib plus its private product libraries and assets; the executable has no static SatView host fallback |
 | `DRAXUL_ENABLE_SCOREVIEW` | ON on Windows/macOS | Builds and stages `dev.draxul.scoreview`, its private runtime libraries, Verovio, fonts, and soundfonts; the executable has no static ScoreView fallback |
+| `DRAXUL_MEGACITY_PLUGIN_DIR` | `plugins/megacity` | MegaCity/BioView submodule mount path; an enabled but absent mount is skipped |
+| `DRAXUL_SATVIEW_PLUGIN_DIR` | `plugins/satview` | SatView submodule mount path; an enabled but absent mount is skipped |
+| `DRAXUL_SCOREVIEW_PLUGIN_DIR` | `plugins/scoreview` | ScoreView submodule mount path; an enabled but absent mount is skipped |
 | `BUILD_TESTING` | ON | Test targets |
 
 Markdown and Kanban are product modules under `modules/markdown/` and `modules/kanban/`. They are built by default and keep their existing host flags and CMake target names.
@@ -849,7 +852,7 @@ the developer's `PATH`.
 
 Each optional product owns its FetchContent declarations, focused test wiring,
 shader compilation, assets, tools, and runtime payload declaration beneath its
-`plugins/<product>/` directory. Root CMake only enables the mounted directory;
+mounted directory. Root CMake only enables the mounted directory;
 generic registration stages the declared payload and the generic test harness
 includes the product-owned test file. Removing a product therefore removes its
 downloads and focused tests from the build graph without editing core wiring.

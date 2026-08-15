@@ -68,6 +68,19 @@ source paths. All three registrations now pass the strict configure-time graph
 check; focused Windows product builds and test shards pass. Cross-platform and
 feature-matrix runtime proof remains 7E.
 
+Slice 7E makes each product source location an overridable submodule mount and
+treats an enabled but absent checkout as a supported configuration. Windows
+Release acceptance now covers no-product, each single-product, and all-product
+build/smoke permutations. The generated CMake graph proves that the executable,
+app, server, client, host, renderer, Kanban, and Markdown have no path to a
+product target. All 25 CTest cases pass in one serial Release run; server-owning
+cases require no live Draxul server to hold the helper executable, and the
+external-SDK DLL smoke requires the MSVC environment. Coverage includes CLI
+creation of SatView, MegaCity, BioView, and Grieg ScoreView panes.
+Deterministic Vulkan captures for all four product views were exported and
+visually checked. macOS/Metal runtime execution remains the final acceptance
+item before checking 7E and moving this card to done.
+
 Slice 5 correction: the public `draxul.ui-style` service now carries Draxul's
 recommended font, scale, and change generation. ScoreView consumes it while
 retaining its own Vulkan/Metal ImGui renderer, restoring the original inspector

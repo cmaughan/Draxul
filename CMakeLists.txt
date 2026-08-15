@@ -34,6 +34,12 @@ else()
 endif()
 option(DRAXUL_ENABLE_SCOREVIEW "Build and bundle the ScoreView plugin" ${DRAXUL_SCOREVIEW_DEFAULT})
 option(DRAXUL_ENABLE_RENDER_TESTS "Enable render-test capture/compare infrastructure" OFF)
+set(DRAXUL_MEGACITY_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/megacity"
+    CACHE PATH "Mounted MegaCity/BioView plugin source directory")
+set(DRAXUL_SATVIEW_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/satview"
+    CACHE PATH "Mounted SatView plugin source directory")
+set(DRAXUL_SCOREVIEW_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/scoreview"
+    CACHE PATH "Mounted ScoreView plugin source directory")
 
 # Sanitizer helper — applied to draxul targets after FetchContent deps are fetched
 function(draxul_apply_sanitizers target)
@@ -169,17 +175,33 @@ add_subdirectory(libs/draxul-app-support)
 add_subdirectory(libs/draxul-host)
 add_subdirectory(modules/kanban)
 add_subdirectory(libs/draxul-nanovg)
-if(DRAXUL_ENABLE_MEGACITY OR DRAXUL_ENABLE_SATVIEW OR DRAXUL_ENABLE_SCOREVIEW)
+
+set(DRAXUL_HAVE_MEGACITY OFF)
+set(DRAXUL_HAVE_SATVIEW OFF)
+set(DRAXUL_HAVE_SCOREVIEW OFF)
+foreach(_product IN ITEMS MEGACITY SATVIEW SCOREVIEW)
+    if(DRAXUL_ENABLE_${_product})
+        if(EXISTS "${DRAXUL_${_product}_PLUGIN_DIR}/CMakeLists.txt")
+            set(DRAXUL_HAVE_${_product} ON)
+        else()
+            message(STATUS
+                "Draxul ${_product} plugin is enabled but not mounted at "
+                "${DRAXUL_${_product}_PLUGIN_DIR}; continuing without it")
+        endif()
+    endif()
+endforeach()
+
+if(DRAXUL_HAVE_MEGACITY OR DRAXUL_HAVE_SATVIEW OR DRAXUL_HAVE_SCOREVIEW)
     add_subdirectory(plugins/support/imgui)
 endif()
-if(DRAXUL_ENABLE_MEGACITY)
-    add_subdirectory(plugins/megacity)
+if(DRAXUL_HAVE_MEGACITY)
+    add_subdirectory("${DRAXUL_MEGACITY_PLUGIN_DIR}" plugins/megacity)
 endif()
-if(DRAXUL_ENABLE_SATVIEW)
-    add_subdirectory(plugins/satview)
+if(DRAXUL_HAVE_SATVIEW)
+    add_subdirectory("${DRAXUL_SATVIEW_PLUGIN_DIR}" plugins/satview)
 endif()
-if(DRAXUL_ENABLE_SCOREVIEW)
-    add_subdirectory(plugins/scoreview)
+if(DRAXUL_HAVE_SCOREVIEW)
+    add_subdirectory("${DRAXUL_SCOREVIEW_PLUGIN_DIR}" plugins/scoreview)
 endif()
 
 # This namespace is the explicit shared C++ surface for mounted product
@@ -189,7 +211,6 @@ if(TARGET draxul-plugin-imgui)
 endif()
 draxul_allow_plugin_support_targets(
     Draxul::PluginSDK
-    Draxul::PluginSupport::ImGui
     Draxul::PluginSupport::Runtime
     Draxul::PluginSupport::Render
     Draxul::PluginSupport::Config
@@ -198,6 +219,9 @@ draxul_allow_plugin_support_targets(
     Draxul::PluginSupport::Performance
     Draxul::PluginSupport::Text
     Draxul::PluginSupport::Http)
+if(TARGET Draxul::PluginSupport::ImGui)
+    draxul_allow_plugin_support_targets(Draxul::PluginSupport::ImGui)
+endif()
 if(TARGET Draxul::PluginSupport::VulkanResources)
     draxul_allow_plugin_support_targets(
         Draxul::PluginSupport::VulkanResources)

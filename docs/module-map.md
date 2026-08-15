@@ -131,8 +131,9 @@ renderer adapter, including client-local viewport/selection/mouse/paste behavior
 It also owns the generic `PluginHost` and its Vulkan/Metal render-pass adapters;
 plugin modules remain dynamically linked and are never product dependencies of the
 server. The spinning-triangle is the first module staged through the generic
-registration contract; the product plugins cut from their legacy broad links to
-the new leaves in the following submodule-integration slice.
+registration contract. SatView, MegaCity/BioView, and ScoreView now use the same
+strict contract and only consume their own targets, third-party targets, or the
+named plugin-support leaves.
 The process adapter, client, and server libraries remain free of host, window,
 renderer, font, SDL, and product dependencies.
 
@@ -251,6 +252,10 @@ payload, test source inventory, and focused CTest wiring. The root build contain
 only their feature switches and mount-point `add_subdirectory` calls. SatView's
 catalog and texture generators likewise live under `plugins/satview/tools/`, so
 the product can become a submodule without leaving maintenance scripts in core.
+Each mount point is a cache path (`DRAXUL_MEGACITY_PLUGIN_DIR`,
+`DRAXUL_SATVIEW_PLUGIN_DIR`, or `DRAXUL_SCOREVIEW_PLUGIN_DIR`). An enabled but
+absent checkout is reported and skipped, making no-product and partial-submodule
+trees supported configurations rather than configure errors.
 Their registrations use strict dependency checking: SatView and MegaCity/BioView
 consume the generic plugin runtime, render, configuration, text, HTTP,
 performance, tooltip/ImGui, and platform GPU leaves as needed; ScoreView keeps
