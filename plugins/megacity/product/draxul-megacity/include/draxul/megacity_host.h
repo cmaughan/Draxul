@@ -1,0 +1,227 @@
+#pragma once
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <draxul/plugin_runtime.h>
+#include <draxul/megacity_code_config.h>
+#include <filesystem>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <thread>
+#include <vector>
+
+struct ImGuiContext;
+
+namespace draxul
+{
+
+class MegacityCameraInput;
+class SemanticSourceController;
+class MetricsOverlayController;
+struct GeometryMesh;
+class IsometricCamera;
+class CodeVizScenePass;
+struct SignLabelAtlas;
+struct CodeSemanticSnapshot;
+struct SemanticMegacityModel;
+struct SemanticMegacityLayout;
+struct CityGrid;
+class CodeVizSceneWorld;
+class IFrameContext;
+class IImGuiHost;
+class TextService;
+class ConfigDocument;
+
+enum class MegaCityVisualizationMode
+{
+    City,
+    Biology,
+};
+
+// MegaCityHost is a non-terminal host that renders a small 3D scene directly
+// into the GPU render pass. It does not use the grid path, but it does use the
+// font pipeline for semantic-city rooftop labels.
+class MegaCityHost final
+{
+public:
+    explicit MegaCityHost(MegaCityVisualizationMode mode = MegaCityVisualizationMode::City);
+    ~MegaCityHost();
+
+    bool initialize(const PluginRuntimeContext& context, PluginRuntimeCallbacks& callbacks);
+    // Stop background work while retaining GPU resources for safe retirement.
+    void quiesce();
+    void shutdown();
+    bool is_running() const;
+    std::string init_error() const;
+
+    void set_viewport(const PluginRuntimeViewport& viewport);
+    void set_presentation_visible(bool /*visible*/) {}
+    bool requires_periodic_wake() const;
+    void on_focus_gained() {}
+    void on_focus_lost();
+    void on_key(const KeyEvent& event);
+    void on_text_input(const TextInputEvent& event);
+    void on_text_editing(const TextEditingEvent& /*event*/) {}
+    void pump();
+    void draw(IFrameContext& frame);
+    std::optional<std::chrono::steady_clock::time_point> next_deadline() const;
+
+    void on_mouse_button(const MouseButtonEvent& event);
+    void on_mouse_move(const MouseMoveEvent& event);
+    void on_mouse_wheel(const MouseWheelEvent& event);
+
+    bool dispatch_action(std::string_view action);
+    void request_close();
+    std::string status_text() const;
+    Color default_background() const;
+    PluginRuntimeState runtime_state() const;
+    PluginDebugState debug_state() const;
+
+    void launch_grid_build(const SemanticMegacityLayout& layout, const SemanticMegacityModel& model);
+
+    void attach_imgui_host(IImGuiHost& host);
+    void set_imgui_font(const std::string& path, float size_pixels);
+
+private:
+    void render_host_imgui(float dt);
+    void mark_scene_dirty();
+    void mark_world_rebuild_pending();
+    void handle_click(const glm::ivec2& screen_pos);
+    void handle_double_click(const glm::ivec2& screen_pos);
+    bool update_hidden_hover_blend(float dt, std::chrono::steady_clock::time_point now);
+    void apply_selection_opacity();
+    void clear_selection();
+    void route_worker_loop();
+    bool request_routes_for_focus(
+        std::string focus_source_file_path,
+        std::string focus_module_path,
+        std::string focus_qualified_name,
+        std::string focus_function_name = {});
+    void consume_completed_routes();
+    void clear_active_routes(bool request_frame = true);
+    void clear_semantic_city();
+    void start_tree_sitter_semantic_source();
+    void stop_tree_sitter_semantic_source();
+    void rebuild_semantic_city();
+    void request_grid_build_cancel();
+    void retire_grid_thread();
+    void join_finished_grid_threads();
+    void join_all_grid_threads();
+    void refresh_sign_text_service();
+    void sync_camera_state_to_configs();
+    void reset_camera_to_default_frame();
+
+    MegaCityVisualizationMode visualization_mode_ = MegaCityVisualizationMode::City;
+    std::unique_ptr<MegacityCameraInput> camera_input_;
+    PluginRuntimeCallbacks* callbacks_ = nullptr;
+    PluginRuntimeViewport viewport_;
+    std::shared_ptr<CodeVizScenePass> scene_pass_;
+    std::unique_ptr<CodeVizSceneWorld> world_;
+    std::unique_ptr<IsometricCamera> camera_;
+    std::unique_ptr<SemanticSourceController> semantic_source_;
+    std::shared_ptr<const CodeSemanticSnapshot> code_semantics_;
+    std::unique_ptr<TextService> sign_text_service_;
+    std::unique_ptr<TextService> tooltip_text_service_;
+    std::shared_ptr<SignLabelAtlas> sign_label_atlas_;
+    std::shared_ptr<const GeometryMesh> foliage_stem_mesh_;
+    std::shared_ptr<const GeometryMesh> foliage_card_mesh_;
+    std::unique_ptr<MetricsOverlayController> metrics_overlay_;
+    std::shared_ptr<const SemanticMegacityModel> semantic_model_;
+    std::shared_ptr<const SemanticMegacityLayout> semantic_layout_;
+    ConfigDocument* config_document_ = nullptr;
+    MegaCityCodeConfig renderer_config_;
+    MegaCityCodeConfig pending_renderer_config_;
+    MegaCityCodeConfig renderer_defaults_;
+    uint64_t sign_label_revision_ = 1;
+    std::string sign_font_path_;
+    float display_ppi_ = 96.0f;
+    int pixel_w_ = 800;
+    int pixel_h_ = 600;
+    bool running_ = false;
+    float world_span_ = 5.0f;
+    bool scene_dirty_ = true;
+    bool world_rebuild_pending_ = false;
+    bool restore_camera_after_initial_build_ = false;
+    bool city_bounds_valid_ = false;
+    float city_min_x_ = -2.5f;
+    float city_max_x_ = 2.5f;
+    float city_min_z_ = -2.5f;
+    float city_max_z_ = 2.5f;
+    bool show_ui_panels_ = true;
+    int imgui_settle_frames_ = 0;
+    std::string imgui_ini_path_;
+    ImGuiContext* imgui_context_ = nullptr;
+    IImGuiHost* imgui_backend_ = nullptr;
+    bool continuous_refresh_enabled_ = false;
+    std::string selected_building_name_;
+    std::string selected_building_module_path_;
+    std::string selected_building_source_file_;
+    std::string selected_function_name_;
+    bool selection_routes_requested_ = false;
+    bool hidden_hover_active_ = false;
+    float hidden_hover_blend_ = 0.0f;
+    std::string init_error_;
+    std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point last_pump_time_ = std::chrono::steady_clock::now();
+    float last_imgui_delta_seconds_ = 1.0f / 60.0f;
+
+    // Hover tooltip state
+    glm::ivec2 hover_mouse_pos_{ -1, -1 };
+    glm::ivec2 hover_anchor_pos_{ -1, -1 };
+    std::chrono::steady_clock::time_point hover_start_time_;
+    bool hover_tooltip_visible_ = false;
+    bool hover_shift_held_ = false;
+    std::string hover_building_name_;
+    uint64_t tooltip_revision_ = 0;
+
+    // City grid (occupancy map for overview and pathfinding)
+    mutable std::mutex grid_mutex_;
+    std::shared_ptr<const CityGrid> city_grid_;
+    std::thread grid_thread_;
+    std::atomic<bool> cancel_build_{ false };
+    std::atomic<uint64_t> grid_build_generation_{ 0 };
+    std::atomic<bool> grid_build_in_progress_{ false };
+    std::shared_ptr<std::atomic<bool>> grid_thread_cancel_;
+    std::shared_ptr<std::atomic<bool>> grid_thread_finished_;
+
+    struct RetiredGridThread
+    {
+        std::thread thread;
+        std::shared_ptr<std::atomic<bool>> cancel;
+        std::shared_ptr<std::atomic<bool>> finished;
+    };
+    std::vector<RetiredGridThread> retired_grid_threads_;
+
+    struct RouteBuildRequest
+    {
+        uint64_t generation = 0;
+        std::string focus_source_file_path;
+        std::string focus_module_path;
+        std::string focus_qualified_name;
+        std::string focus_function_name;
+        std::shared_ptr<const SemanticMegacityLayout> layout;
+        std::shared_ptr<const SemanticMegacityModel> model;
+        std::shared_ptr<const CityGrid> grid;
+        MegaCityCodeConfig config; // Snapshot of renderer_config_ taken under lock
+    };
+
+    struct RouteBuildResult
+    {
+        uint64_t generation = 0;
+        std::shared_ptr<const CityGrid> grid;
+    };
+
+    mutable std::mutex route_mutex_;
+    std::condition_variable route_cv_;
+    std::thread route_thread_;
+    bool route_worker_stop_ = false;
+    uint64_t route_request_generation_ = 0;
+    std::optional<RouteBuildRequest> pending_route_request_;
+    std::optional<RouteBuildResult> completed_route_result_;
+    std::atomic<bool> route_build_in_progress_{ false };
+};
+
+} // namespace draxul

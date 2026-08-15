@@ -41,4 +41,5 @@ target_link_libraries(draxul-host PRIVATE
     draxul-font
     draxul-performance
     draxul-window
+    nlohmann_json::nlohmann_json
 )

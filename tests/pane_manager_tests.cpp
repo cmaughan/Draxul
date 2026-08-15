@@ -14,9 +14,6 @@
 #include "pane_manager.h"
 #include "split_tree.h"
 #include <draxul/grid_host_base.h>
-#ifdef DRAXUL_ENABLE_MEGACITY
-#include <draxul/megacity_host.h>
-#endif
 #include <utility>
 
 using namespace draxul;
@@ -29,7 +26,6 @@ std::string bundled_font_path()
 {
     return std::string(DRAXUL_PROJECT_ROOT) + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
 }
-
 class LifetimeTestHost final : public draxul::tests::FakeHost
 {
 public:
@@ -227,7 +223,7 @@ TEST_CASE("pane manager: split panes use the platform shell for non-shell primar
 
     REQUIRE(PaneManager::platform_default_split_host_kind() == expected);
     REQUIRE(PaneManager::split_host_kind_for(HostKind::Nvim) == expected);
-    REQUIRE(PaneManager::split_host_kind_for(HostKind::MegaCity) == expected);
+    REQUIRE(PaneManager::split_host_kind_for(HostKind::Plugin) == expected);
 }
 
 TEST_CASE("pane manager: split panes preserve explicit shell host choices", "[pane_manager]")
@@ -872,16 +868,16 @@ TEST_CASE("pane manager: projected unavailable client host keeps the rest of the
 
     // A known optional kind absent from this build degrades in exactly the
     // same way; ordinary local launches still retain their failure behavior.
-    harness.unavailable_factory_kind = HostKind::Score;
-    projected.panes[1].launch.kind = HostKind::Score;
-    projected.panes[1].launch.client_host_kind = "score";
+    harness.unavailable_factory_kind = HostKind::Plugin;
+    projected.panes[1].launch.kind = HostKind::Plugin;
+    projected.panes[1].launch.client_host_kind = "plugin";
     REQUIRE(harness.manager.reconcile_projected_layout(
         harness.callbacks, 800, 600, projected));
     unavailable = dynamic_cast<UnavailableHost*>(
         harness.manager.host_for(added));
     REQUIRE(unavailable != nullptr);
     CHECK(unavailable->status_text()
-        == "score not available in this build");
+        == "plugin not available in this build");
 }
 
 TEST_CASE("pane manager: identifies only server-owned remote terminals",
@@ -1305,49 +1301,3 @@ TEST_CASE("zoom: focus navigation after zoomed-pane close lands on a valid host"
     REQUIRE(harness.manager.focused_host() != nullptr);
     REQUIRE(harness.manager.host_for(left) == harness.manager.focused_host());
 }
-
-#ifdef DRAXUL_ENABLE_MEGACITY
-TEST_CASE("pane manager: MegaCity continuous refresh option enables idle deadlines", "[pane_manager][megacity]")
-{
-    FakeWindow window;
-    FakeTermRenderer renderer;
-    TextService text_service;
-    TestHostCallbacks callbacks;
-    AppOptions options;
-    AppConfig config;
-    float display_ppi = 96.0f;
-
-    TextServiceConfig ts_cfg;
-    ts_cfg.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, display_ppi));
-
-    options.load_user_config = false;
-    options.save_user_config = false;
-    options.host_kind = HostKind::MegaCity;
-    options.request_continuous_refresh = true;
-
-    PaneManager::Deps deps;
-    deps.options = &options;
-    deps.config = &config;
-    deps.window = &window;
-    deps.grid_renderer = &renderer;
-    deps.text_service = &text_service;
-    deps.display_ppi = &display_ppi;
-    deps.compute_viewport = [](const PaneDescriptor& desc) {
-        HostViewport viewport;
-        viewport.pixel_pos = desc.pixel_pos;
-        viewport.pixel_size = desc.pixel_size;
-        viewport.grid_size = { 1, 1 };
-        return viewport;
-    };
-
-    PaneManager manager(std::move(deps));
-    REQUIRE(manager.create(callbacks, 800, 600));
-
-    auto* megacity = dynamic_cast<MegaCityHost*>(manager.focused_host());
-    REQUIRE(megacity != nullptr);
-    CHECK(megacity->next_deadline().has_value());
-
-    manager.shutdown();
-}
-#endif

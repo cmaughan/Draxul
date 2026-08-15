@@ -47,11 +47,12 @@ $runtime = Join-Path ([System.IO.Path]::GetTempPath()) (
 New-Item -ItemType Directory -Path $runtime | Out-Null
 $serverPid = $null
 $endpointPath = $null
+$projectRoot = Split-Path -Parent (Split-Path -Parent $Executable)
 
 $layout = @{
     name = 'Automation'
     alias = 'space'
-    root_directory = (Split-Path -Parent (Split-Path -Parent $Executable))
+    root_directory = $projectRoot
     tabs = @(
         @{
             name = 'Workers'
@@ -151,6 +152,30 @@ try {
     if (-not ($pluginList | Where-Object id -eq 'dev.draxul.spinning-triangle')) {
         throw 'Bundled plugin was not discoverable through plugin list.'
     }
+    if (-not ($pluginList | Where-Object id -eq 'dev.draxul.satview')) {
+        throw 'Bundled SatView plugin was not discoverable through plugin list.'
+    }
+    if (-not ($pluginList | Where-Object id -eq 'dev.draxul.megacity')) {
+        throw 'Bundled MegaCity plugin was not discoverable through plugin list.'
+    }
+    if (-not ($pluginList | Where-Object id -eq 'dev.draxul.scoreview')) {
+        throw 'Bundled ScoreView plugin was not discoverable through plugin list.'
+    }
+    $satViewPlugin = Invoke-Draxul @(
+        'plugin', 'get', 'dev.draxul.satview', '--json') | ConvertFrom-Json
+    if (-not $satViewPlugin.available -or $satViewPlugin.abi_version -ne 2) {
+        throw 'Bundled SatView plugin metadata is unavailable or incompatible.'
+    }
+    $megaCityPlugin = Invoke-Draxul @(
+        'plugin', 'get', 'dev.draxul.megacity', '--json') | ConvertFrom-Json
+    if (-not $megaCityPlugin.available -or $megaCityPlugin.abi_version -ne 2) {
+        throw 'Bundled MegaCity plugin metadata is unavailable or incompatible.'
+    }
+    $scoreViewPlugin = Invoke-Draxul @(
+        'plugin', 'get', 'dev.draxul.scoreview', '--json') | ConvertFrom-Json
+    if (-not $scoreViewPlugin.available -or $scoreViewPlugin.abi_version -ne 2) {
+        throw 'Bundled ScoreView plugin metadata is unavailable or incompatible.'
+    }
 
     $pluginTab = Invoke-Draxul @(
         'tab', 'create', '--space', $applied.created_id,
@@ -177,6 +202,67 @@ try {
     if ($pluginSplitState.terminal_id `
         -or $pluginSplitState.client_plugin_id -ne 'dev.draxul.spinning-triangle') {
         throw 'Plugin pane split allocated a terminal or lost its descriptor.'
+    }
+
+    $satViewTab = Invoke-Draxul @(
+        'tab', 'create', '--space', $applied.created_id,
+        '--name', 'SatView', '--plugin', 'dev.draxul.satview',
+        '--plugin-config', '{"paused":true}', '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    $satViewTabState = Invoke-Draxul @(
+        'tab', 'get', $satViewTab.created_id, '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    if ($satViewTabState.panes.Count -ne 1 `
+        -or $satViewTabState.panes[0].terminal_id `
+        -or $satViewTabState.panes[0].client_plugin_id -ne 'dev.draxul.satview') {
+        throw 'SatView tab creation did not preserve a terminal-free plugin pane.'
+    }
+
+    $megaCityTab = Invoke-Draxul @(
+        'tab', 'create', '--space', $applied.created_id,
+        '--name', 'MegaCity', '--plugin', 'dev.draxul.megacity',
+        '--plugin-config', ('{"mode":"city","source":"' `
+            + $projectRoot.Replace('\', '/') + '"}'),
+        '--json', '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    $megaCityTabState = Invoke-Draxul @(
+        'tab', 'get', $megaCityTab.created_id, '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    if ($megaCityTabState.panes.Count -ne 1 `
+        -or $megaCityTabState.panes[0].terminal_id `
+        -or $megaCityTabState.panes[0].client_plugin_id -ne 'dev.draxul.megacity' `
+        -or $megaCityTabState.panes[0].client_plugin_config_json -notlike '*"mode":"city"*') {
+        throw 'MegaCity tab creation did not preserve its terminal-free plugin descriptor.'
+    }
+
+    $bioViewTab = Invoke-Draxul @(
+        'tab', 'create', '--space', $applied.created_id,
+        '--name', 'BioView', '--plugin', 'dev.draxul.megacity',
+        '--plugin-config', ('{"mode":"biology","source":"' `
+            + $projectRoot.Replace('\', '/') + '"}'),
+        '--json', '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    $bioViewTabState = Invoke-Draxul @(
+        'tab', 'get', $bioViewTab.created_id, '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    if ($bioViewTabState.panes.Count -ne 1 `
+        -or $bioViewTabState.panes[0].terminal_id `
+        -or $bioViewTabState.panes[0].client_plugin_id -ne 'dev.draxul.megacity' `
+        -or $bioViewTabState.panes[0].client_plugin_config_json -notlike '*"mode":"biology"*') {
+        throw 'BioView tab creation did not preserve its terminal-free plugin descriptor.'
+    }
+
+    $scoreViewTab = Invoke-Draxul @(
+        'tab', 'create', '--space', $applied.created_id,
+        '--name', 'ScoreView', '--plugin', 'dev.draxul.scoreview',
+        '--plugin-config', '{"source":"plugins/scoreview/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.musicxml","mode":"paged"}',
+        '--json', '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    $scoreViewTabState = Invoke-Draxul @(
+        'tab', 'get', $scoreViewTab.created_id, '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json
+    if ($scoreViewTabState.panes.Count -ne 1 `
+        -or $scoreViewTabState.panes[0].terminal_id `
+        -or $scoreViewTabState.panes[0].client_plugin_id -ne 'dev.draxul.scoreview' `
+        -or $scoreViewTabState.panes[0].client_plugin_config_json -notlike '*grieg-waltz*') {
+        throw 'ScoreView tab creation did not preserve its terminal-free plugin descriptor.'
     }
 
     $marker = "DRAXUL-CONTEXT:$($applied.created_id):$($applied.aliases.workers):$($applied.aliases.shell)"

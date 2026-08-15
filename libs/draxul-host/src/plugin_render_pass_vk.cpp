@@ -30,11 +30,13 @@ public:
     void record_prepass(IRenderContext& context) override
     {
         auto& vk = static_cast<VkRenderContext&>(context);
-        DraxulPluginVulkanFrameV1 frame{};
+        DraxulPluginVulkanFrameV2 frame{};
         frame.struct_size = sizeof(frame);
         frame.instance = vk.instance();
         frame.physical_device = vk.physical_device();
         frame.device = vk.device();
+        frame.graphics_queue = vk.graphics_queue();
+        frame.graphics_queue_family = vk.graphics_queue_family();
         frame.command_buffer = vk.command_buffer();
         frame.target_image = handle_bits(vk.swapchain_image());
         frame.target_image_view = handle_bits(vk.swapchain_image_view());
@@ -47,7 +49,7 @@ public:
         frame.target_generation = vk.target_generation();
         frame.framebuffer_width = vk.width();
         frame.framebuffer_height = vk.height();
-        frame.viewport = { sizeof(DraxulPluginViewportV1), vk.viewport_x(), vk.viewport_y(), vk.viewport_w(), vk.viewport_h(), 1.0f, 96.0f };
+        frame.viewport = { sizeof(DraxulPluginViewportV2), vk.viewport_x(), vk.viewport_y(), vk.viewport_w(), vk.viewport_h(), 1.0f, 96.0f };
         frame.monotonic_seconds = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - started_at_).count();
         host_.accept_render_result(plugin_->api().render_vulkan(instance_, &frame));

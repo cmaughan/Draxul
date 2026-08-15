@@ -25,20 +25,21 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(DRAXUL_ENABLE_SANITIZERS "Enable AddressSanitizer (and LeakSanitizer on non-Windows)" OFF)
 option(DRAXUL_ENABLE_TSAN "Enable ThreadSanitizer (Clang/GCC only, incompatible with ASan)" OFF)
 option(DRAXUL_ENABLE_COVERAGE "Enable LLVM source-based code coverage (Clang/Apple Clang only)" OFF)
-# DRAXUL_ENABLE_MEGACITY controls whether the spinning-cube 3D demo host is compiled and linked.
-# Defaults to ON to preserve the existing default build behaviour. Set to OFF for lightweight
-# builds that only care about terminal correctness. Long-term, once this flag exists the
-# unconditional dynamic_cast / I3DPassProvider surface in IRenderer can be guarded or removed
-# when megacity is disabled, yielding a cleaner renderer interface.
-option(DRAXUL_ENABLE_MEGACITY "Build and include the Megacity 3D demo host" ON)
-option(DRAXUL_ENABLE_SATVIEW "Build and include the SatView 3D satellite overview host" ON)
+option(DRAXUL_ENABLE_MEGACITY "Build and bundle the MegaCity/BioView plugin" ON)
+option(DRAXUL_ENABLE_SATVIEW "Build and bundle the SatView plugin" ON)
 if(APPLE OR WIN32)
     set(DRAXUL_SCOREVIEW_DEFAULT ON)
 else()
     set(DRAXUL_SCOREVIEW_DEFAULT OFF)
 endif()
-option(DRAXUL_ENABLE_SCOREVIEW "Build and include the ScoreView music score host" ${DRAXUL_SCOREVIEW_DEFAULT})
+option(DRAXUL_ENABLE_SCOREVIEW "Build and bundle the ScoreView plugin" ${DRAXUL_SCOREVIEW_DEFAULT})
 option(DRAXUL_ENABLE_RENDER_TESTS "Enable render-test capture/compare infrastructure" OFF)
+set(DRAXUL_MEGACITY_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/megacity"
+    CACHE PATH "Mounted MegaCity/BioView plugin source directory")
+set(DRAXUL_SATVIEW_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/satview"
+    CACHE PATH "Mounted SatView plugin source directory")
+set(DRAXUL_SCOREVIEW_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/scoreview"
+    CACHE PATH "Mounted ScoreView plugin source directory")
 
 # Sanitizer helper — applied to draxul targets after FetchContent deps are fetched
 function(draxul_apply_sanitizers target)
@@ -132,6 +133,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 include(cmake/FetchDependencies.cmake)
+include(cmake/DraxulPlugins.cmake)
 
 # Compile shaders
 if(APPLE)
@@ -141,6 +143,7 @@ else()
 endif()
 
 # --- Libraries ---
+add_subdirectory(sdk)
 add_subdirectory(libs/draxul-performance)
 add_subdirectory(libs/draxul-host-identity)
 add_subdirectory(libs/draxul-types)
@@ -149,9 +152,10 @@ add_subdirectory(plugins/spinning-triangle)
 add_subdirectory(libs/draxul-bmp)
 add_subdirectory(libs/draxul-http)
 add_subdirectory(libs/draxul-window)
+add_subdirectory(libs/draxul-font)
+add_subdirectory(libs/draxul-plugin-support)
 add_subdirectory(libs/draxul-renderer)
 add_subdirectory(libs/draxul-ui)
-add_subdirectory(libs/draxul-font)
 add_subdirectory(libs/draxul-grid)
 add_subdirectory(libs/draxul-terminal-core)
 add_subdirectory(libs/draxul-nvim)
@@ -171,22 +175,69 @@ add_subdirectory(libs/draxul-app-support)
 add_subdirectory(libs/draxul-host)
 add_subdirectory(modules/kanban)
 add_subdirectory(libs/draxul-nanovg)
-if(DRAXUL_ENABLE_MEGACITY)
-    add_subdirectory(modules/megacity)
+
+set(DRAXUL_HAVE_MEGACITY OFF)
+set(DRAXUL_HAVE_SATVIEW OFF)
+set(DRAXUL_HAVE_SCOREVIEW OFF)
+foreach(_product IN ITEMS MEGACITY SATVIEW SCOREVIEW)
+    if(DRAXUL_ENABLE_${_product})
+        if(EXISTS "${DRAXUL_${_product}_PLUGIN_DIR}/CMakeLists.txt")
+            set(DRAXUL_HAVE_${_product} ON)
+        else()
+            message(STATUS
+                "Draxul ${_product} plugin is enabled but not mounted at "
+                "${DRAXUL_${_product}_PLUGIN_DIR}; continuing without it")
+        endif()
+    endif()
+endforeach()
+
+if(DRAXUL_HAVE_MEGACITY OR DRAXUL_HAVE_SATVIEW OR DRAXUL_HAVE_SCOREVIEW)
+    add_subdirectory(plugins/support/imgui)
 endif()
-if(DRAXUL_ENABLE_SATVIEW)
-    add_subdirectory(modules/satview)
+if(DRAXUL_HAVE_MEGACITY)
+    add_subdirectory("${DRAXUL_MEGACITY_PLUGIN_DIR}" plugins/megacity)
 endif()
-if(DRAXUL_ENABLE_SCOREVIEW)
-    add_subdirectory(modules/score)
+if(DRAXUL_HAVE_SATVIEW)
+    add_subdirectory("${DRAXUL_SATVIEW_PLUGIN_DIR}" plugins/satview)
 endif()
+if(DRAXUL_HAVE_SCOREVIEW)
+    add_subdirectory("${DRAXUL_SCOREVIEW_PLUGIN_DIR}" plugins/scoreview)
+endif()
+
+# This namespace is the explicit shared C++ surface for mounted product
+# submodules. Broad core libraries are deliberately unavailable.
+if(TARGET draxul-plugin-imgui)
+    add_library(Draxul::PluginSupport::ImGui ALIAS draxul-plugin-imgui)
+endif()
+draxul_allow_plugin_support_targets(
+    Draxul::PluginSDK
+    Draxul::PluginSupport::Runtime
+    Draxul::PluginSupport::Render
+    Draxul::PluginSupport::Config
+    Draxul::PluginSupport::Tooltip
+    Draxul::PluginSupport::Types
+    Draxul::PluginSupport::Performance
+    Draxul::PluginSupport::Text
+    Draxul::PluginSupport::Http)
+if(TARGET Draxul::PluginSupport::ImGui)
+    draxul_allow_plugin_support_targets(Draxul::PluginSupport::ImGui)
+endif()
+if(TARGET Draxul::PluginSupport::VulkanResources)
+    draxul_allow_plugin_support_targets(
+        Draxul::PluginSupport::VulkanResources)
+endif()
+draxul_check_plugin_support_dependencies()
+draxul_check_registered_plugin_dependencies()
 
 include(cmake/CheckDependencyBoundaries.cmake)
 draxul_check_dependency_boundaries()
+draxul_check_core_source_product_isolation("${CMAKE_SOURCE_DIR}")
 
 # Apply sanitizers/coverage to all draxul library targets (not FetchContent deps)
 foreach(_draxul_lib
-    draxul-performance draxul-types draxul-plugin draxul-bmp draxul-http draxul-window draxul-renderer draxul-ui
+    draxul-performance draxul-types draxul-plugin draxul-bmp draxul-http draxul-window
+    draxul-plugin-runtime-support draxul-plugin-config-support draxul-plugin-tooltip-support
+    draxul-renderer draxul-ui
     draxul-font draxul-grid draxul-nvim
     draxul-terminal-core draxul-terminal-process
     draxul-config draxul-session-model draxul-protocol draxul-control draxul-client draxul-server
@@ -196,58 +247,6 @@ foreach(_draxul_lib
     draxul_apply_coverage(${_draxul_lib})
     draxul_apply_msvc_parallel_pdb_fix(${_draxul_lib})
 endforeach()
-if(DRAXUL_ENABLE_MEGACITY)
-    draxul_apply_sanitizers(draxul-geometry)
-    draxul_apply_coverage(draxul-geometry)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-geometry)
-    draxul_apply_sanitizers(draxul-codeviz-scene)
-    draxul_apply_coverage(draxul-codeviz-scene)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-codeviz-scene)
-    draxul_apply_sanitizers(draxul-codeviz-renderer)
-    draxul_apply_coverage(draxul-codeviz-renderer)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-codeviz-renderer)
-    draxul_apply_sanitizers(draxul-codeviz-host)
-    draxul_apply_coverage(draxul-codeviz-host)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-codeviz-host)
-    draxul_apply_sanitizers(draxul-treesitter)
-    draxul_apply_coverage(draxul-treesitter)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-treesitter)
-    draxul_apply_sanitizers(draxul-code-semantics)
-    draxul_apply_coverage(draxul-code-semantics)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-code-semantics)
-    draxul_apply_sanitizers(draxul-megacity)
-    draxul_apply_coverage(draxul-megacity)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-megacity)
-endif()
-if(DRAXUL_ENABLE_SATVIEW)
-    draxul_apply_sanitizers(draxul-satview-core)
-    draxul_apply_coverage(draxul-satview-core)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-satview-core)
-    draxul_apply_sanitizers(draxul-satview-scene)
-    draxul_apply_coverage(draxul-satview-scene)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-satview-scene)
-    draxul_apply_sanitizers(draxul-satview-services)
-    draxul_apply_coverage(draxul-satview-services)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-satview-services)
-    draxul_apply_sanitizers(draxul-satview-renderer)
-    draxul_apply_coverage(draxul-satview-renderer)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-satview-renderer)
-    draxul_apply_sanitizers(draxul-satview-host)
-    draxul_apply_coverage(draxul-satview-host)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-satview-host)
-endif()
-if(DRAXUL_ENABLE_SCOREVIEW)
-    draxul_apply_sanitizers(draxul-notation)
-    draxul_apply_coverage(draxul-notation)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-notation)
-    draxul_apply_sanitizers(draxul-scoreview)
-    draxul_apply_coverage(draxul-scoreview)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-scoreview)
-    draxul_apply_sanitizers(draxul-scoreview-host)
-    draxul_apply_coverage(draxul-scoreview-host)
-    draxul_apply_msvc_parallel_pdb_fix(draxul-scoreview-host)
-endif()
-
 include(CTest)
 if(BUILD_TESTING)
     add_subdirectory(tests)
@@ -343,9 +342,8 @@ target_link_libraries(draxul-app PUBLIC
     draxul-nanovg
 )
 target_link_libraries(draxul-app PRIVATE draxul-performance)
-# NOTE: draxul-megacity is intentionally NOT linked here. The terminal product
-# library has zero megacity dependency. Megacity is linked into the executable
-# target below, where main.cpp registers it via the host provider registry.
+# Product implementations are linked only into their native plugin modules;
+# neither draxul-app nor the executable links a product library.
 if(DRAXUL_ENABLE_RENDER_TESTS)
     target_compile_definitions(draxul-app PUBLIC DRAXUL_ENABLE_RENDER_TESTS)
 endif()
@@ -382,52 +380,8 @@ target_link_libraries(draxul PRIVATE
     draxul-performance
     draxul-server
 )
-add_dependencies(draxul draxul-spinning-triangle)
-if(APPLE)
-    set(DRAXUL_TRIANGLE_PLUGIN_STAGE
-        "$<TARGET_BUNDLE_DIR:draxul>/Contents/PlugIns/dev.draxul.spinning-triangle")
-else()
-    set(DRAXUL_TRIANGLE_PLUGIN_STAGE
-        "$<TARGET_FILE_DIR:draxul>/plugins/dev.draxul.spinning-triangle")
-endif()
-add_custom_command(TARGET draxul POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-        "${DRAXUL_TRIANGLE_PLUGIN_STAGE}"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/plugins/spinning-triangle/plugin.toml"
-        "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/plugin.toml"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:draxul-spinning-triangle>"
-        "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/$<TARGET_FILE_NAME:draxul-spinning-triangle>"
-    VERBATIM)
-if(APPLE)
-    add_custom_command(TARGET draxul POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E rm -f
-            "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/draxul-spinning-triangle.so"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${TRIANGLE_METALLIB}"
-            "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.metallib")
-else()
-    add_custom_command(TARGET draxul POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${TRIANGLE_VERTEX_SPV}"
-            "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.vert.spv"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${TRIANGLE_FRAGMENT_SPV}"
-            "${DRAXUL_TRIANGLE_PLUGIN_STAGE}/spinning_triangle.frag.spv")
-endif()
-if(DRAXUL_ENABLE_MEGACITY)
-    target_link_libraries(draxul PRIVATE draxul-megacity)
-    target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_MEGACITY)
-endif()
-if(DRAXUL_ENABLE_SATVIEW)
-    target_link_libraries(draxul PRIVATE draxul-satview-host)
-    target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_SATVIEW)
-endif()
-if(DRAXUL_ENABLE_SCOREVIEW)
-    target_link_libraries(draxul PRIVATE draxul-scoreview-host)
-    target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_SCOREVIEW)
-endif()
+draxul_check_core_product_isolation()
+draxul_stage_registered_plugins(draxul)
 if(DRAXUL_ENABLE_RENDER_TESTS)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_RENDER_TESTS)
 endif()
@@ -479,28 +433,6 @@ if(APPLE)
         stage_grid_metal_shader
         stage_gui_metal_shader
         stage_markdown_metal_shader)
-    if(DRAXUL_ENABLE_MEGACITY)
-        draxul_stage_metal_shader(stage_megacity_scene_metal_shader
-            ${CMAKE_BINARY_DIR}/shaders/megacity_scene.metallib)
-        draxul_stage_metal_shader(stage_megacity_gbuffer_metal_shader
-            ${CMAKE_BINARY_DIR}/shaders/megacity_gbuffer.metallib)
-        draxul_stage_metal_shader(stage_megacity_ao_metal_shader
-            ${CMAKE_BINARY_DIR}/shaders/megacity_ao.metallib)
-        list(APPEND DRAXUL_METAL_SHADER_DEPS
-            compile_megacity_shaders
-            compile_megacity_gbuffer_shaders
-            compile_megacity_ao_shaders
-            stage_megacity_scene_metal_shader
-            stage_megacity_gbuffer_metal_shader
-            stage_megacity_ao_metal_shader)
-    endif()
-    if(DRAXUL_ENABLE_SATVIEW)
-        draxul_stage_metal_shader(stage_satview_metal_shader
-            ${CMAKE_BINARY_DIR}/shaders/satview_scene.metallib)
-        list(APPEND DRAXUL_METAL_SHADER_DEPS
-            compile_satview_shaders
-            stage_satview_metal_shader)
-    endif()
     add_dependencies(draxul ${DRAXUL_METAL_SHADER_DEPS})
 else()
     add_dependencies(draxul compile_shaders)
@@ -511,60 +443,6 @@ else()
             ${CMAKE_BINARY_DIR}/shaders
             $<TARGET_FILE_DIR:draxul>/shaders
     )
-endif()
-
-if(DRAXUL_ENABLE_MEGACITY AND EXISTS "${CMAKE_SOURCE_DIR}/assets/megacity")
-    add_custom_target(stage_megacity_assets
-        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:draxul>/assets
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/assets/megacity
-            $<TARGET_FILE_DIR:draxul>/assets/megacity
-    )
-    add_dependencies(draxul stage_megacity_assets)
-endif()
-
-if(DRAXUL_ENABLE_SATVIEW AND EXISTS "${CMAKE_SOURCE_DIR}/assets/satview")
-    add_custom_target(stage_satview_assets
-        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:draxul>/assets
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/assets/satview
-            $<TARGET_FILE_DIR:draxul>/assets/satview
-    )
-    add_dependencies(draxul stage_satview_assets)
-endif()
-
-if(DRAXUL_ENABLE_SCOREVIEW)
-    # Verovio's runtime resources (SMuFL fonts + glyph metadata) must sit next
-    # to the executable; VerovioLayoutEngine::create() receives this path.
-    add_custom_target(stage_verovio_data
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${verovio_SOURCE_DIR}/data
-            $<TARGET_FILE_DIR:draxul>/verovio-data
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${verovio_SOURCE_DIR}/fonts/Leipzig/Leipzig.ttf
-            $<TARGET_FILE_DIR:draxul>/verovio-data/Leipzig.ttf
-    )
-    add_dependencies(draxul stage_verovio_data)
-    # The piano soundfonts (+ their CC-BY attribution texts) ship beside the
-    # app; the instrument picker lists every .sf2 in this folder, so a better
-    # soundfont dropped here is a zero-code upgrade.
-    add_custom_target(stage_soundfonts
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${ydp_grand_piano_SOURCE_DIR}
-            $<TARGET_FILE_DIR:draxul>/soundfonts
-    )
-    add_dependencies(draxul stage_soundfonts)
-    if(WIN32)
-        # Verovio is an upstream shared-library target. MSVC links its import
-        # library but does not copy the runtime DLL beside draxul.exe.
-        add_custom_target(stage_verovio_runtime
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:verovio>
-                $<TARGET_FILE_DIR:draxul>
-            DEPENDS verovio
-        )
-        add_dependencies(draxul stage_verovio_runtime)
-    endif()
 endif()
 
 # Copy fonts to build directory

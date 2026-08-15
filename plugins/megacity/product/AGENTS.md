@@ -1,0 +1,89 @@
+# MegaCity Product Plugin Agent Guide
+
+## Scope
+
+This guide applies to the product implementation under `plugins/megacity/product/` and supplements the repository-root `AGENTS.md`. Follow both; this file contains MegaCity-specific constraints.
+
+MegaCity/BioView is an optional dynamic product plugin, not a renderer demo or a core host. It must remain removable with `DRAXUL_ENABLE_MEGACITY=OFF`: production Draxul libraries and the executable must not acquire source, header, link, shader, or asset dependencies on this directory. Tests may link private product targets only inside the focused plugin suite.
+
+Do not use the MaaS MCP tools/servers for work in this module.
+
+## Module Structure
+
+- `draxul-geometry`: Renderer-independent procedural mesh generation and shared `GeometryMesh` data. Keep it deterministic, GLM-based, and free of Vulkan, Metal, host, and ImGui dependencies.
+- `draxul-treesitter`: Background source scanning and raw parsed-symbol snapshots. Keep filesystem/parsing concerns here and publish immutable snapshots to consumers.
+- `draxul-code-semantics`: Projects parsed source data into the neutral `CodeSemanticSnapshot` and resolves repository module paths. It may depend on `draxul-treesitter`, but must not depend on the host, GPU renderer, or city/building presentation records.
+- `draxul-codeviz-scene`: Backend-neutral scene records, presentation ECS world, and shared scene snapshot helpers consumed by code visualization renderers and hosts.
+- `draxul-codeviz-renderer`: Shared `CodeVizScenePass` plus Vulkan/Metal backends for code visualization scene snapshots.
+- `draxul-codeviz-host`: Shared camera and input helpers for code visualization hosts.
+- `draxul-megacity`: Host lifecycle, configuration, semantic layout, city and biology builders, scene snapshot construction, and ImGui panels. Push pure geometry, parsing, semantic-model, scene, camera/input, and rendering logic into the lower libraries above.
+
+Keep the dependency direction approximately:
+
+```text
+draxul-geometry -----------------------> draxul-codeviz-scene -> draxul-codeviz-renderer -> draxul-megacity
+                                      \-> draxul-codeviz-host ----------------------------^
+draxul-treesitter -> draxul-code-semantics -----------------------------------------------^
+```
+
+Avoid publishing Megacity-specific types outside this module unless another product module has a demonstrated need for them. Public API headers belong under the owning library's `include/draxul/`; internal headers belong under `src/`. Never duplicate a header in both places.
+
+## Rendering
+
+- Windows rendering lives in `draxul-codeviz-renderer/src/codeviz_render_vk.cpp`; macOS rendering lives in `draxul-codeviz-renderer/src/codeviz_render.mm`.
+- Shared CPU scene and snapshot definitions must stay backend-neutral. Do not expose Vulkan or Metal types through public headers or shared scene records.
+- A rendering feature is incomplete until both backends have been inspected and kept behaviorally aligned. When changing vertex formats, uniforms, materials, attachments, passes, resource lifetimes, debug views, or bindings, update the Vulkan/GLSL and Metal/MSL paths together or explicitly report the remaining platform gap.
+- MegaCity shader sources live under `plugins/megacity/shaders/`; plugin CMake owns their compilation and declares their package staging through the generic registration API. Keep shader structs, binding indices, formats, and color-space assumptions synchronized with the C++/Objective-C++ code.
+- Material assets live under `plugins/megacity/assets/`. New runtime assets need plugin-package copy wiring and a useful failure log when missing.
+- Keep GPU and ImGui state on the main thread. Worker threads may build CPU-only immutable results, but must not create, mutate, or destroy renderer resources.
+
+## Semantic Model And Layout
+
+- Preserve the boundary between semantic model construction and spatial layout. Semantic records describe code; layout turns those records into positions, lots, roads, routes, and renderable scene data.
+- Use stable semantic identity, including module path and source path where needed. Class or function names alone are not unique.
+- Keep pure layout and mesh generation deterministic so they remain easy to test without a window or GPU.
+- `GeometryMesh` currently uses 16-bit indices. Generators must stay within that index range or deliberately change the shared format and both render backends together.
+- Prefer immutable snapshots for scene handoff. Replacing a complete snapshot is safer than exposing partially rebuilt vectors across host, worker, and render code.
+
+## Threading And Lifetime
+
+Megacity has background work in the Tree-sitter scanner, city-grid builds, and dependency-route builds. For all of them:
+
+- Use cancellation plus generation checks so stale work cannot replace newer state.
+- Publish completed data under the appropriate lock or through immutable shared ownership.
+- Do not perform an unbounded worker join from `pump()`, `draw()`, or an input callback.
+- Make shutdown deterministic: signal cancellation, wake waiting workers, join them, and only then release state they can access.
+- Capture configuration and model inputs by value or shared immutable ownership when a worker outlives the initiating call.
+
+## Build Wiring
+
+- Shared code visualization renderer sources must appear in both platform source lists in `draxul-codeviz-renderer/CMakeLists.txt`; backend-only files stay in the corresponding branch.
+- Keep all Megacity CMake additions behind `DRAXUL_ENABLE_MEGACITY` at repository integration points.
+- After build-wiring changes, configure and build once with Megacity enabled and verify that configuration/build still succeeds with `-DDRAXUL_ENABLE_MEGACITY=OFF`.
+- The production boundary is `dev.draxul.megacity` through the versioned C ABI. Do not register `MegaCityHost` in the Draxul executable or expose its C++ types across the module boundary.
+
+## Tests And Validation
+
+During development, build and run the focused plugin-owned suite:
+
+```powershell
+cmake --build build-ninja-release --target draxul-test-megacity
+& .\build-ninja-release\tests\draxul-test-megacity.exe --reporter compact
+```
+
+On macOS, use the corresponding configured build directory and focused target.
+
+Before completing MegaCity work, follow the root validation rules: build `draxul` and the focused tests, run smoke, and run relevant integration/render suites. Inspect both `{"mode":"city"}` and `{"mode":"biology"}` through plugin panes on the available platform. If only one platform is available, inspect the other backend carefully and state that runtime validation remains outstanding.
+
+Add or update tests in the existing focused files under `plugins/megacity/tests/`, especially:
+
+- `megacity_scene_host_tests.cpp`, `megacity_scene_layout_tests.cpp`, and `megacity_scene_world_tests.cpp` for lifecycle, input, layout, routing, snapshots, and configuration behavior
+- `megacity_static_mesh_family_tests.cpp` and `draxul_geometry_tests.cpp` for mesh generation and reuse
+- `treesitter_tests.cpp` and `treesitter_semantic_source_tests.cpp` for scanning and semantic projection
+- `lcov_coverage_tests.cpp` for coverage import and matching
+
+Do not bless unrelated render snapshots to hide a regression.
+
+## Documentation
+
+Update `docs/features.md` for user-visible Megacity behavior, controls, configuration, CLI, assets, or build options. Keep detailed architectural explanations in `docs/architecture/` and reusable investigation results in `docs/learnings/` rather than expanding this guide with implementation history.

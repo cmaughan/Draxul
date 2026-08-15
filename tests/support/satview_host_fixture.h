@@ -15,7 +15,8 @@
 // It builds the seams refactor card 26 (SatView library boundaries) leans on.
 
 #include <draxul/satview/satview_config.h>
-#include <draxul/satview/satview_host.h>
+#include <draxul/satview/satview_runtime.h>
+#include <draxul/satview/satview_scene_pass.h>
 
 #ifdef DRAXUL_ENABLE_SATVIEW
 
@@ -38,6 +39,8 @@
 
 namespace draxul::satview
 {
+
+using SatViewHost = SatViewRuntime;
 
 // The sole friend of SatViewHost used by tests. Installs the offline hooks and
 // drives the same private methods the UI uses, keeping test setup free of
@@ -174,8 +177,24 @@ inline constexpr double kSatViewFixtureClockSeconds = 1'782'432'000.0;
 // host's non-blocking shutdown.
 struct OfflineSatViewHost
 {
+    class RuntimeCallbacks final : public SatViewRuntimeCallbacks
+    {
+    public:
+        explicit RuntimeCallbacks(tests::TestHostCallbacks& target)
+            : target_(target) {}
+        void request_frame() override { target_.request_frame(); }
+        void request_quit() override { target_.request_quit(); }
+        void set_window_title(std::string_view title) override
+        {
+            target_.set_window_title(std::string(title));
+        }
+    private:
+        tests::TestHostCallbacks& target_;
+    };
+
     tests::TempDir cache{ "satview-host-smoke" };
     tests::TestHostCallbacks callbacks;
+    RuntimeCallbacks runtime_callbacks{ callbacks };
     tests::FakeTermRenderer renderer;
     SatViewHost host;
     // The catalog/cloud services invoke the fake fetch on their worker threads,
@@ -209,22 +228,20 @@ struct OfflineSatViewHost
             },
             cache.path.string());
 
-        HostLaunchOptions launch;
-        launch.kind = HostKind::SatView;
+        PluginRuntimeLaunchOptions launch;
 
-        HostViewport viewport;
+        PluginRuntimeViewport viewport;
         viewport.pixel_size = { 800, 600 };
         viewport.grid_size = { 1, 1 };
 
-        HostContext context{
-            .grid_renderer = &renderer,
+        PluginRuntimeContext context{
             .config_document = config_document,
             .launch_options = std::move(launch),
             .initial_viewport = viewport,
             .display_ppi = 96.0f,
         };
 
-        const bool ok = host.initialize(context, callbacks);
+        const bool ok = host.initialize(context, runtime_callbacks);
         if (ok && attach_imgui)
             host.attach_imgui_host(renderer);
         return ok;
@@ -233,8 +250,27 @@ struct OfflineSatViewHost
     // Pump + draw once through the fake frame context.
     void draw_once()
     {
+        class FrameSink final : public SatViewFrameSink
+        {
+        public:
+            explicit FrameSink(IFrameContext& frame) : frame_(frame) {}
+            void record_scene(SatViewScenePass& pass,
+                int x, int y, int width, int height) override
+            {
+                frame_.record_render_pass(pass, { x, y, width, height });
+            }
+            void render_overlay(void* draw_data, void* context) override
+            {
+                frame_.render_imgui(static_cast<ImDrawData*>(draw_data),
+                    static_cast<ImGuiContext*>(context));
+            }
+            void finish() override { frame_.flush_submit_chunk(); }
+        private:
+            IFrameContext& frame_;
+        };
         IFrameContext* frame = renderer.begin_frame();
-        host.draw(*frame);
+        FrameSink sink(*frame);
+        host.draw(sink);
         renderer.end_frame();
     }
 

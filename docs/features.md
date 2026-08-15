@@ -15,10 +15,10 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | Zsh | `--host zsh` | Server-owned PTY terminal (Unix) |
 | PowerShell | `--host powershell` | Server-owned ConPTY terminal on Windows |
 | WSL | `--host wsl` | Server-owned Windows Subsystem for Linux terminal |
-| MegaCity | `--host megacity` | 3D demo host (semantic code city, textured road/sidewalk/tree materials, cascaded directional shadows, point-light cubemap shadows, screen-space AO, mouse-drag pan, Alt+drag orbit, direct Tree-sitter-to-semantic-snapshot scan, optional `--source` Tree-sitter scan-root override) |
-| BioView | `--host bioview` | Experimental biological code visualization: the whole codebase grown as a living organism. Each **module** becomes a soft, colored **tissue territory**; each **class/struct** becomes a **cell** packed into its module's tissue; and strong **cross-module dependencies** become **blood vessels** arcing between tissues. The most significant classes render as full detailed cells (methods→mitochondria, fields→ribosomes, member roster→DNA rungs, inheritance→Golgi, dependencies→vesicles, oversized methods→lysosomes, organizer→centrosome), while the rest render as simpler module-tinted cells so hundreds of types stay affordable. All procedural geometry, lit by the shared 3D scene renderer; deterministic; every organelle carries a semantic ref back to its code node. |
-| Score | `--host score [--source <file.musicxml/.mxl>]` | Music score viewer + adaptive learning runner ([docs/features/scoreview.md](features/scoreview.md)): Verovio-engraved MusicXML/`.mxl` piano scores; a paged reading view with piece-analysis overlays; conveyor and Roll (Guitar-Hero-style) practice modes with adaptive tempo, spelling-colored notes, guidance keyboard, waterfall, and per-bar tempo ladders; an adaptive practice composer with spaced review, drills, and overnight re-tests; metronome/audition/soundfont audio; dev-keyboard, MIDI, and microphone input; per-piece progress memory. Full narrative: [docs/features/scoreview.md](features/scoreview.md) |
-| SatView | `--host satview` | Satellite-overview host: interactive 3D globe, full-screen 2D map, and ground-observer sky views; Sun/planet/major-moon POVs; CelesTrak GP + SATCAT catalogs with SGP4 propagation; HDR pipeline with stars, constellations, Milky Way, atmosphere, and clouds; surface-object catalogues; six ImGui dock panels with filters, selection, and time controls. Full narrative: [docs/features/satview.md](features/satview.md) |
+| MegaCity | `--plugin dev.draxul.megacity` with `{"mode":"city"}` | Dynamic semantic code-city plugin with textured materials, shadows, SSAO, mouse-drag pan, Alt+drag orbit, and a configurable local Tree-sitter scan root |
+| BioView | `--plugin dev.draxul.megacity` with `{"mode":"biology"}` | Biology mode of the same dynamic plugin: modules become tissues, classes become cells, and dependencies become blood vessels; semantic model, procedural geometry, UI, assets, and Vulkan/Metal renderer are plugin-owned |
+| ScoreView | `--plugin dev.draxul.scoreview` on pane/tab commands | Dynamically loaded music score viewer + adaptive learning runner ([docs/features/scoreview.md](features/scoreview.md)); launch JSON accepts `source`, `mode`, and `background_playback` |
+| SatView | `--plugin dev.draxul.satview` on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and plugin-owned ImGui controls. Full narrative: [docs/features/satview.md](features/satview.md) |
 
 Shell Session splits use the server's platform default shell (Zsh on macOS,
 PowerShell on Windows). Explicit self-contained product windows advertise only
@@ -38,9 +38,69 @@ restart.
 The server stores only the stable plugin ID and bounded JSON configuration. Each
 attached UI loads its own installed module, so an unavailable or incompatible
 plugin leaves the shared pane intact and shows an actionable placeholder. The
-versioned C ABI in `libs/draxul-plugin/include/draxul/plugin_api.h` supplies
+current-only C ABI v2 in `sdk/include/draxul/plugin_api.h` supplies
 Vulkan or Metal command-buffer access without transferring swapchain, submission,
-or presentation ownership. Hidden tabs and Spaces stop plugin animation deadlines.
+or presentation ownership. Draxul is pre-release, so the loader intentionally has
+no v1 compatibility path: bundled modules, fixtures, manifests, and the SDK move
+together when the ABI changes.
+
+The public header is also exported as the installable CMake package
+`DraxulPluginSDK`; external plugins link `Draxul::PluginSDK` and do not need a
+Draxul source checkout. The spinning-triangle example supports a standalone
+CMake build, and the `draxul-sdk-external-smoke` target installs the SDK, builds
+that example from a clean copied tree, loads the resulting module, and renders a
+non-blank raw-GPU frame. When mounted in the Draxul tree, the same example owns
+its manifest, shader payload, and staging declaration through the generic
+`draxul_register_bundled_plugin` contract. Shared same-build C++ helpers must use
+an explicitly allowed `Draxul::PluginSupport::*` target; only the SDK C ABI is a
+runtime contract. The allowlist exposes narrow leaves for raw-ABI host services,
+render-pass/context types, configuration documents, text and tooltip rasterizing,
+HTTP, logging/performance types, ImGui, and Vulkan resource ownership. A
+configure-time graph check rejects any support leaf that reaches Draxul's host,
+window, renderer implementation, topology, terminal, or app orchestration.
+SatView, MegaCity/BioView, and ScoreView are all registered in strict dependency
+mode: their product targets may link only other product-owned targets,
+third-party libraries, the public SDK, or these named plugin-support leaves.
+SatView and MegaCity use the generic plugin lifecycle/viewport contract rather
+than `IHost`, and resolve packaged assets and source roots explicitly instead of
+assuming a Draxul checkout path.
+ScoreView has the same repository-extraction proof through the opt-in
+`draxul-scoreview-extraction-smoke` target. It copies only the product and shared
+plugin ImGui support beside an installed SDK, performs a cold build, and loads
+the resulting module in a clean Draxul package. The target is intentionally not
+part of ordinary CTest because compiling Verovio from a cold tree is expensive.
+
+ABI v2 separates render deadlines from main-thread logic deadlines. Thread-safe
+callbacks can request either kind of work, and plugins quiesce background/device
+callbacks before Draxul waits for renderer idle and destroys the instance. An
+optional presentation extension supplies per-instance display/status text,
+background, cursor, actions, readiness, and print hints. Hidden tabs and Spaces
+stop render animation deadlines; plugins explicitly decide whether any non-render
+logic continues while hidden.
+
+Versioned path, storage, and UI-style services expose plugin resource,
+configuration, data, cache, and temporary directories, bounded atomic JSON
+documents, and Draxul's recommended font/scale with a change generation. Storage
+is client-local and main-thread-only; background workers request a logic tick
+before reading or writing it.
+
+The installed SDK exposes only C-owned lifecycle, input, service, presentation,
+and raw Vulkan/Metal frame structures. No Draxul C++ renderer, ImGui type, or
+build-matched object crosses that public boundary. Vulkan callbacks begin with no
+active render pass and a color-attachment-optimal target; Metal callbacks begin
+with no encoder and a load/store continuation descriptor. Plugins end every pass
+or encoder they create, restore the documented continuation state, and never
+submit, present, retain, release, or destroy borrowed host objects.
+
+Bundled IDs currently include `dev.draxul.satview`, `dev.draxul.scoreview`, and
+the ABI example `dev.draxul.spinning-triangle`. Product preferences are pane-local
+and durable; shared launch JSON remains limited to values every attached UI should
+see. SatView now owns its complete product stack under `plugins/satview`: model,
+services, simulation, UI, Vulkan/Metal HDR renderer, shaders, catalogs, textures,
+and tests. Its dynamic module renders the actual satellite application rather
+than the earlier procedural stand-in. ScoreView likewise owns its notation,
+learning, transport, worker, device, UI, and raw Vulkan/Metal rendering stack
+under `plugins/scoreview`; no Draxul C++ canvas or ImGui object crosses the ABI.
 
 ```text
 draxul plugin list --json
@@ -51,9 +111,23 @@ draxul tab create --space <space-id> --name <name> --plugin <plugin-id> \
   [--plugin-config <json>] --json
 ```
 
+For example, open the bundled score reader without a terminal:
+
+```text
+draxul tab create --space <space-id> --name ScoreView \
+  --plugin dev.draxul.scoreview \
+  --plugin-config '{"source":"C:/scores/piece.musicxml","mode":"paged"}' --json
+```
+
+ScoreView pauses transport and releases device leases while hidden by default;
+`"background_playback":true` opts into hidden logic/audio without hidden renders.
+
 The bundled `dev.draxul.spinning-triangle` module is a real dynamically loaded
 Vulkan/Metal sample. Its configuration accepts `speed_radians_per_second`,
-`initial_angle`, and `paused`; Space toggles pause and left-click reverses it.
+`initial_angle`, `paused`, and optional `remember_state`; Space toggles pause and
+left-click reverses it. Its rotation is driven by ABI v2 logic ticks rather than
+render callbacks. With state retention enabled, pause and direction are stored
+per pane for this UI; another attached UI resolves the shared pane independently.
 CTest loads this plugin from the staged application bundle so manifest/library
 filename drift and dynamic-loader or ABI failures are caught on both platforms.
 
@@ -67,8 +141,9 @@ filename drift and dynamic-loader or ABI failures are caught on both platforms.
 - An ordinary `draxul` launch discovers or starts the singleton, opens the default
   shared shell Session, and reconnects to the same server-owned Spaces, panes,
   terminals, and agents after the UI closes. Shells have no client-owned fallback.
-  Explicit product hosts such as `--host nvim`, Markdown, Kanban, ScoreView,
-  SatView, and MegaCity remain client-owned and do not start the server.
+  Explicit hosts such as `--host nvim`, Markdown, and Kanban remain client-owned
+  and do not start the server. MegaCity/BioView, SatView, and ScoreView are
+  client-local plugin panes created in shared server topology.
 - The server owns a Windows notification-area or macOS menu-bar status item. Its menu
   reports connected clients, Sessions, Spaces, terminals, live terminals, and agents,
   and provides Open Draxul, refresh, open-log, and one guarded Stop Server action.
@@ -271,9 +346,9 @@ filename drift and dynamic-loader or ABI failures are caught on both platforms.
 - **MegaCity building shading controls**: The City Build UI includes `Middle Strip Push`, `Alternate Darken`, `Flat Roughness`, and `Flat Metallic` controls for non-textured procedural buildings, so flat-color shells can get configurable per-level mid-band ripples, alternating-band darkening, roughness, and metallic without affecting roads, routes, signs, or other flat overlays
 - **MegaCity projection toggle**: The renderer panel can switch the MegaCity camera between `Orthographic` and `Perspective`; the choice persists in config, keeps the existing orbit/pan/zoom interactions, and also drives perspective-aware cascade splits and screen-space zoom scaling
 - **MegaCity semantic snapshot**: The City Build UI builds the semantic city from the same neutral `CodeSemanticSnapshot` used by BioView. Tree-sitter scanner output is first projected into repository/module/file/type/function/method/field/reference nodes, then the city builder applies city-specific roles, building metrics, function layers, and dependency routing before layout. The old SQLite city snapshot module and Tree-sitter city adapter have been removed. Repository module boundaries are derived from paths, so `app/...`, `libs/<name>/...`, and `modules/<name>/...` appear as distinct city modules
-- **BioView procedural cell**: `--host bioview` grows a single, anatomically-suggestive eukaryotic cell entirely from procedural geometry, replacing the earlier flat ellipsoid-cell-and-fibre projection. The cell is wider and longer than it is tall and floats above the grid so it casts a soft shadow. A double-sided translucent membrane (a noise-displaced "blob" sphere) wraps a fainter cytosol shell; inside sits a nucleus with its own translucent violet envelope, a dense nucleolus, and a four-color DNA double helix (two swept-tube backbones plus alternating base-pair rungs). Warm bean-shaped mitochondria carry cristae ridges, a curved Golgi stack of bowed cisternae sits near the membrane, a folded rough endoplasmic reticulum of swept tubes is studded with bright ribosomes, and the cytoplasm is scattered with free ribosomes, golden mRNA strands, translucent vesicles, purple lysosomes, and a perpendicular centriole pair. All parts use per-vertex-colored flat-color PBR shading through the shared cross-platform MegaCity/BioView render pass (directional + point lights, cascaded shadows, SSAO, HDR tone mapping), so Vulkan and Metal stay aligned. Geometry is generated by the new `draxul-geometry` cell toolkit (`build_blob_mesh`, `build_dna_double_helix`, `build_mitochondrion`, `build_golgi`, `build_endoplasmic_reticulum`, `build_tube`, plus 3D value-noise and mesh transform/append helpers). Its analysis UI still exposes BioView-specific build controls and shared renderer controls rather than city/building, park, tree, sign, or road-layout sliders.
+- **BioView procedural cell**: `dev.draxul.megacity` with `{"mode":"biology"}` grows a single, anatomically-suggestive eukaryotic cell entirely from procedural geometry, replacing the earlier flat ellipsoid-cell-and-fibre projection. The cell is wider and longer than it is tall and floats above the grid so it casts a soft shadow. A double-sided translucent membrane (a noise-displaced "blob" sphere) wraps a fainter cytosol shell; inside sits a nucleus with its own translucent violet envelope, a dense nucleolus, and a four-color DNA double helix (two swept-tube backbones plus alternating base-pair rungs). Warm bean-shaped mitochondria carry cristae ridges, a curved Golgi stack of bowed cisternae sits near the membrane, a folded rough endoplasmic reticulum of swept tubes is studded with bright ribosomes, and the cytoplasm is scattered with free ribosomes, golden mRNA strands, translucent vesicles, purple lysosomes, and a perpendicular centriole pair. All parts use per-vertex-colored flat-color PBR shading through the shared cross-platform MegaCity/BioView render pass (directional + point lights, cascaded shadows, SSAO, HDR tone mapping), so Vulkan and Metal stay aligned. Geometry is generated by the plugin-owned `draxul-geometry` cell toolkit (`build_blob_mesh`, `build_dna_double_helix`, `build_mitochondrion`, `build_golgi`, `build_endoplasmic_reticulum`, `build_tube`, plus 3D value-noise and mesh transform/append helpers). Its analysis UI still exposes BioView-specific build controls and shared renderer controls rather than city/building, park, tree, sign, or road-layout sliders.
 - **BioView semantic mapping**: the cell represents one **Type** (class/struct) from the Tree-sitter `CodeSemanticSnapshot` — deterministically the most significant one, `argmax(4·method_count + min(field_count,24) + 2·referenced_type_count)` with `line_count` then `qualified_name` tie-breaks (methods weighted high, field count capped so a giant plain-data config struct doesn't out-rank a real class). Its real members drive the organelles: each **method → a mitochondrion** (length from the method's line count, cristae ridges from how many distinct types it touches, warm→hot color from complexity, capped at 40 by line count); each **field → a ribosome** studded on the nuclear envelope (green-tinted if the field references another type); **every declared member → one DNA base-pair rung** in source-declaration order, four-color-coded by category (field, self-contained method, collaborator method, constructor/virtual, capped at 60); the **inheritance chain → a Golgi stack** (one cisterna per ancestor); distinct **outgoing type dependencies → vesicles**; **oversized methods (>60 lines) → purple lysosomes**; and the **constructor or busiest method → the centrosome**. Overall class health — average method length, coupling, and god-class size — tints the membrane (and DNA backbone) green→amber→red and drives membrane spikiness, so a bloated, highly-coupled class reads as an inflamed, crowded cell at a glance. Every organelle carries a `CodeVizSemanticRef` back to its semantic node (file, qualified name, node id) for future hover/pick identification. The build is fully deterministic (all placement seeded from stable hashes of member names); when the snapshot has no types it falls back to a generic decorative cell.
-- **BioView tissue / organism**: `--host bioview` grows the *whole codebase* as one organism, not just a single cell. Every **module** becomes a soft, translucent, module-colored **tissue territory** (a flattened blob patch on the floor); every **class/struct** becomes a **cell** packed into its module's tissue via phyllotaxis (sunflower) placement, with the most significant classes clustered toward each tissue's center and sized by significance; and **strong cross-module dependency coupling** (aggregated `ReferencesType`/`Inherits` edges between two modules, threshold ≥3) becomes a crimson **blood vessel** tube arcing between the two tissues, its thickness scaling with the edge count. The top classes (default 10) render as full detailed organelle cells (the mapping above); all other classes render as cheaper module-tinted "simple" cells (membrane + small nucleus, health-shifted toward red) that share meshes so hundreds stay affordable. Total cells are capped (default 640, dropping the least significant with a logged count), vessels capped (default 20). Module tissues are shelf-packed on the floor and the organism is recentered at the origin; the camera frames the whole span and a key light is positioned for the full organism. Health for simple cells is derived cheaply from the type's own line count, coupling, and member count. Everything remains deterministic. Planned follow-ups: file-level sub-clustering boundaries, honest "fat cell" / "nerve" mappings for other code shapes, level-of-detail as you zoom, and per-organelle hover tooltips in bio mode.
+- **BioView tissue / organism**: biology mode grows the *whole codebase* as one organism, not just a single cell. Every **module** becomes a soft, translucent, module-colored **tissue territory** (a flattened blob patch on the floor); every **class/struct** becomes a **cell** packed into its module's tissue via phyllotaxis (sunflower) placement, with the most significant classes clustered toward each tissue's center and sized by significance; and **strong cross-module dependency coupling** (aggregated `ReferencesType`/`Inherits` edges between two modules, threshold ≥3) becomes a crimson **blood vessel** tube arcing between the two tissues, its thickness scaling with the edge count. The top classes (default 10) render as full detailed organelle cells (the mapping above); all other classes render as cheaper module-tinted "simple" cells (membrane + small nucleus, health-shifted toward red) that share meshes so hundreds stay affordable. Total cells are capped (default 640, dropping the least significant with a logged count), vessels capped (default 20). Module tissues are shelf-packed on the floor and the organism is recentered at the origin; the camera frames the whole span and a key light is positioned for the full organism. Health for simple cells is derived cheaply from the type's own line count, coupling, and member count. Everything remains deterministic. Planned follow-ups: file-level sub-clustering boundaries, honest "fat cell" / "nerve" mappings for other code shapes, level-of-detail as you zoom, and per-organelle hover tooltips in bio mode.
 - **MegaCity performance preview and coverage modes**: The Codebase Analysis panel now exposes saved top-level `Perf`, `Coverage`, `LCOV Coverage`, and `Perf Log Scale` controls. `Perf` blends flat-color buildings toward a green-to-red heat palette per semantic building layer using smoothed live timing heat, while `Coverage` forces any touched/matched function layer to full heat so executed code lights up clearly. `LCOV Coverage` imports a static LLVM `lcov` tracefile from `db/coverage.lcov` or `build/coverage.lcov` and lights semantic function layers based on function-level test coverage from the LLVM coverage report — covered functions render as hot, uncovered stay at base color. The local `do.py coverage` flow exports `build/coverage.lcov` and refreshes `db/coverage.lcov` for app use. The debug panel shows LCOV-specific diagnostics (report functions, covered functions, matched/heated layers/buildings), and the building tooltip reports per-function coverage status. `Perf Log Scale` applies a visual logarithmic boost to low heat values so more active layers move toward the warm end without changing the underlying timing data. All modes are driven by a live or imported metrics snapshot for every building and function, indexed in the shader by stable building/layer ids, and accompanied by an in-panel matched/unmatched perf debug readout plus tooltip timing details for hovered functions
 - **MegaCity sign sizing controls**: Building roof-sign rings can now enforce a configurable `Min Width / Char`, so long class/module labels can expand the repeated sign band instead of being squeezed into the default building footprint
 - **MegaCity building shape thresholds**: The City Build UI now exposes both `Hex Threshold` and `Oct Threshold`, letting connected buildings step from 4-sided to 6-sided to 8-sided procedural shells based on total incident dependency count
@@ -681,9 +756,9 @@ and `draxul integration status` do not pass through the launch-option parser.
 
 | Flag | Description |
 |------|-------------|
-| `--host <type>` | Host type: nvim, markdown, powershell, bash, zsh, wsl, megacity, bioview, satview, score |
+| `--host <type>` | Core host type: nvim, markdown, kanban, powershell, bash, zsh, wsl |
 | `--command <cmd>` | Override host command path |
-| `--source <path>` | Markdown file for `--host markdown`; Tree-sitter scan root for `--host megacity` or `--host bioview`; MusicXML or `.mxl` score for `--host score` |
+| `--source <path>` | Markdown file for `--host markdown`; product plugins carry sources in `--plugin-config` JSON |
 | `--session <id>` | Select which saved shell session to restore |
 | `--new-session` | Start a fresh saved shell session; if `--session` is omitted Draxul generates a unique session id. If the requested session cannot be prepared (for example an explicit `--session` id that already exists) Draxul reports the error and exits rather than silently falling back to `default` |
 | `--session-name <name>` | Set the saved display name for the launched or restored shell session |
@@ -739,7 +814,6 @@ and `draxul integration status` do not pass through the launch-option parser.
 - `do kanban-report` reads `kanban/` as the authoritative tracker and prints lane counts, flags `kanban/done` cards that still carry unchecked task boxes, and lists fully-ticked `kanban/pending` cards as move candidates. It is strictly read-only — it never edits, ticks, or moves a card
 - Normal Debug/Release presets explicitly disable coverage and sanitizers, and the test scripts reject an instrumented shared cache before running. This prevents a prior coverage/ASan/TSan configure from silently slowing or changing the ordinary unit workflow
 - `do smoke` remains the explicit startup check; the individual render shortcuts and `renderall` remain the explicit visual checks. `t.sh`, `t.bat`, and `scripts/run_tests.*` retain the full unit + smoke + available render-snapshot workflow for pre-commit, release, and CI validation
-- `do run release --host megacity --parser treesitter` strips the helper flag before launching, writes `[mega_city_code].code_source = "treesitter_db"`, and removes stale `graphify_graph_path` entries from that section. `--parser treesitter_db` is accepted as the same helper alias
 - `do deploy` creates a Release build, stages the runtime payload into `deploy/YYYY_MM_DD/mac` or `deploy/YYYY_MM_DD/win`, and writes a matching `draxul-YYYY_MM_DD-mac|win.zip` archive under the date folder. Windows packages contain only `draxul.exe`, its Microsoft C++ and adjacent runtime DLLs, compiled shaders, bundled fonts, and runtime assets; CMake metadata, object files, static libraries, tests, and source/build directories are excluded
 - The repo-scoped `$draxul-review` skill runs isolated, read-only multi-AI reviews through installed Codex, Claude, Agy/Gemini, and Grok CLIs. Its default panel selects one healthy OpenAI, Anthropic, and Google transport; explicit panels reject duplicate companies, and `--all` adds every healthy configured company. When a synthesis prompt requests Kanban work items, the trusted parent runner validates the returned card paths/content and atomically creates them under `kanban/pending/`; providers never receive repository write access
 - Reviews and synthesis are separate operations. Immutable run archives, manifests, diagnostics, and optional summaries live under `plans/reviews/runs/`, while atomically refreshed `*-latest.*.md`, `*-consensus.md`, `*-latest.manifest.json`, and `*-latest.summary.manifest.json` files preserve stable pointers without synthesis hiding the latest review manifest
@@ -753,9 +827,12 @@ and `draxul integration status` do not pass through the launch-option parser.
 | `DRAXUL_ENABLE_SANITIZERS` | OFF | ASan + UBSan |
 | `DRAXUL_ENABLE_TSAN` | OFF | ThreadSanitizer (Clang/GCC only, mutually exclusive with `DRAXUL_ENABLE_SANITIZERS`) |
 | `DRAXUL_ENABLE_COVERAGE` | OFF | LLVM source-based coverage |
-| `DRAXUL_ENABLE_MEGACITY` | ON | MegaCity optional module (`modules/megacity/`) — when OFF, the terminal product builds with no megacity sources, headers, link dependency, or test coupling |
-| `DRAXUL_ENABLE_SATVIEW` | ON | SatView optional module (`modules/satview/`) — when OFF, the terminal product builds with no SatView sources, headers, link dependency, or shader staging |
-| `DRAXUL_ENABLE_SCOREVIEW` | ON on Windows/macOS | ScoreView optional module (`modules/score/`) with the pinned Verovio engraving runtime |
+| `DRAXUL_ENABLE_MEGACITY` | ON | Builds and stages `dev.draxul.megacity` with its private City/Biology implementation, tests, shaders, and assets; the production executable has no static registration |
+| `DRAXUL_ENABLE_SATVIEW` | ON | Builds and stages the `dev.draxul.satview` DLL/dylib plus its private product libraries and assets; the executable has no static SatView host fallback |
+| `DRAXUL_ENABLE_SCOREVIEW` | ON on Windows/macOS | Builds and stages `dev.draxul.scoreview`, its private runtime libraries, Verovio, fonts, and soundfonts; the executable has no static ScoreView fallback |
+| `DRAXUL_MEGACITY_PLUGIN_DIR` | `plugins/megacity` | MegaCity/BioView submodule mount path; an enabled but absent mount is skipped |
+| `DRAXUL_SATVIEW_PLUGIN_DIR` | `plugins/satview` | SatView submodule mount path; an enabled but absent mount is skipped |
+| `DRAXUL_SCOREVIEW_PLUGIN_DIR` | `plugins/scoreview` | ScoreView submodule mount path; an enabled but absent mount is skipped |
 | `BUILD_TESTING` | ON | Test targets |
 
 Markdown and Kanban are product modules under `modules/markdown/` and `modules/kanban/`. They are built by default and keep their existing host flags and CMake target names.
@@ -765,12 +842,22 @@ Markdown and Kanban are product modules under `modules/markdown/` and `modules/k
 - `draxul-tests` -- Unit test suite (Catch2), compiled with a test-only precompiled header and registered as four disjoint CTest shards labeled `unit`
 - `draxul-rpc-fake` -- Fake RPC server for integration tests
 
-ScoreView builds as five libraries inside the `DRAXUL_ENABLE_SCOREVIEW` gate — `draxul-score-learn`, `draxul-score-input`, `draxul-score-audio`, `draxul-scoreview`, `draxul-scoreview-host`; the per-library layering and dependency-isolation rationale is documented in [docs/features/scoreview.md](features/scoreview.md#build-structure).
+ScoreView builds as private product libraries beneath `plugins/scoreview` inside
+the `DRAXUL_ENABLE_SCOREVIEW` gate, plus the dynamic module; the per-library
+layering and dependency-isolation rationale is documented in
+[docs/features/scoreview.md](features/scoreview.md#build-structure).
 
 CTest also registers `tests/do_py_tests.py` under the `unit` label. App smoke and render-snapshot tests use a shared CTest resource lock so full parallel test runs never overlap GPU/application processes.
 On Windows, every test executable that links ScoreView stages `verovio.dll`
 beside itself, so Debug and Release CTest runs do not depend on a stale DLL or
 the developer's `PATH`.
+
+Each optional product owns its FetchContent declarations, focused test wiring,
+shader compilation, assets, tools, and runtime payload declaration beneath its
+mounted directory. Root CMake only enables the mounted directory;
+generic registration stages the declared payload and the generic test harness
+includes the product-owned test file. Removing a product therefore removes its
+downloads and focused tests from the build graph without editing core wiring.
 
 ### Dependencies (FetchContent, automatic)
 SDL3, FreeType, HarfBuzz, MPack, ImGui, GLM, Catch2, vk-bootstrap (Windows), VMA (Windows)

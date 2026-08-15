@@ -3,11 +3,15 @@
 #include <draxul/plugin_manager.h>
 #include <draxul/plugin_host.h>
 #include <draxul/events.h>
+#include <draxul/base_renderer.h>
+#include "support/fake_renderer.h"
 #include "support/test_host_callbacks.h"
 
 #include <filesystem>
 #include <fstream>
+#include <cstring>
 #include <string>
+#include <thread>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -40,7 +44,9 @@ public:
 void install_plugin(const std::filesystem::path& tier,
     std::string_view directory_name, std::string_view id,
     const std::filesystem::path& library,
-    std::string_view manifest_library = {})
+    std::string_view manifest_library = {},
+    std::string_view name = "Fixture",
+    std::string_view version = "1.0.0")
 {
     const auto directory = tier / directory_name;
     std::filesystem::create_directories(directory);
@@ -56,9 +62,9 @@ void install_plugin(const std::filesystem::path& tier,
     std::ofstream manifest(directory / "plugin.toml");
     manifest << "schema_version = 1\n"
              << "id = \"" << id << "\"\n"
-             << "name = \"Fixture\"\n"
-             << "version = \"1.0.0\"\n"
-             << "abi_version = 1\n"
+             << "name = \"" << name << "\"\n"
+             << "version = \"" << version << "\"\n"
+             << "abi_version = 2\n"
 #ifdef _WIN32
              << "[platform.windows]\n"
 #elif defined(__APPLE__)
@@ -70,6 +76,205 @@ void install_plugin(const std::filesystem::path& tier,
 }
 
 } // namespace
+
+#ifdef DRAXUL_MEGACITY_PLUGIN_PATH
+TEST_CASE("MegaCity module creates the real City and Biology products",
+    "[plugin][megacity][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    install_plugin(bundled, "megacity", "dev.draxul.megacity",
+        DRAXUL_MEGACITY_PLUGIN_PATH, {}, "MegaCity / BioView", "0.1.0");
+    const auto manager = draxul::PluginManager::discover(bundled, user);
+    const auto source = temp.root / "source";
+    std::filesystem::create_directories(source);
+    {
+        std::ofstream file(source / "widget.cpp");
+        file << "namespace demo { class Widget { public: void run(); "
+                "int value = 0; }; void Widget::run() {} }\n";
+    }
+    const std::string source_json = source.generic_string();
+
+    for (const auto& [mode, expected_name] : {
+             std::pair{ "city", "MegaCity" },
+             std::pair{ "biology", "BioView" } })
+    {
+        draxul::HostContext context;
+        context.launch_options.kind = draxul::HostKind::Plugin;
+        context.launch_options.client_plugin_id = "dev.draxul.megacity";
+        context.launch_options.client_plugin_config_json =
+            std::string("{\"mode\":\"") + mode
+            + "\",\"source\":\"" + source_json + "\"}";
+        context.pane_id = std::string("megacity-") + mode;
+        context.initial_viewport.pixel_size = { 640, 360 };
+
+        draxul::PluginHost host(manager, temp.root / "storage");
+        draxul::tests::TestHostCallbacks callbacks;
+        REQUIRE(host.initialize(context, callbacks));
+        CHECK(host.display_name() == expected_name);
+        CHECK(host.runtime_state().content_ready);
+
+        const auto scan_deadline = std::chrono::steady_clock::now()
+            + std::chrono::seconds(10);
+        while (host.status_text().find(" objects") == std::string::npos
+            && std::chrono::steady_clock::now() < scan_deadline)
+        {
+            host.pump();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        INFO(host.status_text());
+        CHECK(host.status_text().find(" objects") != std::string::npos);
+        CHECK(host.status_text().find(" | 0 objects") == std::string::npos);
+        host.set_presentation_visible(false);
+        CHECK(host.status_text().find("hidden") != std::string::npos);
+        host.shutdown();
+    }
+}
+#endif
+
+#ifdef DRAXUL_SCOREVIEW_PLUGIN_PATH
+TEST_CASE("ScoreView module creates its real runtime through the public ABI",
+    "[plugin][scoreview][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    install_plugin(bundled, "scoreview", "dev.draxul.scoreview",
+        DRAXUL_SCOREVIEW_PLUGIN_PATH, {}, "ScoreView", "0.1.0");
+    const auto manager = draxul::PluginManager::discover(bundled, user);
+
+    draxul::HostContext context;
+    context.launch_options.kind = draxul::HostKind::Plugin;
+    context.launch_options.client_plugin_id = "dev.draxul.scoreview";
+    context.launch_options.client_plugin_config_json = R"({"mode":"paged"})";
+    context.pane_id = "scoreview-real-module";
+    context.initial_viewport.pixel_size = { 640, 360 };
+
+    draxul::PluginHost host(manager, temp.root / "storage");
+    draxul::tests::TestHostCallbacks callbacks;
+    REQUIRE(host.initialize(context, callbacks));
+    CHECK(host.display_name() == "ScoreView");
+    CHECK(host.status_text().find("ScoreView plugin failed")
+        == std::string::npos);
+
+    auto resized = context.initial_viewport;
+    resized.pixel_size = { 800, 450 };
+    host.set_viewport(resized);
+    host.set_presentation_visible(false);
+    host.set_presentation_visible(true);
+    host.on_focus_gained();
+    host.on_key({ 44, 32, draxul::kModNone, true });
+    host.on_focus_lost();
+    host.shutdown();
+}
+#endif
+
+TEST_CASE("spinning triangle persists pane-local state through host services",
+    "[plugin][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    install_plugin(bundled, "triangle", "dev.draxul.spinning-triangle",
+        DRAXUL_TRIANGLE_PLUGIN_PATH, {}, "Spinning Triangle", "0.2.0");
+    const auto manager = draxul::PluginManager::discover(bundled, user);
+
+    draxul::HostContext context;
+    context.launch_options.kind = draxul::HostKind::Plugin;
+    context.launch_options.client_plugin_id
+        = "dev.draxul.spinning-triangle";
+    context.launch_options.client_plugin_config_json
+        = R"({"remember_state":true})";
+    context.pane_id = "pane-a";
+    context.initial_viewport.pixel_size = { 640, 360 };
+
+    const auto first_ui_root = temp.root / "ui-a";
+    {
+        draxul::PluginHost host(manager, first_ui_root);
+        draxul::tests::TestHostCallbacks callbacks;
+        REQUIRE(host.initialize(context, callbacks));
+        CHECK(host.status_text().find("running clockwise")
+            != std::string::npos);
+        CHECK(host.status_text().find("remembered") != std::string::npos);
+        CHECK(host.status_text().find("paths ready") != std::string::npos);
+        CHECK(host.dispatch_action("reverse"));
+        CHECK(host.dispatch_action("toggle_pause"));
+        CHECK(host.status_text().find("paused counter-clockwise")
+            != std::string::npos);
+
+        auto resized = context.initial_viewport;
+        resized.pixel_size = { 800, 450 };
+        host.set_viewport(resized);
+        CHECK(host.status_text().find("800x450") != std::string::npos);
+
+        host.set_presentation_visible(false);
+        CHECK(host.status_text().find("hidden") != std::string::npos);
+        host.set_presentation_visible(true);
+        host.on_focus_gained();
+        CHECK(host.status_text().find("focused") != std::string::npos);
+
+        // Exercise SDK-owned input against the independently built product
+        // boundary, then restore the durable state asserted below.
+        host.on_key({ 44, 32, draxul::kModNone, true });
+        CHECK(host.status_text().find("running counter-clockwise")
+            != std::string::npos);
+        host.on_key({ 44, 32, draxul::kModNone, true });
+        host.on_mouse_button({ 1, true, draxul::kModNone,
+            { 20, 20 }, 1 });
+        CHECK(host.status_text().find("paused clockwise")
+            != std::string::npos);
+        host.on_mouse_button({ 1, true, draxul::kModNone,
+            { 20, 20 }, 1 });
+        CHECK(host.status_text().find("paused counter-clockwise")
+            != std::string::npos);
+        host.on_focus_lost();
+        host.shutdown();
+    }
+
+    // Recreating the client-local host for the same server pane restores its
+    // state without changing the pane's shared launch configuration.
+    {
+        draxul::PluginHost host(manager, first_ui_root);
+        draxul::tests::TestHostCallbacks callbacks;
+        REQUIRE(host.initialize(context, callbacks));
+        CHECK(host.status_text().find("paused counter-clockwise")
+            != std::string::npos);
+        host.shutdown();
+    }
+
+    // Another attached UI resolves the same topology against independent
+    // local storage and therefore begins with the launch defaults.
+    {
+        draxul::PluginHost host(manager, temp.root / "ui-b");
+        draxul::tests::TestHostCallbacks callbacks;
+        REQUIRE(host.initialize(context, callbacks));
+        CHECK(host.status_text().find("running clockwise")
+            != std::string::npos);
+        host.shutdown();
+    }
+
+    // Corrupt local state is an instance-local warning, not a failed shared
+    // pane. The plugin remains interactive and can replace the bad document.
+    const auto corrupt_root = temp.root / "ui-corrupt";
+    const auto corrupt_file = corrupt_root / "config"
+        / "dev.draxul.spinning-triangle" / "panes" / "pane-a"
+        / "state.json";
+    std::filesystem::create_directories(corrupt_file.parent_path());
+    {
+        std::ofstream output(corrupt_file);
+        output << "not-json";
+    }
+    {
+        draxul::PluginHost host(manager, corrupt_root);
+        draxul::tests::TestHostCallbacks callbacks;
+        REQUIRE(host.initialize(context, callbacks));
+        CHECK(host.status_text().find("saved state is corrupt")
+            != std::string::npos);
+        CHECK(host.dispatch_action("toggle_pause"));
+        host.shutdown();
+    }
+}
 
 TEST_CASE("PluginHost translates SDK-owned input through a real module",
     "[plugin][integration]")
@@ -100,31 +305,242 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     const auto count = reinterpret_cast<size_t (*)()>(
         symbol("draxul_fixture_event_count"));
     const auto event_at = reinterpret_cast<int (*)(size_t,
-        DraxulPluginInputEventV1*)>(
+        DraxulPluginInputEventV2*)>(
         symbol("draxul_fixture_event_at"));
+    const auto fixture_request_tick = reinterpret_cast<void (*)()>(
+        symbol("draxul_fixture_request_tick"));
+    const auto fixture_tick_count = reinterpret_cast<size_t (*)()>(
+        symbol("draxul_fixture_tick_count"));
+    const auto fixture_quiesce_count = reinterpret_cast<size_t (*)()>(
+        symbol("draxul_fixture_quiesce_count"));
+    const auto fixture_action_count = reinterpret_cast<size_t (*)()>(
+        symbol("draxul_fixture_action_dispatch_count"));
+    const auto fixture_query_service = reinterpret_cast<int (*)(const char*,
+        size_t, uint32_t, void*, size_t)>(
+        symbol("draxul_fixture_query_host_service"));
+    const auto support_path = reinterpret_cast<int (*)(uint32_t, char*, size_t*)>(
+        symbol("draxul_fixture_support_path"));
+    const auto support_write_json = reinterpret_cast<uint32_t (*)(uint32_t,
+        const char*, size_t, const char*, size_t)>(
+        symbol("draxul_fixture_support_write_json"));
+    const auto support_read_json = reinterpret_cast<uint32_t (*)(uint32_t,
+        const char*, size_t, char*, size_t*)>(
+        symbol("draxul_fixture_support_read_json"));
+    const auto support_remove = reinterpret_cast<uint32_t (*)(uint32_t,
+        const char*, size_t)>(symbol("draxul_fixture_support_remove"));
+    const auto support_ui_style = reinterpret_cast<int (*)(char*, size_t*,
+        float*, float*, uint64_t*)>(
+        symbol("draxul_fixture_support_ui_style"));
     REQUIRE(reset);
     REQUIRE(count);
     REQUIRE(event_at);
+    REQUIRE(fixture_request_tick);
+    REQUIRE(fixture_tick_count);
+    REQUIRE(fixture_quiesce_count);
+    REQUIRE(fixture_action_count);
+    REQUIRE(fixture_query_service);
+    REQUIRE(support_path);
+    REQUIRE(support_write_json);
+    REQUIRE(support_read_json);
+    REQUIRE(support_remove);
+    REQUIRE(support_ui_style);
     reset();
 
-    draxul::PluginHost host(manager);
+    draxul::tests::FakeTermRenderer renderer;
+    draxul::PluginHost host(manager, temp.root / "storage");
     draxul::HostContext context;
     context.launch_options.kind = draxul::HostKind::Plugin;
     context.launch_options.client_plugin_id = "dev.draxul.fixture";
     context.launch_options.client_plugin_config_json = "{}";
+    context.pane_id = "fixture-pane";
     context.initial_viewport.pixel_pos = { 100, 50 };
     context.initial_viewport.pixel_size = { 640, 360 };
+    context.initial_viewport.pixel_scale = 1.5f;
+    context.display_ppi = 144.0f;
+    context.grid_renderer = &renderer;
     draxul::tests::TestHostCallbacks callbacks;
     REQUIRE(host.initialize(context, callbacks));
-    host.accept_render_result({ sizeof(DraxulPluginRenderResultV1),
+
+    DraxulPluginPathServiceV2 paths{};
+    REQUIRE(fixture_query_service(DRAXUL_PLUGIN_PATH_SERVICE_ID,
+        std::strlen(DRAXUL_PLUGIN_PATH_SERVICE_ID),
+        DRAXUL_PLUGIN_PATH_SERVICE_VERSION, &paths, sizeof(paths)));
+    size_t path_size = 0;
+    REQUIRE(paths.get_path(paths.service_context, DRAXUL_PLUGIN_PATH_DATA,
+        nullptr, &path_size));
+    REQUIRE(path_size > 1);
+    std::string data_path(path_size, '\0');
+    REQUIRE(paths.get_path(paths.service_context, DRAXUL_PLUGIN_PATH_DATA,
+        data_path.data(), &path_size));
+    CHECK(std::filesystem::exists(std::filesystem::u8path(data_path.c_str())));
+
+    size_t support_path_size = 0;
+    REQUIRE(support_path(DRAXUL_PLUGIN_PATH_DATA, nullptr,
+        &support_path_size));
+    std::string support_data_path(support_path_size, '\0');
+    REQUIRE(support_path(DRAXUL_PLUGIN_PATH_DATA,
+        support_data_path.data(), &support_path_size));
+    CHECK(std::string_view(support_data_path.c_str())
+        == std::string_view(data_path.c_str()));
+
+    DraxulPluginStorageServiceV2 storage{};
+    REQUIRE(fixture_query_service(DRAXUL_PLUGIN_STORAGE_SERVICE_ID,
+        std::strlen(DRAXUL_PLUGIN_STORAGE_SERVICE_ID),
+        DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION, &storage, sizeof(storage)));
+
+    DraxulPluginUiStyleServiceV2 ui_style{};
+    REQUIRE(fixture_query_service(DRAXUL_PLUGIN_UI_STYLE_SERVICE_ID,
+        std::strlen(DRAXUL_PLUGIN_UI_STYLE_SERVICE_ID),
+        DRAXUL_PLUGIN_UI_STYLE_SERVICE_VERSION,
+        &ui_style, sizeof(ui_style)));
+    size_t recommended_path_size = 0;
+    float recommended_size = 0.0f;
+    float display_scale = 0.0f;
+    uint64_t initial_style_generation = 0;
+    REQUIRE(ui_style.get_recommended_font(ui_style.service_context, nullptr,
+        &recommended_path_size, &recommended_size, &display_scale,
+        &initial_style_generation));
+    CHECK(recommended_path_size == 1);
+    CHECK(recommended_size == 13.0f);
+    CHECK(display_scale == 1.5f);
+
+    host.set_imgui_font("fixture-font.ttf", 17.0f);
+    uint64_t updated_style_generation = 0;
+    REQUIRE(ui_style.get_recommended_font(ui_style.service_context, nullptr,
+        &recommended_path_size, &recommended_size, &display_scale,
+        &updated_style_generation));
+    REQUIRE(updated_style_generation > initial_style_generation);
+    std::string recommended_path(recommended_path_size, '\0');
+    REQUIRE(ui_style.get_recommended_font(ui_style.service_context,
+        recommended_path.data(), &recommended_path_size, &recommended_size,
+        &display_scale, &updated_style_generation));
+    CHECK(std::string_view(recommended_path.c_str()) == "fixture-font.ttf");
+    CHECK(recommended_size == 17.0f);
+    size_t support_font_path_size = 0;
+    float support_font_size = 0.0f;
+    float support_display_scale = 0.0f;
+    uint64_t support_style_generation = 0;
+    REQUIRE(support_ui_style(nullptr, &support_font_path_size,
+        &support_font_size, &support_display_scale,
+        &support_style_generation));
+    std::string support_font_path(support_font_path_size, '\0');
+    REQUIRE(support_ui_style(support_font_path.data(),
+        &support_font_path_size, &support_font_size,
+        &support_display_scale, &support_style_generation));
+    CHECK(std::string_view(support_font_path.c_str()) == "fixture-font.ttf");
+    CHECK(support_font_size == 17.0f);
+    CHECK(support_display_scale == 1.5f);
+    CHECK(support_style_generation == updated_style_generation);
+    host.draw(renderer.frame_context);
+    REQUIRE(renderer.recorded_render_viewports.size() == 1);
+    CHECK(renderer.recorded_render_viewports[0].x == 100);
+    CHECK(renderer.recorded_render_viewports[0].y == 50);
+    CHECK(renderer.recorded_render_viewports[0].width == 640);
+    CHECK(renderer.recorded_render_viewports[0].height == 360);
+    constexpr std::string_view state_key = "fixture-state";
+    constexpr std::string_view first_json = R"({"value":1})";
+    constexpr std::string_view second_json = R"({"value":2})";
+    CHECK(storage.write_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        first_json.data(), first_json.size()) == DRAXUL_PLUGIN_STORAGE_OK);
+    CHECK(storage.write_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        second_json.data(), second_json.size()) == DRAXUL_PLUGIN_STORAGE_OK);
+    size_t state_size = 0;
+    REQUIRE(storage.read_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        nullptr, &state_size) == DRAXUL_PLUGIN_STORAGE_OK);
+    std::string saved_state(state_size, '\0');
+    REQUIRE(storage.read_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        saved_state.data(), &state_size) == DRAXUL_PLUGIN_STORAGE_OK);
+    CHECK(std::string_view(saved_state.c_str()) == second_json);
+    constexpr std::string_view support_key = "support-state";
+    CHECK(support_write_json(DRAXUL_PLUGIN_STORAGE_PANE,
+        support_key.data(), support_key.size(), second_json.data(),
+        second_json.size()) == DRAXUL_PLUGIN_STORAGE_OK);
+    size_t support_state_size = 0;
+    REQUIRE(support_read_json(DRAXUL_PLUGIN_STORAGE_PANE,
+        support_key.data(), support_key.size(), nullptr,
+        &support_state_size) == DRAXUL_PLUGIN_STORAGE_OK);
+    std::string support_state(support_state_size, '\0');
+    REQUIRE(support_read_json(DRAXUL_PLUGIN_STORAGE_PANE,
+        support_key.data(), support_key.size(), support_state.data(),
+        &support_state_size) == DRAXUL_PLUGIN_STORAGE_OK);
+    CHECK(std::string_view(support_state.c_str()) == second_json);
+    CHECK(support_remove(DRAXUL_PLUGIN_STORAGE_PANE,
+        support_key.data(), support_key.size()) == DRAXUL_PLUGIN_STORAGE_OK);
+    CHECK(storage.write_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, "../escape", 9,
+        second_json.data(), second_json.size())
+        == DRAXUL_PLUGIN_STORAGE_INVALID_KEY);
+    CHECK(storage.write_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        "bad", 3) == DRAXUL_PLUGIN_STORAGE_INVALID_JSON);
+    std::string oversized(DRAXUL_PLUGIN_MAX_STORAGE_JSON_BYTES + 1, ' ');
+    CHECK(storage.write_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        oversized.data(), oversized.size())
+        == DRAXUL_PLUGIN_STORAGE_TOO_LARGE);
+    uint32_t worker_result = DRAXUL_PLUGIN_STORAGE_OK;
+    std::thread worker([&] {
+        size_t size = 0;
+        worker_result = storage.read_json(storage.service_context,
+            DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+            nullptr, &size);
+    });
+    worker.join();
+    CHECK(worker_result == DRAXUL_PLUGIN_STORAGE_WRONG_THREAD);
+    CHECK(storage.remove(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size())
+        == DRAXUL_PLUGIN_STORAGE_OK);
+    state_size = 0;
+    CHECK(storage.read_json(storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, state_key.data(), state_key.size(),
+        nullptr, &state_size) == DRAXUL_PLUGIN_STORAGE_NOT_FOUND);
+    CHECK(host.display_name() == "Fixture instance");
+    CHECK(host.status_text() == "ready");
+    CHECK(host.runtime_state().content_ready);
+    CHECK(host.default_background().r == 0.1f);
+    CHECK(host.mouse_cursor_at(10, 10) == draxul::MouseCursor::Pointer);
+    CHECK(host.print_hint().content_pos == glm::ivec2(1, 2));
+    CHECK(host.print_hint().content_size == glm::ivec2(30, 40));
+    CHECK(host.print_hint().paper_white);
+
+    // The initial logic deadline invokes the real module's tick callback and
+    // converts its redraw result into a host frame request.
+    REQUIRE(host.next_deadline().has_value());
+    const int frames_before_initial_tick = callbacks.request_frame_calls;
+    host.pump();
+    CHECK(fixture_tick_count() == 1);
+    CHECK(callbacks.request_frame_calls == frames_before_initial_tick + 1);
+    CHECK_FALSE(host.next_deadline().has_value());
+
+    // A module callback requests logic work without directly requesting a
+    // render. PluginHost wakes, ticks on the main thread, then honors the
+    // tick result's redraw bit.
+    const int wakes_before_tick = callbacks.wake_window_calls;
+    fixture_request_tick();
+    CHECK(callbacks.wake_window_calls == wakes_before_tick + 1);
+    host.pump();
+    CHECK(fixture_tick_count() == 2);
+
+    // Render scheduling remains independent from logic scheduling.
+    host.accept_render_result({ sizeof(DraxulPluginRenderResultV2),
         1'000'000, 1, nullptr });
     CHECK(host.next_deadline().has_value());
     host.set_presentation_visible(false);
+    CHECK(host.status_text() == "hidden");
+    REQUIRE(host.next_deadline().has_value());
+    host.pump();
     CHECK_FALSE(host.next_deadline().has_value());
     const int frames_before_show = callbacks.request_frame_calls;
     host.set_presentation_visible(true);
     CHECK(callbacks.request_frame_calls > frames_before_show);
-    host.accept_render_result({ sizeof(DraxulPluginRenderResultV1),
+    REQUIRE(host.next_deadline().has_value());
+    host.pump();
+    CHECK_FALSE(host.next_deadline().has_value());
+    host.accept_render_result({ sizeof(DraxulPluginRenderResultV2),
         0, 1, nullptr });
     const int frames_before_deadline = callbacks.request_frame_calls;
     REQUIRE(host.next_deadline().has_value());
@@ -132,7 +548,14 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     CHECK(callbacks.request_frame_calls
         == frames_before_deadline + 1);
     CHECK_FALSE(host.next_deadline().has_value());
+    CHECK(host.dispatch_action("fixture_action"));
+    CHECK_FALSE(host.dispatch_action("unknown"));
+    CHECK(fixture_action_count() == 1);
+    const int frames_before_metadata = callbacks.request_frame_calls;
+    host.pump();
+    CHECK(callbacks.request_frame_calls == frames_before_metadata + 1);
     host.on_focus_gained();
+    CHECK(host.status_text().find("focused") != std::string::npos);
     host.on_key({ 44, 32, draxul::kModCtrl, true });
     host.on_text_input({ "hello" });
     host.on_text_editing({ "compose", 2, 3 });
@@ -145,7 +568,7 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     host.on_focus_lost();
 
     REQUIRE(count() == 8);
-    DraxulPluginInputEventV1 event{};
+    DraxulPluginInputEventV2 event{};
     REQUIRE(event_at(1, &event));
     CHECK(event.kind == DRAXUL_PLUGIN_INPUT_KEY);
     CHECK(event.physical_key == 44);
@@ -170,6 +593,8 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     CHECK(event.kind == DRAXUL_PLUGIN_INPUT_WHEEL);
     CHECK(event.delta_y == -2.0f);
     host.shutdown();
+    CHECK(fixture_quiesce_count() == 1);
+    CHECK(renderer.wait_idle_calls == 1);
 #ifdef _WIN32
     FreeLibrary(fixture);
 #else

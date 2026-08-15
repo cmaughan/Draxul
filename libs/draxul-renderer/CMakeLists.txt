@@ -1,5 +1,5 @@
 set(DRAXUL_RENDERER_PUBLIC_DEPS
-    draxul-types
+    draxul-plugin-render-support
     draxul-window
     SDL3::SDL3
     imgui
@@ -57,20 +57,6 @@ else()
     set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
         PROPERTIES COMPILE_OPTIONS "${DRAXUL_IMGUI_BACKEND_WARNING_OPTIONS}"
     )
-    # Vulkan resource construction stays in a backend-private implementation
-    # target. Product renderers consume it privately; no Vulkan ownership type
-    # is published from draxul-renderer's public include tree.
-    add_library(draxul-vulkan-resources STATIC
-        src/vulkan/vk_resource_helpers.cpp
-    )
-    target_include_directories(draxul-vulkan-resources PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkan
-    )
-    target_link_libraries(draxul-vulkan-resources PRIVATE
-        Vulkan::Vulkan
-        GPUOpen::VulkanMemoryAllocator
-    )
-
     add_library(draxul-renderer-vulkan OBJECT
         src/vulkan/vk_renderer.cpp
         src/vulkan/vk_context.cpp

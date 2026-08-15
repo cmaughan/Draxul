@@ -12,7 +12,7 @@
 #include <vector>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
-#include "vk_resource_helpers.h"
+#include <draxul/vulkan/vk_resource_helpers.h>
 
 namespace draxul::markdown
 {

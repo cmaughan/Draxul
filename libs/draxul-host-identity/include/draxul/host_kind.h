@@ -19,13 +19,9 @@ enum class HostKind
     Zsh,
     Wsl,
     RemoteTerminal,
-    MegaCity,
-    BioView,
-    SatView,
     NanoVGDemo,
     Markdown,
     Kanban,
-    Score,
     Plugin,
     Count,
 };
@@ -37,13 +33,9 @@ inline constexpr std::array kAllHostKinds = {
     HostKind::Zsh,
     HostKind::Wsl,
     HostKind::RemoteTerminal,
-    HostKind::MegaCity,
-    HostKind::BioView,
-    HostKind::SatView,
     HostKind::NanoVGDemo,
     HostKind::Markdown,
     HostKind::Kanban,
-    HostKind::Score,
     HostKind::Plugin,
 };
 static_assert(kAllHostKinds.size()
@@ -66,20 +58,12 @@ inline const char* to_string(HostKind kind)
         return "wsl";
     case HostKind::RemoteTerminal:
         return "remote-terminal";
-    case HostKind::MegaCity:
-        return "megacity";
-    case HostKind::BioView:
-        return "bioview";
-    case HostKind::SatView:
-        return "satview";
     case HostKind::NanoVGDemo:
         return "nanovg-demo";
     case HostKind::Markdown:
         return "markdown";
     case HostKind::Kanban:
         return "kanban";
-    case HostKind::Score:
-        return "score";
     case HostKind::Plugin:
         return "plugin";
     case HostKind::Count:
@@ -102,13 +86,9 @@ inline constexpr bool is_server_owned_shell_host(HostKind kind)
     case HostKind::RemoteTerminal:
         return true;
     case HostKind::Nvim:
-    case HostKind::MegaCity:
-    case HostKind::BioView:
-    case HostKind::SatView:
     case HostKind::NanoVGDemo:
     case HostKind::Markdown:
     case HostKind::Kanban:
-    case HostKind::Score:
     case HostKind::Plugin:
         return false;
     case HostKind::Count:
@@ -122,30 +102,21 @@ inline std::span<const std::string_view> host_kind_aliases(HostKind kind)
     static constexpr std::array<std::string_view, 0> none = {};
     static constexpr std::array powershell = { std::string_view("pwsh") };
     static constexpr std::array remote_terminal = { std::string_view("remote") };
-    static constexpr std::array bioview = { std::string_view("bio") };
-    static constexpr std::array satview = { std::string_view("sat") };
     static constexpr std::array nanovg = { std::string_view("nanovg") };
     static constexpr std::array markdown = { std::string_view("md") };
     static constexpr std::array kanban = { std::string_view("kb") };
-    static constexpr std::array score = { std::string_view("scoreview") };
     switch (kind)
     {
     case HostKind::PowerShell:
         return powershell;
     case HostKind::RemoteTerminal:
         return remote_terminal;
-    case HostKind::BioView:
-        return bioview;
-    case HostKind::SatView:
-        return satview;
     case HostKind::NanoVGDemo:
         return nanovg;
     case HostKind::Markdown:
         return markdown;
     case HostKind::Kanban:
         return kanban;
-    case HostKind::Score:
-        return score;
     default:
         return none;
     }

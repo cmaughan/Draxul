@@ -21,7 +21,7 @@ file(GLOB DRAXUL_ALL_TEST_SOURCES CONFIGURE_DEPENDS
     RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     *_tests.cpp
 )
-
+draxul_get_registered_plugin_test_sources(DRAXUL_PLUGIN_TEST_SOURCES)
 set(DRAXUL_APP_TEST_SOURCES
     active_tab_invariant_tests.cpp
     app_config_tests.cpp
@@ -64,42 +64,10 @@ file(GLOB DRAXUL_MARKDOWN_KANBAN_TEST_SOURCES CONFIGURE_DEPENDS
     kanban_*_tests.cpp
 )
 
-file(GLOB DRAXUL_MEGACITY_TEST_SOURCES CONFIGURE_DEPENDS
-    RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
-    city_presentation_*_tests.cpp
-    draxul_geometry_tests.cpp
-    lcov_coverage_tests.cpp
-    megacity_*_tests.cpp
-    treesitter*_tests.cpp
-)
-
-file(GLOB DRAXUL_SATVIEW_TEST_SOURCES CONFIGURE_DEPENDS
-    RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
-    satview_*_tests.cpp
-)
-
-file(GLOB DRAXUL_SCOREVIEW_TEST_SOURCES CONFIGURE_DEPENDS
-    RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
-    notation_*_tests.cpp
-    scoreview_*_tests.cpp
-)
-set(DRAXUL_SCOREVIEW_HOST_TEST_SOURCES
-    scoreview_composer_tests.cpp
-    scoreview_host_orchestration_tests.cpp
-    scoreview_host_rebuild_tests.cpp
-    scoreview_microphone_tests.cpp
-    scoreview_overlay_tests.cpp
-    scoreview_worker_stress_tests.cpp
-)
-list(REMOVE_ITEM DRAXUL_SCOREVIEW_TEST_SOURCES ${DRAXUL_SCOREVIEW_HOST_TEST_SOURCES})
-
 set(DRAXUL_CLASSIFIED_TEST_SOURCES
     ${DRAXUL_APP_TEST_SOURCES}
     ${DRAXUL_MARKDOWN_KANBAN_TEST_SOURCES}
-    ${DRAXUL_MEGACITY_TEST_SOURCES}
-    ${DRAXUL_SATVIEW_TEST_SOURCES}
-    ${DRAXUL_SCOREVIEW_TEST_SOURCES}
-    ${DRAXUL_SCOREVIEW_HOST_TEST_SOURCES}
+    ${DRAXUL_PLUGIN_TEST_SOURCES}
 )
 list(LENGTH DRAXUL_CLASSIFIED_TEST_SOURCES DRAXUL_CLASSIFIED_COUNT)
 list(REMOVE_DUPLICATES DRAXUL_CLASSIFIED_TEST_SOURCES)
@@ -118,7 +86,9 @@ set(DRAXUL_PARTITIONED_TEST_SOURCES
     ${DRAXUL_CORE_TEST_SOURCES}
     ${DRAXUL_CLASSIFIED_TEST_SOURCES}
 )
-set(DRAXUL_SORTED_ALL_TEST_SOURCES ${DRAXUL_ALL_TEST_SOURCES})
+set(DRAXUL_SORTED_ALL_TEST_SOURCES
+    ${DRAXUL_ALL_TEST_SOURCES}
+    ${DRAXUL_PLUGIN_TEST_SOURCES})
 set(DRAXUL_SORTED_PARTITIONED_TEST_SOURCES ${DRAXUL_PARTITIONED_TEST_SOURCES})
 list(SORT DRAXUL_SORTED_ALL_TEST_SOURCES)
 list(SORT DRAXUL_SORTED_PARTITIONED_TEST_SOURCES)
@@ -132,7 +102,12 @@ function(draxul_scan_catch_source_metadata prefix)
     set(registration_count 0)
     set(tag_tokens)
     foreach(test_source IN LISTS ARGN)
-        file(READ "${CMAKE_CURRENT_SOURCE_DIR}/${test_source}" source_text)
+        if(IS_ABSOLUTE "${test_source}")
+            set(test_source_path "${test_source}")
+        else()
+            set(test_source_path "${CMAKE_CURRENT_SOURCE_DIR}/${test_source}")
+        endif()
+        file(READ "${test_source_path}" source_text)
 
         # Every current C++ suite uses Catch2 TEST_CASE. Counting registrations
         # statically also sees platform/option-gated cases that cannot be listed
@@ -173,7 +148,9 @@ function(draxul_scan_catch_source_metadata prefix)
     set(${prefix}_TAGS ${tag_tokens} PARENT_SCOPE)
 endfunction()
 
-draxul_scan_catch_source_metadata(DRAXUL_ALL ${DRAXUL_ALL_TEST_SOURCES})
+draxul_scan_catch_source_metadata(DRAXUL_ALL
+    ${DRAXUL_ALL_TEST_SOURCES}
+    ${DRAXUL_PLUGIN_TEST_SOURCES})
 draxul_scan_catch_source_metadata(DRAXUL_PARTITIONED ${DRAXUL_PARTITIONED_TEST_SOURCES})
 if(NOT DRAXUL_ALL_REGISTRATION_COUNT EQUAL DRAXUL_PARTITIONED_REGISTRATION_COUNT
    OR NOT "${DRAXUL_ALL_TAGS}" STREQUAL "${DRAXUL_PARTITIONED_TAGS}")
@@ -189,7 +166,7 @@ set(DRAXUL_TEST_REGISTRATION_BASELINE 1815)
 # The Workspace -> Tab terminology migration consolidated the old [workspace]
 # tag into the existing [tab] token without removing any test registrations.
 set(DRAXUL_TEST_TAG_TOKEN_BASELINE 228)
-list(LENGTH DRAXUL_ALL_TEST_SOURCES DRAXUL_TEST_SOURCE_COUNT)
+list(LENGTH DRAXUL_SORTED_ALL_TEST_SOURCES DRAXUL_TEST_SOURCE_COUNT)
 if(DRAXUL_TEST_SOURCE_COUNT LESS DRAXUL_TEST_SOURCE_BASELINE
    OR DRAXUL_ALL_REGISTRATION_COUNT LESS DRAXUL_TEST_REGISTRATION_BASELINE
    OR DRAXUL_ALL_TAG_COUNT LESS DRAXUL_TEST_TAG_TOKEN_BASELINE)
@@ -281,27 +258,27 @@ target_link_libraries(draxul-test-app PRIVATE
 target_compile_definitions(draxul-test-app PRIVATE DRAXUL_TEST_REGISTER_APP_HOSTS)
 
 add_library(draxul-plugin-fixture MODULE fixtures/plugin_fixture.cpp)
-target_include_directories(draxul-plugin-fixture PRIVATE
-    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
+target_link_libraries(draxul-plugin-fixture PRIVATE
+    Draxul::PluginSDK Draxul::PluginSupport::Runtime)
 set_target_properties(draxul-plugin-fixture PROPERTIES PREFIX "")
 
 add_library(draxul-plugin-fixture-bad-abi MODULE fixtures/plugin_fixture.cpp)
-target_include_directories(draxul-plugin-fixture-bad-abi PRIVATE
-    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
+target_link_libraries(draxul-plugin-fixture-bad-abi PRIVATE
+    Draxul::PluginSDK Draxul::PluginSupport::Runtime)
 target_compile_definitions(draxul-plugin-fixture-bad-abi PRIVATE
     DRAXUL_FIXTURE_REJECT_ABI)
 set_target_properties(draxul-plugin-fixture-bad-abi PROPERTIES PREFIX "")
 
 add_library(draxul-plugin-fixture-wrong-id MODULE fixtures/plugin_fixture.cpp)
-target_include_directories(draxul-plugin-fixture-wrong-id PRIVATE
-    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
+target_link_libraries(draxul-plugin-fixture-wrong-id PRIVATE
+    Draxul::PluginSDK Draxul::PluginSupport::Runtime)
 target_compile_definitions(draxul-plugin-fixture-wrong-id PRIVATE
     DRAXUL_FIXTURE_PLUGIN_ID="dev.draxul.wrong")
 set_target_properties(draxul-plugin-fixture-wrong-id PROPERTIES PREFIX "")
 
 add_library(draxul-plugin-fixture-unsupported MODULE fixtures/plugin_fixture.cpp)
-target_include_directories(draxul-plugin-fixture-unsupported PRIVATE
-    ${CMAKE_SOURCE_DIR}/libs/draxul-plugin/include)
+target_link_libraries(draxul-plugin-fixture-unsupported PRIVATE
+    Draxul::PluginSDK Draxul::PluginSupport::Runtime)
 target_compile_definitions(draxul-plugin-fixture-unsupported PRIVATE
     DRAXUL_FIXTURE_BACKENDS=0)
 set_target_properties(draxul-plugin-fixture-unsupported PROPERTIES PREFIX "")
@@ -311,31 +288,20 @@ add_library(draxul-plugin-fixture-no-symbol MODULE
 set_target_properties(draxul-plugin-fixture-no-symbol PROPERTIES PREFIX "")
 
 add_dependencies(draxul-test-app
+    draxul-spinning-triangle
     draxul-plugin-fixture
     draxul-plugin-fixture-bad-abi
     draxul-plugin-fixture-wrong-id
     draxul-plugin-fixture-unsupported
     draxul-plugin-fixture-no-symbol)
 target_compile_definitions(draxul-test-app PRIVATE
+    DRAXUL_TRIANGLE_PLUGIN_PATH="$<TARGET_FILE:draxul-spinning-triangle>"
     DRAXUL_FIXTURE_VALID_PATH="$<TARGET_FILE:draxul-plugin-fixture>"
     DRAXUL_FIXTURE_BAD_ABI_PATH="$<TARGET_FILE:draxul-plugin-fixture-bad-abi>"
     DRAXUL_FIXTURE_WRONG_ID_PATH="$<TARGET_FILE:draxul-plugin-fixture-wrong-id>"
     DRAXUL_FIXTURE_UNSUPPORTED_PATH="$<TARGET_FILE:draxul-plugin-fixture-unsupported>"
     DRAXUL_FIXTURE_NO_SYMBOL_PATH="$<TARGET_FILE:draxul-plugin-fixture-no-symbol>"
 )
-if(DRAXUL_ENABLE_MEGACITY)
-    target_link_libraries(draxul-test-app PRIVATE draxul-megacity)
-    target_compile_definitions(draxul-test-app PRIVATE DRAXUL_ENABLE_MEGACITY)
-endif()
-if(DRAXUL_ENABLE_SATVIEW)
-    target_link_libraries(draxul-test-app PRIVATE draxul-satview-host)
-    target_compile_definitions(draxul-test-app PRIVATE DRAXUL_ENABLE_SATVIEW)
-endif()
-if(DRAXUL_ENABLE_SCOREVIEW)
-    target_link_libraries(draxul-test-app PRIVATE draxul-scoreview-host)
-    target_compile_definitions(draxul-test-app PRIVATE DRAXUL_ENABLE_SCOREVIEW)
-endif()
-
 draxul_add_test_target(
     draxul-test-markdown-kanban "markdown;kanban" 1
     ${DRAXUL_MARKDOWN_KANBAN_TEST_SOURCES}
@@ -346,59 +312,45 @@ target_link_libraries(draxul-test-markdown-kanban PRIVATE
     draxul-kanban
 )
 
-if(DRAXUL_ENABLE_MEGACITY)
-    draxul_add_test_target(draxul-test-megacity megacity 2 ${DRAXUL_MEGACITY_TEST_SOURCES})
-    target_link_libraries(draxul-test-megacity PRIVATE
-        draxul-geometry
-        draxul-megacity-test-internals
-        draxul-codeviz-renderer-test-internals
-    )
-    target_compile_definitions(draxul-test-megacity PRIVATE DRAXUL_ENABLE_MEGACITY)
-endif()
-
-if(DRAXUL_ENABLE_SATVIEW)
-    draxul_add_test_target(draxul-test-satview satview 2 ${DRAXUL_SATVIEW_TEST_SOURCES})
-    target_link_libraries(draxul-test-satview PRIVATE
-        draxul-satview-host-test-internals
-        draxul-satview-renderer-test-internals
-    )
-    target_compile_definitions(draxul-test-satview PRIVATE DRAXUL_ENABLE_SATVIEW)
-endif()
-
-if(DRAXUL_ENABLE_SCOREVIEW)
-    draxul_add_test_target(draxul-test-scoreview scoreview 2 ${DRAXUL_SCOREVIEW_TEST_SOURCES})
-    target_link_libraries(draxul-test-scoreview PRIVATE draxul-notation draxul-scoreview)
-
-    # Host lifecycle, microphone, NanoVG overlay, and worker orchestration tests
-    # carry the full host dependency without imposing it on the ScoreView core.
-    draxul_add_test_target(
-        draxul-test-scoreview-host "scoreview;scoreview-host" 1
-        ${DRAXUL_SCOREVIEW_HOST_TEST_SOURCES}
-    )
-    target_link_libraries(draxul-test-scoreview-host PRIVATE
-        draxul-scoreview-host-test-internals
-    )
-
-    foreach(scoreview_target
-        draxul-test-app
-        draxul-test-scoreview
-        draxul-test-scoreview-host)
-        target_compile_definitions(${scoreview_target} PRIVATE
-            DRAXUL_ENABLE_SCOREVIEW
-            DRAXUL_VEROVIO_DATA_DIR="${verovio_SOURCE_DIR}/data"
-            DRAXUL_SOUNDFONT_DIR="${ydp_grand_piano_SOURCE_DIR}"
-        )
-        if(WIN32)
-            add_custom_command(TARGET ${scoreview_target} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    $<TARGET_FILE:verovio>
-                    $<TARGET_FILE_DIR:${scoreview_target}>
-            )
-        endif()
-    endforeach()
-endif()
-
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+add_test(NAME draxul-plugin-target-suffix
+    COMMAND ${CMAKE_COMMAND}
+        -S "${CMAKE_CURRENT_SOURCE_DIR}/cmake/plugin_target_suffix"
+        -B "${CMAKE_CURRENT_BINARY_DIR}/plugin_target_suffix")
+
+draxul_configure_registered_plugin_tests()
+
+set(DRAXUL_EXTERNAL_SDK_SMOKE_COMMAND
+    ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external_plugin_sdk_smoke.py
+    --cmake ${CMAKE_COMMAND}
+    --source-root ${CMAKE_SOURCE_DIR}
+    --build-root ${CMAKE_BINARY_DIR}
+    --draxul $<TARGET_FILE:draxul>
+    --config $<CONFIG>
+    --generator ${CMAKE_GENERATOR}
+    --platform=${CMAKE_GENERATOR_PLATFORM}
+    --toolset=${CMAKE_GENERATOR_TOOLSET})
+if(DRAXUL_ENABLE_RENDER_TESTS)
+    list(APPEND DRAXUL_EXTERNAL_SDK_SMOKE_COMMAND --render)
+endif()
+
+add_test(
+    NAME draxul-external-plugin-sdk-smoke
+    COMMAND ${DRAXUL_EXTERNAL_SDK_SMOKE_COMMAND})
+set_tests_properties(draxul-external-plugin-sdk-smoke
+    PROPERTIES
+        LABELS "integration;plugin;sdk"
+        RESOURCE_LOCK draxul_gpu
+        TIMEOUT 600)
+
+add_custom_target(draxul-sdk-external-smoke
+    COMMAND ${DRAXUL_EXTERNAL_SDK_SMOKE_COMMAND}
+    DEPENDS draxul
+    USES_TERMINAL
+    VERBATIM)
+
 add_test(
     NAME draxul-do-py-tests
     COMMAND ${Python3_EXECUTABLE} -m unittest tests.do_py_tests
@@ -421,19 +373,6 @@ set_tests_properties(draxul-review-skill-py-tests
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
 
-if(DRAXUL_ENABLE_SATVIEW)
-    add_test(
-        NAME draxul-satview-catalog-py-tests
-        COMMAND ${Python3_EXECUTABLE} -m unittest tests.satview_catalog_py_tests
-    )
-    set_tests_properties(draxul-satview-catalog-py-tests
-        PROPERTIES
-            LABELS "unit;satview;python"
-            TIMEOUT 120
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    )
-endif()
-
 draxul_apply_sanitizers(draxul-rpc-fake)
 draxul_apply_coverage(draxul-rpc-fake)
 draxul_apply_msvc_parallel_pdb_fix(draxul-rpc-fake)
@@ -443,6 +382,11 @@ draxul_apply_msvc_parallel_pdb_fix(draxul-rpc-fake)
 # include/link declarations cannot be masked by the broad unit-test graph.
 add_executable(draxul-bmp-link-isolation link_isolation/bmp_public_header.cpp)
 target_link_libraries(draxul-bmp-link-isolation PRIVATE draxul-bmp)
+
+add_executable(draxul-plugin-sdk-c-link-isolation
+    link_isolation/plugin_sdk_c_header.c)
+target_link_libraries(draxul-plugin-sdk-c-link-isolation PRIVATE
+    Draxul::PluginSDK)
 
 add_executable(draxul-performance-link-isolation link_isolation/performance_public_header.cpp)
 target_link_libraries(draxul-performance-link-isolation PRIVATE draxul-performance)
@@ -467,6 +411,7 @@ target_link_libraries(draxul-server-link-isolation PRIVATE draxul-server)
 
 add_dependencies(draxul-tests
     draxul-bmp-link-isolation
+    draxul-plugin-sdk-c-link-isolation
     draxul-performance-link-isolation
     draxul-host-link-isolation
     draxul-terminal-core-link-isolation

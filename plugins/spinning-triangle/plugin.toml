@@ -1,8 +1,8 @@
 schema_version = 1
 id = "dev.draxul.spinning-triangle"
 name = "Spinning Triangle"
-version = "0.1.0"
-abi_version = 1
+version = "0.2.0"
+abi_version = 2
 
 [platform.windows]
 library = "draxul-spinning-triangle.dll"

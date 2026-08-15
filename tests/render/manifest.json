@@ -74,6 +74,54 @@
       "bless_command": ""
     },
     {
+      "name": "satview-plugin",
+      "purpose": "Dynamic SatView GPU pane composition at a fixed simulation angle",
+      "status": "developer",
+      "platforms": ["windows", "macos"],
+      "ctest": false,
+      "reference_required": false,
+      "renderall": false,
+      "blessall": false,
+      "compare_command": "",
+      "bless_command": ""
+    },
+    {
+      "name": "megacity-plugin",
+      "purpose": "Dynamic MegaCity plugin composition using the real semantic-city product",
+      "status": "developer",
+      "platforms": ["windows", "macos"],
+      "ctest": false,
+      "reference_required": false,
+      "renderall": false,
+      "blessall": false,
+      "compare_command": "",
+      "bless_command": ""
+    },
+    {
+      "name": "bioview-plugin",
+      "purpose": "Dynamic MegaCity plugin composition in real Biology mode",
+      "status": "developer",
+      "platforms": ["windows", "macos"],
+      "ctest": false,
+      "reference_required": false,
+      "renderall": false,
+      "blessall": false,
+      "compare_command": "",
+      "bless_command": ""
+    },
+    {
+      "name": "scoreview-plugin",
+      "purpose": "Dynamic ScoreView plugin-owned Vulkan/Metal composition with a real MusicXML source",
+      "status": "developer",
+      "platforms": ["windows", "macos"],
+      "ctest": false,
+      "reference_required": false,
+      "renderall": false,
+      "blessall": false,
+      "compare_command": "",
+      "bless_command": ""
+    },
+    {
       "name": "wide-char-scroll",
       "purpose": "Developer exercise for wide-character scrolling",
       "status": "developer",

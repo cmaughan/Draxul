@@ -722,7 +722,8 @@ bool App::initialize_chrome_host()
 {
     PERF_MEASURE();
     host_owner_lifetime_ = std::make_shared<int>(0);
-    refresh_system_resource_snapshot(std::chrono::steady_clock::now());
+    if (options_.show_system_resources)
+        refresh_system_resource_snapshot(std::chrono::steady_clock::now());
 
     ChromeHost::Deps chrome_deps;
     chrome_deps.config = &config_;
@@ -730,7 +731,9 @@ bool App::initialize_chrome_host()
     chrome_deps.text_service = &text_service_;
     chrome_deps.space_controller = &space_controller_;
     chrome_deps.agent_controller = &agent_controller_;
-    chrome_deps.system_resource_snapshot = &system_resource_snapshot_;
+    chrome_deps.system_resource_snapshot = options_.show_system_resources
+        ? &system_resource_snapshot_
+        : nullptr;
     chrome_deps.weather_emoji = [this]() -> std::string {
         return weather_service_.emoji();
     };
@@ -823,7 +826,7 @@ bool App::initialize_chrome_host()
 
         // Skip session restore when the user explicitly specified --host on the
         // command line. The explicit host kind should win over a saved session
-        // that may contain a different host type (e.g. --host megacity should
+        // that may contain a different host type (e.g. an explicit local host should
         // not restore a saved shell session).
         if (!options_.host_kind_explicit)
         {
@@ -2392,6 +2395,8 @@ void App::pump_background_hosts()
 
 void App::refresh_system_resource_snapshot(std::chrono::steady_clock::time_point now)
 {
+    if (!options_.show_system_resources)
+        return;
     if (!system_resource_monitor_.refresh(now))
         return;
 
@@ -4878,8 +4883,8 @@ void App::maybe_checkpoint_session(std::chrono::steady_clock::time_point now)
     if (!options_.enable_session_restore || discard_session_state_on_shutdown_)
         return;
 
-    // Saved layouts cover shell panes only, so a single nvim/markdown/kanban/
-    // score/megacity pane anywhere disables every checkpoint AND the shutdown
+    // Saved layouts cover shell panes only, so any non-shell pane disables
+    // every checkpoint AND the shutdown
     // save. That is deliberate, but it used to be completely silent: the user
     // simply stopped getting their layout back. Report the transition once —
     // never the steady state, and never on the very first evaluation, so an

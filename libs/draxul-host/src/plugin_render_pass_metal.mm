@@ -19,7 +19,7 @@ public:
     void record_prepass(IRenderContext& context) override
     {
         auto& metal = static_cast<MetalRenderContext&>(context);
-        DraxulPluginMetalFrameV1 frame{};
+        DraxulPluginMetalFrameV2 frame{};
         frame.struct_size = sizeof(frame);
         frame.device = (__bridge void*)metal.device();
         frame.command_buffer = (__bridge void*)metal.command_buffer();
@@ -31,7 +31,7 @@ public:
         frame.buffered_frame_count = metal.buffered_frame_count();
         frame.framebuffer_width = metal.width();
         frame.framebuffer_height = metal.height();
-        frame.viewport = { sizeof(DraxulPluginViewportV1), metal.viewport_x(), metal.viewport_y(), metal.viewport_w(), metal.viewport_h(), 1.0f, 96.0f };
+        frame.viewport = { sizeof(DraxulPluginViewportV2), metal.viewport_x(), metal.viewport_y(), metal.viewport_w(), metal.viewport_h(), 1.0f, 96.0f };
         frame.monotonic_seconds = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - started_at_).count();
         host_.accept_render_result(plugin_->api().render_metal(instance_, &frame));

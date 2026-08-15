@@ -626,7 +626,7 @@ bool PaneManager::should_preserve_dead_leaf(LeafId id) const
         const std::optional<int> exit_code = host_it->second->exit_code();
         return exit_code.has_value() && *exit_code != 0;
     }
-    // Non-shell hosts (nvim, megacity) are always preserved when they die.
+    // Non-shell hosts (for example nvim or plugins) are preserved when they die.
     return true;
 }
 
@@ -1352,6 +1352,7 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
             .config = deps_.config,
             .config_document = deps_.config_document,
             .launch_options = std::move(launch),
+            .pane_id = pane_ids_[id],
             .initial_viewport = viewport,
             .owner_lifetime = deps_.owner_lifetime,
             .display_ppi = display_ppi,

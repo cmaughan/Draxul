@@ -14,5 +14,5 @@ families. The detailed current library and product-module graph is in
 - During Draxul client/server development and validation, Codex may terminate
   running Draxul instances when necessary. Resolve the exact Draxul process
   targets first and avoid affecting unrelated processes.
-- When working under `modules/megacity/`, also read
-  `modules/megacity/AGENTS.md`.
+- When working under `plugins/megacity/`, also read
+  `plugins/megacity/product/AGENTS.md`.

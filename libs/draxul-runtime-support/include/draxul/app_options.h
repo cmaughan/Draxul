@@ -35,6 +35,9 @@ struct AppOptions
     bool start_hidden_window = false;
     bool show_diagnostics_on_startup = false;
     bool show_diagnostics_in_render_test = false;
+    // Render scenarios can suppress live CPU/RAM chrome so image comparisons
+    // cover product output rather than the machine running the test.
+    bool show_system_resources = true;
     bool clamp_window_to_display = true;
     bool show_render_test_window = false;
     // When true, Draxul loads/saves restorable shell-session topology for the

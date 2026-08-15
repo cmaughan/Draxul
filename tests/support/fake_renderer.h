@@ -34,9 +34,11 @@ public:
             ++renderer_.draw_grid_handle_calls;
         }
 
-        void record_render_pass(IRenderPass& pass, const RenderViewport&) override
+        void record_render_pass(IRenderPass& pass,
+            const RenderViewport& viewport) override
         {
             renderer_.last_recorded_render_pass = &pass;
+            renderer_.recorded_render_viewports.push_back(viewport);
             ++renderer_.record_render_pass_calls;
         }
 
@@ -114,6 +116,10 @@ public:
         return 0;
     }
     void set_default_background(Color) override {}
+    void wait_idle() override
+    {
+        ++wait_idle_calls;
+    }
     bool initialize_imgui_backend() override
     {
         return true;
@@ -145,6 +151,7 @@ public:
     FakeGridHandle* last_handle = nullptr;
     IGridHandle* last_drawn_handle = nullptr;
     IRenderPass* last_recorded_render_pass = nullptr;
+    std::vector<RenderViewport> recorded_render_viewports;
 
     // Recorded state — read by tests (overlay forwarded from the default handle).
     std::vector<CellUpdate> last_overlay;
@@ -159,6 +166,7 @@ public:
     int set_cell_size_calls = 0;
     int begin_frame_calls = 0;
     int end_frame_calls = 0;
+    int wait_idle_calls = 0;
     FakeFrameContext frame_context;
 
     void reset()
@@ -167,6 +175,7 @@ public:
         last_handle = nullptr;
         last_drawn_handle = nullptr;
         last_recorded_render_pass = nullptr;
+        recorded_render_viewports.clear();
         last_imgui_draw_data = nullptr;
         draw_grid_handle_calls = 0;
         record_render_pass_calls = 0;
@@ -178,6 +187,7 @@ public:
         set_cell_size_calls = 0;
         begin_frame_calls = 0;
         end_frame_calls = 0;
+        wait_idle_calls = 0;
     }
 };
 

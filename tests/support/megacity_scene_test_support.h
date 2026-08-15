@@ -15,6 +15,7 @@
 #include "home_dir_redirect.h"
 #include "live_city_metrics.h"
 #include "mesh_library.h"
+#include "plugin_runtime_test_callbacks.h"
 #include "scene_snapshot_builder.h"
 #include "semantic_source_controller.h"
 #include "semantic_city_layout.h"
@@ -46,6 +47,13 @@ using namespace draxul;
 
 namespace
 {
+
+PluginRuntimeLaunchOptions megacity_test_launch_options()
+{
+    PluginRuntimeLaunchOptions launch;
+    launch.source_path = DRAXUL_PROJECT_ROOT;
+    return launch;
+}
 
 float triangle_up_normal_y(const MeshData& mesh, size_t triangle_index)
 {

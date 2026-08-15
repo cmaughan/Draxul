@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "show-me": {
+      "source": "humanlayer/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/show-me/skills/show-me/SKILL.md",
+      "computedHash": "60a3c1f9387cadca217696db4ed074d2f618774b697fb9534eb8be327ab78d56"
+    }
+  }
+}

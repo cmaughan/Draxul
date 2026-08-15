@@ -132,6 +132,60 @@ every attached UI resolves it against its own installation. A missing plugin is
 therefore not a reason to delete or recreate the pane: the UI displays a placeholder
 until it restarts with a compatible plugin installed.
 
+Bundled IDs currently include `dev.draxul.spinning-triangle`,
+`dev.draxul.megacity`, `dev.draxul.satview`, and `dev.draxul.scoreview`. Create SatView headlessly like
+any other plugin:
+
+```text
+draxul tab create --space <space-id> --name SatView \
+  --plugin dev.draxul.satview --json
+draxul pane split <pane-id> --direction right \
+  --plugin dev.draxul.satview --json
+```
+
+SatView's full product implementation—control panels, camera input, simulation,
+catalog/cloud work, Vulkan/Metal rendering, shaders, assets, status/actions, and
+local preferences—lives in `plugins/satview`. Do not use `--host satview`:
+there is deliberately no compiled-in fallback. If `plugin get` reports it missing,
+preserve the shared pane and repair that UI's plugin installation.
+
+Create ScoreView with a local MusicXML source carried in structured launch JSON:
+
+```text
+draxul tab create --space <space-id> --name ScoreView \
+  --plugin dev.draxul.scoreview \
+  --plugin-config '{"source":"C:/scores/piece.musicxml","mode":"paged"}' --json
+draxul pane split <pane-id> --direction right \
+  --plugin dev.draxul.scoreview \
+  --plugin-config '{"source":"C:/scores/piece.musicxml","mode":"flow"}' --json
+```
+
+`source` is local to each attached UI even though its text is shared in topology;
+an UI without that file shows an inert placeholder. `mode` accepts ScoreView's
+reading/runner mode string. `background_playback` defaults to false: hiding the
+pane pauses transport, releases local device leases, and stops render deadlines.
+Set it true only when the user wants hidden playback. Audio, microphone, and named
+MIDI inputs are process-local leases acquired only by explicit interaction or
+configuration; a busy device leaves the score usable and reports a local error.
+Do not use `--host score`; there is no compiled-in fallback.
+
+MegaCity and BioView are two modes of one product plugin. `source` is the local
+directory to scan; every attached UI resolves that path independently.
+
+```text
+draxul tab create --space <space-id> --name MegaCity \
+  --plugin dev.draxul.megacity \
+  --plugin-config '{"mode":"city","source":"D:/dev/project"}' --json
+draxul pane split <pane-id> --direction right \
+  --plugin dev.draxul.megacity \
+  --plugin-config '{"mode":"biology","source":"D:/dev/project"}' --json
+```
+
+Accepted modes are `city` and `biology`. `show_ui` defaults to true and
+`continuous_refresh` defaults to false. Do not use `--host megacity` or
+`--host bioview`; the production executable deliberately has no static product
+registration.
+
 ## Drive terminal processes
 
 ```text

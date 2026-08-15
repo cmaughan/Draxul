@@ -32,7 +32,7 @@ draxul executable
 ├── draxul-client / draxul-server
 ├── draxul-markdown-host
 ├── draxul-kanban
-└── optional product hosts: draxul-megacity / draxul-satview-host / draxul-scoreview-host
+└── optional products: draxul-megacity / SatView + ScoreView plugins
         │
         ├── product-specific model, scene, service, and renderer targets
         └── shared host / renderer / UI infrastructure
@@ -50,8 +50,8 @@ draxul executable
 
 This is a dependency shape, not a promise that every target in one row links every
 target below it. Consult the target's `CMakeLists.txt` for exact public/private edges.
-In particular, `draxul-app` deliberately has no source-level dependency on optional
-product modules; the executable links and registers those host providers.
+In particular, `draxul-app` deliberately has no source-level dependency on the
+SatView or ScoreView product runtimes; the executable discovers their modules.
 
 ## Core Libraries
 
@@ -98,10 +98,13 @@ does not rebuild or extend the universal value-type archive.
 
 | Directory | Ownership |
 |---|---|
+| `sdk/` | Installable, versioned native plugin C ABI and the dependency-free `Draxul::PluginSDK` CMake target |
+| `plugins/support/imgui/` | Product-owned optional ImGui Vulkan/Metal encoder, SDL-to-ImGui input translation, and public UI-style service client, linked inside native plugin modules and never exposed across the ABI |
+| `libs/draxul-plugin-support/` | Same-build plugin leaves: C-ABI path/storage/UI-style wrappers, product lifecycle/viewport vocabulary, backend-neutral render contracts, Vulkan resource ownership, explicit-path TOML documents, and tooltip layout; exports only `Draxul::PluginSupport::*` targets |
 | `libs/draxul-performance/` | Runtime timing collection and the `PERF_MEASURE` instrumentation API |
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
-| `libs/draxul-plugin/` | Trusted native plugin SDK, manifest discovery, platform dynamic loading, ABI/identity validation, and process-lifetime module cache |
+| `libs/draxul-plugin/` | Manifest discovery, platform dynamic loading, ABI/identity validation, and process-lifetime module cache; consumes the public SDK but does not own it |
 | `libs/draxul-agent/` | Neutral agent identity/profile/runtime values plus bundled, versioned terminal-status and process-discovery evaluators |
 | `libs/draxul-session-model/` | Renderer-free durable Session/Space/tab/pane snapshot values, validation, versioned TOML codec, and transactional file replacement shared by the app and server |
 | `libs/draxul-control/` | Versioned, authenticated local Session control transport and client (Windows named pipe; Unix-domain socket elsewhere) |
@@ -114,11 +117,23 @@ does not rebuild or extend the universal value-type archive.
 These targets must not depend on product modules. Configure-time checks in
 `cmake/CheckDependencyBoundaries.cmake` enforce that direction and the direct
 `draxul-host` dependencies needed by its public and implementation headers.
+Mounted native products register their module, manifest, runtime payload,
+product targets, and focused test targets through `cmake/DraxulPlugins.cmake`.
+That file owns platform-neutral staging and accepts shared C++ dependencies only
+through the explicit `Draxul::PluginSupport::*` allowlist. It also verifies that
+the allowlisted leaves cannot reach broader core libraries. Root CMake can enable
+a mounted plugin without knowing its shader names or packaging layout; removing
+the plugin directory therefore cannot leave reverse product dependencies in
+core. The shared C++ support is statically linked into a same-build plugin and
+does not change the runtime boundary, which remains `Draxul::PluginSDK`'s C ABI.
 `draxul-host` privately consumes `draxul-client` for the `RemoteTerminalHost`
 renderer adapter, including client-local viewport/selection/mouse/paste behavior.
 It also owns the generic `PluginHost` and its Vulkan/Metal render-pass adapters;
 plugin modules remain dynamically linked and are never product dependencies of the
-server. The bundled spinning-triangle sample lives under `plugins/`.
+server. The spinning-triangle is the first module staged through the generic
+registration contract. SatView, MegaCity/BioView, and ScoreView now use the same
+strict contract and only consume their own targets, third-party targets, or the
+named plugin-support leaves.
 The process adapter, client, and server libraries remain free of host, window,
 renderer, font, SDL, and product dependencies.
 
@@ -141,8 +156,7 @@ Good place for:
 Public renderer API plus Vulkan/Metal backends.
 
 Owns:
-- renderer interface hierarchy (`IBaseRenderer` → `I3DRenderer` → `IGridRenderer`)
-- render pass abstraction (`IRenderPass` / `IRenderContext`) replacing legacy `void*` callbacks
+- renderer implementation hierarchy (`IBaseRenderer` → `I3DRenderer` → `IGridRenderer`)
 - shared renderer CPU-side state
 - GPU upload/submission code
 - frame capture for render snapshots
@@ -159,6 +173,11 @@ Good place for:
 - backend-specific GPU work
 - readback/capture paths
 - new render pass implementations (implement `IRenderPass::record(IRenderContext&)`)
+
+The generic `IBaseRenderer`/`IFrameContext`/`IRenderPass` contract and typed
+Vulkan/Metal render contexts live in `libs/draxul-plugin-support`; the renderer
+implements that leaf contract but plugins do not inherit its window, swapchain,
+grid, capture, or presentation dependencies.
 
 ### libs/draxul-font/
 
@@ -223,12 +242,30 @@ Good place for:
 |---|---|---|
 | `modules/markdown/` | Always built | `draxul-markdown` parses/layouts documents; `draxul-markdown-host` integrates the native pane and platform render pass |
 | `modules/kanban/` | Always built | `draxul-kanban` owns board storage, layout/navigation, and the native Kanban host |
-| `modules/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Code semantics/tree-sitter, geometry, scene, renderer, host helpers, and the `draxul-megacity` product host; see its nested `AGENTS.md` |
-| `modules/satview/` | `DRAXUL_ENABLE_SATVIEW` | Satellite core, scene, services, renderer, and `draxul-satview-host` |
-| `modules/score/` | `DRAXUL_ENABLE_SCOREVIEW` | Notation, learning, MIDI/audio input, ScoreView model, and `draxul-scoreview-host` |
+| `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Self-contained MegaCity/BioView product: code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic module |
+| `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Self-contained satellite product: core, scene, services, runtime, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |
+| `plugins/scoreview/` | `DRAXUL_ENABLE_SCOREVIEW` | Self-contained notation, learning, transport, worker, MIDI/audio/microphone, UI, NanoVG Vulkan/Metal rendering, assets, tests, and dynamic module |
 
-Markdown and Kanban are linked directly into `draxul`. Optional product hosts are
-also linked only at the executable boundary when their CMake option is enabled.
+All three optional product directories own their third-party dependency
+declarations, sanitizer/coverage target lists, shader compilation, package
+payload, test source inventory, and focused CTest wiring. The root build contains
+only their feature switches and mount-point `add_subdirectory` calls. SatView's
+catalog and texture generators likewise live under `plugins/satview/tools/`, so
+the product can become a submodule without leaving maintenance scripts in core.
+Each mount point is a cache path (`DRAXUL_MEGACITY_PLUGIN_DIR`,
+`DRAXUL_SATVIEW_PLUGIN_DIR`, or `DRAXUL_SCOREVIEW_PLUGIN_DIR`). An enabled but
+absent checkout is reported and skipped, making no-product and partial-submodule
+trees supported configurations rather than configure errors.
+Their registrations use strict dependency checking: SatView and MegaCity/BioView
+consume the generic plugin runtime, render, configuration, text, HTTP,
+performance, tooltip/ImGui, and platform GPU leaves as needed; ScoreView keeps
+its standalone product stack and uses the same in-tree registration/support
+naming. None of the product targets links `draxul-host`, the renderer
+implementation, app orchestration, or another product.
+
+Markdown and Kanban are linked directly into `draxul`. MegaCity/BioView, SatView,
+and ScoreView are staged and loaded only as native modules. Core has no product
+host kinds, provider factories, renderer bridge, or compiled-in fallback.
 
 ## Generated Views
 
@@ -296,7 +333,8 @@ Use this when:
   behavior, or reusable scrollback storage, start in `draxul-terminal-core`.
 - If it is about a shell process, PTY/ConPTY lifecycle, selection, copy mode, or
   client presentation, start in `draxul-host`.
-- If the issue belongs only to Markdown, Kanban, Megacity, SatView, or ScoreView, start in that product's `modules/` directory.
+- If the issue belongs to SatView, MegaCity/BioView, or ScoreView, start in its
+  directory under `plugins/`. Markdown and Kanban remain under `modules/`.
 - If the issue crosses several modules, start in `app/` to trace orchestration, then move reusable logic downward. Shared Session identity/split projection belongs in `draxul-client::TopologyProjection`; `app/` only adapts it to controllers and pane hosts.
 
 ## Why This Exists
