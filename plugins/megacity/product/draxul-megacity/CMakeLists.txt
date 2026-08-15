@@ -46,7 +46,7 @@ target_link_libraries(draxul-megacity PUBLIC
     draxul-treesitter
     Draxul::PluginSupport::ImGui
     imgui
-    SDL3::SDL3
+    ${DRAXUL_MEGACITY_SDL_TARGET}
 )
 
 target_link_libraries(draxul-megacity PRIVATE

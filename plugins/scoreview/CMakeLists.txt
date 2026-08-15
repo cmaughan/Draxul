@@ -44,6 +44,19 @@ else()
     set(DRAXUL_SCOREVIEW_IMGUI_TARGET Draxul::PluginSupport::ImGui)
 endif()
 
+# SDL linkage differs by build flavor. Standalone builds and Windows embed the
+# static SDL3 archive. Bundled macOS builds must not: the host executable
+# already carries a full static SDL3, and embedding a second copy in the dylib
+# registers duplicate SDL Objective-C classes (SDL3Window, SDL3_cocoametalview,
+# ...) with the process-global ObjC runtime. There the product libraries link
+# headers only and the module resolves SDL_* from the host executable at
+# dlopen via -undefined dynamic_lookup.
+if(APPLE AND NOT DRAXUL_SCOREVIEW_STANDALONE)
+    set(DRAXUL_SCOREVIEW_SDL_TARGET SDL3::Headers)
+else()
+    set(DRAXUL_SCOREVIEW_SDL_TARGET SDL3::SDL3)
+endif()
+
 # ScoreView owns its complete product stack. Draxul consumes only the native
 # module through the installed C ABI; no app, library, or module target is
 # linked across the DLL boundary.
@@ -62,6 +75,11 @@ target_link_libraries(draxul-scoreview-plugin PRIVATE
 if(APPLE)
     target_link_libraries(draxul-scoreview-plugin PRIVATE
         "-framework Metal" "-framework Foundation")
+    draxul_plugin_imgui_attach_metal_backend(draxul-scoreview-plugin ScoreView)
+    if(NOT DRAXUL_SCOREVIEW_STANDALONE)
+        target_link_options(draxul-scoreview-plugin PRIVATE
+            "LINKER:-undefined,dynamic_lookup")
+    endif()
 else()
     target_link_libraries(draxul-scoreview-plugin PRIVATE Vulkan::Vulkan)
     set(SCOREVIEW_PLUGIN_SHADER_OUTPUTS)

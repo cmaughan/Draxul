@@ -73,12 +73,14 @@ target_include_directories(draxul-scoreview-runtime PUBLIC
 
 # SDL stays at the runtime layer: the core listener above is pure DSP and
 # offline-testable; only the microphone front-end touches a device.
+# DRAXUL_SCOREVIEW_SDL_TARGET is headers-only in bundled macOS builds, where
+# the plugin module resolves SDL symbols from the host executable at load.
 target_link_libraries(draxul-scoreview-runtime PUBLIC
     draxul-scoreview
     draxul-notation
     draxul-score-canvas
     draxul-score-runtime-support
-    PRIVATE SDL3::SDL3 imgui
+    PRIVATE ${DRAXUL_SCOREVIEW_SDL_TARGET} imgui
 )
 
 # Microphone permission pre-flight: TCC via AVFoundation on macOS (SDL must

@@ -7,5 +7,5 @@ target_include_directories(draxul-score-runtime-support PUBLIC include)
 target_link_libraries(draxul-score-runtime-support PUBLIC
     glm::glm
     imgui
-    SDL3::SDL3
+    ${DRAXUL_SCOREVIEW_SDL_TARGET}
 )

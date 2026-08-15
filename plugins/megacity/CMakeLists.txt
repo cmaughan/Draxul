@@ -2,6 +2,17 @@ cmake_minimum_required(VERSION 3.25)
 
 include(cmake/Dependencies.cmake)
 
+# On macOS the host executable already embeds a full static SDL3; linking the
+# SDL archive into this dylib would register duplicate SDL Objective-C classes
+# with the process-global runtime. Product libraries link headers only and the
+# module resolves SDL_* from the host executable at dlopen (see the
+# -undefined dynamic_lookup link option below). Windows keeps the archive.
+if(APPLE)
+    set(DRAXUL_MEGACITY_SDL_TARGET SDL3::Headers)
+else()
+    set(DRAXUL_MEGACITY_SDL_TARGET SDL3::SDL3)
+endif()
+
 # Everything below this directory is product-owned. Draxul consumes only the
 # native module and its public C ABI.
 add_subdirectory(product)
@@ -18,6 +29,9 @@ target_link_libraries(draxul-megacity-plugin PRIVATE
 if(APPLE)
     set_source_files_properties(src/megacity_plugin.cpp PROPERTIES LANGUAGE OBJCXX)
     target_link_libraries(draxul-megacity-plugin PRIVATE "-framework Metal" "-framework Foundation")
+    draxul_plugin_imgui_attach_metal_backend(draxul-megacity-plugin MegaCity)
+    target_link_options(draxul-megacity-plugin PRIVATE
+        "LINKER:-undefined,dynamic_lookup")
 else()
     target_link_libraries(draxul-megacity-plugin PRIVATE
         Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)

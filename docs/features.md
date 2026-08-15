@@ -61,6 +61,16 @@ window, renderer implementation, topology, terminal, or app orchestration.
 SatView, MegaCity/BioView, and ScoreView are all registered in strict dependency
 mode: their product targets may link only other product-owned targets,
 third-party libraries, the public SDK, or these named plugin-support leaves.
+On macOS, bundled plugin dylibs must not register Objective-C classes that the
+host executable also defines (the runtime warns "Class X is implemented in
+both" and casts can misbehave). Two build rules enforce this: plugin product
+targets link `SDL3::Headers` instead of the SDL archive and the module links
+with `-undefined dynamic_lookup`, so SDL calls resolve against the host
+executable's statically linked SDL at load; and each plugin compiles its own
+ImGui Metal backend with plugin-unique class names via
+`draxul_plugin_imgui_attach_metal_backend` instead of receiving it from the
+shared plugin ImGui static library. Windows and standalone plugin builds keep
+linking the SDL archive directly.
 SatView and MegaCity use the generic plugin lifecycle/viewport contract rather
 than `IHost`, and resolve packaged assets and source roots explicitly instead of
 assuming a Draxul checkout path.
