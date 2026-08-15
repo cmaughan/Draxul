@@ -10,8 +10,10 @@ Builds on the completed boundary work in
 supersedes the direction of
 `kanban/ice-box/23 core-extra-repo-split -architecture.md`.
 
-- [ ] Owner decisions: repo names/visibility, history model, kanban/plans
-      relocation, `plugins/support/imgui` ownership.
+- [x] Owner decisions: public `draxul-satview`/`draxul-megacity`/
+      `draxul-scoreview` repos, fresh-start history with import-SHA
+      provenance, product roadmap cards/plans move with their products,
+      `plugins/support/imgui` stays in Draxul.
 - [ ] Phase 0: pre-split cleanup — move product test fixtures out of core
       `tests/support/`, drop `draxul-host`/`draxul-renderer` links from
       megacity/satview test CMake and extend the dependency guard to

@@ -181,13 +181,22 @@ struct OfflineSatViewHost
     {
     public:
         explicit RuntimeCallbacks(tests::TestHostCallbacks& target)
-            : target_(target) {}
-        void request_frame() override { target_.request_frame(); }
-        void request_quit() override { target_.request_quit(); }
+            : target_(target)
+        {
+        }
+        void request_frame() override
+        {
+            target_.request_frame();
+        }
+        void request_quit() override
+        {
+            target_.request_quit();
+        }
         void set_window_title(std::string_view title) override
         {
             target_.set_window_title(std::string(title));
         }
+
     private:
         tests::TestHostCallbacks& target_;
     };
@@ -253,7 +262,10 @@ struct OfflineSatViewHost
         class FrameSink final : public SatViewFrameSink
         {
         public:
-            explicit FrameSink(IFrameContext& frame) : frame_(frame) {}
+            explicit FrameSink(IFrameContext& frame)
+                : frame_(frame)
+            {
+            }
             void record_scene(SatViewScenePass& pass,
                 int x, int y, int width, int height) override
             {
@@ -264,7 +276,11 @@ struct OfflineSatViewHost
                 frame_.render_imgui(static_cast<ImDrawData*>(draw_data),
                     static_cast<ImGuiContext*>(context));
             }
-            void finish() override { frame_.flush_submit_chunk(); }
+            void finish() override
+            {
+                frame_.flush_submit_chunk();
+            }
+
         private:
             IFrameContext& frame_;
         };

@@ -2,7 +2,7 @@
 //
 // Drives the real SatViewHost end to end with NO GPU, NO network, and NO
 // system-clock reads. Every dependency an initialize() needs is faked through
-// the shared OfflineSatViewHost fixture (tests/support/satview_host_fixture.h):
+// the shared OfflineSatViewHost fixture (satview_host_fixture.h):
 // a fixed fake clock, offline catalog/cloud transports over a temp cache
 // directory, and a FakeTermRenderer that doubles as the render-pass sink and
 // ImGui backend. These tests protect the private host seams the item 26

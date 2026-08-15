@@ -62,31 +62,29 @@ while each product repo gets its own README describing its specific facilities
 - Sizes: satview 46 MB, megacity 37 MB, scoreview 2 MB. Largest single file
   11 MB. Plain git is fine; no LFS needed.
 
-## Owner decisions (flagged, not assumed)
+## Owner decisions (resolved 2026-08-15)
 
-- [ ] **Repo names and visibility.** Suggested: `draxul-satview`,
-      `draxul-megacity`, `draxul-scoreview`, all same visibility as Draxul
-      itself. A public repo must not reference private submodules — the
-      pointer 404s for everyone else and CI can't fetch it. If any product
-      should stay private, that product must instead stay an optional local
-      mount (the `DRAXUL_<P>_PLUGIN_DIR` override already supports this) and
-      not become a committed submodule.
-- [ ] **History.** Recommended: fresh-start product repos whose initial commit
-      records the Draxul SHA they were exported from. Only 5–9 commits touch
-      each plugin at its current path — the deep product history lives under
-      old `modules/` paths and stays fully greppable in Draxul. A
-      `git filter-repo` extraction with rename-chasing across the migration is
-      possible but buys little for the ceremony.
-- [ ] **Where product kanban cards and plans live.** Recommended: migration
-      records (cards 36/37, separation plans, reviews) stay in Draxul;
-      product roadmap items (e.g. `05 megacity-model-layout-routing-library`,
+- [x] **Repo names and visibility.** Decided by owner: **public** repos named
+      `draxul-satview`, `draxul-megacity`, `draxul-scoreview`, matching public
+      Draxul so submodule pointers resolve for everyone. Note: Draxul carries
+      no LICENSE file, so the seeded product repos are likewise
+      all-rights-reserved by default — adding licenses is a separate owner
+      call, flagged here rather than assumed.
+- [x] **History.** Decided by owner: **fresh-start** product repos whose
+      initial commit records the Draxul SHA they were exported from. Only 5–9
+      commits touch each plugin at its current path — the deep product history
+      lives under old `modules/` paths and stays fully greppable in Draxul.
+- [x] **Where product kanban cards and plans live.** Adopting the
+      recommendation (reversible later): migration records (cards 36/37,
+      separation plans, reviews) stay in Draxul; product roadmap items (e.g.
+      `05 megacity-model-layout-routing-library`,
       `06 satview-scene-composer-host-split`,
       `07/18 scoreview-*`, `plans/scoreview-manifesto.md`, `plans/scoreview-*.md`)
       move to their product repos so each repo's README/kanban tells that
       product's story.
-- [ ] **`plugins/support/imgui/` ownership.** All three products hard-depend on
-      it. Recommended: it stays in Draxul as part of the support surface (it is
-      generic, product-free code and the allowlist already names it
+- [x] **`plugins/support/imgui/` ownership.** Adopting the recommendation: it
+      stays in Draxul as part of the support surface (it is generic,
+      product-free code and the allowlist already names it
       `Draxul::PluginSupport::ImGui`). Product-repo CI consumes it from the
       Draxul checkout it builds against; ScoreView's standalone path already
       copies it explicitly.
