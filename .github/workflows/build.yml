@@ -19,6 +19,8 @@ jobs:
       BUILD_CONFIG: Debug
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Cache Vulkan SDK
         id: cache-vulkan
@@ -73,6 +75,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install Neovim
         run: brew install neovim

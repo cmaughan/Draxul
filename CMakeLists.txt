@@ -33,6 +33,18 @@ else()
     set(DRAXUL_SCOREVIEW_DEFAULT OFF)
 endif()
 option(DRAXUL_ENABLE_SCOREVIEW "Build and bundle the ScoreView plugin" ${DRAXUL_SCOREVIEW_DEFAULT})
+# An enabled but unmounted product plugin is a graceful skip for developers
+# (an uninitialized submodule must not break configure) but must hard-fail in
+# CI, where the same skip would silently drop every product test while the
+# build stayed green. Defaults ON when the CI environment variable is set.
+if(DEFINED ENV{CI})
+    set(DRAXUL_REQUIRE_ENABLED_PLUGINS_DEFAULT ON)
+else()
+    set(DRAXUL_REQUIRE_ENABLED_PLUGINS_DEFAULT OFF)
+endif()
+option(DRAXUL_REQUIRE_ENABLED_PLUGINS
+    "Fail configure when an enabled product plugin is not mounted"
+    ${DRAXUL_REQUIRE_ENABLED_PLUGINS_DEFAULT})
 option(DRAXUL_ENABLE_RENDER_TESTS "Enable render-test capture/compare infrastructure" OFF)
 set(DRAXUL_MEGACITY_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/megacity"
     CACHE PATH "Mounted MegaCity/BioView plugin source directory")
@@ -183,6 +195,13 @@ foreach(_product IN ITEMS MEGACITY SATVIEW SCOREVIEW)
     if(DRAXUL_ENABLE_${_product})
         if(EXISTS "${DRAXUL_${_product}_PLUGIN_DIR}/CMakeLists.txt")
             set(DRAXUL_HAVE_${_product} ON)
+        elseif(DRAXUL_REQUIRE_ENABLED_PLUGINS)
+            message(FATAL_ERROR
+                "Draxul ${_product} plugin is enabled but not mounted at "
+                "${DRAXUL_${_product}_PLUGIN_DIR}. Initialize the submodule "
+                "(git submodule update --init) or configure with "
+                "-DDRAXUL_ENABLE_${_product}=OFF. "
+                "(DRAXUL_REQUIRE_ENABLED_PLUGINS is ON — default in CI.)")
         else()
             message(STATUS
                 "Draxul ${_product} plugin is enabled but not mounted at "

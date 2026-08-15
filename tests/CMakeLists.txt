@@ -167,14 +167,26 @@ set(DRAXUL_TEST_REGISTRATION_BASELINE 1815)
 # tag into the existing [tab] token without removing any test registrations.
 set(DRAXUL_TEST_TAG_TOKEN_BASELINE 228)
 list(LENGTH DRAXUL_SORTED_ALL_TEST_SOURCES DRAXUL_TEST_SOURCE_COUNT)
-if(DRAXUL_TEST_SOURCE_COUNT LESS DRAXUL_TEST_SOURCE_BASELINE
-   OR DRAXUL_ALL_REGISTRATION_COUNT LESS DRAXUL_TEST_REGISTRATION_BASELINE
-   OR DRAXUL_ALL_TAG_COUNT LESS DRAXUL_TEST_TAG_TOKEN_BASELINE)
-    message(FATAL_ERROR
-        "Draxul static test inventory dropped below the modular-split baseline: "
-        "${DRAXUL_TEST_SOURCE_COUNT} sources, "
-        "${DRAXUL_ALL_REGISTRATION_COUNT} registrations, "
-        "${DRAXUL_ALL_TAG_COUNT} tag tokens")
+# The baseline describes the full inventory with every product mounted. A
+# partial checkout (an uninitialized product submodule, or a product switched
+# off) legitimately registers fewer sources, so enforcing the full-inventory
+# floor there would reject supported configurations. CI always mounts all
+# products (DRAXUL_REQUIRE_ENABLED_PLUGINS), so the tripwire keeps full
+# strength where deletions must be caught.
+if(DRAXUL_HAVE_MEGACITY AND DRAXUL_HAVE_SATVIEW AND DRAXUL_HAVE_SCOREVIEW)
+    if(DRAXUL_TEST_SOURCE_COUNT LESS DRAXUL_TEST_SOURCE_BASELINE
+       OR DRAXUL_ALL_REGISTRATION_COUNT LESS DRAXUL_TEST_REGISTRATION_BASELINE
+       OR DRAXUL_ALL_TAG_COUNT LESS DRAXUL_TEST_TAG_TOKEN_BASELINE)
+        message(FATAL_ERROR
+            "Draxul static test inventory dropped below the modular-split baseline: "
+            "${DRAXUL_TEST_SOURCE_COUNT} sources, "
+            "${DRAXUL_ALL_REGISTRATION_COUNT} registrations, "
+            "${DRAXUL_ALL_TAG_COUNT} tag tokens")
+    endif()
+else()
+    message(STATUS
+        "Draxul static test inventory baseline skipped: not all product "
+        "plugins are mounted/enabled")
 endif()
 message(STATUS
     "Draxul test classification: ${DRAXUL_TEST_SOURCE_COUNT} sources, "
