@@ -313,6 +313,12 @@ target_link_libraries(draxul-test-markdown-kanban PRIVATE
 )
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+add_test(NAME draxul-plugin-target-suffix
+    COMMAND ${CMAKE_COMMAND}
+        -S "${CMAKE_CURRENT_SOURCE_DIR}/cmake/plugin_target_suffix"
+        -B "${CMAKE_CURRENT_BINARY_DIR}/plugin_target_suffix")
+
 draxul_configure_registered_plugin_tests()
 
 set(DRAXUL_EXTERNAL_SDK_SMOKE_COMMAND

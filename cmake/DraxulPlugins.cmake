@@ -78,6 +78,12 @@ function(draxul_register_bundled_plugin)
         message(FATAL_ERROR
             "Plugin '${PLUGIN_ID}' names missing manifest '${PLUGIN_MANIFEST}'")
     endif()
+
+    # CMake gives MODULE libraries a .so suffix on macOS, but Draxul plugin
+    # manifests intentionally use the platform-native .dylib filename.
+    if(APPLE)
+        set_target_properties(${PLUGIN_TARGET} PROPERTIES SUFFIX ".dylib")
+    endif()
     if(PLUGIN_TEST_CMAKE AND NOT EXISTS "${PLUGIN_TEST_CMAKE}")
         message(FATAL_ERROR
             "Plugin '${PLUGIN_ID}' names missing test wiring '${PLUGIN_TEST_CMAKE}'")
@@ -279,6 +285,7 @@ function(draxul_stage_registered_plugins app_target)
         endif()
 
         set(_commands
+            COMMAND ${CMAKE_COMMAND} -E remove_directory "${_stage_directory}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_stage_directory}"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${_manifest}" "${_stage_directory}/plugin.toml"
