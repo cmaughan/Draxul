@@ -26,9 +26,11 @@ supersedes the direction of
 - [x] Phase 1: create and seed `draxul-satview`, `draxul-megacity`,
       `draxul-scoreview` repos with product docs, READMEs, and import-commit
       provenance (public repos, seeded from `Draxul@01766701`).
-- [ ] Phase 2: replace `plugins/{satview,megacity,scoreview}` with submodules;
-      CI `submodules: recursive` plus a fail-if-enabled-but-absent guard;
-      refresh README/CLAUDE.md/module-map/features docs; verify initialized,
-      uninitialized, and disabled configure states.
+- [x] Phase 2: replace `plugins/{satview,megacity,scoreview}` with submodules;
+      CI `submodules: recursive` plus a fail-if-enabled-but-absent guard
+      (`DRAXUL_REQUIRE_ENABLED_PLUGINS`, auto-ON in CI); refresh
+      README/CLAUDE.md/module-map/features docs; verified initialized
+      (26/26 ctest + smoke) and uninitialized (STATUS-skip configure)
+      states, and CI-mode absent-mount fails fast.
 - [ ] Phase 3: per-product CI building against pinned Draxul; re-run the 7E
       acceptance matrix from the submodule layout on Windows and macOS.
