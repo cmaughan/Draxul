@@ -1199,7 +1199,7 @@ def main() -> int:
                 "draxul-test-megacity",
                 "draxul-test-satview",
                 "draxul-test-scoreview",
-                "draxul-test-scoreview-host",
+                "draxul-test-scoreview-runtime",
             )
             if (test_dir / name).is_file()
         ]

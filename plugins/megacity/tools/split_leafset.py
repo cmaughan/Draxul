@@ -70,7 +70,7 @@ def find_connected_components(mask, w, h):
 
 
 def main():
-    tex_dir = Path(__file__).resolve().parent.parent / "assets" / "megacity" / "textures"
+    tex_dir = Path(__file__).resolve().parent.parent / "assets" / "textures"
     out_dir = tex_dir / "leaves"
     out_dir.mkdir(exist_ok=True)
 

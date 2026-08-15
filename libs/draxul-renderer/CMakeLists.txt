@@ -63,7 +63,6 @@ else()
         src/vulkan/vk_pipeline.cpp
         src/vulkan/vk_buffers.cpp
         src/vulkan/vk_atlas.cpp
-        src/vulkan/vk_cube_pass.cpp
         ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
     )
     target_include_directories(draxul-renderer-vulkan
