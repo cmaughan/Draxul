@@ -71,6 +71,14 @@ ImGui Metal backend with plugin-unique class names via
 `draxul_plugin_imgui_attach_metal_backend` instead of receiving it from the
 shared plugin ImGui static library. Windows and standalone plugin builds keep
 linking the SDL archive directly.
+The same isolation applies to C++ weak symbols: bundled macOS plugin dylibs
+export only the `draxul_plugin_query_v2` C entry point
+(`draxul_register_bundled_plugin` passes `-exported_symbol`). Without this,
+inline functions the plugin shares with the host — Dear ImGui's header inlines
+especially — are emitted as coalescible weak externals, and dyld unifies them
+across images at load, so the plugin's ImGui would call host-image inlines that
+read the host's `GImGui` and mix two ImGui context universes (a crash first
+reproduced by the headless `do.py score-shot-check` guard).
 SatView and MegaCity use the generic plugin lifecycle/viewport contract rather
 than `IHost`, and resolve packaged assets and source roots explicitly instead of
 assuming a Draxul checkout path.

@@ -83,6 +83,17 @@ function(draxul_register_bundled_plugin)
     # manifests intentionally use the platform-native .dylib filename.
     if(APPLE)
         set_target_properties(${PLUGIN_TARGET} PROPERTIES SUFFIX ".dylib")
+        # Export only the C ABI entry point. Without this, every inline C++
+        # function the plugin shares with the host (Dear ImGui's header
+        # inlines especially) is emitted as a coalescible weak external, and
+        # dyld unifies those across images at load — so the plugin's
+        # ImGui::NewFrame would call the HOST executable's GetDefaultFont,
+        # which reads the host's GImGui and mixes two ImGui context
+        # universes. Hiding the plugin's exports keeps its weak definitions
+        # image-local while -undefined dynamic_lookup still binds SDL_* to
+        # the host at dlopen.
+        target_link_options(${PLUGIN_TARGET} PRIVATE
+            "LINKER:-exported_symbol,_draxul_plugin_query_v2")
     endif()
     if(PLUGIN_TEST_CMAKE AND NOT EXISTS "${PLUGIN_TEST_CMAKE}")
         message(FATAL_ERROR
