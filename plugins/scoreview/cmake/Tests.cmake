@@ -26,8 +26,11 @@ target_link_libraries(draxul-test-scoreview PRIVATE
 draxul_add_test_target(
     draxul-test-scoreview-runtime "scoreview;scoreview-runtime" 1
     ${_scoreview_runtime_test_sources})
+# In bundled macOS builds the runtime library defers its SDL symbols to the
+# loading executable. This test executable is its own host, so it must link
+# the SDL archive itself.
 target_link_libraries(draxul-test-scoreview-runtime PRIVATE
-    draxul-scoreview-runtime-test-internals)
+    draxul-scoreview-runtime-test-internals SDL3::SDL3)
 
 foreach(_target draxul-test-scoreview draxul-test-scoreview-runtime)
     target_include_directories(${_target} PRIVATE "${_scoreview_root}/tests")

@@ -821,7 +821,8 @@ def cmd_score_shot_check(root: pathlib.Path) -> int:
     hanging path headless under a timeout and requires a byte-exact BMP at the
     requested size. A hang, a non-zero exit, or a wrong-sized file fails the check.
     """
-    fixture = root / "tests" / "fixtures" / "musicxml" / "grieg-waltz-op-12-no-2.musicxml"
+    fixture = (root / "plugins" / "scoreview" / "tests" / "fixtures" / "musicxml"
+               / "grieg-waltz-op-12-no-2.musicxml")
     if not fixture.exists():
         print(f"score-shot-check: FAILED — fixture missing: {fixture}")
         return 1

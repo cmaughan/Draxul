@@ -2,6 +2,16 @@ cmake_minimum_required(VERSION 3.25)
 
 include(cmake/Dependencies.cmake)
 
+# SatView only consumes SDL's header constants (scancodes, mouse buttons). On
+# macOS never link the SDL archive into the dylib: the host executable already
+# embeds SDL3, and a second copy would register duplicate SDL Objective-C
+# classes with the process-global runtime.
+if(APPLE)
+    set(DRAXUL_SATVIEW_SDL_TARGET SDL3::Headers)
+else()
+    set(DRAXUL_SATVIEW_SDL_TARGET SDL3::SDL3)
+endif()
+
 # SatView owns its complete product stack. Draxul links only the resulting
 # native module; these private libraries keep product tests and backends small.
 set(SATVIEW_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/product/include")
@@ -88,7 +98,7 @@ target_link_libraries(draxul-satview-runtime PUBLIC
     Draxul::PluginSupport::Render imgui)
 target_link_libraries(draxul-satview-runtime PRIVATE
     Draxul::PluginSupport::Config Draxul::PluginSupport::Text
-    Draxul::PluginSupport::ImGui SDL3::SDL3)
+    Draxul::PluginSupport::ImGui ${DRAXUL_SATVIEW_SDL_TARGET})
 
 add_library(draxul-satview-renderer-test-internals INTERFACE)
 target_include_directories(draxul-satview-renderer-test-internals INTERFACE src/render)
@@ -115,6 +125,7 @@ set_target_properties(draxul-satview-plugin PROPERTIES PREFIX "" OUTPUT_NAME "dr
 
 if(APPLE)
     target_link_libraries(draxul-satview-plugin PRIVATE "-framework Metal" "-framework Foundation")
+    draxul_plugin_imgui_attach_metal_backend(draxul-satview-plugin SatView)
     set(SATVIEW_PLUGIN_METALLIB "${CMAKE_CURRENT_BINARY_DIR}/satview_scene.metallib")
     set(SATVIEW_PLUGIN_METAL_AIR "${CMAKE_CURRENT_BINARY_DIR}/satview_scene.air")
     add_custom_command(

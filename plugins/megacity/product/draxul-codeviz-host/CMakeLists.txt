@@ -15,5 +15,5 @@ target_link_libraries(draxul-codeviz-host
         Draxul::PluginSupport::Types
     PRIVATE
         Draxul::PluginSupport::Performance
-        SDL3::SDL3
+        ${DRAXUL_MEGACITY_SDL_TARGET}
 )
