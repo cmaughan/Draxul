@@ -159,7 +159,9 @@ TEST_CASE("cli: --rename-session without --session-name reports an error", "[cli
 TEST_CASE("cli: --delete-session sets the flag", "[cli]")
 {
     auto r = parse({
-        "--delete-session", "--session", "work",
+        "--delete-session",
+        "--session",
+        "work",
     });
     REQUIRE_FALSE(r.error.has_value());
     REQUIRE(r.args.delete_session);
@@ -188,8 +190,10 @@ TEST_CASE("cli: --delete-all-sessions requires confirmation",
     REQUIRE(r.args.confirmed);
 
     r = parse({
-        "--delete-all-sessions", "--yes",
-        "--session", "work",
+        "--delete-all-sessions",
+        "--yes",
+        "--session",
+        "work",
     });
     REQUIRE(r.error.has_value());
     REQUIRE(r.error->find("--session")
@@ -222,14 +226,19 @@ TEST_CASE("cli: server control modes are mutually exclusive", "[cli][server]")
     REQUIRE(r.error.has_value());
 
     r = parse({
-        "--list-sessions", "--delete-session",
-        "--session", "work",
+        "--list-sessions",
+        "--delete-session",
+        "--session",
+        "work",
     });
     REQUIRE(r.error.has_value());
 
     r = parse({
-        "--delete-session", "--delete-all-sessions",
-        "--session", "work", "--yes",
+        "--delete-session",
+        "--delete-all-sessions",
+        "--session",
+        "work",
+        "--yes",
     });
     REQUIRE(r.error.has_value());
 }
@@ -279,7 +288,6 @@ TEST_CASE("cli: experimental bootstrap follows shared-server startup modes", "[c
     auto smoke = parse(
         { "--experimental-server-client", "--smoke-test" });
     REQUIRE(should_bootstrap_experimental_server(smoke.args));
-
 }
 
 TEST_CASE("cli: normal shell startup uses the shared server by default",
@@ -321,17 +329,23 @@ TEST_CASE("cli: server stop confirmation is explicit",
 
     auto dialog = parse({
         "--server-stop-dialog",
-        "--server-runtime-dir", "D:/runtime",
+        "--server-runtime-dir",
+        "D:/runtime",
     });
     REQUIRE_FALSE(dialog.error);
     REQUIRE(dialog.args.server_stop_dialog);
     REQUIRE_FALSE(should_use_shared_server(dialog.args));
     REQUIRE(parse({
-        "--server-stop-dialog", "--server-status",
-    }).error);
+                      "--server-stop-dialog",
+                      "--server-status",
+                  })
+            .error);
 
     auto delete_session = parse({
-        "--delete-session", "--session", "work", "--yes",
+        "--delete-session",
+        "--session",
+        "work",
+        "--yes",
     });
     REQUIRE_FALSE(delete_session.error);
     REQUIRE(delete_session.args.delete_session);
@@ -382,7 +396,7 @@ TEST_CASE("cli: fake remote terminal opts into server bootstrap",
     REQUIRE(should_bootstrap_experimental_server(remote.args));
 
     REQUIRE(parse({ "--experimental-remote-terminal",
-                       "--host", "powershell" })
+                      "--host", "powershell" })
             .error.has_value());
     REQUIRE(parse({ "--experimental-remote-terminal", "--smoke-test" })
             .error.has_value());
@@ -398,11 +412,40 @@ TEST_CASE("cli: real remote shell opts into server bootstrap",
     REQUIRE(should_bootstrap_experimental_server(remote.args));
 
     REQUIRE(parse({ "--experimental-remote-shell",
-                       "--host", "powershell" })
+                      "--host", "powershell" })
             .error.has_value());
     REQUIRE(parse({ "--experimental-remote-shell", "--smoke-test" })
             .error.has_value());
     REQUIRE(parse({ "--experimental-remote-shell",
-                       "--experimental-remote-terminal" })
+                      "--experimental-remote-terminal" })
+            .error.has_value());
+}
+
+TEST_CASE("cli: --plugin launches the plugin host with optional config",
+    "[cli][plugin]")
+{
+    auto plugin = parse({ "--plugin", "dev.draxul.scoreview" });
+    REQUIRE_FALSE(plugin.error.has_value());
+    REQUIRE(plugin.args.plugin_id == "dev.draxul.scoreview");
+    REQUIRE(plugin.args.host_kind == HostKind::Plugin);
+    REQUIRE_FALSE(should_use_shared_server(plugin.args));
+
+    auto configured = parse({ "--plugin", "dev.draxul.scoreview",
+        "--plugin-config", R"({"source":"a.musicxml","mode":"paged"})" });
+    REQUIRE_FALSE(configured.error.has_value());
+    REQUIRE(configured.args.plugin_config_json
+        == R"({"source":"a.musicxml","mode":"paged"})");
+}
+
+TEST_CASE("cli: --plugin rejects missing ids and conflicting flags",
+    "[cli][plugin]")
+{
+    REQUIRE(parse({ "--plugin" }).error.has_value());
+    REQUIRE(parse({ "--plugin", "" }).error.has_value());
+    REQUIRE(parse({ "--plugin-config", "{}" }).error.has_value());
+    REQUIRE(parse({ "--host", "plugin" }).error.has_value());
+    REQUIRE(parse({ "--plugin", "dev.draxul.scoreview", "--host", "zsh" })
+            .error.has_value());
+    REQUIRE(parse({ "--server", "--plugin", "dev.draxul.scoreview" })
             .error.has_value());
 }

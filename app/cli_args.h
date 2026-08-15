@@ -50,6 +50,10 @@ struct ParsedArgs
     std::optional<HostKind> host_kind;
     std::string host_command;
     std::filesystem::path host_source_path;
+    // Launch the primary pane as a product plugin (e.g. dev.draxul.scoreview).
+    // Setting --plugin implies host_kind == HostKind::Plugin.
+    std::string plugin_id;
+    std::string plugin_config_json;
     std::string session_id = "default";
     bool session_id_explicit = false;
     std::string session_name;

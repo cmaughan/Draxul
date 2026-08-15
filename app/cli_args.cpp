@@ -179,6 +179,36 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
                 return result;
             }
         }
+        else if (args[i] == "--plugin" && i + 1 < args.size())
+        {
+            ++i;
+            parsed.plugin_id = args[i];
+            if (parsed.plugin_id.empty())
+            {
+                result.error = "error: --plugin requires a non-empty plugin id";
+                return result;
+            }
+        }
+        else if (args[i] == "--plugin")
+        {
+            result.error = "error: --plugin requires a plugin id";
+            return result;
+        }
+        else if (args[i] == "--plugin-config" && i + 1 < args.size())
+        {
+            ++i;
+            parsed.plugin_config_json = args[i];
+            if (parsed.plugin_config_json.empty())
+            {
+                result.error = "error: --plugin-config requires a non-empty JSON value";
+                return result;
+            }
+        }
+        else if (args[i] == "--plugin-config")
+        {
+            result.error = "error: --plugin-config requires a JSON value";
+            return result;
+        }
         else if (args[i] == "--command" && i + 1 < args.size())
         {
             ++i;
@@ -301,6 +331,27 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             return result;
         }
     }
+    if (!parsed.plugin_id.empty() && parsed.host_kind
+        && *parsed.host_kind != HostKind::Plugin)
+    {
+        result.error = "error: --plugin cannot be combined with --host";
+        return result;
+    }
+    if (parsed.plugin_id.empty())
+    {
+        if (parsed.host_kind && *parsed.host_kind == HostKind::Plugin)
+        {
+            result.error = "error: --host plugin requires --plugin <id>";
+            return result;
+        }
+        if (!parsed.plugin_config_json.empty())
+        {
+            result.error = "error: --plugin-config requires --plugin <id>";
+            return result;
+        }
+    }
+    else
+        parsed.host_kind = HostKind::Plugin;
     if (parsed.rename_session && parsed.session_name.empty())
     {
         result.error = "error: --rename-session requires --session-name <name>";
@@ -367,7 +418,9 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
     }
     if (server_mode_count > 0 && parsed.host_kind)
     {
-        result.error = "error: server control modes cannot be combined with --host";
+        result.error = parsed.plugin_id.empty()
+            ? "error: server control modes cannot be combined with --host"
+            : "error: server control modes cannot be combined with --plugin";
         return result;
     }
     const bool remote_terminal_mode
@@ -456,6 +509,16 @@ std::optional<std::string> validate_host_provider_availability(
 {
     if (!args.host_kind)
         return std::nullopt;
+    if (*args.host_kind == HostKind::Plugin)
+    {
+        // Reached only via --plugin <id> (parse_args rejects a bare
+        // --host plugin). The generic provider resolves the concrete
+        // plugin at load time, so only the provider itself is checked here.
+        if (registry.has(HostKind::Plugin))
+            return std::nullopt;
+        return std::string(
+            "error: plugin hosts are not available in this build");
+    }
     if (const auto* metadata = registry.metadata(*args.host_kind);
         metadata != nullptr
         && supports_launch_context(metadata->launch_contexts, HostLaunchContext::Cli))

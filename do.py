@@ -813,13 +813,16 @@ def build_shortcut_exe(root: pathlib.Path) -> tuple[int, pathlib.Path | None, di
 
 
 def cmd_score_shot_check(root: pathlib.Path) -> int:
-    """Regression guard for kanban 74 (score-screenshot-size-hang).
+    """Regression guard for kanban/done/74 score-screenshot-size-hang -bug.md.
 
-    The score host used to hang under `--screenshot-size` and for uncompressed
+    ScoreView used to hang under `--screenshot-size` and for uncompressed
     `.musicxml` sources (the readiness pump never saw the slicer-ready signal), so
-    only the plain window-capture `.mxl` path worked. This runs the previously
-    hanging path headless under a timeout and requires a byte-exact BMP at the
-    requested size. A hang, a non-zero exit, or a wrong-sized file fails the check.
+    only the plain window-capture `.mxl` path worked. ScoreView now ships as the
+    dev.draxul.scoreview plugin, so this launches the plugin pane headless via
+    `--plugin`/`--plugin-config` (the config's `mode` carries the old
+    `--command "paged analysis unique"` semantics) under a timeout and requires a
+    byte-exact BMP at the requested size. A hang, a non-zero exit (including a
+    plugin that fails to load), or a wrong-sized file fails the check.
     """
     fixture = (root / "plugins" / "scoreview" / "tests" / "fixtures" / "musicxml"
                / "grieg-waltz-op-12-no-2.musicxml")
@@ -833,17 +836,21 @@ def cmd_score_shot_check(root: pathlib.Path) -> int:
 
     width, height = 640, 900
     expected = width * height * 4 + 54  # RGBA pixels + 54-byte BMP header
+    plugin_config = json.dumps({
+        "source": str(fixture),
+        "mode": "paged analysis unique",
+    })
     with tempfile.TemporaryDirectory() as tmp:
         out = pathlib.Path(tmp) / "score-shot-check.bmp"
-        cmd = [str(exe), "--console", "--host", "score",
-               "--command", "paged analysis unique",
-               "--source", str(fixture),
+        cmd = [str(exe), "--console",
+               "--plugin", "dev.draxul.scoreview",
+               "--plugin-config", plugin_config,
                "--screenshot", str(out),
                "--screenshot-size", f"{width}x{height}"]
         try:
             proc = subprocess.run(cmd, cwd=root, env=env, timeout=90, check=False)
         except subprocess.TimeoutExpired:
-            print("score-shot-check: FAILED — score host hung (kanban 74 regression)")
+            print("score-shot-check: FAILED — ScoreView hung (kanban 74 regression)")
             return 1
         if proc.returncode != 0:
             print(f"score-shot-check: FAILED — exit {proc.returncode}")
@@ -1058,7 +1065,7 @@ Single-word shortcuts:
                Build Release and package deploy/YYYY_MM_DD/mac|win plus a zip archive
   clean        Remove repository build directories
   smoke        Run the app smoke test
-  score-shot-check  Regression guard (kanban 74): score host --screenshot-size + .musicxml
+  score-shot-check  Regression guard (kanban 74): ScoreView plugin --screenshot-size + .musicxml
   test         Run unit tests (four C++ shards plus do.py tests)
   shot         Regenerate the README hero screenshot
   api          Build local Doxygen API docs

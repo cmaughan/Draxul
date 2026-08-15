@@ -18,13 +18,13 @@
 #include <draxul/client_recovery.h>
 #include <draxul/config_document.h>
 #include <draxul/host_registry.h>
-#include <draxul/plugin_host.h>
-#include <draxul/plugin_manager.h>
 #include <draxul/kanban/kanban_host.h>
 #include <draxul/log.h>
 #include <draxul/markdown/markdown_host.h>
 #include <draxul/nanovg_demo_host.h>
 #include <draxul/perf_timing.h>
+#include <draxul/plugin_host.h>
+#include <draxul/plugin_manager.h>
 #include <draxul/remote_terminal_host.h>
 #include <draxul/runtime_path.h>
 #include <draxul/server_client.h>
@@ -673,18 +673,19 @@ static int draxul_main(std::vector<std::string> args)
     {
         std::string launch_error;
         if (!draxul::ServerClient::launch_detached({
-                .runtime_directory
-                = server_runtime_dir(parsed),
-                .executable_path = current_executable,
-                .terminal_shell_kind
-                = parsed.server_shell_kind,
-                .terminal_command
-                = parsed.server_command,
-                .terminal_working_directory
-                = parsed.server_working_dir,
-                .terminal_scrollback_lines
-                = parsed.server_scrollback_lines,
-            }, launch_error))
+                                                       .runtime_directory
+                                                       = server_runtime_dir(parsed),
+                                                       .executable_path = current_executable,
+                                                       .terminal_shell_kind
+                                                       = parsed.server_shell_kind,
+                                                       .terminal_command
+                                                       = parsed.server_command,
+                                                       .terminal_working_directory
+                                                       = parsed.server_working_dir,
+                                                       .terminal_scrollback_lines
+                                                       = parsed.server_scrollback_lines,
+                                                   },
+                launch_error))
         {
             std::fprintf(stderr,
                 "Could not start the Draxul server helper: %s\n",
@@ -1028,6 +1029,11 @@ static int draxul_main(std::vector<std::string> args)
     {
         options.host_kind = *parsed.host_kind;
         options.host_kind_explicit = true;
+    }
+    if (!parsed.plugin_id.empty())
+    {
+        options.host_plugin_id = parsed.plugin_id;
+        options.host_plugin_config_json = parsed.plugin_config_json;
     }
     if (!parsed.host_command.empty())
         options.host_command = parsed.host_command;

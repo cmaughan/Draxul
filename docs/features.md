@@ -17,8 +17,8 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | WSL | `--host wsl` | Server-owned Windows Subsystem for Linux terminal |
 | MegaCity | `--plugin dev.draxul.megacity` with `{"mode":"city"}` | Dynamic semantic code-city plugin with textured materials, shadows, SSAO, mouse-drag pan, Alt+drag orbit, and a configurable local Tree-sitter scan root |
 | BioView | `--plugin dev.draxul.megacity` with `{"mode":"biology"}` | Biology mode of the same dynamic plugin: modules become tissues, classes become cells, and dependencies become blood vessels; semantic model, procedural geometry, UI, assets, and Vulkan/Metal renderer are plugin-owned |
-| ScoreView | `--plugin dev.draxul.scoreview` on pane/tab commands | Dynamically loaded music score viewer + adaptive learning runner ([docs/features/scoreview.md](features/scoreview.md)); launch JSON accepts `source`, `mode`, and `background_playback` |
-| SatView | `--plugin dev.draxul.satview` on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and plugin-owned ImGui controls. Full narrative: [docs/features/satview.md](features/satview.md) |
+| ScoreView | `--plugin dev.draxul.scoreview` at launch or on pane/tab commands | Dynamically loaded music score viewer + adaptive learning runner ([docs/features/scoreview.md](features/scoreview.md)); launch JSON accepts `source`, `mode`, and `background_playback` |
+| SatView | `--plugin dev.draxul.satview` at launch or on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and plugin-owned ImGui controls. Full narrative: [docs/features/satview.md](features/satview.md) |
 
 Shell Session splits use the server's platform default shell (Zsh on macOS,
 PowerShell on Windows). Explicit self-contained product windows advertise only
@@ -71,6 +71,14 @@ ImGui Metal backend with plugin-unique class names via
 `draxul_plugin_imgui_attach_metal_backend` instead of receiving it from the
 shared plugin ImGui static library. Windows and standalone plugin builds keep
 linking the SDL archive directly.
+The same isolation applies to C++ weak symbols: bundled macOS plugin dylibs
+export only the `draxul_plugin_query_v2` C entry point
+(`draxul_register_bundled_plugin` passes `-exported_symbol`). Without this,
+inline functions the plugin shares with the host — Dear ImGui's header inlines
+especially — are emitted as coalescible weak externals, and dyld unifies them
+across images at load, so the plugin's ImGui would call host-image inlines that
+read the host's `GImGui` and mix two ImGui context universes (a crash first
+reproduced by the headless `do.py score-shot-check` guard).
 SatView and MegaCity use the generic plugin lifecycle/viewport contract rather
 than `IHost`, and resolve packaged assets and source roots explicitly instead of
 assuming a Draxul checkout path.
@@ -767,6 +775,8 @@ and `draxul integration status` do not pass through the launch-option parser.
 | Flag | Description |
 |------|-------------|
 | `--host <type>` | Core host type: nvim, markdown, kanban, powershell, bash, zsh, wsl |
+| `--plugin <id>` | Launch the primary pane as a product plugin (e.g. `dev.draxul.scoreview`); cannot be combined with `--host`, and a plugin that fails to load fails startup instead of degrading to a placeholder pane |
+| `--plugin-config <json>` | Configuration JSON passed to the `--plugin` instance (ScoreView accepts `source`, `mode`, `background_playback`) |
 | `--command <cmd>` | Override host command path |
 | `--source <path>` | Markdown file for `--host markdown`; product plugins carry sources in `--plugin-config` JSON |
 | `--session <id>` | Select which saved shell session to restore |
