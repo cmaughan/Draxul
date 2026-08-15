@@ -1346,24 +1346,32 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
     HostLaunchOptions saved_launch = launch;
 
     HostContext context{
-            .window = deps_.window,
-            .grid_renderer = &grid_renderer,
-            .text_service = deps_.text_service,
-            .config = deps_.config,
-            .config_document = deps_.config_document,
-            .launch_options = std::move(launch),
-            .pane_id = pane_ids_[id],
-            .initial_viewport = viewport,
-            .owner_lifetime = deps_.owner_lifetime,
-            .display_ppi = display_ppi,
-        };
+        .window = deps_.window,
+        .grid_renderer = &grid_renderer,
+        .text_service = deps_.text_service,
+        .config = deps_.config,
+        .config_document = deps_.config_document,
+        .launch_options = std::move(launch),
+        .pane_id = pane_ids_[id],
+        .initial_viewport = viewport,
+        .owner_lifetime = deps_.owner_lifetime,
+        .display_ppi = display_ppi,
+    };
     if (!new_host->initialize(context, callbacks))
     {
         error_ = new_host->init_error();
         error_code_ = new_host->init_error_code();
         if (error_.empty())
             error_ = "Failed to initialize the selected host.";
-        if (saved_launch.kind != HostKind::Plugin)
+        // Plugin panes normally degrade to an UnavailableHost placeholder so
+        // shared topologies and restored sessions keep working when a plugin
+        // is absent. A plugin the user explicitly requested on the CLI
+        // (--plugin) must instead fail startup, like any other explicit host.
+        const bool cli_requested_plugin = is_primary
+            && deps_.options
+            && deps_.options->host_kind_explicit
+            && deps_.options->host_kind == HostKind::Plugin;
+        if (saved_launch.kind != HostKind::Plugin || cli_requested_plugin)
         {
             pane_ids_.erase(id);
             return false;

@@ -88,13 +88,21 @@ TEST_CASE("CLI rejects unknown and unavailable host providers but preserves alia
     HostProviderRegistry registry;
     registry.register_provider(HostKind::Nvim, fake_provider());
 
-    const auto unavailable = parse_host("plugin");
+    // A bare --host plugin is rejected at parse time; plugin launches are
+    // spelled --plugin <id>.
+    const auto bare_plugin = parse_host("plugin");
+    REQUIRE(bare_plugin.error.has_value());
+    CHECK(bare_plugin.error->find("--plugin") != std::string::npos);
+
+    // --plugin <id> resolves to the plugin host kind, which is unavailable
+    // while no plugin provider is registered.
+    const auto unavailable
+        = parse_args({ "draxul", "--plugin", "dev.draxul.scoreview" });
     REQUIRE_FALSE(unavailable.error.has_value());
     REQUIRE(unavailable.args.host_kind == HostKind::Plugin);
     const auto availability_error = validate_host_provider_availability(unavailable.args, registry);
     REQUIRE(availability_error.has_value());
     CHECK(availability_error->find("plugin") != std::string::npos);
-    CHECK(availability_error->find("nvim") != std::string::npos);
 
     const auto available = parse_host("nvim");
     CHECK_FALSE(validate_host_provider_availability(available.args, registry).has_value());
@@ -144,5 +152,4 @@ TEST_CASE("host metadata makes platform availability explicit", "[host][registry
 #else
     CHECK_FALSE(registry.has(HostKind::PowerShell));
 #endif
-
 }
