@@ -7,6 +7,7 @@
 #include <draxul/agent_model.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -104,16 +105,32 @@ TEST_CASE("UnixPtyProcess observes an agent started by hand inside the shell",
     // stand-in: the binary lives in a version-numbered file and is reached
     // through a `claude` symlink. exec() resolves the symlink, so the kernel
     // reports ".../versions/9.9.9" and the executable basename is a version
-    // number — which is exactly what defeated detection. `cat` blocks on the
-    // terminal, which is what an interactive agent looks like to us.
+    // number — which is exactly what defeated detection. The binary blocks
+    // reading terminal stdin, which is what an interactive agent looks like
+    // to us. It must be compiled in place rather than copied from /bin/cat:
+    // recent macOS SIGKILLs relocated platform binaries on exec, so a copied
+    // system tool never becomes the foreground process at all.
     const auto versions = root / "share" / "claude" / "versions";
     std::filesystem::create_directories(versions);
     const auto versioned = versions / "9.9.9";
-    std::filesystem::copy_file("/bin/cat", versioned);
-    std::filesystem::permissions(versioned,
-        std::filesystem::perms::owner_all | std::filesystem::perms::group_exec
-            | std::filesystem::perms::others_exec,
-        std::filesystem::perm_options::add);
+    {
+        const auto source = root / "fake_agent.c";
+        {
+            std::ofstream src(source);
+            src << "#include <unistd.h>\n"
+                   "int main(void)\n"
+                   "{\n"
+                   "    char buf[256];\n"
+                   "    while (read(0, buf, sizeof buf) > 0)\n"
+                   "        ;\n"
+                   "    return 0;\n"
+                   "}\n";
+            REQUIRE(src.good());
+        }
+        const std::string compile
+            = "cc -o '" + versioned.string() + "' '" + source.string() + "'";
+        REQUIRE(std::system(compile.c_str()) == 0);
+    }
 
     const auto bin = root / "bin";
     std::filesystem::create_directories(bin);
