@@ -1,3 +1,5 @@
+#include "support/test_support.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <draxul/text_atlas_builder.h>
 #include <draxul/text_service.h>
@@ -11,13 +13,8 @@ namespace
 
 TextService make_text_service()
 {
-    const auto font_path = std::filesystem::path(__FILE__).parent_path().parent_path()
-        / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
-    REQUIRE(std::filesystem::exists(font_path));
-    TextServiceConfig config;
-    config.font_path = font_path.string();
     TextService service;
-    REQUIRE(service.initialize(config, 11.0f, 96.0f));
+    tests::init_text_service(service, 11.0f);
     return service;
 }
 
@@ -63,7 +60,9 @@ TEST_CASE("text atlas builder handles UTF-8 labels without splitting bytes", "[f
 {
     TextService service = make_text_service();
     const std::vector<TextAtlasRequest> requests = {
-        { .key = "accented", .text = "Androm\xC3\xA8" "de", .target_pixel_size = { 128, 24 } },
+        { .key = "accented", .text = "Androm\xC3\xA8"
+                                     "de",
+            .target_pixel_size = { 128, 24 } },
     };
     const TextAtlas atlas = build_text_atlas(service, requests, 8);
 

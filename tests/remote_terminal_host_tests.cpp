@@ -6,9 +6,9 @@
 #include "support/test_host_callbacks.h"
 
 #include <draxul/client_recovery.h>
+#include <draxul/control_plane.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/remote_terminal_host.h>
-#include <draxul/control_plane.h>
 #include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_client.h>
 #include <draxul/server_kernel.h>
@@ -25,12 +25,6 @@ using namespace draxul::tests;
 
 namespace
 {
-
-std::string bundled_font_path()
-{
-    return std::string(DRAXUL_PROJECT_ROOT)
-        + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
-}
 
 class ServerRunGuard
 {
@@ -54,14 +48,8 @@ private:
 template <typename Predicate>
 bool pump_until(RemoteTerminalHost& host, Predicate predicate)
 {
-    for (int attempt = 0; attempt < 300; ++attempt)
-    {
-        host.pump();
-        if (predicate())
-            return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    return false;
+    return draxul::tests::pump_until([&host] { host.pump(); },
+        std::move(predicate), std::chrono::seconds(3));
 }
 
 bool rename_with_retry(const std::filesystem::path& from,
@@ -233,11 +221,11 @@ TEST_CASE("remote terminal client skips unknown additive events",
                 {
                     return ControlMethodResult::success({
                         { "events", nlohmann::json::array({
-                              {
-                                  { "kind", "future-decoration" },
-                                  { "payload", "ignored" },
-                              },
-                          }) },
+                                        {
+                                            { "kind", "future-decoration" },
+                                            { "payload", "ignored" },
+                                        },
+                                    }) },
                     });
                 }
                 return ControlMethodResult::success(
@@ -368,10 +356,7 @@ TEST_CASE("remote terminal host shutdown is bounded and stops between commands",
     FakeWindow window;
     FakeTermRenderer renderer;
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(
-        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
     TestHostCallbacks callbacks;
     RemoteTerminalHost host({
         .runtime_directory = temp.path,
@@ -475,10 +460,7 @@ TEST_CASE("remote terminal host chunks a large paste without stopping",
     FakeWindow window;
     FakeTermRenderer renderer;
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(
-        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
     TestHostCallbacks callbacks;
     RemoteTerminalHost host({
         .runtime_directory = temp.path,
@@ -613,10 +595,7 @@ TEST_CASE("remote terminal host drops rejected commands and remains usable",
     FakeWindow window;
     FakeTermRenderer renderer;
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(
-        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
     TestHostCallbacks callbacks;
     RemoteTerminalHost host({
         .runtime_directory = temp.path,
@@ -736,10 +715,7 @@ TEST_CASE("remote terminal host keeps large paste frames ahead of later keys",
     FakeWindow window;
     FakeTermRenderer renderer;
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(
-        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
     TestHostCallbacks callbacks;
     RemoteTerminalHost host({
         .runtime_directory = temp.path,
@@ -849,8 +825,7 @@ TEST_CASE("remote terminal host recovers from malformed and unexpected polling",
                     if (call == 1)
                     {
                         return ControlMethodResult::success({
-                            { "events", nlohmann::json::array(
-                                  { { { "kind", "delta" } } }) },
+                            { "events", nlohmann::json::array({ { { "kind", "delta" } } }) },
                         });
                     }
                     if (call == 2)
@@ -894,10 +869,7 @@ TEST_CASE("remote terminal host recovers from malformed and unexpected polling",
     FakeWindow window;
     FakeTermRenderer renderer;
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(
-        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
     TestHostCallbacks callbacks;
     RemoteTerminalHost host({
         .runtime_directory = temp.path,
@@ -958,10 +930,7 @@ TEST_CASE("remote terminal hosts recover in place after a long server restart",
     FakeWindow window;
     FakeTermRenderer first_renderer;
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(
-        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
     TestHostCallbacks first_callbacks;
     HostContext first_context{
         .window = &window,
@@ -1050,10 +1019,10 @@ TEST_CASE("remote terminal hosts recover in place after a long server restart",
         first_host->set_presentation_visible(true);
         REQUIRE(pump_until(*first_host, [&] {
             return recovery->server_epoch()
-                    == "restart-second"
+                == "restart-second"
                 && first_host->status_text().find(
                        "remote controller")
-                    != std::string::npos;
+                != std::string::npos;
         }));
 
         FakeTermRenderer second_renderer;
@@ -1100,10 +1069,7 @@ TEST_CASE("remote terminal host renders shared state and can take control",
     FakeWindow window;
     FakeTermRenderer renderer;
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(
-        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
 
     TestHostCallbacks callbacks;
     RemoteTerminalHost host({
@@ -1207,10 +1173,7 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
     FakeWindow window;
     FakeTermRenderer renderer;
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(
-        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
 
     RecordingHostCallbacks callbacks;
     RemoteTerminalHost host({
@@ -1368,9 +1331,9 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
             && host.grid_cols() == 30
             && host.grid_rows() == 7
             && renderer.last_handle->total_cell_updates()
-                >= hidden_cell_updates
-                    + static_cast<size_t>(
-                        host.grid_cols() * host.grid_rows());
+            >= hidden_cell_updates
+                + static_cast<size_t>(
+                    host.grid_cols() * host.grid_rows());
     }));
     CHECK(host.next_deadline().has_value());
     CHECK(callbacks.request_frame_calls.load() > hidden_frame_requests);
@@ -1423,10 +1386,7 @@ TEST_CASE("remote terminal host preserves updates published before the UI pumps"
     FakeWindow window;
     FakeTermRenderer renderer;
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(
-        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
 
     RecordingHostCallbacks callbacks;
     RemoteTerminalHost host({
@@ -1504,16 +1464,16 @@ TEST_CASE("remote terminal host attaches to its projected terminal identity",
         = initial_space.tabs.front();
     TopologyCommandResult split;
     REQUIRE(topology.execute({
-            .command_id = "host-dynamic-terminal",
-            .expected_revision = topology.snapshot().revision,
-            .kind = TopologyCommandKind::SplitPane,
-            .space_id = initial_space.space_id,
-            .tab_id = initial_tab.tab_id,
-            .pane_id = initial_tab.panes.front().pane_id,
-            .name = "Projected terminal",
-            .direction = TopologySplitDirection::Vertical,
-            .pane_domain = TopologyPaneDomain::ServerTerminal,
-        },
+                                 .command_id = "host-dynamic-terminal",
+                                 .expected_revision = topology.snapshot().revision,
+                                 .kind = TopologyCommandKind::SplitPane,
+                                 .space_id = initial_space.space_id,
+                                 .tab_id = initial_tab.tab_id,
+                                 .pane_id = initial_tab.panes.front().pane_id,
+                                 .name = "Projected terminal",
+                                 .direction = TopologySplitDirection::Vertical,
+                                 .pane_domain = TopologyPaneDomain::ServerTerminal,
+                             },
         split, error));
     const TopologyPane& projected
         = split.snapshot.spaces.front().tabs.front().panes.back();
@@ -1532,10 +1492,7 @@ TEST_CASE("remote terminal host attaches to its projected terminal identity",
     FakeWindow window;
     FakeTermRenderer renderer;
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(
-        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
     TestHostCallbacks callbacks;
     RemoteTerminalHost host({
         .runtime_directory = temp.path,
@@ -1565,13 +1522,13 @@ TEST_CASE("remote terminal host attaches to its projected terminal identity",
 
     TopologyCommandResult closed;
     REQUIRE(topology.execute({
-            .command_id = "close-host-dynamic-terminal",
-            .expected_revision = split.snapshot.revision,
-            .kind = TopologyCommandKind::ClosePane,
-            .space_id = initial_space.space_id,
-            .tab_id = initial_tab.tab_id,
-            .pane_id = projected.pane_id,
-        },
+                                 .command_id = "close-host-dynamic-terminal",
+                                 .expected_revision = split.snapshot.revision,
+                                 .kind = TopologyCommandKind::ClosePane,
+                                 .space_id = initial_space.space_id,
+                                 .tab_id = initial_tab.tab_id,
+                                 .pane_id = projected.pane_id,
+                             },
         closed, error));
     REQUIRE(pump_until(host, [&] {
         return !host.is_running();
@@ -1609,10 +1566,7 @@ TEST_CASE("two rendered remote terminal hosts survive repeated control transfer"
     ServerRunGuard server_run(server);
 
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(
-        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
 
     FakeWindow first_window;
     FakeWindow second_window;
@@ -1777,7 +1731,7 @@ TEST_CASE("remote terminal local navigation copy mode and titles stay client-loc
                             .kind = RemoteTerminalEventKind::Controller,
                             .version = version,
                             .controller_client_id
-                                = "local-navigation-client",
+                            = "local-navigation-client",
                         }));
                     }
                     else if (emit_new_title_event
@@ -1792,7 +1746,7 @@ TEST_CASE("remote terminal local navigation copy mode and titles stay client-loc
                             .kind = RemoteTerminalEventKind::Snapshot,
                             .version = version,
                             .controller_client_id
-                                = "local-navigation-client",
+                            = "local-navigation-client",
                             .snapshot = std::move(changed_snapshot),
                         }));
                     }
@@ -1807,7 +1761,7 @@ TEST_CASE("remote terminal local navigation copy mode and titles stay client-loc
                             .kind = RemoteTerminalEventKind::Snapshot,
                             .version = version,
                             .controller_client_id
-                                = "local-navigation-client",
+                            = "local-navigation-client",
                             .snapshot = std::move(changed_snapshot),
                         }));
                     }
@@ -1864,10 +1818,7 @@ TEST_CASE("remote terminal local navigation copy mode and titles stay client-loc
     FakeWindow window;
     FakeTermRenderer renderer;
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(
-        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
     RecordingHostCallbacks callbacks;
     RemoteTerminalHost host({
         .runtime_directory = temp.path,
@@ -1891,7 +1842,7 @@ TEST_CASE("remote terminal local navigation copy mode and titles stay client-loc
     REQUIRE(host.initialize(context, callbacks));
     REQUIRE(pump_until(host, [&] {
         return host.status_text().find("controller")
-                != std::string::npos
+            != std::string::npos
             && callbacks.window_title_calls.load() == 1;
     }));
     CHECK(callbacks.last_window_title == "Remote Title One");
@@ -2006,10 +1957,7 @@ TEST_CASE("remote terminal hosts scroll and select server history independently"
     ServerRunGuard server_run(server);
 
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(
-        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
 
     FakeWindow first_window;
     FakeWindow second_window;

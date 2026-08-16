@@ -21,11 +21,6 @@ namespace
 {
 
 // Returns the path to the bundled JetBrainsMono font.
-std::string bundled_font_path()
-{
-    return std::string(DRAXUL_PROJECT_ROOT) + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
-}
-
 // Base AppOptions suitable for rollback integration tests — no SDL, no GPU,
 // no config persistence.
 AppOptions base_options()
@@ -174,7 +169,7 @@ TEST_CASE("startup rollback: font load failure destroys renderer and window clea
 
 TEST_CASE("startup rollback: host init failure destroys all earlier subsystems [integration]", "[startup]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 

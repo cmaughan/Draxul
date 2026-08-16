@@ -78,7 +78,7 @@ void TerminalHostBase::on_focus_gained()
 
 void TerminalHostBase::on_focus_lost()
 {
-    GridHostBase::on_focus_lost();
+    TerminalSurfaceHostBase::on_focus_lost();
     if (core_.focus_reporting_mode())
         do_process_write("\x1B[O");
 }
@@ -118,7 +118,7 @@ void TerminalHostBase::on_text_input(const TextInputEvent& event)
 
 void TerminalHostBase::on_config_reloaded(const HostReloadConfig& config)
 {
-    GridHostBase::on_config_reloaded(config);
+    TerminalSurfaceHostBase::on_config_reloaded(config);
 
     launch_options().terminal_fg = config.terminal_fg;
     launch_options().terminal_bg = config.terminal_bg;

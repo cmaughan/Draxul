@@ -19,13 +19,6 @@ void write_file(const std::filesystem::path& path, std::string_view text = "")
     file << text;
 }
 
-std::string read_file(const std::filesystem::path& path)
-{
-    std::ifstream file(path, std::ios::binary);
-    std::ostringstream buffer;
-    buffer << file.rdbuf();
-    return buffer.str();
-}
 } // namespace
 
 TEST_CASE("kanban store resolves empty source to working directory kanban root", "[kanban][store]")
@@ -114,14 +107,14 @@ TEST_CASE("kanban store persists reordered cards without moving files", "[kanban
     auto board = load_kanban_board(root, &error);
     REQUIRE(error.empty());
 
-    REQUIRE(reorder_card(board, KanbanSelection{.column = 0, .card = 1}, -1, &error));
+    REQUIRE(reorder_card(board, KanbanSelection{ .column = 0, .card = 1 }, -1, &error));
     REQUIRE(save_kanban_order(board, &error));
 
     REQUIRE(std::filesystem::exists(root / "pending" / "a.md"));
     REQUIRE(std::filesystem::exists(root / "pending" / "b.md"));
     REQUIRE(board.columns[0].cards[0].file_name == "b.md");
 
-    const auto metadata = read_file(root / std::string(kKanbanMetadataFileName));
+    const auto metadata = draxul::tests::read_file(root / std::string(kKanbanMetadataFileName));
     REQUIRE_THAT(metadata, Catch::Matchers::ContainsSubstring("version = 1\n"));
     REQUIRE_THAT(metadata, Catch::Matchers::ContainsSubstring("columns = [\"pending\"]\n"));
     REQUIRE_THAT(metadata, Catch::Matchers::ContainsSubstring("[cards]\n"));
@@ -144,13 +137,13 @@ TEST_CASE("kanban store escapes metadata strings when saving", "[kanban][store]"
     board.root = root;
     board.columns.push_back(KanbanColumn{
         .name = "pending",
-        .cards = {KanbanCard{.file_name = "quote\"slash\\card.md"}},
+        .cards = { KanbanCard{ .file_name = "quote\"slash\\card.md" } },
     });
 
     std::string error;
     REQUIRE(save_kanban_order(board, &error));
 
-    const auto metadata = read_file(root / std::string(kKanbanMetadataFileName));
+    const auto metadata = draxul::tests::read_file(root / std::string(kKanbanMetadataFileName));
     REQUIRE_THAT(metadata, Catch::Matchers::ContainsSubstring("columns = [\"pending\"]\n"));
     REQUIRE_THAT(
         metadata,
@@ -165,23 +158,23 @@ TEST_CASE("kanban store clamps card reorder with extreme row deltas", "[kanban][
     board.columns.push_back(KanbanColumn{
         .name = "pending",
         .cards = {
-            KanbanCard{.file_name = "a.md"},
-            KanbanCard{.file_name = "b.md"},
-            KanbanCard{.file_name = "c.md"},
+            KanbanCard{ .file_name = "a.md" },
+            KanbanCard{ .file_name = "b.md" },
+            KanbanCard{ .file_name = "c.md" },
         },
     });
 
     std::string error;
     REQUIRE(reorder_card(
         board,
-        KanbanSelection{.column = 0, .card = 1},
+        KanbanSelection{ .column = 0, .card = 1 },
         std::numeric_limits<int>::max(),
         &error));
     REQUIRE(board.columns[0].cards[2].file_name == "b.md");
 
     REQUIRE(reorder_card(
         board,
-        KanbanSelection{.column = 0, .card = 1},
+        KanbanSelection{ .column = 0, .card = 1 },
         std::numeric_limits<int>::min(),
         &error));
     REQUIRE(board.columns[0].cards[0].file_name == "c.md");
@@ -200,7 +193,7 @@ TEST_CASE("kanban store moves cards across columns by renaming files", "[kanban]
     auto board = load_kanban_board(root, &error);
     REQUIRE(error.empty());
 
-    REQUIRE(move_card_to_column(board, KanbanSelection{.column = 0, .card = 0}, 1, &error));
+    REQUIRE(move_card_to_column(board, KanbanSelection{ .column = 0, .card = 0 }, 1, &error));
 
     REQUIRE_FALSE(std::filesystem::exists(root / "pending" / "a.md"));
     REQUIRE(std::filesystem::exists(root / "done" / "a.md"));
@@ -222,7 +215,7 @@ TEST_CASE("kanban store refuses cross-column filename collisions", "[kanban][sto
     auto board = load_kanban_board(root, &error);
     REQUIRE(error.empty());
 
-    REQUIRE_FALSE(move_card_to_column(board, KanbanSelection{.column = 0, .card = 0}, 1, &error));
+    REQUIRE_FALSE(move_card_to_column(board, KanbanSelection{ .column = 0, .card = 0 }, 1, &error));
 
     REQUIRE_FALSE(error.empty());
     REQUIRE(std::filesystem::exists(root / "pending" / "a.md"));

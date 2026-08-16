@@ -1,7 +1,8 @@
-// config_lifecycle_tests.cpp — Additional config lifecycle tests covering
-// partial-init scenarios, double-shutdown, and config mutation with failed init.
-// Validates the fix for 14-config-partial-init-save (and the underlying
-// 00-startup-config-save-on-failure bug).
+// config_lifecycle_tests.cpp — Config lifecycle tests covering startup-failure
+// persistence, partial-init scenarios, double-shutdown, and config mutation
+// with failed init. Validates the fixes for 14-config-partial-init-save and
+// 00-startup-config-save-on-failure. (Absorbed the former
+// startup_config_tests.cpp; its three near-clone cases were kept once here.)
 
 #include "support/fake_renderer.h"
 #include "support/fake_window.h"
@@ -35,15 +36,57 @@ RendererBundle make_fake_renderer(int /*atlas_size*/, RendererOptions /*renderer
     return RendererBundle{ std::make_unique<FakeTermRenderer>() };
 }
 
-std::string read_file(const std::filesystem::path& path)
+} // namespace
+
+// ---------------------------------------------------------------------------
+// Startup failures: failed init must never write or create config
+// (absorbed from startup_config_tests.cpp)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("config not saved: window creation failure does not overwrite config [integration]",
+    "[startup][config]")
 {
-    std::ifstream f(path, std::ios::binary);
-    if (!f)
-        return {};
-    return std::string(std::istreambuf_iterator<char>(f), {});
+    TempDir temp("draxul-cfg-no-save-window");
+    HomeDirRedirect redir(temp.path);
+
+    // Pre-populate a sentinel config file.
+    std::filesystem::create_directories(redir.config_path.parent_path());
+    {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        out << "window_width = 1111\n";
+    }
+    const std::string before = draxul::tests::read_file(redir.config_path);
+    REQUIRE(!before.empty());
+
+    AppOptions opts = base_options();
+    opts.save_user_config = true;
+    opts.window_factory = []() -> std::unique_ptr<IWindow> { return nullptr; };
+
+    App app(std::move(opts));
+    REQUIRE(!app.initialize());
+
+    INFO("config file must be byte-for-byte identical after a failed window init");
+    REQUIRE(draxul::tests::read_file(redir.config_path) == before);
 }
 
-} // namespace
+TEST_CASE("config not saved: save_user_config=false skips disk write on any failure [integration]",
+    "[startup][config]")
+{
+    TempDir temp("draxul-cfg-no-save-flag");
+    HomeDirRedirect redir(temp.path);
+
+    REQUIRE(!std::filesystem::exists(redir.config_path));
+
+    AppOptions opts = base_options();
+    opts.save_user_config = false; // explicit
+    opts.window_factory = []() -> std::unique_ptr<IWindow> { return nullptr; };
+
+    App app(std::move(opts));
+    REQUIRE(!app.initialize());
+
+    INFO("save_user_config=false: no config file created");
+    REQUIRE(!std::filesystem::exists(redir.config_path));
+}
 
 // ---------------------------------------------------------------------------
 // Partial-init scenarios: config must not save when init fails at any stage
@@ -60,7 +103,7 @@ TEST_CASE("config lifecycle: window-OK renderer-FAIL does not save config [integ
         std::ofstream out(redir.config_path, std::ios::trunc);
         out << "window_width = 4444\n";
     }
-    const std::string before = read_file(redir.config_path);
+    const std::string before = draxul::tests::read_file(redir.config_path);
 
     AppOptions opts = base_options();
     opts.save_user_config = true;
@@ -72,7 +115,7 @@ TEST_CASE("config lifecycle: window-OK renderer-FAIL does not save config [integ
     REQUIRE(!app.initialize());
 
     INFO("config must not be written when renderer init fails after window success");
-    REQUIRE(read_file(redir.config_path) == before);
+    REQUIRE(draxul::tests::read_file(redir.config_path) == before);
 }
 
 TEST_CASE(
@@ -87,7 +130,7 @@ TEST_CASE(
         std::ofstream out(redir.config_path, std::ios::trunc);
         out << "window_width = 5555\n";
     }
-    const std::string before = read_file(redir.config_path);
+    const std::string before = draxul::tests::read_file(redir.config_path);
 
     AppOptions opts = base_options();
     opts.save_user_config = true;
@@ -100,7 +143,7 @@ TEST_CASE(
     REQUIRE(!app.initialize());
 
     INFO("config must not be written when font load fails after window+renderer success");
-    REQUIRE(read_file(redir.config_path) == before);
+    REQUIRE(draxul::tests::read_file(redir.config_path) == before);
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +161,7 @@ TEST_CASE("config lifecycle: double shutdown after failed init does not write co
         std::ofstream out(redir.config_path, std::ios::trunc);
         out << "window_width = 6666\n";
     }
-    const std::string before = read_file(redir.config_path);
+    const std::string before = draxul::tests::read_file(redir.config_path);
 
     AppOptions opts = base_options();
     opts.save_user_config = true;
@@ -131,13 +174,13 @@ TEST_CASE("config lifecycle: double shutdown after failed init does not write co
     app.shutdown();
 
     INFO("config must not be written after double-shutdown on failed init");
-    REQUIRE(read_file(redir.config_path) == before);
+    REQUIRE(draxul::tests::read_file(redir.config_path) == before);
 
     // Second explicit shutdown must be a no-op and must not corrupt the file.
     app.shutdown();
 
     INFO("config must still be unchanged after second explicit shutdown");
-    REQUIRE(read_file(redir.config_path) == before);
+    REQUIRE(draxul::tests::read_file(redir.config_path) == before);
 }
 
 TEST_CASE("config lifecycle: double shutdown after failed init does not create config file [integration]",
@@ -179,7 +222,7 @@ TEST_CASE("config lifecycle: config_override during failed init does not persist
         std::ofstream out(redir.config_path, std::ios::trunc);
         out << "window_width = 7777\n";
     }
-    const std::string before = read_file(redir.config_path);
+    const std::string before = draxul::tests::read_file(redir.config_path);
     REQUIRE(!before.empty());
 
     AppOptions opts = base_options();
@@ -194,7 +237,7 @@ TEST_CASE("config lifecycle: config_override during failed init does not persist
     REQUIRE(!app.initialize());
 
     INFO("in-memory config mutation (font_size=99) must not reach disk after failed init");
-    const std::string after = read_file(redir.config_path);
+    const std::string after = draxul::tests::read_file(redir.config_path);
     REQUIRE(after == before);
     INFO("the config file must not contain the injected font_size");
     REQUIRE(after.find("99") == std::string::npos);
@@ -211,7 +254,7 @@ TEST_CASE("config lifecycle: window_width override during failed init does not p
         std::ofstream out(redir.config_path, std::ios::trunc);
         out << "window_width = 800\n";
     }
-    const std::string before = read_file(redir.config_path);
+    const std::string before = draxul::tests::read_file(redir.config_path);
 
     AppOptions opts = base_options();
     opts.save_user_config = true;
@@ -223,5 +266,5 @@ TEST_CASE("config lifecycle: window_width override during failed init does not p
     REQUIRE(!app.initialize());
 
     INFO("window_width override must not be persisted after failed init");
-    REQUIRE(read_file(redir.config_path) == before);
+    REQUIRE(draxul::tests::read_file(redir.config_path) == before);
 }

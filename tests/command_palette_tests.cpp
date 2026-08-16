@@ -21,14 +21,9 @@ using namespace draxul;
 namespace
 {
 
-std::filesystem::path bundled_font_path()
-{
-    return std::filesystem::path(DRAXUL_PROJECT_ROOT) / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
-}
-
 bool init_text_service(TextService& text_service)
 {
-    const auto font_path = bundled_font_path();
+    const auto font_path = draxul::tests::bundled_font_path();
     if (!std::filesystem::exists(font_path))
         return false;
 

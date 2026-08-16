@@ -3,13 +3,14 @@
 #include "fake_renderer.h"
 #include "fake_window.h"
 #include "test_host_callbacks.h"
+#include "test_support.h"
 
 #include <draxul/host.h>
 #include <draxul/renderer.h>
 #include <draxul/text_service.h>
 #include <draxul/window.h>
 
-#include <filesystem>
+#include <utility>
 
 namespace draxul::tests
 {
@@ -24,18 +25,13 @@ struct TerminalHostFixture
     TestHostCallbacks callbacks;
     bool ok = false;
 
-    explicit TerminalHostFixture(int cols = 20, int rows = 5)
+    explicit TerminalHostFixture(int cols = 20, int rows = 5,
+        HostLaunchOptions launch_options = {})
     {
         host.cols_ = cols;
         host.rows_ = rows;
 
-        TextServiceConfig ts_cfg;
-        ts_cfg.font_path
-            = (std::filesystem::path(DRAXUL_PROJECT_ROOT)
-                / "fonts"
-                / "JetBrainsMonoNerdFont-Regular.ttf")
-                  .string();
-        text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, 96.0f);
+        init_text_service(text_service);
 
         HostViewport vp;
         vp.grid_size = { cols, rows };
@@ -44,6 +40,7 @@ struct TerminalHostFixture
             .window = &window,
             .grid_renderer = &renderer,
             .text_service = &text_service,
+            .launch_options = std::move(launch_options),
             .initial_viewport = vp,
         };
         ok = host.initialize(ctx, callbacks);

@@ -11,6 +11,7 @@
 #include "support/fake_renderer.h"
 #include "support/fake_window.h"
 #include "support/home_dir_redirect.h"
+#include "support/scoped_env_var.h"
 #include "support/temp_dir.h"
 
 #include <draxul/control_plane.h>
@@ -73,41 +74,8 @@ std::filesystem::path unique_runtime_directory()
 
 std::string test_font_path()
 {
-    return std::string(DRAXUL_PROJECT_ROOT)
-        + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
+    return draxul::tests::bundled_font_path().string();
 }
-
-class ScopedEnvironment
-{
-public:
-    ScopedEnvironment(std::string name, std::string value)
-        : name_(std::move(name))
-    {
-        if (const char* existing = std::getenv(name_.c_str()))
-            previous_ = existing;
-#ifdef _WIN32
-        _putenv_s(name_.c_str(), value.c_str());
-#else
-        setenv(name_.c_str(), value.c_str(), 1);
-#endif
-    }
-
-    ~ScopedEnvironment()
-    {
-#ifdef _WIN32
-        _putenv_s(name_.c_str(), previous_.value_or("").c_str());
-#else
-        if (previous_)
-            setenv(name_.c_str(), previous_->c_str(), 1);
-        else
-            unsetenv(name_.c_str());
-#endif
-    }
-
-private:
-    std::string name_;
-    std::optional<std::string> previous_;
-};
 
 ControlClientResult request_while_pumping(App& app,
     std::string_view session_id,
@@ -329,7 +297,7 @@ TEST_CASE("Codex integration install is idempotent and preserves unrelated hooks
         std::ofstream config(config_path);
         config << "model = \"gpt-5\"\n";
     }
-    ScopedEnvironment codex_home("CODEX_HOME", codex.path.string());
+    ScopedEnvVar codex_home("CODEX_HOME", codex.path.string().c_str());
 
     IntegrationCliCommand install{ .action = "install", .target = "codex" };
     REQUIRE(run_integration_cli(install) == 0);
@@ -408,7 +376,7 @@ TEST_CASE("Claude integration install is idempotent and preserves unrelated sett
   }
 })";
     }
-    ScopedEnvironment claude_home("CLAUDE_CONFIG_DIR", claude.path.string());
+    ScopedEnvVar claude_home("CLAUDE_CONFIG_DIR", claude.path.string().c_str());
 
     IntegrationCliCommand install{ .action = "install", .target = "claude" };
     REQUIRE(run_integration_cli(install) == 0);

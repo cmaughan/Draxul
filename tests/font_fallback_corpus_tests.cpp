@@ -1,4 +1,6 @@
 
+#include "support/test_support.h"
+
 #include <catch2/catch_all.hpp>
 
 #include <chrono>
@@ -15,14 +17,9 @@ using namespace draxul;
 namespace
 {
 
-std::filesystem::path repo_root()
-{
-    return std::filesystem::path(DRAXUL_PROJECT_ROOT);
-}
-
 std::filesystem::path primary_font_path()
 {
-    return repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    return draxul::tests::bundled_font_path();
 }
 
 // Build a list of system fallback font paths available on this machine.

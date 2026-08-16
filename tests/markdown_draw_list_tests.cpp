@@ -1,3 +1,5 @@
+#include "support/test_support.h"
+
 #include <catch2/catch_all.hpp>
 
 #include <draxul/markdown/markdown_draw_list.h>
@@ -16,16 +18,10 @@ using namespace draxul::markdown;
 namespace
 {
 
-std::filesystem::path repo_root()
-{
-    auto here = std::filesystem::path(__FILE__).parent_path();
-    return here.parent_path();
-}
-
 TextServiceConfig rich_text_test_config()
 {
     TextServiceConfig config;
-    config.font_path = (repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf").string();
+    config.font_path = (draxul::tests::project_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf").string();
     return config;
 }
 

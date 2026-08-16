@@ -1,4 +1,6 @@
 
+#include "support/test_support.h"
+
 #include <catch2/catch_all.hpp>
 
 #include <draxul/rich_text_service.h>
@@ -12,16 +14,10 @@ using namespace draxul;
 namespace
 {
 
-std::filesystem::path repo_root()
-{
-    auto here = std::filesystem::path(__FILE__).parent_path();
-    return here.parent_path();
-}
-
 TextServiceConfig rich_text_test_config()
 {
     TextServiceConfig config;
-    const auto fonts = repo_root() / "fonts";
+    const auto fonts = draxul::tests::project_root() / "fonts";
     config.font_path = (fonts / "JetBrainsMonoNerdFont-Regular.ttf").string();
     config.bold_font_path = (fonts / "JetBrainsMonoNerdFont-Bold.ttf").string();
     config.italic_font_path = (fonts / "JetBrainsMonoNerdFont-Italic.ttf").string();
@@ -188,11 +184,11 @@ TEST_CASE("rich text service exposes stable atlas snapshots per style", "[font][
     const auto snapshots = service.atlas_snapshots();
     REQUIRE(snapshots.size() >= 2);
     REQUIRE(std::find_if(snapshots.begin(), snapshots.end(), [&](const RichTextAtlasSnapshot& snapshot) {
-                return snapshot.atlas_id == body_a.atlas_id;
-            }) != snapshots.end());
+        return snapshot.atlas_id == body_a.atlas_id;
+    }) != snapshots.end());
     REQUIRE(std::find_if(snapshots.begin(), snapshots.end(), [&](const RichTextAtlasSnapshot& snapshot) {
-                return snapshot.atlas_id == heading.atlas_id;
-            }) != snapshots.end());
+        return snapshot.atlas_id == heading.atlas_id;
+    }) != snapshots.end());
 
     const auto body_snapshot = service.atlas_snapshot(body_a.atlas_id);
     const auto heading_snapshot = service.atlas_snapshot(heading.atlas_id);

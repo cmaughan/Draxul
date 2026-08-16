@@ -1,3 +1,5 @@
+#include "support/test_support.h"
+
 #include <catch2/catch_all.hpp>
 
 #include <draxul/text_service.h>
@@ -12,15 +14,9 @@ using namespace draxul;
 namespace
 {
 
-std::filesystem::path repo_root()
-{
-    auto here = std::filesystem::path(__FILE__).parent_path();
-    return here.parent_path();
-}
-
 std::filesystem::path primary_font_path()
 {
-    return repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    return draxul::tests::project_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
 }
 
 uint8_t at(const std::vector<uint8_t>& alpha, int w, int x, int y)

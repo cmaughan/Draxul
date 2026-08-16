@@ -53,8 +53,8 @@
 #include "command_palette_host.h"
 #include "diagnostics_panel_host.h"
 #include "pane_manager.h"
-#include "toast_host.h"
 #include "tab.h"
+#include "toast_host.h"
 
 #include <draxul/base_renderer.h>
 #include <draxul/gui/tooltip.h>
@@ -79,17 +79,12 @@ using namespace draxul;
 namespace
 {
 
-std::filesystem::path bundled_font_path()
-{
-    return std::filesystem::path(DRAXUL_PROJECT_ROOT) / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
-}
-
 // Real TextService — overlays that emit glyph cells (toast, palette, chrome,
 // tooltip) need metrics + an atlas. Returns false when the bundled font is
 // absent so callers can SKIP rather than fail.
 bool init_text_service(TextService& text_service)
 {
-    const auto font = bundled_font_path();
+    const auto font = draxul::tests::bundled_font_path();
     if (!std::filesystem::exists(font))
         return false;
     TextServiceConfig config;

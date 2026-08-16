@@ -87,10 +87,7 @@ struct KeyTestSetup
 
     KeyTestSetup()
     {
-        TextServiceConfig ts_cfg;
-        ts_cfg.font_path
-            = (std::filesystem::path(DRAXUL_PROJECT_ROOT) / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf").string();
-        text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, 96.0f);
+        draxul::tests::init_text_service(text_service);
 
         HostViewport vp;
         vp.grid_size.x = 20;

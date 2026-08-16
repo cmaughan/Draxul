@@ -38,14 +38,6 @@ std::filesystem::path fixture_path(const char* name)
     return std::filesystem::path(DRAXUL_PROJECT_ROOT) / "tests" / "fixtures" / "config" / name;
 }
 
-std::string read_file_bytes(const std::filesystem::path& path)
-{
-    std::ifstream in(path, std::ios::binary);
-    if (!in)
-        return {};
-    return std::string(std::istreambuf_iterator<char>(in), {});
-}
-
 bool regen_goldens()
 {
     const char* env = std::getenv("DRAXUL_REGEN_CONFIG_GOLDENS");
@@ -111,7 +103,7 @@ void compare_against_golden(const std::string& actual, const char* golden_name)
 
     INFO("golden fixture: " << golden.string());
     INFO("regenerate with DRAXUL_REGEN_CONFIG_GOLDENS=1 if this change is intentional");
-    const std::string expected = read_file_bytes(golden);
+    const std::string expected = draxul::tests::read_file(golden);
     REQUIRE_FALSE(expected.empty());
 
     // Semantic parity remains exact even where the formatter's equivalent
@@ -251,7 +243,7 @@ TEST_CASE("config parity: core merge into user document snapshot", "[config][par
     document.merge_core_config(config);
     document.save_to_path(path);
 
-    const std::string saved = read_file_bytes(path);
+    const std::string saved = draxul::tests::read_file(path);
     INFO("module tables survive the merge");
     REQUIRE(saved.find("[mega_city_code]") != std::string::npos);
     REQUIRE(saved.find("[mega_city_code.defaults]") != std::string::npos);

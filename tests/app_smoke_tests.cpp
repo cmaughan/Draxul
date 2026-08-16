@@ -13,10 +13,11 @@
 #include "support/home_dir_redirect.h"
 #include "support/temp_dir.h"
 
-#include "session_state.h"
 #include "chrome_layout.h"
+#include "session_state.h"
 
 #include <SDL3/SDL.h>
+#include <atomic>
 #include <catch2/catch_all.hpp>
 #include <draxul/app_config.h>
 #include <draxul/control_plane.h>
@@ -24,7 +25,6 @@
 #include <draxul/http/http_client.h>
 #include <draxul/server_protocol.h>
 #include <draxul/topology_protocol.h>
-#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -96,11 +96,6 @@ public:
         init_error_message = "deliberate test failure";
     }
 };
-
-std::string bundled_font_path()
-{
-    return std::string(DRAXUL_PROJECT_ROOT) + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
-}
 
 std::filesystem::path canonical_path(const std::filesystem::path& path)
 {
@@ -243,13 +238,9 @@ private:
 
 bool wait_for_value(const std::atomic<int>& value, int expected)
 {
-    for (int attempt = 0; attempt < 200; ++attempt)
-    {
-        if (value.load() >= expected)
-            return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    }
-    return false;
+    return draxul::tests::wait_until(
+        [&] { return value.load() >= expected; },
+        std::chrono::milliseconds(400), std::chrono::milliseconds(2));
 }
 
 namespace
@@ -275,7 +266,7 @@ AppOptions make_smoke_options()
     opts.activate_window_on_startup = false;
     opts.clamp_window_to_display = false;
     opts.override_display_ppi = 96.0f;
-    opts.config_overrides.font_path = bundled_font_path();
+    opts.config_overrides.font_path = draxul::tests::bundled_font_path().string();
     opts.window_factory = []() {
         auto window = std::make_unique<FakeWindow>();
         g_last_fake_window = window.get();
@@ -311,7 +302,7 @@ struct CurrentDirGuard
 
 TEST_CASE("app smoke: initialize succeeds with all fakes", "[app_smoke]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -382,8 +373,7 @@ TEST_CASE("app smoke: failed remote projection retries and restores input routin
                         .panes = {
                             {
                                 .pane_id = "pane-1",
-                                .domain
-                                = TopologyPaneDomain::ClientLocal,
+                                .domain = TopologyPaneDomain::ClientLocal,
                                 .client_host_kind = "nvim",
                             },
                         },
@@ -466,7 +456,7 @@ TEST_CASE("app smoke: failed remote projection retries and restores input routin
 TEST_CASE("app smoke: Space lifecycle creates rooted hosts and switches in memory",
     "[app_smoke][spaces]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -522,7 +512,7 @@ TEST_CASE("app smoke: Space lifecycle creates rooted hosts and switches in memor
 TEST_CASE("app smoke: initialize does not mutate cwd when using bundled font fallback",
     "[app_smoke]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -545,7 +535,7 @@ TEST_CASE("app smoke: initialize does not mutate cwd when using bundled font fal
 
 TEST_CASE("app smoke: pump_once runs without crash after successful init", "[app_smoke]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -569,7 +559,7 @@ TEST_CASE("app smoke: pump_once runs without crash after successful init", "[app
 TEST_CASE("app smoke: discovered agent immediately reveals the one-Space sidebar",
     "[app_smoke][agent][discovery]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -579,16 +569,14 @@ TEST_CASE("app smoke: discovered agent immediately reveals the one-Space sidebar
     REQUIRE(g_last_smoke_host != nullptr);
     REQUIRE_FALSE(app.shell_layout().sidebar_visible);
 
-    g_last_smoke_host->fake_agent_process_observation =
-        AgentProcessObservation{
-            .processes = { {
-                .process_id = 42,
-                .parent_process_id = 41,
-                .executable =
-                    "C:/tools/codex-x86_64-pc-windows-msvc.exe",
-            } },
-            .foreground_reliable = false,
-        };
+    g_last_smoke_host->fake_agent_process_observation = AgentProcessObservation{
+        .processes = { {
+            .process_id = 42,
+            .parent_process_id = 41,
+            .executable = "C:/tools/codex-x86_64-pc-windows-msvc.exe",
+        } },
+        .foreground_reliable = false,
+    };
 
     // Initialization performed the first bounded discovery probe before the
     // fake process appeared. Wait through the production 500 ms probe window.
@@ -600,7 +588,7 @@ TEST_CASE("app smoke: discovered agent immediately reveals the one-Space sidebar
 
 TEST_CASE("app smoke: queued window resize updates the host viewport", "[app_smoke]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -628,7 +616,7 @@ TEST_CASE("app smoke: queued window resize updates the host viewport", "[app_smo
 
 TEST_CASE("app smoke: rendering pauses while minimized and resumes after restore", "[app_smoke]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -655,7 +643,7 @@ TEST_CASE("app smoke: rendering pauses while minimized and resumes after restore
 
 TEST_CASE("app smoke: shutdown after successful init is clean", "[app_smoke]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -670,7 +658,7 @@ TEST_CASE("app smoke: shutdown after successful init is clean", "[app_smoke]")
 
 TEST_CASE("app smoke: initial frame renders before any later host redraw", "[app_smoke]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -697,7 +685,7 @@ TEST_CASE("app smoke: initial frame renders before any later host redraw", "[app
 
 TEST_CASE("app smoke: initialization fails when host factory returns nullptr", "[app_smoke]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -716,7 +704,7 @@ TEST_CASE("app smoke: initialization fails when host factory returns nullptr", "
 
 TEST_CASE("app smoke: initialization fails when host init fails", "[app_smoke]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -738,7 +726,7 @@ TEST_CASE("app smoke: initialization fails when host init fails", "[app_smoke]")
 
 TEST_CASE("app smoke: host death during pump_once does not crash the app", "[app_smoke]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -760,7 +748,7 @@ TEST_CASE("app smoke: host death during pump_once does not crash the app", "[app
 
 TEST_CASE("app smoke: reload_config action reloads user config from disk", "[app_smoke][config]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -871,7 +859,7 @@ TEST_CASE("app smoke: Ctrl+S, Q exits through the application quit path",
 
 TEST_CASE("app smoke: malformed reload keeps the previous runtime config", "[app_smoke][config][reload]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -928,7 +916,7 @@ TEST_CASE("app smoke: malformed reload keeps the previous runtime config", "[app
 
 TEST_CASE("app smoke: failed font reload is all-or-old", "[app_smoke][config][reload]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -995,7 +983,7 @@ TEST_CASE("app smoke: failed font reload is all-or-old", "[app_smoke][config][re
 
 TEST_CASE("app smoke: weather reload handles add change and clear with cancellation", "[app_smoke][config][reload][weather]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -1060,7 +1048,7 @@ std::vector<ReloadTrackingHost*> g_all_reload_hosts;
 TEST_CASE("app smoke: reload_config propagates to hosts in inactive tabs",
     "[app_smoke][config][tabs]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -1158,7 +1146,7 @@ TEST_CASE("app smoke: reload_config propagates to hosts in inactive tabs",
 TEST_CASE("app smoke: reload_config propagates to all split panes in the active tab",
     "[app_smoke][config][splits]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 

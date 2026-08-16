@@ -1,7 +1,7 @@
 #pragma once
 
-#include <draxul/grid_host_base.h>
 #include <draxul/terminal_core.h>
+#include <draxul/terminal_surface_host_base.h>
 #include <draxul/window.h>
 
 #include <optional>
@@ -16,8 +16,9 @@ namespace draxul
 
 // UI/process adapter for the renderer-free TerminalCore. Concrete shell hosts
 // provide the PTY/ConPTY operations; TerminalHostBase maps core presentation
-// events onto GridHostBase and client desktop capabilities.
-class TerminalHostBase : public GridHostBase, private ITerminalCoreHost
+// events onto the shared terminal surface (TerminalSurfaceHostBase →
+// GridHostBase) and client desktop capabilities.
+class TerminalHostBase : public TerminalSurfaceHostBase, private ITerminalCoreHost
 {
 public:
     TerminalHostBase();
@@ -145,6 +146,19 @@ protected:
     bool synchronized_output_active() const
     {
         return core_.synchronized_output_active();
+    }
+
+    // Default surface seams for local PTY-backed hosts: mouse reports go to
+    // the process, the copy-mode cursor starts at the VT cursor, and hosts
+    // without a scrollback view ignore surface scrolling.
+    void surface_write_mouse_report(std::string_view sequence) override
+    {
+        do_process_write(sequence);
+    }
+    void surface_scroll_lines(int /*rows*/) override {}
+    glm::ivec2 surface_cursor_position() const override
+    {
+        return { vt_state().col, vt_state().row };
     }
 
     virtual void on_line_scrolled_off(int /*row*/) {}

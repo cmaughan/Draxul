@@ -130,12 +130,7 @@ struct KanbanHostFixture
             }
         }
 
-        TextServiceConfig text_config;
-        text_config.font_path = (std::filesystem::path(DRAXUL_PROJECT_ROOT)
-            / "fonts"
-            / "JetBrainsMonoNerdFont-Regular.ttf")
-                                    .string();
-        REQUIRE(text_service.initialize(text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+        draxul::tests::init_text_service(text_service);
 
         HostLaunchOptions launch;
         launch.kind = HostKind::Kanban;

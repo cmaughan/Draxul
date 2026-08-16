@@ -1,4 +1,6 @@
 
+#include "support/test_support.h"
+
 #include <catch2/catch_all.hpp>
 
 #include <draxul/text_service.h>
@@ -6,15 +8,10 @@
 #include <filesystem>
 
 using namespace draxul;
+using draxul::tests::bundled_font_path;
 
 namespace
 {
-
-std::filesystem::path bundled_font_path()
-{
-    auto here = std::filesystem::path(__FILE__).parent_path();
-    return here.parent_path() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
-}
 
 // Mirrors SdlWindow::display_ppi(): ppi = 96 * display_scale
 float compute_display_ppi(float display_scale)

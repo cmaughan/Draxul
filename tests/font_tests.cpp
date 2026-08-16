@@ -1,4 +1,6 @@
 
+#include "support/test_support.h"
+
 #include <catch2/catch_all.hpp>
 
 #include <draxul/text_service.h>
@@ -16,15 +18,9 @@ using namespace draxul;
 namespace
 {
 
-std::filesystem::path repo_root()
-{
-    auto here = std::filesystem::path(__FILE__).parent_path();
-    return here.parent_path();
-}
-
 std::filesystem::path ligature_font_path()
 {
-    return repo_root() / "fonts" / "CascadiaCode-Regular.ttf";
+    return draxul::tests::project_root() / "fonts" / "CascadiaCode-Regular.ttf";
 }
 
 std::filesystem::path color_emoji_font_path()
@@ -80,7 +76,7 @@ std::filesystem::path cjk_font_path()
 
 TEST_CASE("bundled nerd font shapes and rasterizes current lazy icon", "[font]")
 {
-    auto font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    auto font_path = draxul::tests::project_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
     INFO("bundled font exists");
     REQUIRE(std::filesystem::exists(font_path));
 
@@ -102,7 +98,7 @@ TEST_CASE("bundled nerd font shapes and rasterizes current lazy icon", "[font]")
 
 TEST_CASE("glyph cache dirty rect accumulates newly rasterized glyphs", "[font]")
 {
-    auto font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    auto font_path = draxul::tests::project_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
     INFO("bundled font exists");
     REQUIRE(std::filesystem::exists(font_path));
 
@@ -137,7 +133,7 @@ TEST_CASE("glyph cache dirty rect accumulates newly rasterized glyphs", "[font]"
 
 TEST_CASE("font choice cache stays bounded under many unique clusters", "[font]")
 {
-    auto font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    auto font_path = draxul::tests::project_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
     INFO("bundled font exists");
     REQUIRE(std::filesystem::exists(font_path));
 
@@ -160,8 +156,8 @@ TEST_CASE("font choice cache stays bounded under many unique clusters", "[font]"
 
 TEST_CASE("font resolver clears stale style variants on reinitialize", "[font]")
 {
-    auto jetbrains_regular = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
-    auto cascadia_regular = repo_root() / "fonts" / "CascadiaCode-Regular.ttf";
+    auto jetbrains_regular = draxul::tests::project_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    auto cascadia_regular = draxul::tests::project_root() / "fonts" / "CascadiaCode-Regular.ttf";
     INFO("bundled regular font with style variants exists");
     REQUIRE(std::filesystem::exists(jetbrains_regular));
     INFO("bundled regular-only font exists");
@@ -192,7 +188,7 @@ TEST_CASE("font resolver clears stale style variants on reinitialize", "[font]")
 
 TEST_CASE("emoji fallback preserves color glyph pixels in the atlas", "[font]")
 {
-    auto primary_font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    auto primary_font_path = draxul::tests::project_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
     auto emoji_font_path = color_emoji_font_path();
     INFO("bundled font exists");
     REQUIRE(std::filesystem::exists(primary_font_path));
@@ -252,7 +248,7 @@ TEST_CASE("emoji fallback preserves color glyph pixels in the atlas", "[font]")
 
 TEST_CASE("wide japanese text resolves through CJK fallback fonts", "[font]")
 {
-    auto primary_font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    auto primary_font_path = draxul::tests::project_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
     auto cjk_path = cjk_font_path();
     INFO("bundled font exists");
     REQUIRE(std::filesystem::exists(primary_font_path));
@@ -279,7 +275,7 @@ TEST_CASE("wide japanese text resolves through CJK fallback fonts", "[font]")
 #if defined(__APPLE__)
 TEST_CASE("default macOS fallbacks resolve braille graph glyphs through a fallback face", "[font]")
 {
-    auto primary_font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    auto primary_font_path = draxul::tests::project_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
     INFO("bundled font exists");
     REQUIRE(std::filesystem::exists(primary_font_path));
 

@@ -38,14 +38,6 @@ std::vector<uint8_t> coordinate_frame(int width, int height)
     return rgba;
 }
 
-std::string read_file(const std::filesystem::path& path)
-{
-    std::ifstream stream(path, std::ios::binary);
-    std::ostringstream buffer;
-    buffer << stream.rdbuf();
-    return buffer.str();
-}
-
 } // namespace
 
 TEST_CASE("crop_rgba extracts the exact pane rectangle", "[pane-print]")
@@ -132,7 +124,7 @@ TEST_CASE("write_rgba_pdf_a4 produces a one-page A4 PDF, auto-oriented", "[pane-
         const auto path = dir.path / c.name;
         std::string error;
         REQUIRE(write_rgba_pdf_a4(frame.data(), c.width, c.height, path, error));
-        const std::string bytes = read_file(path);
+        const std::string bytes = draxul::tests::read_file(path);
         REQUIRE(bytes.size() > 1000); // image stream present, not a stub
         CHECK(bytes.rfind("%PDF-", 0) == 0);
         INFO(c.name);

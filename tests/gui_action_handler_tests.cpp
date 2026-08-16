@@ -25,16 +25,11 @@ namespace
 
 // Return the path to the bundled JetBrainsMono font that is always present in
 // the repository under <project-root>/fonts/.
-std::filesystem::path bundled_font_path()
-{
-    return std::filesystem::path(DRAXUL_PROJECT_ROOT) / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
-}
-
 // Initialise a TextService at the default point size using the bundled font.
 // Returns false when the font file does not exist so the caller can skip.
 bool init_text_service(TextService& ts)
 {
-    const auto path = bundled_font_path();
+    const auto path = draxul::tests::bundled_font_path();
     if (!std::filesystem::exists(path))
         return false;
 
