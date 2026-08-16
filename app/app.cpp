@@ -1248,8 +1248,8 @@ void App::wire_gui_actions()
             = space_controller_.active_space_id(),
             .tab_id = active_tab_id(),
             .divider_id = id,
-            .ratio = std::clamp(
-                *current + delta, 0.1f, 0.9f),
+            .ratio = std::clamp(*current + delta,
+                kTopologyMinSplitRatio, kTopologyMaxSplitRatio),
             .ratio_delta = delta,
         });
         if (!result.accepted())
@@ -4263,7 +4263,8 @@ void App::queue_remote_split_ratio(
         .space_id = *space_id,
         .tab_id = *tab_id,
         .node_id = *node_id,
-        .ratio = std::clamp(ratio, 0.1f, 0.9f),
+        .ratio = std::clamp(ratio,
+            kTopologyMinSplitRatio, kTopologyMaxSplitRatio),
         .commit_after = std::chrono::steady_clock::now()
             + std::chrono::milliseconds(75),
     };
@@ -4313,6 +4314,16 @@ std::optional<std::string> App::remote_tab_id(
         }
     }
     return std::nullopt;
+}
+
+ServerControlChannel App::server_control_channel() const
+{
+    return ServerControlChannel({
+        .runtime_directory = options_.server_runtime_directory,
+        .client_id = options_.server_client_id,
+        .session_id = options_.session_id,
+        .recovery = options_.client_recovery,
+    });
 }
 
 Result<SpaceId, Error> App::create_space(
@@ -4489,8 +4500,6 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
         const uint64_t mutation_id
             = next_server_agent_mutation_id_++;
         nlohmann::json params{
-            { "session_id", options_.session_id },
-            { "client_id", options_.server_client_id },
             { "request_id",
                 options_.server_client_id + ":"
                     + std::to_string(mutation_id) },
@@ -4500,16 +4509,6 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
             { "pane_id", *pane_id },
             { "args", request.additional_args },
         };
-        if (options_.client_recovery)
-        {
-            const auto identity
-                = options_.client_recovery->server_identity();
-            if (!identity.connection_token.empty())
-            {
-                params["connection_token"]
-                    = identity.connection_token;
-            }
-        }
         if (!request.working_directory.empty())
         {
             params["cwd"]
@@ -4523,58 +4522,9 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
             if (!cwd.empty())
                 params["cwd"] = cwd;
         }
-        const auto send_start
-            = [&](std::chrono::milliseconds timeout) {
-                  return ControlClient::request(
-                      namespaced_control_id(
-                          kServerControlId,
-                          options_.server_runtime_directory),
-                      options_.server_runtime_directory,
-                      "agent.start", params,
-                      { .timeout = timeout });
-              };
-        auto started
-            = send_start(std::chrono::milliseconds(100));
-        if (!started.ok
-            && (is_transient_client_error(
-                    started.error_code)
-                || is_resynchronizing_client_error(
-                    started.error_code)))
-        {
-            if (options_.client_recovery
-                && (started.error_code
-                        == "invalid_connection_token"
-                    || started.error_code
-                        == "stale_epoch"))
-            {
-                std::string refresh_error;
-                if (options_.client_recovery
-                        ->refresh_server_epoch(
-                            options_
-                                .server_runtime_directory,
-                            options_.server_client_id,
-                            refresh_error))
-                {
-                    const auto identity
-                        = options_.client_recovery
-                              ->server_identity();
-                    if (identity.connection_token.empty())
-                        params.erase("connection_token");
-                    else
-                    {
-                        params["connection_token"]
-                            = identity.connection_token;
-                    }
-                }
-                else if (!refresh_error.empty())
-                {
-                    started.error_message
-                        = std::move(refresh_error);
-                }
-            }
-            started = send_start(
-                std::chrono::milliseconds(500));
-        }
+        const auto started
+            = server_control_channel().request_with_recovery(
+                "agent.start", std::move(params));
         if (!started.ok)
         {
             return Result<std::string, Error>::err(
@@ -4680,77 +4630,15 @@ Result<void, Error> App::restart_agent_runtime(
         const uint64_t mutation_id
             = next_server_agent_mutation_id_++;
         nlohmann::json params{
-            { "session_id", options_.session_id },
-            { "client_id", options_.server_client_id },
             { "request_id",
                 options_.server_client_id + ":"
                     + std::to_string(mutation_id) },
             { "instance_id",
                 agent.identity.instance_id },
         };
-        if (options_.client_recovery)
-        {
-            const auto identity
-                = options_.client_recovery->server_identity();
-            if (!identity.connection_token.empty())
-            {
-                params["connection_token"]
-                    = identity.connection_token;
-            }
-        }
-
-        const auto send_restart
-            = [&](std::chrono::milliseconds timeout) {
-                  return ControlClient::request(
-                      namespaced_control_id(
-                          kServerControlId,
-                          options_.server_runtime_directory),
-                      options_.server_runtime_directory,
-                      "agent.restart", params,
-                      { .timeout = timeout });
-              };
-        auto restarted
-            = send_restart(std::chrono::milliseconds(100));
-        if (!restarted.ok
-            && (is_transient_client_error(
-                    restarted.error_code)
-                || is_resynchronizing_client_error(
-                    restarted.error_code)))
-        {
-            if (options_.client_recovery
-                && (restarted.error_code
-                        == "invalid_connection_token"
-                    || restarted.error_code
-                        == "stale_epoch"))
-            {
-                std::string refresh_error;
-                if (options_.client_recovery
-                        ->refresh_server_epoch(
-                            options_
-                                .server_runtime_directory,
-                            options_.server_client_id,
-                            refresh_error))
-                {
-                    const auto identity
-                        = options_.client_recovery
-                              ->server_identity();
-                    if (identity.connection_token.empty())
-                        params.erase("connection_token");
-                    else
-                    {
-                        params["connection_token"]
-                            = identity.connection_token;
-                    }
-                }
-                else if (!refresh_error.empty())
-                {
-                    restarted.error_message
-                        = std::move(refresh_error);
-                }
-            }
-            restarted = send_restart(
-                std::chrono::milliseconds(500));
-        }
+        const auto restarted
+            = server_control_channel().request_with_recovery(
+                "agent.restart", std::move(params));
         if (!restarted.ok)
         {
             return Result<void, Error>::err(

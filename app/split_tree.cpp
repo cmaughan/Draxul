@@ -4,6 +4,7 @@
 #include <cmath>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
+#include <draxul/topology_protocol.h>
 #include <vector>
 
 namespace draxul
@@ -227,7 +228,8 @@ void SplitTree::set_divider_ratio(DividerId id, float ratio)
     else if (node->is_leaf())
         return;
     else
-        node->split().ratio = std::clamp(ratio, 0.1f, 0.9f);
+        node->split().ratio = std::clamp(ratio,
+            kTopologyMinSplitRatio, kTopologyMaxSplitRatio);
     recompute(origin_x_, origin_y_, total_w_, total_h_);
 }
 
@@ -275,7 +277,8 @@ std::optional<float> SplitTree::divider_ratio_from_pixel(
         ? static_cast<float>(px - s.rect_x) / static_cast<float>(available)
         : static_cast<float>(py - s.rect_y) / static_cast<float>(available);
     ratio = snap_ratio_to_step(ratio, available, snap_step);
-    return std::clamp(ratio, 0.1f, 0.9f);
+    return std::clamp(ratio,
+        kTopologyMinSplitRatio, kTopologyMaxSplitRatio);
 }
 
 void SplitTree::update_divider_from_pixel(DividerId id, int px, int py, int snap_step)
@@ -297,7 +300,8 @@ void SplitTree::nudge_divider(DividerId id, float delta, int snap_step)
     if (!node || node->is_leaf())
         return;
     auto& s = node->split();
-    float new_ratio = std::clamp(s.ratio + delta, 0.1f, 0.9f);
+    float new_ratio = std::clamp(s.ratio + delta,
+        kTopologyMinSplitRatio, kTopologyMaxSplitRatio);
     const int eff_div = (s.direction == SplitDirection::Vertical)
         ? std::min(kDividerWidth, s.rect_w)
         : std::min(kDividerWidth, s.rect_h);
@@ -305,7 +309,8 @@ void SplitTree::nudge_divider(DividerId id, float delta, int snap_step)
         ? std::max(1, s.rect_w - eff_div)
         : std::max(1, s.rect_h - eff_div);
     new_ratio = snap_ratio_to_step(new_ratio, available, snap_step);
-    s.ratio = std::clamp(new_ratio, 0.1f, 0.9f);
+    s.ratio = std::clamp(new_ratio,
+        kTopologyMinSplitRatio, kTopologyMaxSplitRatio);
     recompute(origin_x_, origin_y_, total_w_, total_h_);
 }
 
@@ -695,7 +700,8 @@ std::unique_ptr<SplitTree::Node> SplitTree::restore_node(
 
     Node::SplitData split_data;
     split_data.direction = snapshot_node.direction;
-    split_data.ratio = std::clamp(snapshot_node.ratio, 0.1f, 0.9f);
+    split_data.ratio = std::clamp(snapshot_node.ratio,
+        kTopologyMinSplitRatio, kTopologyMaxSplitRatio);
     split_data.first = std::move(first);
     split_data.second = std::move(second);
     node->data = std::move(split_data);

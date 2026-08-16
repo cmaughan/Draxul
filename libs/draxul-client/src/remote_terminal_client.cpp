@@ -3,41 +3,13 @@
 #include <draxul/control_plane.h>
 #include <draxul/server_protocol.h>
 
+#include <draxul/terminal_snapshot.h>
+
 #include <nlohmann/json.hpp>
 #include <utility>
 
 namespace draxul
 {
-
-namespace
-{
-
-TerminalDirtySnapshot full_grid_update(
-    const TerminalSemanticSnapshot& snapshot)
-{
-    TerminalDirtySnapshot update{
-        .cols = snapshot.cols,
-        .rows = snapshot.rows,
-        .full = true,
-        .metadata = snapshot.metadata,
-    };
-    update.cells.reserve(snapshot.cells.size());
-    for (int row = 0; row < snapshot.rows; ++row)
-    {
-        for (int col = 0; col < snapshot.cols; ++col)
-        {
-            update.cells.push_back({
-                .col = col,
-                .row = row,
-                .cell = snapshot.cells[
-                    static_cast<size_t>(row) * snapshot.cols + col],
-            });
-        }
-    }
-    return update;
-}
-
-} // namespace
 
 bool RemoteTerminalProjection::attach(
     const RemoteTerminalAttach& attach, std::string& error)
@@ -603,9 +575,7 @@ nlohmann::json RemoteTerminalClient::client_params() const
 {
     nlohmann::json params{
         { "client_id", options_.client_id },
-        { "session_id", options_.session_id.empty()
-                ? "default"
-                : options_.session_id },
+        { "session_id", options_.session_id.empty() ? "default" : options_.session_id },
     };
     if (options_.recovery)
     {

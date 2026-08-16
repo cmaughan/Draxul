@@ -24,7 +24,7 @@ structurally unrepeatable.
       `HdrScenePipeline`), shared ACES/atmosphere shader includes with
       contract parity tests, Vulkan adopts `grid_contract.h`, new
       `PluginSupport::CameraInput`. (Fixes #7, #8, #11.)
-- [ ] Slice 6: `draxul-protocol` owns topology→layout conversion, traversal
+- [x] Slice 6: `draxul-protocol` owns topology→layout conversion, traversal
       helpers, and split-ratio constants; `ServerControlChannel` +
       `RevisionPolledClient` in `draxul-client`. (Fixes #5.)
 - [ ] Slice 7: `TerminalSurfaceHostBase` shared by local/remote terminal

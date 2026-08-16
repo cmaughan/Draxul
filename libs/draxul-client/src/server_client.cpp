@@ -789,11 +789,18 @@ ServerStatusResult ServerClient::status(
     return { .ok = true, .status = std::move(status) };
 }
 
-bool ServerClient::delete_session(
+namespace
+{
+
+// Session-mutating server methods can collide with an in-flight checkpoint
+// write; the server answers "checkpoint_busy" while it finishes. Retry
+// briefly instead of surfacing that transient state, and map
+// "unknown_method" from older servers to stable guidance naming the
+// unsupported operation.
+bool request_with_checkpoint_retry(
     const std::filesystem::path& runtime_directory,
-    std::string_view session_id,
-    const ServerDeleteSessionOptions& options,
-    std::string& error)
+    std::string_view method, const nlohmann::json& params,
+    std::string_view unsupported_noun, std::string& error)
 {
     ControlClientResult response;
     const auto deadline = std::chrono::steady_clock::now()
@@ -803,12 +810,7 @@ bool ServerClient::delete_session(
         response = ControlClient::request(
             namespaced_control_id(
                 kServerControlId, runtime_directory),
-            runtime_directory, "server.delete_session",
-            {
-                { "session_id", session_id },
-                { "confirm_live_terminals",
-                    options.confirm_live_terminals },
-            });
+            runtime_directory, method, params);
         if (response.ok
             || response.error_code != "checkpoint_busy")
         {
@@ -821,7 +823,8 @@ bool ServerClient::delete_session(
     {
         error = response.error_code == "unknown_method"
             ? "The running Draxul server does not support "
-              "Session deletion. Stop it and retry."
+                + std::string(unsupported_noun)
+                + ". Stop it and retry."
             : response.error_message;
         return false;
     }
@@ -829,42 +832,36 @@ bool ServerClient::delete_session(
     return true;
 }
 
+} // namespace
+
+bool ServerClient::delete_session(
+    const std::filesystem::path& runtime_directory,
+    std::string_view session_id,
+    const ServerDeleteSessionOptions& options,
+    std::string& error)
+{
+    return request_with_checkpoint_retry(runtime_directory,
+        "server.delete_session",
+        {
+            { "session_id", session_id },
+            { "confirm_live_terminals",
+                options.confirm_live_terminals },
+        },
+        "Session deletion", error);
+}
+
 bool ServerClient::delete_all_sessions(
     const std::filesystem::path& runtime_directory,
     const ServerDeleteSessionOptions& options,
     std::string& error)
 {
-    ControlClientResult response;
-    const auto deadline = std::chrono::steady_clock::now()
-        + std::chrono::seconds(2);
-    do
-    {
-        response = ControlClient::request(
-            namespaced_control_id(
-                kServerControlId, runtime_directory),
-            runtime_directory, "server.delete_all_sessions",
-            {
-                { "confirm_live_terminals",
-                    options.confirm_live_terminals },
-            });
-        if (response.ok
-            || response.error_code != "checkpoint_busy")
+    return request_with_checkpoint_retry(runtime_directory,
+        "server.delete_all_sessions",
         {
-            break;
-        }
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(25));
-    } while (std::chrono::steady_clock::now() < deadline);
-    if (!response.ok)
-    {
-        error = response.error_code == "unknown_method"
-            ? "The running Draxul server does not support "
-              "bulk Session deletion. Stop it and retry."
-            : response.error_message;
-        return false;
-    }
-    error.clear();
-    return true;
+            { "confirm_live_terminals",
+                options.confirm_live_terminals },
+        },
+        "bulk Session deletion", error);
 }
 
 bool ServerClient::rename_session(
@@ -873,37 +870,13 @@ bool ServerClient::rename_session(
     std::string_view session_name,
     std::string& error)
 {
-    ControlClientResult response;
-    const auto deadline = std::chrono::steady_clock::now()
-        + std::chrono::seconds(2);
-    do
-    {
-        response = ControlClient::request(
-            namespaced_control_id(
-                kServerControlId, runtime_directory),
-            runtime_directory, "server.rename_session",
-            {
-                { "session_id", session_id },
-                { "session_name", session_name },
-            });
-        if (response.ok
-            || response.error_code != "checkpoint_busy")
+    return request_with_checkpoint_retry(runtime_directory,
+        "server.rename_session",
         {
-            break;
-        }
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(25));
-    } while (std::chrono::steady_clock::now() < deadline);
-    if (!response.ok)
-    {
-        error = response.error_code == "unknown_method"
-            ? "The running Draxul server does not support "
-              "Session renaming. Stop it and retry."
-            : response.error_message;
-        return false;
-    }
-    error.clear();
-    return true;
+            { "session_id", session_id },
+            { "session_name", session_name },
+        },
+        "Session renaming", error);
 }
 
 bool ServerClient::shutdown(

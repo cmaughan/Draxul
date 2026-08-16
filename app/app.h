@@ -20,9 +20,10 @@
 #include <draxul/host.h>
 #include <draxul/renderer.h>
 #include <draxul/result.h>
+#include <draxul/server_control_channel.h>
 #include <draxul/system_resource_monitor.h>
-#include <draxul/topology_protocol.h>
 #include <draxul/topology_projection.h>
+#include <draxul/topology_protocol.h>
 
 #include "weather_service.h"
 #include <draxul/text_service.h>
@@ -232,9 +233,9 @@ private:
     TopologyMutationResult apply_local_topology_mutation(
         const TopologyMutation& mutation);
     std::optional<TopologyPaneDomain>
-        projected_pane_domain(
-            SpaceId local_space_id, int local_tab_id,
-            LeafId local_leaf) const;
+    projected_pane_domain(
+        SpaceId local_space_id, int local_tab_id,
+        LeafId local_leaf) const;
     bool execute_remote_topology_command(
         TopologyCommand command, std::string& error);
     void queue_remote_split_ratio(DividerId divider_id, float ratio);
@@ -242,6 +243,7 @@ private:
     std::optional<std::string> remote_space_id(SpaceId local_id) const;
     std::optional<std::string> remote_tab_id(
         SpaceId local_space_id, int local_tab_id) const;
+    ServerControlChannel server_control_channel() const;
 
     // --- Tab orchestration (collection ownership lives in TabController) ---
     TabController& active_tab_controller();

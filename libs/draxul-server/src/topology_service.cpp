@@ -1,9 +1,9 @@
 #include "topology_service.h"
 
 #include <draxul/remote_terminal_protocol.h>
+#include <draxul/topology_layout.h>
 
 #include <algorithm>
-#include <charconv>
 #include <cctype>
 #include <cmath>
 #include <nlohmann/json.hpp>
@@ -15,38 +15,6 @@ namespace draxul
 
 namespace
 {
-
-TopologySpace* find_space(
-    TopologySnapshot& snapshot, std::string_view space_id)
-{
-    const auto it = std::ranges::find(
-        snapshot.spaces, space_id, &TopologySpace::space_id);
-    return it == snapshot.spaces.end() ? nullptr : &*it;
-}
-
-TopologyTab* find_tab(
-    TopologySpace& space, std::string_view tab_id)
-{
-    const auto it = std::ranges::find(
-        space.tabs, tab_id, &TopologyTab::tab_id);
-    return it == space.tabs.end() ? nullptr : &*it;
-}
-
-TopologyPane* find_pane(
-    TopologyTab& tab, std::string_view pane_id)
-{
-    const auto it = std::ranges::find(
-        tab.panes, pane_id, &TopologyPane::pane_id);
-    return it == tab.panes.end() ? nullptr : &*it;
-}
-
-TopologyNode* find_node(
-    TopologyTab& tab, std::string_view node_id)
-{
-    const auto it = std::ranges::find(
-        tab.nodes, node_id, &TopologyNode::node_id);
-    return it == tab.nodes.end() ? nullptr : &*it;
-}
 
 TopologyNode* find_leaf_for_pane(
     TopologyTab& tab, std::string_view pane_id)
@@ -136,21 +104,9 @@ std::string command_key(const TopologyCommand& command)
     return command.client_id + '\n' + command.command_id;
 }
 
-uint64_t numeric_suffix(std::string_view value)
+uint64_t id_serial(std::string_view value)
 {
-    const size_t separator = value.find_last_of('-');
-    if (separator == std::string_view::npos
-        || separator + 1 >= value.size())
-    {
-        return 0;
-    }
-    uint64_t parsed = 0;
-    const char* begin = value.data() + separator + 1;
-    const char* end = value.data() + value.size();
-    const auto result = std::from_chars(begin, end, parsed);
-    return result.ec == std::errc{} && result.ptr == end
-        ? parsed
-        : 0;
+    return topology_id_serial<uint64_t>(value, 0);
 }
 
 uint64_t next_serial_for(const TopologySnapshot& snapshot)
@@ -158,17 +114,17 @@ uint64_t next_serial_for(const TopologySnapshot& snapshot)
     uint64_t maximum = 0;
     for (const auto& space : snapshot.spaces)
     {
-        maximum = std::max(maximum, numeric_suffix(space.space_id));
+        maximum = std::max(maximum, id_serial(space.space_id));
         for (const auto& tab : space.tabs)
         {
-            maximum = std::max(maximum, numeric_suffix(tab.tab_id));
+            maximum = std::max(maximum, id_serial(tab.tab_id));
             for (const auto& node : tab.nodes)
-                maximum = std::max(maximum, numeric_suffix(node.node_id));
+                maximum = std::max(maximum, id_serial(node.node_id));
             for (const auto& pane : tab.panes)
             {
-                maximum = std::max(maximum, numeric_suffix(pane.pane_id));
+                maximum = std::max(maximum, id_serial(pane.pane_id));
                 maximum = std::max(
-                    maximum, numeric_suffix(pane.terminal_id));
+                    maximum, id_serial(pane.terminal_id));
             }
         }
     }
@@ -331,7 +287,7 @@ ControlMethodResult TopologyService::apply_layout(
         }
         TabPlan tab{ .name = *tab_name, .alias = *tab_alias };
         for (size_t pane_index = 0;
-             pane_index < tab_value["panes"].size(); ++pane_index)
+            pane_index < tab_value["panes"].size(); ++pane_index)
         {
             const auto& pane_value = tab_value["panes"][pane_index];
             if (!pane_value.is_object())
@@ -390,7 +346,8 @@ ControlMethodResult TopologyService::apply_layout(
                     pane.ratio = pane_value["ratio"].get<float>();
                 }
                 if (!std::isfinite(pane.ratio)
-                    || pane.ratio < 0.1f || pane.ratio > 0.9f)
+                    || pane.ratio < kTopologyMinSplitRatio
+                    || pane.ratio > kTopologyMaxSplitRatio)
                     return ControlMethodResult::error("invalid_layout", "Pane ratio must be between 0.1 and 0.9.");
             }
             tab.panes.push_back(std::move(pane));
@@ -418,8 +375,7 @@ ControlMethodResult TopologyService::apply_layout(
             { "dry_run", true },
             { "space_name", *name },
             { "tab_count", plans.size() },
-            { "pane_count", std::accumulate(plans.begin(), plans.end(), size_t{ 0 },
-                  [](size_t count, const TabPlan& tab) { return count + tab.panes.size(); }) },
+            { "pane_count", std::accumulate(plans.begin(), plans.end(), size_t{ 0 }, [](size_t count, const TabPlan& tab) { return count + tab.panes.size(); }) },
         });
     }
 
@@ -453,16 +409,18 @@ ControlMethodResult TopologyService::apply_layout(
             ? TopologyPaneDomain::ServerTerminal
             : TopologyPaneDomain::ClientLocal,
         .client_host_kind = plans.front().panes.front().plugin_id.empty()
-            ? std::string{} : std::string("plugin"),
+            ? std::string{}
+            : std::string("plugin"),
         .client_plugin_id = plans.front().panes.front().plugin_id,
         .client_plugin_config_json
-            = plans.front().panes.front().plugin_config_json,
+        = plans.front().panes.front().plugin_config_json,
         .server_working_directory = plans.front().panes.front().cwd,
     };
     if (!apply(create_space, created, error_code, error))
         return ControlMethodResult::error(std::move(error_code), std::move(error));
     const std::string created_space_id = created;
-    if (!space_alias->empty()) alias_ids[*space_alias] = created_space_id;
+    if (!space_alias->empty())
+        alias_ids[*space_alias] = created_space_id;
     TopologySpace* space = find_space(snapshot_, created_space_id);
     for (size_t tab_index = 0; tab_index < plans.size(); ++tab_index)
     {
@@ -488,10 +446,11 @@ ControlMethodResult TopologyService::apply_layout(
                     ? TopologyPaneDomain::ServerTerminal
                     : TopologyPaneDomain::ClientLocal,
                 .client_host_kind = plan.panes.front().plugin_id.empty()
-                    ? std::string{} : std::string("plugin"),
+                    ? std::string{}
+                    : std::string("plugin"),
                 .client_plugin_id = plan.panes.front().plugin_id,
                 .client_plugin_config_json
-                    = plan.panes.front().plugin_config_json,
+                = plan.panes.front().plugin_config_json,
                 .server_working_directory = plan.panes.front().cwd,
             };
             if (!apply(create_tab, tab_id, error_code, error))
@@ -503,7 +462,8 @@ ControlMethodResult TopologyService::apply_layout(
             first_pane_id = tab->panes.front().pane_id;
             tab->panes.front().name = plan.panes.front().name;
         }
-        if (!plan.alias.empty()) alias_ids[plan.alias] = tab_id;
+        if (!plan.alias.empty())
+            alias_ids[plan.alias] = tab_id;
         alias_ids[plan.panes.front().alias] = first_pane_id;
         std::unordered_map<std::string, std::string> pane_ids{
             { plan.panes.front().alias, first_pane_id }
@@ -527,10 +487,11 @@ ControlMethodResult TopologyService::apply_layout(
                     ? TopologyPaneDomain::ServerTerminal
                     : TopologyPaneDomain::ClientLocal,
                 .client_host_kind = pane.plugin_id.empty()
-                    ? std::string{} : std::string("plugin"),
+                    ? std::string{}
+                    : std::string("plugin"),
                 .client_plugin_id = pane.plugin_id,
                 .client_plugin_config_json
-                    = pane.plugin_config_json,
+                = pane.plugin_config_json,
                 .server_working_directory = pane.cwd,
             };
             std::string pane_id;
@@ -1253,7 +1214,8 @@ bool TopologyService::apply(const TopologyCommand& command,
                 "Companion panes must be moved with their owning UI.");
         }
         if (!std::isfinite(command.ratio)
-            || command.ratio < 0.1f || command.ratio > 0.9f)
+            || command.ratio < kTopologyMinSplitRatio
+            || command.ratio > kTopologyMaxSplitRatio)
             return reject("invalid_ratio", "Split ratio must be between 0.1 and 0.9.");
         if (!detach_leaf(*tab, command.pane_id))
             return reject("invalid_move", "Pane could not be detached from its split.");
@@ -1319,7 +1281,8 @@ bool TopologyService::apply(const TopologyCommand& command,
         if (!node || node->is_leaf)
             return reject("split_not_found", "Topology split was not found.");
         if (!std::isfinite(command.ratio)
-            || command.ratio < 0.1f || command.ratio > 0.9f)
+            || command.ratio < kTopologyMinSplitRatio
+            || command.ratio > kTopologyMaxSplitRatio)
         {
             return reject(
                 "invalid_ratio", "Split ratio must be between 0.1 and 0.9.");
@@ -1341,8 +1304,8 @@ bool TopologyService::apply(const TopologyCommand& command,
         if (tab->panes.size() >= kTopologyMaxPanesPerTab)
             return reject("limit_reached", "Topology pane limit reached.");
         if (!std::isfinite(command.ratio)
-            || command.ratio < 0.1f
-            || command.ratio > 0.9f)
+            || command.ratio < kTopologyMinSplitRatio
+            || command.ratio > kTopologyMaxSplitRatio)
         {
             return reject(
                 "invalid_ratio", "Split ratio must be between 0.1 and 0.9.");
@@ -1358,15 +1321,15 @@ bool TopologyService::apply(const TopologyCommand& command,
             .terminal_id = command.terminal_id,
             .client_host_kind = command.client_host_kind,
             .client_working_directory
-                = command.client_working_directory,
+            = command.client_working_directory,
             .client_source_path = command.client_source_path,
             .client_plugin_id = command.client_plugin_id,
             .client_plugin_config_json
-                = command.client_plugin_config_json,
+            = command.client_plugin_config_json,
             .companion_owner_pane_id
-                = command.companion_owner_pane_id,
+            = command.companion_owner_pane_id,
             .server_working_directory
-                = command.server_working_directory.empty()
+            = command.server_working_directory.empty()
                 ? space->root_directory
                 : command.server_working_directory,
         };
@@ -1413,7 +1376,10 @@ bool TopologyService::apply(const TopologyCommand& command,
         {
             pane.terminal_id.clear();
             if (pane.client_host_kind.empty())
-                pane.client_host_kind = "platform_default";
+            {
+                pane.client_host_kind
+                    = kTopologyPlatformDefaultHostKind;
+            }
             if (!pane.companion_owner_pane_id.empty()
                 && !find_pane(*tab,
                     pane.companion_owner_pane_id))
@@ -1513,7 +1479,8 @@ TopologyTab TopologyService::make_client_local_tab(std::string name)
         .pane_id = next_id("pane"),
         .name = {},
         .domain = TopologyPaneDomain::ClientLocal,
-        .client_host_kind = "platform_default",
+        .client_host_kind
+        = std::string(kTopologyPlatformDefaultHostKind),
     };
     TopologyNode node{
         .node_id = next_id("node"),

@@ -1,9 +1,9 @@
 #include "session_topology_bridge.h"
 
 #include <draxul/session_state.h>
+#include <draxul/topology_layout.h>
 
 #include <algorithm>
-#include <charconv>
 #include <limits>
 #include <nlohmann/json.hpp>
 #include <unordered_map>
@@ -15,153 +15,29 @@ namespace draxul
 namespace
 {
 
-int numeric_suffix(std::string_view value, int fallback)
-{
-    const size_t separator = value.find_last_of('-');
-    if (separator == std::string_view::npos
-        || separator + 1 >= value.size())
-    {
-        return fallback;
-    }
-    int parsed = -1;
-    const char* begin = value.data() + separator + 1;
-    const char* end = value.data() + value.size();
-    const auto result = std::from_chars(begin, end, parsed);
-    return result.ec == std::errc{} && result.ptr == end && parsed >= 0
-        ? parsed
-        : fallback;
-}
-
-const TopologyNode* find_node(
-    const TopologyTab& tab, std::string_view node_id)
-{
-    const auto found = std::ranges::find(
-        tab.nodes, node_id, &TopologyNode::node_id);
-    return found == tab.nodes.end() ? nullptr : &*found;
-}
-
-const TopologyPane* find_pane(
-    const TopologyTab& tab, std::string_view pane_id)
-{
-    const auto found = std::ranges::find(
-        tab.panes, pane_id, &TopologyPane::pane_id);
-    return found == tab.panes.end() ? nullptr : &*found;
-}
-
-std::unique_ptr<SessionSplitNode> capture_node(
-    const TopologyTab& tab, std::string_view node_id,
-    std::unordered_set<std::string>& visited, int& fallback_leaf,
-    LeafId& maximum_leaf,
-    std::unordered_map<std::string, LeafId>& leaf_by_pane,
-    std::string& error)
-{
-    const TopologyNode* source = find_node(tab, node_id);
-    if (!source || !visited.insert(source->node_id).second)
-    {
-        error = "Topology contains a missing or cyclic split node.";
-        return {};
-    }
-
-    auto result = std::make_unique<SessionSplitNode>();
-    result->is_leaf = source->is_leaf;
-    result->direction
-        = source->direction == TopologySplitDirection::Horizontal
-        ? SplitDirection::Horizontal
-        : SplitDirection::Vertical;
-    result->ratio = source->ratio;
-    if (source->is_leaf)
-    {
-        if (!find_pane(tab, source->pane_id))
-        {
-            error = "Topology split tree references a missing pane.";
-            return {};
-        }
-        result->leaf_id = numeric_suffix(
-            source->node_id, fallback_leaf++);
-        leaf_by_pane[source->pane_id] = result->leaf_id;
-        maximum_leaf = std::max(maximum_leaf, result->leaf_id);
-        return result;
-    }
-
-    result->first = capture_node(tab, source->first_node_id,
-        visited, fallback_leaf, maximum_leaf, leaf_by_pane, error);
-    if (!result->first)
-        return {};
-    result->second = capture_node(tab, source->second_node_id,
-        visited, fallback_leaf, maximum_leaf, leaf_by_pane, error);
-    if (!result->second)
-        return {};
-    return result;
-}
-
 std::optional<TabSnapshot> capture_tab(
     const TopologyTab& source, int fallback_id, std::string& error)
 {
     TabSnapshot tab;
-    tab.id = numeric_suffix(source.tab_id, fallback_id);
+    tab.id = topology_id_serial(source.tab_id, fallback_id);
     tab.name = source.name;
     tab.name_user_set = source.name_user_set;
 
-    int fallback_leaf = 1'000'000;
-    LeafId maximum_leaf = kInvalidLeaf;
-    std::unordered_set<std::string> visited;
-    std::unordered_map<std::string, LeafId> leaf_by_pane;
-    tab.pane_layout.tree.root = capture_node(source,
-        source.root_node_id, visited, fallback_leaf, maximum_leaf,
-        leaf_by_pane, error);
-    if (!tab.pane_layout.tree.root
-        || visited.size() != source.nodes.size())
-    {
-        if (error.empty())
-            error = "Topology contains unreachable split nodes.";
+    const TopologyTabLayoutOptions options{
+        // HostKind::Nvim is an inert placeholder for durable snapshots:
+        // the preserved client_host_kind string (including the
+        // platform-default sentinel) stays authoritative on restore.
+        .fallback_host_kind = HostKind::Nvim,
+        .allocate_leaf = make_node_serial_leaf_allocator(),
+    };
+    auto layout = topology_tab_to_layout(source, options, error);
+    if (!layout)
         return std::nullopt;
-    }
-    tab.pane_layout.tree.next_leaf_id = maximum_leaf + 1;
-
+    tab.pane_layout = std::move(layout->layout);
     tab.pane_layout.tree.focused_id
         = tab.pane_layout.tree.root->is_leaf
         ? tab.pane_layout.tree.root->leaf_id
-        : leaf_by_pane.at(source.panes.front().pane_id);
-
-    for (const auto& pane : source.panes)
-    {
-        const auto leaf = leaf_by_pane.find(pane.pane_id);
-        if (leaf == leaf_by_pane.end())
-        {
-            error = "Topology pane has no split-tree leaf.";
-            return std::nullopt;
-        }
-        SessionPaneSnapshot saved{
-            .leaf_id = leaf->second,
-            .pane_name = pane.name,
-            .pane_id = pane.pane_id,
-            .agent = pane.agent,
-            .agent_session = pane.agent_session,
-            .restore_policy = pane.restore_policy,
-        };
-        if (pane.domain == TopologyPaneDomain::ServerTerminal)
-        {
-            saved.launch.kind = HostKind::RemoteTerminal;
-            saved.launch.remote_terminal_id = pane.terminal_id;
-            saved.launch.working_dir
-                = pane.server_working_directory;
-        }
-        else
-        {
-            saved.launch.kind = parse_host_kind(
-                pane.client_host_kind).value_or(HostKind::Nvim);
-            saved.launch.client_host_kind = pane.client_host_kind;
-            saved.launch.working_dir
-                = pane.client_working_directory;
-            saved.launch.source_path = pane.client_source_path;
-            saved.launch.client_plugin_id = pane.client_plugin_id;
-            saved.launch.client_plugin_config_json
-                = pane.client_plugin_config_json;
-            saved.launch.companion_owner_pane_id
-                = pane.companion_owner_pane_id;
-        }
-        tab.pane_layout.panes.push_back(std::move(saved));
-    }
+        : layout->leaf_by_pane.at(source.panes.front().pane_id);
     return tab;
 }
 
@@ -266,7 +142,8 @@ std::optional<TopologyTab> restore_tab(
             + "-" + std::to_string(source.id)
             + "-" + std::to_string(pane.leaf_id);
         if (!builder.panes.emplace(
-                pane.leaf_id, scoped_pane_id).second)
+                              pane.leaf_id, scoped_pane_id)
+                .second)
         {
             error = "Session tab contains an invalid pane identity.";
             return std::nullopt;
@@ -336,7 +213,7 @@ std::optional<SessionSnapshot> capture_session_topology(
     for (const auto& source_space : topology.spaces)
     {
         SpaceSnapshot space{
-            .id = numeric_suffix(
+            .id = topology_id_serial(
                 source_space.space_id, fallback_space++),
             .name = source_space.name,
             .root_directory = source_space.root_directory,
