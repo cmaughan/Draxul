@@ -160,13 +160,15 @@ add_subdirectory(libs/draxul-performance)
 add_subdirectory(libs/draxul-host-identity)
 add_subdirectory(libs/draxul-types)
 add_subdirectory(libs/draxul-plugin)
-add_subdirectory(plugins/spinning-triangle)
 add_subdirectory(libs/draxul-bmp)
 add_subdirectory(libs/draxul-http)
 add_subdirectory(libs/draxul-window)
 add_subdirectory(libs/draxul-font)
 add_subdirectory(libs/draxul-imgui-core)
 add_subdirectory(libs/draxul-plugin-support)
+# The reference plugin consumes Draxul::PluginSupport::Adapter, so it mounts
+# after the plugin-support leaves exist.
+add_subdirectory(plugins/spinning-triangle)
 add_subdirectory(libs/draxul-renderer)
 add_subdirectory(libs/draxul-ui)
 add_subdirectory(libs/draxul-grid)
@@ -231,6 +233,7 @@ if(TARGET draxul-plugin-imgui)
 endif()
 draxul_allow_plugin_support_targets(
     Draxul::PluginSDK
+    Draxul::PluginSupport::Adapter
     Draxul::PluginSupport::Runtime
     Draxul::PluginSupport::Render
     Draxul::PluginSupport::Config
@@ -257,7 +260,8 @@ draxul_check_core_source_product_isolation("${CMAKE_SOURCE_DIR}")
 # Apply sanitizers/coverage to all draxul library targets (not FetchContent deps)
 foreach(_draxul_lib
     draxul-performance draxul-types draxul-plugin draxul-bmp draxul-http draxul-window
-    draxul-plugin-runtime-support draxul-plugin-config-support draxul-plugin-tooltip-support
+    draxul-plugin-runtime-support draxul-plugin-adapter-support
+    draxul-plugin-config-support draxul-plugin-tooltip-support
     draxul-imgui-core draxul-renderer draxul-ui
     draxul-font draxul-grid draxul-nvim
     draxul-terminal-core draxul-terminal-process

@@ -17,9 +17,15 @@ structurally unrepeatable.
 - [ ] Slice 3: promote `draxul-nanovg` to `Draxul::PluginSupport::NanoVG`;
       ScoreView deletes its vendored NanoVG stack and shadow `draxul/`
       headers. (Fixes #3.)
-- [ ] Slice 4: `Draxul::PluginSupport::Adapter` plugin shell; SatView and
+- [x] Slice 4: `Draxul::PluginSupport::Adapter` plugin shell; SatView and
       spinning-triangle collapse to single dual-backend adapter TUs; delete
-      dead `HostServices::ui_style()`. (Fixes #9.)
+      dead `HostServices::ui_style()`. (Fixes #9. Note: the audit's
+      "zero callers" claim was stale — the plugin fixture used
+      `HostServices::ui_style()`; it now exercises the raw C service, and
+      `UiStyleClient` is the one C++ convenience. ScoreView and
+      spinning-triangle adopt the header-only shell core, which ships with
+      the SDK install component; their raw path/storage blocks stay local
+      because standalone extractions link only the installed SDK.)
 - [ ] Slice 5: extend `PluginSupport::VulkanResources` (safe MSAA probe,
       `HdrScenePipeline`), shared ACES/atmosphere shader includes with
       contract parity tests, Vulkan adopts `grid_contract.h`, new

@@ -124,7 +124,8 @@ int32_t get_presentation_state(void* opaque,
     state->struct_size = sizeof(*state);
     state->display_name = { "Fixture instance", 16 };
     state->status_text = {
-        instance->status.data(), instance->status.size() };
+        instance->status.data(), instance->status.size()
+    };
     state->background_red = 0.1f;
     state->background_green = 0.2f;
     state->background_blue = 0.3f;
@@ -183,7 +184,8 @@ int32_t query_extension(void*, const char* extension_id,
     *extension = {
         sizeof(*extension), DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION,
         &get_presentation_state, &dispatch_action,
-        &action_count, &action_at };
+        &action_count, &action_at
+    };
     return 1;
 }
 
@@ -345,23 +347,40 @@ extern "C" DRAXUL_PLUGIN_EXPORT uint32_t draxul_fixture_support_remove(
         scope, std::string_view(key, key_length));
 }
 
+// Exercises the host's UI-style service across the raw C ABI. The C++
+// convenience for plugins is UiStyleClient in plugins/support/imgui; this
+// fixture deliberately consumes the service table directly so the ABI
+// contract itself stays covered.
 extern "C" DRAXUL_PLUGIN_EXPORT int draxul_fixture_support_ui_style(
     char* buffer, size_t* in_out_size, float* size_pixels,
     float* display_scale, uint64_t* generation)
 {
-    if (!live_instance || !live_instance->services || !in_out_size
-        || !size_pixels || !display_scale || !generation)
+    if (!live_instance || !live_instance->host || !in_out_size
+        || !size_pixels || !display_scale || !generation
+        || !live_instance->host->query_service)
     {
         return 0;
     }
-    const auto style = live_instance->services->ui_style();
-    if (!style)
+    DraxulPluginUiStyleServiceV2 service{};
+    service.struct_size = sizeof(service);
+    service.service_version = DRAXUL_PLUGIN_UI_STYLE_SERVICE_VERSION;
+    if (!live_instance->host->query_service(
+            live_instance->host->host_context,
+            DRAXUL_PLUGIN_UI_STYLE_SERVICE_ID,
+            std::strlen(DRAXUL_PLUGIN_UI_STYLE_SERVICE_ID),
+            DRAXUL_PLUGIN_UI_STYLE_SERVICE_VERSION,
+            &service, sizeof(service))
+        || !service.get_recommended_font)
+    {
         return 0;
-    const auto utf8 = style->font_path.u8string();
-    const size_t required = utf8.size() + 1;
-    *size_pixels = style->size_pixels;
-    *display_scale = style->display_scale;
-    *generation = style->generation;
+    }
+    size_t required = 0;
+    if (!service.get_recommended_font(service.service_context, nullptr,
+            &required, size_pixels, display_scale, generation)
+        || required == 0)
+    {
+        return 0;
+    }
     if (!buffer)
     {
         *in_out_size = required;
@@ -372,7 +391,9 @@ extern "C" DRAXUL_PLUGIN_EXPORT int draxul_fixture_support_ui_style(
         *in_out_size = required;
         return 0;
     }
-    std::memcpy(buffer, utf8.c_str(), required);
     *in_out_size = required;
-    return 1;
+    return service.get_recommended_font(service.service_context, buffer,
+               in_out_size, size_pixels, display_scale, generation)
+        ? 1
+        : 0;
 }

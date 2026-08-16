@@ -1,23 +1,41 @@
+// Dual-backend adapter for the reference plugin: one TU compiled as C++ for
+// Vulkan and as Objective-C++ for Metal (see CMakeLists). The C-ABI shell
+// (result factories, config parse, action registrar, kApi assembly) comes
+// from draxul/plugin_adapter.h, which ships with the installed SDK so this
+// file also builds as a standalone SDK consumer. The raw path/storage
+// service blocks below stay hand-rolled on purpose: the external-SDK smoke
+// proves a plugin needs nothing beyond the installed SDK, and HostServices
+// is a bundled-build library.
+
+#include <draxul/plugin_adapter.h>
 #include <draxul/plugin_api.h>
 
 #include <nlohmann/json.hpp>
+
+#if defined(__APPLE__)
+#import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
+#else
 #include <vulkan/vulkan.h>
 
+#include <fstream>
+#include <vector>
+#endif
+
 #include <algorithm>
-#include <cmath>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace
 {
 
+using draxul::plugin_support::kFrameDelayNs;
+using draxul::plugin_support::render_result;
+using draxul::plugin_support::tick_result;
+
 constexpr const char* kPluginId = "dev.draxul.spinning-triangle";
-constexpr uint64_t kFrameDelayNs = 16'666'667;
 
 struct PushConstants
 {
@@ -47,11 +65,17 @@ struct TriangleInstance
     std::string storage_warning;
     std::string data_directory;
     std::string status;
+#if defined(__APPLE__)
+    id<MTLDevice> device = nil;
+    id<MTLRenderPipelineState> pipeline = nil;
+    MTLPixelFormat format = MTLPixelFormatInvalid;
+#else
     VkDevice device = VK_NULL_HANDLE;
     VkRenderPass render_pass = VK_NULL_HANDLE;
     VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
     VkPipeline pipeline = VK_NULL_HANDLE;
     uint64_t target_generation = 0;
+#endif
 };
 
 void log(TriangleInstance* instance, uint32_t level,
@@ -79,6 +103,52 @@ void request_tick(TriangleInstance* instance)
     if (instance && instance->host && instance->host->request_tick)
         instance->host->request_tick(instance->host->host_context);
 }
+
+#if defined(__APPLE__)
+
+bool ensure_pipeline(TriangleInstance& instance,
+    id<MTLDevice> device, MTLPixelFormat format,
+    std::string& error_message)
+{
+    if (instance.pipeline && instance.device == device
+        && instance.format == format)
+        return true;
+    instance.pipeline = nil;
+    instance.device = device;
+    instance.format = format;
+    const std::string library_path
+        = (instance.directory / "spinning_triangle.metallib").string();
+    NSString* path = [NSString stringWithUTF8String:library_path.c_str()];
+    NSError* error = nil;
+    id<MTLLibrary> library = [device newLibraryWithFile:path error:&error];
+    if (!library)
+    {
+        error_message = "Spinning Triangle could not load metallib: ";
+        error_message += error.localizedDescription.UTF8String ?: "unknown error";
+        return false;
+    }
+    id<MTLFunction> vertex = [library
+        newFunctionWithName:@"triangle_vertex"];
+    id<MTLFunction> fragment = [library
+        newFunctionWithName:@"triangle_fragment"];
+    MTLRenderPipelineDescriptor* descriptor
+        = [[MTLRenderPipelineDescriptor alloc] init];
+    descriptor.vertexFunction = vertex;
+    descriptor.fragmentFunction = fragment;
+    descriptor.colorAttachments[0].pixelFormat = format;
+    instance.pipeline = [device
+        newRenderPipelineStateWithDescriptor:descriptor
+                                       error:&error];
+    if (!instance.pipeline)
+    {
+        error_message = "Spinning Triangle could not create pipeline: ";
+        error_message += error.localizedDescription.UTF8String ?: "unknown error";
+        return false;
+    }
+    return true;
+}
+
+#else
 
 std::vector<uint32_t> read_spirv(const std::filesystem::path& path)
 {
@@ -122,14 +192,16 @@ bool create_pipeline(TriangleInstance& instance,
 
     const auto make_shader = [&](const std::vector<uint32_t>& words) {
         VkShaderModuleCreateInfo create_info{
-            VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+            VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO
+        };
         create_info.codeSize = words.size() * sizeof(uint32_t);
         create_info.pCode = words.data();
         VkShaderModule module = VK_NULL_HANDLE;
         return vkCreateShaderModule(instance.device, &create_info,
                    nullptr, &module)
                 == VK_SUCCESS
-            ? module : VK_NULL_HANDLE;
+            ? module
+            : VK_NULL_HANDLE;
     };
     const VkShaderModule vertex = make_shader(vertex_words);
     const VkShaderModule fragment = make_shader(fragment_words);
@@ -147,11 +219,13 @@ bool create_pipeline(TriangleInstance& instance,
     push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     push_range.size = sizeof(PushConstants);
     VkPipelineLayoutCreateInfo layout_info{
-        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
+    };
     layout_info.pushConstantRangeCount = 1;
     layout_info.pPushConstantRanges = &push_range;
     if (vkCreatePipelineLayout(instance.device, &layout_info,
-            nullptr, &instance.pipeline_layout) != VK_SUCCESS)
+            nullptr, &instance.pipeline_layout)
+        != VK_SUCCESS)
     {
         vkDestroyShaderModule(instance.device, vertex, nullptr);
         vkDestroyShaderModule(instance.device, fragment, nullptr);
@@ -169,25 +243,31 @@ bool create_pipeline(TriangleInstance& instance,
     stages[1].module = fragment;
     stages[1].pName = "main";
     VkPipelineVertexInputStateCreateInfo vertex_input{
-        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
+    };
     VkPipelineInputAssemblyStateCreateInfo assembly{
-        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
+    };
     assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     VkPipelineViewportStateCreateInfo viewport{
-        VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
+        VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
+    };
     viewport.viewportCount = 1;
     viewport.scissorCount = 1;
     VkPipelineRasterizationStateCreateInfo raster{
-        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
+    };
     raster.polygonMode = VK_POLYGON_MODE_FILL;
     raster.cullMode = VK_CULL_MODE_NONE;
     raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     raster.lineWidth = 1.0f;
     VkPipelineMultisampleStateCreateInfo multisample{
-        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO
+    };
     multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineDepthStencilStateCreateInfo depth_stencil{
-        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
+    };
     depth_stencil.depthTestEnable = VK_FALSE;
     depth_stencil.depthWriteEnable = VK_FALSE;
     depth_stencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
@@ -196,17 +276,21 @@ bool create_pipeline(TriangleInstance& instance,
         | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT
         | VK_COLOR_COMPONENT_A_BIT;
     VkPipelineColorBlendStateCreateInfo blend{
-        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
+        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO
+    };
     blend.attachmentCount = 1;
     blend.pAttachments = &blend_attachment;
     const VkDynamicState dynamic_states[] = {
-        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR
+    };
     VkPipelineDynamicStateCreateInfo dynamic{
-        VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
+        VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
+    };
     dynamic.dynamicStateCount = 2;
     dynamic.pDynamicStates = dynamic_states;
     VkGraphicsPipelineCreateInfo pipeline_info{
-        VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+        VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO
+    };
     pipeline_info.stageCount = 2;
     pipeline_info.pStages = stages;
     pipeline_info.pVertexInputState = &vertex_input;
@@ -236,19 +320,7 @@ bool create_pipeline(TriangleInstance& instance,
     return true;
 }
 
-DraxulPluginRenderResultV2 render_result(bool ok,
-    uint64_t deadline, const char* error = nullptr)
-{
-    return { sizeof(DraxulPluginRenderResultV2), deadline,
-        ok ? 1 : 0, error };
-}
-
-DraxulPluginTickResultV2 tick_result(bool ok, uint64_t deadline,
-    bool redraw = false, const char* error = nullptr)
-{
-    return { sizeof(DraxulPluginTickResultV2), deadline,
-        redraw ? 1 : 0, ok ? 1 : 0, error };
-}
+#endif
 
 std::string service_path(DraxulPluginPathServiceV2& service,
     uint32_t kind)
@@ -282,7 +354,8 @@ void load_saved_state(TriangleInstance* instance)
     if (first != DRAXUL_PLUGIN_STORAGE_OK || required == 0)
     {
         instance->storage_warning = first == DRAXUL_PLUGIN_STORAGE_INVALID_JSON
-            ? "saved state is corrupt" : "saved state could not be read";
+            ? "saved state is corrupt"
+            : "saved state could not be read";
         return;
     }
     std::string value(required, '\0');
@@ -316,7 +389,8 @@ void save_state(TriangleInstance* instance)
     const std::string value = nlohmann::json{
         { "paused", instance->paused },
         { "direction", instance->direction },
-    }.dump();
+    }
+                                  .dump();
     const uint32_t result = instance->storage.write_json(
         instance->storage.service_context, DRAXUL_PLUGIN_STORAGE_PANE,
         key.data(), key.size(), value.data(), value.size());
@@ -339,18 +413,19 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
         ? std::filesystem::u8path(info->plugin_directory_utf8)
         : std::filesystem::path{};
     instance->viewport = info->initial_viewport;
+    const auto config = draxul::plugin_support::parse_config_json(*info);
+    if (!config)
+    {
+        delete instance;
+        return nullptr;
+    }
     try
     {
-        const auto config = nlohmann::json::parse(
-            info->config_json ? info->config_json : "{}",
-            info->config_json
-                ? info->config_json + info->config_json_length
-                : "{}" + 2);
-        instance->speed = config.value(
+        instance->speed = config->value(
             "speed_radians_per_second", 1.0f);
-        instance->angle = config.value("initial_angle", 0.0f);
-        instance->paused = config.value("paused", false);
-        instance->remember_state = config.value("remember_state", false);
+        instance->angle = config->value("initial_angle", 0.0f);
+        instance->paused = config->value("paused", false);
+        instance->remember_state = config->value("remember_state", false);
     }
     catch (...)
     {
@@ -362,17 +437,19 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
         instance->paths.struct_size = sizeof(instance->paths);
         instance->paths.service_version = DRAXUL_PLUGIN_PATH_SERVICE_VERSION;
         instance->paths_ready = instance->host->query_service(
-            instance->host->host_context, DRAXUL_PLUGIN_PATH_SERVICE_ID,
-            std::strlen(DRAXUL_PLUGIN_PATH_SERVICE_ID),
-            DRAXUL_PLUGIN_PATH_SERVICE_VERSION,
-            &instance->paths, sizeof(instance->paths)) != 0;
+                                    instance->host->host_context, DRAXUL_PLUGIN_PATH_SERVICE_ID,
+                                    std::strlen(DRAXUL_PLUGIN_PATH_SERVICE_ID),
+                                    DRAXUL_PLUGIN_PATH_SERVICE_VERSION,
+                                    &instance->paths, sizeof(instance->paths))
+            != 0;
         instance->storage.struct_size = sizeof(instance->storage);
         instance->storage.service_version = DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION;
         instance->has_storage = instance->host->query_service(
-            instance->host->host_context, DRAXUL_PLUGIN_STORAGE_SERVICE_ID,
-            std::strlen(DRAXUL_PLUGIN_STORAGE_SERVICE_ID),
-            DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION,
-            &instance->storage, sizeof(instance->storage)) != 0;
+                                    instance->host->host_context, DRAXUL_PLUGIN_STORAGE_SERVICE_ID,
+                                    std::strlen(DRAXUL_PLUGIN_STORAGE_SERVICE_ID),
+                                    DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION,
+                                    &instance->storage, sizeof(instance->storage))
+            != 0;
     }
     if (instance->paths_ready)
         instance->data_directory = service_path(
@@ -386,7 +463,9 @@ void destroy_instance(void* opaque)
     auto* instance = static_cast<TriangleInstance*>(opaque);
     if (!instance)
         return;
+#if !defined(__APPLE__)
     destroy_pipeline(*instance);
+#endif
     delete instance;
 }
 
@@ -497,6 +576,82 @@ DraxulPluginTickResultV2 tick(void* opaque,
     return tick_result(true, kFrameDelayNs, true);
 }
 
+#if defined(__APPLE__)
+
+DraxulPluginRenderResultV2 render_metal(void* opaque,
+    const DraxulPluginMetalFrameV2* frame)
+{
+    auto* instance = static_cast<TriangleInstance*>(opaque);
+    if (!instance || !instance->visible)
+        return render_result(true, DRAXUL_PLUGIN_NO_DEADLINE);
+    if (!frame || frame->struct_size < sizeof(DraxulPluginMetalFrameV2)
+        || !frame->device || !frame->command_buffer
+        || !frame->drawable_texture
+        || !frame->continuation_render_pass_descriptor
+        || frame->framebuffer_width <= 0 || frame->framebuffer_height <= 0)
+    {
+        return render_result(false, DRAXUL_PLUGIN_NO_DEADLINE,
+            "Spinning Triangle received an incomplete Metal frame");
+    }
+    if (frame->viewport.width <= 0 || frame->viewport.height <= 0)
+        return render_result(true, DRAXUL_PLUGIN_NO_DEADLINE);
+    id<MTLDevice> device
+        = (__bridge id<MTLDevice>)frame->device;
+    id<MTLCommandBuffer> command_buffer
+        = (__bridge id<MTLCommandBuffer>)frame->command_buffer;
+    id<MTLTexture> texture
+        = (__bridge id<MTLTexture>)frame->drawable_texture;
+    MTLRenderPassDescriptor* descriptor
+        = (__bridge MTLRenderPassDescriptor*)
+              frame->continuation_render_pass_descriptor;
+    static thread_local std::string error;
+    error.clear();
+    if (!ensure_pipeline(*instance, device,
+            texture.pixelFormat, error))
+    {
+        log(instance, DRAXUL_PLUGIN_LOG_ERROR, error);
+        return render_result(false, DRAXUL_PLUGIN_NO_DEADLINE,
+            error.c_str());
+    }
+    id<MTLRenderCommandEncoder> encoder
+        = [command_buffer renderCommandEncoderWithDescriptor:descriptor];
+    if (!encoder)
+        return render_result(false, DRAXUL_PLUGIN_NO_DEADLINE,
+            "Spinning Triangle could not create render encoder");
+    const auto& viewport = frame->viewport;
+    [encoder setViewport:MTLViewport{
+                             static_cast<double>(viewport.x),
+                             static_cast<double>(viewport.y),
+                             static_cast<double>(std::max(0, viewport.width)),
+                             static_cast<double>(std::max(0, viewport.height)), 0.0, 1.0 }];
+    [encoder setScissorRect:MTLScissorRect{
+                                static_cast<NSUInteger>(std::max(0, viewport.x)),
+                                static_cast<NSUInteger>(std::max(0, viewport.y)),
+                                static_cast<NSUInteger>(std::max(0, viewport.width)),
+                                static_cast<NSUInteger>(std::max(0, viewport.height)) }];
+    [encoder setRenderPipelineState:instance->pipeline];
+    PushConstants push;
+    push.angle = instance->angle;
+    push.aspect = viewport.height > 0
+        ? static_cast<float>(viewport.width)
+            / static_cast<float>(viewport.height)
+        : 1.0f;
+    push.mode = 0;
+    [encoder setVertexBytes:&push length:sizeof(push) atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                vertexStart:0
+                vertexCount:6];
+    push.mode = 1;
+    [encoder setVertexBytes:&push length:sizeof(push) atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                vertexStart:0
+                vertexCount:3];
+    [encoder endEncoding];
+    return render_result(true, DRAXUL_PLUGIN_NO_DEADLINE);
+}
+
+#else
+
 DraxulPluginRenderResultV2 render_vulkan(void* opaque,
     const DraxulPluginVulkanFrameV2* frame)
 {
@@ -531,14 +686,16 @@ DraxulPluginRenderResultV2 render_vulkan(void* opaque,
     const auto command_buffer
         = static_cast<VkCommandBuffer>(frame->command_buffer);
     VkRenderPassBeginInfo begin{
-        VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+        VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO
+    };
     begin.renderPass = reinterpret_cast<VkRenderPass>(
         static_cast<uintptr_t>(frame->continuation_render_pass));
     begin.framebuffer = reinterpret_cast<VkFramebuffer>(
         static_cast<uintptr_t>(frame->continuation_framebuffer));
     begin.renderArea.extent = {
         static_cast<uint32_t>(frame->framebuffer_width),
-        static_cast<uint32_t>(frame->framebuffer_height) };
+        static_cast<uint32_t>(frame->framebuffer_height)
+    };
     vkCmdBeginRenderPass(command_buffer, &begin,
         VK_SUBPASS_CONTENTS_INLINE);
     VkViewport viewport{};
@@ -552,7 +709,8 @@ DraxulPluginRenderResultV2 render_vulkan(void* opaque,
         { std::max(0, frame->viewport.x),
             std::max(0, frame->viewport.y) },
         { static_cast<uint32_t>(std::max(0, frame->viewport.width)),
-            static_cast<uint32_t>(std::max(0, frame->viewport.height)) } };
+            static_cast<uint32_t>(std::max(0, frame->viewport.height)) }
+    };
     vkCmdSetViewport(command_buffer, 0, 1, &viewport);
     vkCmdSetScissor(command_buffer, 0, 1, &scissor);
     vkCmdBindPipeline(command_buffer,
@@ -575,12 +733,7 @@ DraxulPluginRenderResultV2 render_vulkan(void* opaque,
     return render_result(true, DRAXUL_PLUGIN_NO_DEADLINE);
 }
 
-DraxulPluginRenderResultV2 render_metal(void*,
-    const DraxulPluginMetalFrameV2*)
-{
-    return render_result(false, DRAXUL_PLUGIN_NO_DEADLINE,
-        "Metal is not supported by this module build");
-}
+#endif
 
 int32_t get_presentation_state(void* opaque,
     DraxulPluginPresentationStateV2* state)
@@ -591,14 +744,16 @@ int32_t get_presentation_state(void* opaque,
         return 0;
     instance->status = instance->paused ? "paused" : "running";
     instance->status += instance->direction < 0.0f
-        ? " counter-clockwise" : " clockwise";
+        ? " counter-clockwise"
+        : " clockwise";
     if (!instance->visible)
         instance->status += " | hidden";
     if (instance->focused)
         instance->status += " | focused";
     if (instance->remember_state)
         instance->status += instance->has_storage
-            ? " | remembered" : " | storage unavailable";
+            ? " | remembered"
+            : " | storage unavailable";
     if (instance->paths_ready && !instance->data_directory.empty())
         instance->status += " | paths ready";
     instance->status += " | " + std::to_string(instance->viewport.width)
@@ -609,7 +764,8 @@ int32_t get_presentation_state(void* opaque,
     state->struct_size = sizeof(*state);
     state->display_name = { "Spinning Triangle", 17 };
     state->status_text = {
-        instance->status.data(), instance->status.size() };
+        instance->status.data(), instance->status.size()
+    };
     state->background_red = 0.04f;
     state->background_green = 0.05f;
     state->background_blue = 0.08f;
@@ -635,66 +791,33 @@ int32_t dispatch_action(void* opaque, const char* action,
     return 1;
 }
 
-constexpr std::string_view kActionIds[] = {
-    "toggle_pause", "reverse" };
-constexpr std::string_view kActionNames[] = {
-    "Toggle Pause", "Reverse Direction" };
-
-size_t action_count(void*)
-{
-    return std::size(kActionIds);
-}
-
-int32_t action_at(void*, size_t index,
-    DraxulPluginStringViewV2* action_id,
-    DraxulPluginStringViewV2* display_name)
-{
-    if (!action_id || !display_name || index >= std::size(kActionIds))
-        return 0;
-    *action_id = { kActionIds[index].data(), kActionIds[index].size() };
-    *display_name = {
-        kActionNames[index].data(), kActionNames[index].size() };
-    return 1;
-}
-
-int32_t query_extension(void*, const char* extension_id,
-    size_t extension_id_length, uint32_t requested_version,
-    void* extension_table, size_t extension_table_size)
-{
-    if (!extension_id || !extension_table
-        || std::string_view(extension_id, extension_id_length)
-            != DRAXUL_PLUGIN_PRESENTATION_EXTENSION_ID
-        || requested_version != DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION
-        || extension_table_size < sizeof(DraxulPluginPresentationExtensionV2))
-        return 0;
-    auto* extension = static_cast<DraxulPluginPresentationExtensionV2*>(
-        extension_table);
-    *extension = {
-        sizeof(*extension), DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION,
-        &get_presentation_state, &dispatch_action,
-        &action_count, &action_at };
-    return 1;
-}
-
-const DraxulPluginApiV2 kApi = {
-    .struct_size = sizeof(DraxulPluginApiV2),
-    .abi_version = DRAXUL_PLUGIN_ABI_VERSION,
-    .plugin_id = kPluginId,
-    .display_name = "Spinning Triangle",
-    .plugin_version = "0.2.0",
-    .supported_backends = DRAXUL_PLUGIN_BACKEND_VULKAN,
-    .create_instance = &create_instance,
-    .quiesce_instance = &quiesce_instance,
-    .destroy_instance = &destroy_instance,
-    .set_viewport = &set_viewport,
-    .set_visible = &set_visible,
-    .set_focused = &set_focused,
-    .handle_input = &handle_input,
-    .tick = &tick,
-    .render_vulkan = &render_vulkan,
-    .render_metal = &render_metal,
-    .query_extension = &query_extension,
+constexpr draxul::plugin_support::AdapterAction kActions[] = {
+    { "toggle_pause", "Toggle Pause" },
+    { "reverse", "Reverse Direction" },
 };
+
+using Presentation = draxul::plugin_support::PresentationAdapter<kActions,
+    &get_presentation_state, &dispatch_action>;
+
+const DraxulPluginApiV2 kApi = draxul::plugin_support::make_plugin_api(
+    { kPluginId, "Spinning Triangle", "0.2.0",
+        draxul::plugin_support::kNativeBackendMask },
+    {
+        .create_instance = &create_instance,
+        .quiesce_instance = &quiesce_instance,
+        .destroy_instance = &destroy_instance,
+        .set_viewport = &set_viewport,
+        .set_visible = &set_visible,
+        .set_focused = &set_focused,
+        .handle_input = &handle_input,
+        .tick = &tick,
+#if defined(__APPLE__)
+        .render_metal = &render_metal,
+#else
+        .render_vulkan = &render_vulkan,
+#endif
+        .query_extension = &Presentation::query_extension,
+    });
 
 } // namespace
 

@@ -33,16 +33,23 @@ endif()
 
 set(DRAXUL_TRIANGLE_PLUGIN_ID dev.draxul.spinning-triangle)
 
-if(APPLE)
-    set(DRAXUL_TRIANGLE_SOURCE src/spinning_triangle_metal.mm)
-else()
-    set(DRAXUL_TRIANGLE_SOURCE src/spinning_triangle_vk.cpp)
-endif()
-
-add_library(draxul-spinning-triangle MODULE ${DRAXUL_TRIANGLE_SOURCE})
+# One dual-backend adapter TU; on Apple it compiles as Objective-C++ for the
+# Metal render path (the MegaCity/ScoreView pattern).
+add_library(draxul-spinning-triangle MODULE src/spinning_triangle.cpp)
 target_link_libraries(draxul-spinning-triangle PRIVATE
     Draxul::PluginSDK
     nlohmann_json::nlohmann_json)
+if(APPLE)
+    set_source_files_properties(src/spinning_triangle.cpp
+        PROPERTIES LANGUAGE OBJCXX)
+endif()
+# The adapter-shell header is header-only. Bundled builds take its include
+# directory from the support target; standalone SDK builds find the same
+# header in the installed SDK include tree via Draxul::PluginSDK.
+if(NOT DRAXUL_TRIANGLE_STANDALONE)
+    target_link_libraries(draxul-spinning-triangle PRIVATE
+        Draxul::PluginSupport::Adapter)
+endif()
 set_target_properties(draxul-spinning-triangle PROPERTIES
     PREFIX ""
     OUTPUT_NAME "draxul-spinning-triangle")

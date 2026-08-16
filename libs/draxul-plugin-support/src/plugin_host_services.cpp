@@ -42,8 +42,6 @@ HostServices::HostServices(const DraxulPluginCreateInfoV2& create_info)
         DRAXUL_PLUGIN_PATH_SERVICE_VERSION, paths_);
     has_storage_ = query_service(host_, DRAXUL_PLUGIN_STORAGE_SERVICE_ID,
         DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION, storage_);
-    has_ui_style_ = query_service(host_, DRAXUL_PLUGIN_UI_STYLE_SERVICE_ID,
-        DRAXUL_PLUGIN_UI_STYLE_SERVICE_VERSION, ui_style_);
 }
 
 bool HostServices::has_paths() const
@@ -54,11 +52,6 @@ bool HostServices::has_paths() const
 bool HostServices::has_storage() const
 {
     return has_storage_;
-}
-
-bool HostServices::has_ui_style() const
-{
-    return has_ui_style_;
 }
 
 std::filesystem::path HostServices::plugin_directory() const
@@ -140,34 +133,6 @@ uint32_t HostServices::remove(uint32_t scope, std::string_view key) const
     if (!has_storage_ || !storage_.remove)
         return DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
     return storage_.remove(storage_.service_context, scope, key.data(), key.size());
-}
-
-std::optional<UiStyle> HostServices::ui_style() const
-{
-    if (!has_ui_style_ || !ui_style_.get_recommended_font)
-        return std::nullopt;
-
-    UiStyle result;
-    size_t required = 0;
-    if (!ui_style_.get_recommended_font(ui_style_.service_context, nullptr,
-            &required, &result.size_pixels, &result.display_scale,
-            &result.generation)
-        || required == 0 || required > kMaximumPathBytes)
-    {
-        return std::nullopt;
-    }
-    std::vector<char> bytes(required);
-    size_t capacity = bytes.size();
-    if (!ui_style_.get_recommended_font(ui_style_.service_context, bytes.data(),
-            &capacity, &result.size_pixels, &result.display_scale,
-            &result.generation)
-        || capacity == 0 || capacity > bytes.size())
-    {
-        return std::nullopt;
-    }
-    bytes.resize(capacity);
-    result.font_path = utf8_path(bytes);
-    return result;
 }
 
 void HostServices::request_redraw() const

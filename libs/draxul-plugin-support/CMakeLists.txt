@@ -18,6 +18,24 @@ else()
         Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)
 endif()
 
+# One shell for the C-ABI plugin adapters. The header-only core
+# (plugin_adapter.h) depends only on the SDK + nlohmann::json and ships with
+# the draxul-plugin-sdk install component so standalone product extractions
+# can use it; the pane-state helpers build on HostServices and stay a
+# bundled-build leaf.
+add_library(draxul-plugin-adapter-support STATIC
+    src/plugin_adapter_state.cpp)
+target_include_directories(draxul-plugin-adapter-support PUBLIC include)
+target_link_libraries(draxul-plugin-adapter-support PUBLIC
+    Draxul::PluginSDK
+    draxul-plugin-runtime-support
+    nlohmann_json::nlohmann_json)
+
+include(GNUInstallDirs)
+install(FILES include/draxul/plugin_adapter.h
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/draxul"
+    COMPONENT draxul-plugin-sdk)
+
 add_library(draxul-plugin-config-support STATIC
     src/config_document.cpp)
 target_include_directories(draxul-plugin-config-support PUBLIC include)
@@ -35,6 +53,7 @@ target_link_libraries(draxul-plugin-tooltip-support
 
 if(NOT APPLE)
     add_library(draxul-vulkan-resources STATIC
+        src/vulkan/vk_plugin_allocator.cpp
         src/vulkan/vk_resource_helpers.cpp
         src/vulkan/vma_impl.cpp)
     target_include_directories(draxul-vulkan-resources PUBLIC include)
@@ -42,6 +61,7 @@ if(NOT APPLE)
         Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)
 endif()
 
+add_library(Draxul::PluginSupport::Adapter ALIAS draxul-plugin-adapter-support)
 add_library(Draxul::PluginSupport::Runtime ALIAS draxul-plugin-runtime-support)
 add_library(Draxul::PluginSupport::Render ALIAS draxul-plugin-render-support)
 add_library(Draxul::PluginSupport::Config ALIAS draxul-plugin-config-support)
