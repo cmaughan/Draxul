@@ -114,14 +114,6 @@ std::filesystem::path generated_docs_path()
     return std::filesystem::path(DRAXUL_PROJECT_ROOT) / "docs" / "config-keys.generated.md";
 }
 
-std::string read_file_bytes(const std::filesystem::path& path)
-{
-    std::ifstream in(path, std::ios::binary);
-    if (!in)
-        return {};
-    return std::string(std::istreambuf_iterator<char>(in), {});
-}
-
 std::string normalize_checkout_line_endings(std::string text)
 {
     text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
@@ -237,7 +229,7 @@ TEST_CASE("config schema generated docs fragment is current", "[config][docs]")
 
     INFO("generated docs fragment: " << path.string());
     INFO("regenerate with DRAXUL_REGEN_CONFIG_DOCS=1 if this schema change is intentional");
-    const std::string on_disk = read_file_bytes(path);
+    const std::string on_disk = draxul::tests::read_file(path);
     REQUIRE_FALSE(on_disk.empty());
     CHECK(normalize_checkout_line_endings(rendered)
         == normalize_checkout_line_endings(on_disk));

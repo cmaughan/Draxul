@@ -39,14 +39,6 @@ const GuiKeybinding* find_keybinding(const AppConfig& config, std::string_view a
     return nullptr;
 }
 
-std::string read_text_file(const std::filesystem::path& path)
-{
-    std::ifstream in(path, std::ios::binary);
-    if (!in)
-        return {};
-    return std::string(std::istreambuf_iterator<char>(in), {});
-}
-
 } // namespace
 
 TEST_CASE("app config parse returns defaults for empty content", "[config]")
@@ -768,7 +760,7 @@ TEST_CASE("config document merge preserves host-owned tables", "[config]")
     document.merge_core_config(config);
     document.save_to_path(path);
 
-    const std::string saved = read_text_file(path);
+    const std::string saved = draxul::tests::read_file(path);
     INFO("core app keys should update");
     REQUIRE(saved.find("window_width = 1600") != std::string::npos);
     REQUIRE(saved.find("font_size = 17") != std::string::npos);
@@ -778,7 +770,6 @@ TEST_CASE("config document merge preserves host-owned tables", "[config]")
     REQUIRE(saved.find("sign_text_px_range") != std::string::npos);
     REQUIRE(saved.find("[mega_city_code.defaults]") != std::string::npos);
 }
-
 
 TEST_CASE("config duplicate keybinding: same key+modifier for two actions produces warning", "[config]")
 {

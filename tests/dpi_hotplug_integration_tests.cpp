@@ -27,11 +27,6 @@ using namespace draxul::tests;
 namespace
 {
 
-std::string bundled_font_path()
-{
-    return std::string(DRAXUL_PROJECT_ROOT) + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
-}
-
 // Mirrors SdlWindow::display_ppi(): ppi = 96 * display_scale
 float compute_display_ppi(float display_scale)
 {
@@ -50,7 +45,7 @@ void simulate_display_scale_changed(float new_ppi, float& current_ppi, TextServi
     current_ppi = new_ppi;
 
     TextServiceConfig cfg;
-    cfg.font_path = bundled_font_path();
+    cfg.font_path = draxul::tests::bundled_font_path().string();
     if (!text_service.initialize(cfg, text_service.point_size(), current_ppi))
         return;
 
@@ -80,7 +75,7 @@ struct DpiTestFixture
 
     bool setup(float initial_scale = 1.0f)
     {
-        auto font = bundled_font_path();
+        auto font = draxul::tests::bundled_font_path().string();
         if (!std::filesystem::exists(font))
             return false;
 
@@ -230,7 +225,7 @@ TEST_CASE("dpi hotplug integration: 20 rapid scale changes produce consistent fi
     // Final state should match a fresh 2.0x initialization.
     TextService reference;
     TextServiceConfig cfg;
-    cfg.font_path = bundled_font_path();
+    cfg.font_path = draxul::tests::bundled_font_path().string();
     REQUIRE(reference.initialize(cfg, 11, compute_display_ppi(2.0f)));
 
     INFO("final cell_width matches fresh 2x init");

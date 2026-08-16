@@ -14,11 +14,6 @@ using namespace draxul::tests;
 namespace
 {
 
-std::string bundled_font_path()
-{
-    return std::string(DRAXUL_PROJECT_ROOT) + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
-}
-
 RendererBundle make_fake_renderer(int /*atlas_size*/, RendererOptions /*renderer_options*/)
 {
     return RendererBundle{ std::make_unique<FakeTermRenderer>() };
@@ -34,7 +29,7 @@ AppOptions make_testable_options()
     opts.activate_window_on_startup = false;
     opts.clamp_window_to_display = false;
     opts.override_display_ppi = 96.0f;
-    opts.config_overrides.font_path = bundled_font_path();
+    opts.config_overrides.font_path = draxul::tests::bundled_font_path().string();
     opts.window_factory = []() { return std::make_unique<FakeWindow>(); };
     opts.renderer_create_fn = &make_fake_renderer;
     // Use a nonexistent binary so the host spawn fails — we want to test the
@@ -76,7 +71,7 @@ TEST_CASE("app pump: initialization rollback on null window", "[app_pump]")
 
 TEST_CASE("app pump: pump_once returns false when host is dead", "[app_pump]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -93,7 +88,7 @@ TEST_CASE("app pump: pump_once returns false when host is dead", "[app_pump]")
 
 TEST_CASE("app pump: request_continuous_refresh keeps vblank wait", "[app_pump]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -125,7 +120,7 @@ TEST_CASE("app pump: request_continuous_refresh keeps vblank wait", "[app_pump]"
 
 TEST_CASE("app pump: no_vblank disables vblank wait", "[app_pump]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -149,7 +144,7 @@ TEST_CASE("app pump: no_vblank disables vblank wait", "[app_pump]")
 
 TEST_CASE("app pump: default options keep waiting for vblank", "[app_pump]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -218,7 +213,7 @@ TEST_CASE("app pump: AppDeps constructor with renderer failure triggers rollback
 
 TEST_CASE("app pump: AppDeps::from_options preserves factories", "[app_pump][app_deps]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 

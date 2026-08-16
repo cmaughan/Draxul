@@ -1,4 +1,6 @@
 
+#include "support/test_support.h"
+
 #include <catch2/catch_all.hpp>
 
 #include <draxul/text_service.h>
@@ -11,15 +13,9 @@ using namespace draxul;
 namespace
 {
 
-std::filesystem::path repo_root()
-{
-    auto here = std::filesystem::path(__FILE__).parent_path();
-    return here.parent_path();
-}
-
 std::filesystem::path default_font_path()
 {
-    return repo_root() / "fonts" / "CascadiaCode-Regular.ttf";
+    return draxul::tests::project_root() / "fonts" / "CascadiaCode-Regular.ttf";
 }
 
 bool font_exists()

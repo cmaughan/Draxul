@@ -16,11 +16,6 @@ using namespace draxul::tests;
 namespace
 {
 
-std::string bundled_font_path()
-{
-    return std::string(DRAXUL_PROJECT_ROOT) + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
-}
-
 struct GridHostCursorHarness
 {
     FakeWindow window;
@@ -31,9 +26,7 @@ struct GridHostCursorHarness
 
     GridHostCursorHarness()
     {
-        TextServiceConfig ts_cfg;
-        ts_cfg.font_path = bundled_font_path();
-        REQUIRE(text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, 96.0f));
+        draxul::tests::init_text_service(text_service);
 
         HostViewport viewport;
         viewport.pixel_size = { 800, 600 };

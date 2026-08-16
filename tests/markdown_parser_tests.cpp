@@ -144,7 +144,7 @@ TEST_CASE("markdown parser recognizes pipe table rows cells and alignment",
 
 TEST_CASE("markdown host opens another source from dispatch action", "[markdown][host]")
 {
-    const std::string font = std::string(DRAXUL_PROJECT_ROOT) + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 

@@ -52,7 +52,6 @@ set(DRAXUL_APP_TEST_SOURCES
     session_state_tests.cpp
     space_controller_tests.cpp
     split_tree_tests.cpp
-    startup_config_tests.cpp
     startup_rollback_tests.cpp
     tab_keybinding_roundtrip_tests.cpp
     toast_host_tests.cpp
@@ -161,11 +160,17 @@ endif()
 # These are the source-level inventories at the modular split boundary. They
 # intentionally include every platform and optional product. Additions are
 # welcome; a drop requires an explicit baseline update and review.
-set(DRAXUL_TEST_SOURCE_BASELINE 190)
-set(DRAXUL_TEST_REGISTRATION_BASELINE 1815)
+#
+# Slice 7 test-infrastructure consolidation (audit bug #13) rebased all three
+# numbers to the then-current inventory: startup_config_tests.cpp merged into
+# config_lifecycle_tests.cpp (-1 source; its three near-clone TEST_CASEs were
+# kept once, -3 registrations) while terminal_surface_parity_tests.cpp was
+# added (+1 source, +1 registration).
+set(DRAXUL_TEST_SOURCE_BASELINE 206)
+set(DRAXUL_TEST_REGISTRATION_BASELINE 2079)
 # The Workspace -> Tab terminology migration consolidated the old [workspace]
 # tag into the existing [tab] token without removing any test registrations.
-set(DRAXUL_TEST_TAG_TOKEN_BASELINE 228)
+set(DRAXUL_TEST_TAG_TOKEN_BASELINE 309)
 list(LENGTH DRAXUL_SORTED_ALL_TEST_SOURCES DRAXUL_TEST_SOURCE_COUNT)
 # The baseline describes the full inventory with every product mounted. A
 # partial checkout (an uninitialized product submodule, or a product switched

@@ -58,24 +58,16 @@ draxul::http::Response success(std::string body)
 
 bool wait_for_weather(draxul::WeatherService& weather)
 {
-    for (int attempt = 0; attempt < 100; ++attempt)
-    {
-        if (weather.has_data())
-            return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-    return false;
+    return draxul::tests::wait_until(
+        [&] { return weather.has_data(); },
+        std::chrono::milliseconds(500), std::chrono::milliseconds(5));
 }
 
 bool wait_for_requests(const FakeHttpClient& client, std::size_t count)
 {
-    for (int attempt = 0; attempt < 100; ++attempt)
-    {
-        if (client.requests().size() >= count)
-            return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    }
-    return false;
+    return draxul::tests::wait_until(
+        [&] { return client.requests().size() >= count; },
+        std::chrono::milliseconds(200), std::chrono::milliseconds(2));
 }
 
 } // namespace

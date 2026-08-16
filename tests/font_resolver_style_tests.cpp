@@ -1,3 +1,5 @@
+#include "support/test_support.h"
+
 #include <catch2/catch_all.hpp>
 
 #include <draxul/text_service.h>
@@ -22,22 +24,16 @@ using namespace draxul;
 namespace
 {
 
-std::filesystem::path repo_root()
-{
-    auto here = std::filesystem::path(__FILE__).parent_path();
-    return here.parent_path();
-}
-
 std::filesystem::path jetbrains_font(const char* variant)
 {
-    return repo_root() / "fonts" / (std::string("JetBrainsMonoNerdFont-") + variant + ".ttf");
+    return draxul::tests::project_root() / "fonts" / (std::string("JetBrainsMonoNerdFont-") + variant + ".ttf");
 }
 
 // CascadiaCode ships without style-variant files, so it acts as the
 // "regular-only" primary in missing-variant scenarios.
 std::filesystem::path regular_only_font()
 {
-    return repo_root() / "fonts" / "CascadiaCode-Regular.ttf";
+    return draxul::tests::project_root() / "fonts" / "CascadiaCode-Regular.ttf";
 }
 
 } // namespace
@@ -163,7 +159,7 @@ TEST_CASE("unloadable explicit variant path degrades with a not-found warning", 
     FontResolver resolver;
     TextServiceConfig config;
     config.font_path = regular_only_font().string();
-    config.bold_font_path = (repo_root() / "fonts" / "DoesNotExist-Bold.ttf").string();
+    config.bold_font_path = (draxul::tests::project_root() / "fonts" / "DoesNotExist-Bold.ttf").string();
     INFO("font resolver initializes despite the bad variant path");
     REQUIRE(resolver.initialize(config, 11, 96.0f));
 

@@ -1,5 +1,7 @@
 // Regression tests for ligature grouping and cluster pitch: typing text like
 // "--render-test" or runs of '/' must not displace or corrupt earlier glyphs.
+#include "support/test_support.h"
+
 #include <catch2/catch_all.hpp>
 
 #include "support/fake_glyph_atlas.h"
@@ -23,16 +25,10 @@ using draxul::tests::FakeGlyphAtlas;
 using draxul::tests::FakeGridPipelineHandle;
 using draxul::tests::FakeGridPipelineRenderer;
 
-std::filesystem::path repo_root()
-{
-    auto here = std::filesystem::path(__FILE__).parent_path();
-    return here.parent_path();
-}
-
 TextService make_service()
 {
     TextServiceConfig config;
-    config.font_path = (repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf").string();
+    config.font_path = (draxul::tests::project_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf").string();
     config.enable_ligatures = true;
 
     TextService service;

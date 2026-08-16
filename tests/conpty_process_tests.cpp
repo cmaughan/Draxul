@@ -2,8 +2,8 @@
 
 #include <catch2/catch_all.hpp>
 
-#include <draxul/conpty_process.h>
 #include <draxul/agent_model.h>
+#include <draxul/conpty_process.h>
 
 #include <algorithm>
 #include <chrono>
@@ -67,16 +67,14 @@ TEST_CASE("ConPtyProcess reports child process working directory changes", "[con
 
     std::string last_seen_cwd;
     auto wait_for_cwd = [&process, &last_seen_cwd](const std::filesystem::path& expected) {
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-        while (std::chrono::steady_clock::now() < deadline)
-        {
-            last_seen_cwd = process.current_working_directory();
-            std::error_code ec;
-            if (!last_seen_cwd.empty() && std::filesystem::equivalent(last_seen_cwd, expected, ec))
-                return true;
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-        return false;
+        return draxul::tests::wait_until(
+            [&] {
+                last_seen_cwd = process.current_working_directory();
+                std::error_code ec;
+                return !last_seen_cwd.empty()
+                    && std::filesystem::equivalent(last_seen_cwd, expected, ec);
+            },
+            std::chrono::seconds(3));
     };
 
     const bool saw_root = wait_for_cwd(root);

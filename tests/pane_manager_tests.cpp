@@ -22,10 +22,6 @@ using namespace draxul::tests;
 namespace
 {
 
-std::string bundled_font_path()
-{
-    return std::string(DRAXUL_PROJECT_ROOT) + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
-}
 class LifetimeTestHost final : public draxul::tests::FakeHost
 {
 public:
@@ -110,10 +106,8 @@ struct PaneManagerHarness
         , request_projected_divider_ratio(std::move(ratio_callback))
         , manager(make_deps())
     {
-        TextServiceConfig ts_cfg;
-        ts_cfg.font_path = bundled_font_path();
-        const bool ok = text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, display_ppi);
-        REQUIRE(ok);
+        draxul::tests::init_text_service(
+            text_service, TextService::DEFAULT_POINT_SIZE, display_ppi);
     }
 
     PaneManager::Deps make_deps()
@@ -176,10 +170,8 @@ struct ShellPaneManagerHarness
     ShellPaneManagerHarness()
         : manager(make_deps())
     {
-        TextServiceConfig ts_cfg;
-        ts_cfg.font_path = bundled_font_path();
-        const bool ok = text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, display_ppi);
-        REQUIRE(ok);
+        draxul::tests::init_text_service(
+            text_service, TextService::DEFAULT_POINT_SIZE, display_ppi);
     }
 
     PaneManager::Deps make_deps()
@@ -240,9 +232,7 @@ TEST_CASE("pane manager: explicit primary host override does not inherit incompa
     FakeWindow window;
     FakeTermRenderer renderer;
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
 
     TestHostCallbacks callbacks;
     AppConfig config;
@@ -294,9 +284,7 @@ TEST_CASE("pane manager: shell launch options inherit configured scrollback capa
     FakeWindow window;
     FakeTermRenderer renderer;
     TextService text_service;
-    TextServiceConfig text_config;
-    text_config.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
 
     TestHostCallbacks callbacks;
     AppConfig config;
@@ -653,19 +641,19 @@ TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_mana
     harness.manager.set_pane_name(root, "left");
     harness.manager.set_pane_name(split, "right");
     harness.manager.set_agent_identity(split, {
-        .profile_id = "codex",
-        .kind = "codex",
-        .display_name = "Codex",
-        .instance_id = "agent-4-7-pane-right",
-    });
+                                                  .profile_id = "codex",
+                                                  .kind = "codex",
+                                                  .display_name = "Codex",
+                                                  .instance_id = "agent-4-7-pane-right",
+                                              });
     REQUIRE(harness.manager.set_agent_session_ref(split, {
-        .source = "draxul:codex",
-        .agent_kind = "codex",
-        .integration_version = 1,
-        .sequence = 7,
-        .kind = AgentSessionRefKind::Id,
-        .value = "codex-native-session",
-    }));
+                                                             .source = "draxul:codex",
+                                                             .agent_kind = "codex",
+                                                             .integration_version = 1,
+                                                             .sequence = 7,
+                                                             .kind = AgentSessionRefKind::Id,
+                                                             .value = "codex-native-session",
+                                                         }));
     harness.manager.set_focused(split);
     harness.manager.toggle_zoom(800, 600);
 
@@ -913,17 +901,17 @@ TEST_CASE("pane manager: identifies only server-owned remote terminals",
         harness.callbacks, 800, 600, projected));
 
     CHECK_FALSE(harness.manager
-                    .is_server_owned_remote_terminal_leaf(root));
+            .is_server_owned_remote_terminal_leaf(root));
     CHECK(harness.manager
-              .is_server_owned_remote_terminal_leaf(remote));
+            .is_server_owned_remote_terminal_leaf(remote));
 
     PaneManagerHarness local_harness;
     REQUIRE(local_harness.manager.create(
         local_harness.callbacks, 800, 600,
         HostKind::RemoteTerminal));
     CHECK_FALSE(local_harness.manager
-                    .is_server_owned_remote_terminal_leaf(
-                        local_harness.manager.focused_leaf()));
+            .is_server_owned_remote_terminal_leaf(
+                local_harness.manager.focused_leaf()));
 }
 
 TEST_CASE("pane manager restores and refreshes a projected companion preview",
@@ -1094,9 +1082,7 @@ TEST_CASE("grid host base: invalidated owner lifetime blocks renderer and callba
     FakeTermRenderer renderer;
     TestHostCallbacks callbacks;
     TextService text_service;
-    TextServiceConfig ts_cfg;
-    ts_cfg.font_path = bundled_font_path();
-    REQUIRE(text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    draxul::tests::init_text_service(text_service);
 
     auto owner_lifetime = std::make_shared<int>(0);
     HostViewport viewport;

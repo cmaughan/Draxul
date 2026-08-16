@@ -60,10 +60,7 @@ TEST_CASE("terminal raw PTY capture replay reproduces the final terminal state",
     draxul::tests::FakeTermRenderer renderer;
     draxul::TextService text_service;
     draxul::TextServiceConfig ts_cfg;
-    ts_cfg.font_path = (std::filesystem::path(DRAXUL_PROJECT_ROOT)
-                           / "fonts"
-                           / "JetBrainsMonoNerdFont-Regular.ttf")
-                           .string();
+    ts_cfg.font_path = draxul::tests::bundled_font_path().string();
     text_service.initialize(ts_cfg, draxul::TextService::DEFAULT_POINT_SIZE, 96.0f);
     draxul::tests::TestHostCallbacks callbacks;
     draxul::HostContext ctx{
@@ -102,10 +99,7 @@ TEST_CASE("terminal raw PTY capture honors the host launch capture path", "[term
     draxul::tests::FakeTermRenderer renderer;
     draxul::TextService text_service;
     draxul::TextServiceConfig ts_cfg;
-    ts_cfg.font_path = (std::filesystem::path(DRAXUL_PROJECT_ROOT)
-                           / "fonts"
-                           / "JetBrainsMonoNerdFont-Regular.ttf")
-                           .string();
+    ts_cfg.font_path = draxul::tests::bundled_font_path().string();
     text_service.initialize(ts_cfg, draxul::TextService::DEFAULT_POINT_SIZE, 96.0f);
     draxul::tests::TestHostCallbacks callbacks;
     draxul::HostContext ctx{
@@ -138,10 +132,7 @@ TEST_CASE("terminal raw PTY capture works for local terminal hosts", "[terminal]
     draxul::tests::FakeTermRenderer renderer;
     draxul::TextService text_service;
     draxul::TextServiceConfig ts_cfg;
-    ts_cfg.font_path = (std::filesystem::path(DRAXUL_PROJECT_ROOT)
-                           / "fonts"
-                           / "JetBrainsMonoNerdFont-Regular.ttf")
-                           .string();
+    ts_cfg.font_path = draxul::tests::bundled_font_path().string();
     text_service.initialize(ts_cfg, draxul::TextService::DEFAULT_POINT_SIZE, 96.0f);
     draxul::tests::TestHostCallbacks callbacks;
     draxul::tests::TestLocalTerminalHost host;

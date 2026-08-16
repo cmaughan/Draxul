@@ -37,11 +37,6 @@ using namespace draxul::tests;
 namespace
 {
 
-std::string bundled_font_path()
-{
-    return std::string(DRAXUL_PROJECT_ROOT) + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
-}
-
 // ---------------------------------------------------------------------------
 // IHost stub built on top of the shared FakeHost. Adds capability flags
 // and method-style accessors for the existing test
@@ -122,7 +117,7 @@ AppOptions make_app_options(DispatchHostRegistry& registry, HostKind primary_kin
     opts.activate_window_on_startup = false;
     opts.clamp_window_to_display = false;
     opts.override_display_ppi = 96.0f;
-    opts.config_overrides.font_path = bundled_font_path();
+    opts.config_overrides.font_path = draxul::tests::bundled_font_path().string();
     opts.window_factory = []() { return std::make_unique<FakeWindow>(); };
     opts.renderer_create_fn = &make_fake_renderer;
     opts.host_factory = [&registry](HostKind kind) -> std::unique_ptr<IHost> {
@@ -143,7 +138,7 @@ AppOptions make_app_options(DispatchHostRegistry& registry, HostKind primary_kin
 TEST_CASE("app dispatch: nvim-targeted action reaches single NvimHost pane",
     "[app_dispatch][WI122]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -180,7 +175,7 @@ TEST_CASE("app dispatch: nvim-targeted action reaches single NvimHost pane",
 TEST_CASE("app dispatch: mixed-host tab routes nvim action to NvimHost pane",
     "[app_dispatch][WI122]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -254,7 +249,7 @@ TEST_CASE("app dispatch: mixed-host tab routes nvim action to NvimHost pane",
 TEST_CASE("app dispatch: debug-name rename does not break nvim routing",
     "[app_dispatch][WI122][regression]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
@@ -293,7 +288,7 @@ TEST_CASE("app dispatch: debug-name rename does not break nvim routing",
 TEST_CASE("app dispatch: no-nvim tab spawns a new NvimHost on dispatch",
     "[app_dispatch][WI122]")
 {
-    const std::string font = bundled_font_path();
+    const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 
