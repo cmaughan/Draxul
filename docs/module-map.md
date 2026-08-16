@@ -139,6 +139,10 @@ core. The shared C++ support is statically linked into a same-build plugin and
 does not change the runtime boundary, which remains `Draxul::PluginSDK`'s C ABI.
 `draxul-host` privately consumes `draxul-client` for the `RemoteTerminalHost`
 renderer adapter, including client-local viewport/selection/mouse/paste behavior.
+The client-local terminal surface (selection, copy-on-select, copy mode, mouse
+reporting hand-off, hyperlink activation, pixel→cell mapping) lives once in
+`TerminalSurfaceHostBase`, which sits between `GridHostBase` and both
+`TerminalHostBase` (hence `LocalTerminalHost`) and `RemoteTerminalHost`.
 It also owns the generic `PluginHost` and its Vulkan/Metal render-pass adapters;
 plugin modules remain dynamically linked and are never product dependencies of the
 server. The spinning-triangle is the first module staged through the generic

@@ -1,9 +1,7 @@
 #pragma once
 
-#include <draxul/grid_host_base.h>
-#include <draxul/mouse_reporter.h>
-#include <draxul/selection_manager.h>
 #include <draxul/terminal_snapshot.h>
+#include <draxul/terminal_surface_host_base.h>
 
 #include <filesystem>
 #include <memory>
@@ -28,7 +26,7 @@ struct RemoteTerminalHostOptions
     bool presentation_suspend_supported = false;
 };
 
-class RemoteTerminalHost final : public GridHostBase
+class RemoteTerminalHost final : public TerminalSurfaceHostBase
 {
 public:
     explicit RemoteTerminalHost(RemoteTerminalHostOptions options);
@@ -47,11 +45,6 @@ public:
     void on_focus_lost() override;
     void on_key(const KeyEvent& event) override;
     void on_text_input(const TextInputEvent& event) override;
-    void on_mouse_button(const MouseButtonEvent& event) override;
-    void on_mouse_move(const MouseMoveEvent& event) override;
-    void on_mouse_wheel(const MouseWheelEvent& event) override;
-    std::optional<MouseCursor> mouse_cursor_at(int px, int py) const override;
-    void set_scroll_offset(float px) override;
     bool dispatch_action(std::string_view action) override;
     void request_close() override;
     std::string display_name() const override;
@@ -65,30 +58,12 @@ protected:
     void on_viewport_changed() override;
     void on_font_metrics_changed_impl() override;
     std::string_view host_name() const override;
+    bool surface_mouse_reporting_allowed() const override;
+    void surface_write_mouse_report(std::string_view sequence) override;
+    void surface_scroll_lines(int rows) override;
+    glm::ivec2 surface_cursor_position() const override;
 
 private:
-    struct GridPos
-    {
-        int col = 0;
-        int row = 0;
-    };
-
-    struct CopyMode
-    {
-        bool active = false;
-        bool selecting = false;
-        bool line_mode = false;
-        glm::ivec2 cursor{ 0, 0 };
-        glm::ivec2 anchor{ 0, 0 };
-    };
-
-    GridPos pixel_to_cell(int px, int py) const;
-    bool open_link_at(const GridPos& pos, ModifierFlags mod);
-    void enter_copy_mode();
-    void exit_copy_mode(bool yank);
-    bool handle_copy_mode_key(const KeyEvent& event);
-    void update_copy_mode_overlay();
-    bool copy_active_selection_to_clipboard();
     bool handle_scrollback_key(const KeyEvent& event);
     void scroll_to_live();
     void show_observer_input_hint();
@@ -97,8 +72,6 @@ private:
     void apply_mouse_modes(const TerminalMouseModeSnapshot& modes);
 
     class Impl;
-    MouseReporter mouse_reporter_;
-    SelectionManager selection_;
     std::shared_ptr<Impl> impl_;
     std::string init_error_;
     std::string last_error_;
@@ -109,9 +82,6 @@ private:
     std::string pending_paste_;
     TerminalSnapshotMetadata metadata_;
     TerminalMouseModeSnapshot mouse_modes_;
-    CopyMode copy_mode_;
-    std::optional<GridPos> pending_selection_copy_click_;
-    bool suppress_next_selection_copy_text_input_ = false;
     bool observer_input_hint_shown_ = false;
     uint64_t scroll_offset_ = 0;
     uint64_t scrollback_total_ = 0;

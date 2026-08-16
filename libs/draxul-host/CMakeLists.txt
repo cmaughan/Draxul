@@ -9,6 +9,7 @@ add_library(draxul-host
     src/remote_terminal_host.cpp
     src/selection_manager.cpp
     src/terminal_host_base.cpp
+    src/terminal_surface_host_base.cpp
     src/terminal_key_encoder.cpp
     src/unavailable_host.cpp
 )

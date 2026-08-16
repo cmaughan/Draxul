@@ -70,12 +70,6 @@ bool needs_identity_refresh(std::string_view code)
         || code == "invalid_connection_token";
 }
 
-bool is_selection_copy_shortcut(const KeyEvent& event)
-{
-    return event.pressed && event.keycode == SDLK_C
-        && has_only_modifiers(event.mod, kModCtrl);
-}
-
 struct RemoteHostCommand
 {
     enum class Kind
@@ -1099,28 +1093,7 @@ private:
 };
 
 RemoteTerminalHost::RemoteTerminalHost(RemoteTerminalHostOptions options)
-    : mouse_reporter_([this](std::string_view sequence) {
-        if (controller_client_id_ == impl_->options().client_id)
-            send_remote_input(std::string(sequence));
-    })
-    , selection_([this]() -> SelectionManager::Callbacks {
-        SelectionManager::Callbacks cbs;
-        cbs.set_overlay_cells
-            = [this](std::vector<CellUpdate> cells) {
-                  set_overlay_cells(cells);
-              };
-        cbs.get_cell = [this](int col, int row) -> const Cell& {
-            return grid().get_cell(col, row);
-        };
-        cbs.grid_cols = [this] { return grid_cols(); };
-        cbs.grid_rows = [this] { return grid_rows(); };
-        cbs.request_frame = [this] { callbacks().request_frame(); };
-        cbs.on_selection_truncated = [this](std::string_view message) {
-            callbacks().push_toast(1, message);
-        };
-        return cbs;
-    }())
-    , impl_(std::make_shared<Impl>(*this, std::move(options)))
+    : impl_(std::make_shared<Impl>(*this, std::move(options)))
 {
 }
 
@@ -1168,10 +1141,7 @@ void RemoteTerminalHost::pump()
             || display_snapshot.cols != grid_cols()
             || display_snapshot.rows != grid_rows();
         if (viewport_changed)
-        {
-            selection_.clear();
-            pending_selection_copy_click_.reset();
-        }
+            clear_surface_selection();
         scroll_offset_ = state->scroll_offset;
         scrollback_total_ = state->scrollback_total;
         attach_latency_ = state->attach_latency;
@@ -1308,14 +1278,7 @@ void RemoteTerminalHost::pump()
         }
         apply_mouse_modes(state->snapshot.metadata.modes.mouse);
         metadata_ = metadata;
-        if (copy_mode_.active)
-        {
-            copy_mode_.cursor.x = std::clamp(
-                copy_mode_.cursor.x, 0, std::max(0, grid_cols() - 1));
-            copy_mode_.cursor.y = std::clamp(
-                copy_mode_.cursor.y, 0, std::max(0, grid_rows() - 1));
-            update_copy_mode_overlay();
-        }
+        refresh_copy_mode_after_grid_change();
         flush_grid();
         if (became_controller
             && desired_cols_ > 0 && desired_rows_ > 0
@@ -1349,19 +1312,15 @@ bool RemoteTerminalHost::requires_periodic_wake() const
 void RemoteTerminalHost::on_config_reloaded(
     const HostReloadConfig& config)
 {
-    GridHostBase::on_config_reloaded(config);
+    TerminalSurfaceHostBase::on_config_reloaded(config);
     launch_options().terminal_fg = config.terminal_fg;
     launch_options().terminal_bg = config.terminal_bg;
-    launch_options().selection_max_cells = config.selection_max_cells;
-    launch_options().copy_on_select = config.copy_on_select;
     launch_options().paste_confirm_lines = config.paste_confirm_lines;
     launch_options().url_detection = config.url_detection;
     launch_options().enable_osc8_hyperlinks
         = config.enable_osc8_hyperlinks;
     launch_options().enable_shell_integration_marks
         = config.enable_shell_integration_marks;
-    if (config.selection_max_cells > 0)
-        selection_.set_max_cells(config.selection_max_cells);
     highlights().set_default_fg(
         launch_options().terminal_fg.value_or(
             Color(0.92f, 0.92f, 0.92f, 1.0f)));
@@ -1384,8 +1343,7 @@ void RemoteTerminalHost::on_focus_gained()
 
 void RemoteTerminalHost::on_focus_lost()
 {
-    GridHostBase::on_focus_lost();
-    pending_selection_copy_click_.reset();
+    TerminalSurfaceHostBase::on_focus_lost();
     if (controller_client_id_ == impl_->options().client_id
         && metadata_.modes.focus_reporting)
     {
@@ -1395,25 +1353,11 @@ void RemoteTerminalHost::on_focus_lost()
 
 void RemoteTerminalHost::on_key(const KeyEvent& event)
 {
+    if (handle_surface_key(event))
+        return;
+
     if (!event.pressed)
         return;
-
-    if (suppress_next_selection_copy_text_input_)
-        suppress_next_selection_copy_text_input_ = false;
-
-    if (copy_mode_.active)
-    {
-        (void)handle_copy_mode_key(event);
-        return;
-    }
-
-    if (selection_.is_active() && is_selection_copy_shortcut(event))
-    {
-        copy_active_selection_to_clipboard();
-        selection_.clear();
-        suppress_next_selection_copy_text_input_ = true;
-        return;
-    }
 
     if (handle_scrollback_key(event))
         return;
@@ -1436,12 +1380,9 @@ void RemoteTerminalHost::on_key(const KeyEvent& event)
 
 void RemoteTerminalHost::on_text_input(const TextInputEvent& event)
 {
-    if (suppress_next_selection_copy_text_input_)
-    {
-        suppress_next_selection_copy_text_input_ = false;
+    if (handle_surface_text_input(event))
         return;
-    }
-    if (event.text.empty() || copy_mode_.active)
+    if (event.text.empty())
         return;
     if (controller_client_id_ != impl_->options().client_id)
     {
@@ -1453,142 +1394,15 @@ void RemoteTerminalHost::on_text_input(const TextInputEvent& event)
     send_remote_input(event.text);
 }
 
-void RemoteTerminalHost::on_mouse_button(const MouseButtonEvent& event)
-{
-    const GridPos pos = pixel_to_cell(event.pos.x, event.pos.y);
-    if (event.button == 1 && event.pressed
-        && open_link_at(pos, event.mod))
-    {
-        return;
-    }
-
-    if (controller_client_id_ == impl_->options().client_id
-        && mouse_reporter_.on_button(event.button, event.pressed,
-            event.mod, pos.col, pos.row))
-    {
-        return;
-    }
-
-    if (event.button == 1 && event.pressed)
-    {
-        pending_selection_copy_click_.reset();
-        if (event.clicks == 2)
-        {
-            const bool active
-                = selection_.select_word({ { pos.col, pos.row } });
-            if (active && launch_options().copy_on_select)
-                copy_active_selection_to_clipboard();
-            return;
-        }
-        if (event.clicks >= 3)
-        {
-            const bool active
-                = selection_.select_line({ { pos.col, pos.row } });
-            if (active && launch_options().copy_on_select)
-                copy_active_selection_to_clipboard();
-            return;
-        }
-        if (selection_.is_active()
-            && selection_.contains({ { pos.col, pos.row } }))
-        {
-            pending_selection_copy_click_ = pos;
-            return;
-        }
-        selection_.begin_drag({ { pos.col, pos.row } });
-        return;
-    }
-
-    if (event.button == 1)
-    {
-        if (pending_selection_copy_click_)
-        {
-            pending_selection_copy_click_.reset();
-            copy_active_selection_to_clipboard();
-            selection_.clear();
-            return;
-        }
-        const bool active
-            = selection_.end_drag({ { pos.col, pos.row } });
-        if (active && launch_options().copy_on_select)
-            copy_active_selection_to_clipboard();
-    }
-}
-
-void RemoteTerminalHost::on_mouse_move(const MouseMoveEvent& event)
-{
-    const GridPos pos = pixel_to_cell(event.pos.x, event.pos.y);
-    if (controller_client_id_ == impl_->options().client_id
-        && mouse_reporter_.on_move(event.mod, pos.col, pos.row))
-    {
-        return;
-    }
-
-    if (pending_selection_copy_click_)
-    {
-        const GridPos anchor = *pending_selection_copy_click_;
-        if (anchor.col == pos.col && anchor.row == pos.row)
-            return;
-        pending_selection_copy_click_.reset();
-        selection_.begin_drag({ { anchor.col, anchor.row } });
-    }
-    selection_.update_drag({ { pos.col, pos.row } });
-}
-
-void RemoteTerminalHost::on_mouse_wheel(const MouseWheelEvent& event)
-{
-    if (controller_client_id_ == impl_->options().client_id
-        && mouse_reporter_.mode() != MouseReporter::MouseMode::None)
-    {
-        const GridPos pos = pixel_to_cell(event.pos.x, event.pos.y);
-        mouse_reporter_.on_wheel(
-            event.delta.y > 0 ? 64 : 65, event.mod, pos.col, pos.row);
-        return;
-    }
-
-    const int lines = std::max(
-        1, static_cast<int>(std::abs(event.delta.y) * 3.0f + 0.5f));
-    selection_.clear();
-    pending_selection_copy_click_.reset();
-    impl_->enqueue({
-        .kind = RemoteHostCommand::Kind::Scroll,
-        .scroll_rows = event.delta.y > 0 ? lines : -lines,
-    });
-}
-
-std::optional<MouseCursor>
-RemoteTerminalHost::mouse_cursor_at(int px, int py) const
-{
-    const GridPos pos = pixel_to_cell(px, py);
-    return grid().effective_link_id(pos.col, pos.row) != 0
-        ? std::optional<MouseCursor>(MouseCursor::Pointer)
-        : std::nullopt;
-}
-
-void RemoteTerminalHost::set_scroll_offset(float)
-{
-    GridHostBase::set_scroll_offset(0.0f);
-}
-
 bool RemoteTerminalHost::dispatch_action(std::string_view action)
 {
+    if (handle_surface_action(action))
+        return true;
     if (action == "take_terminal_control")
     {
         return impl_->enqueue({
             .kind = RemoteHostCommand::Kind::TakeControl,
         });
-    }
-    if (action == "copy")
-    {
-        copy_active_selection_to_clipboard();
-        return true;
-    }
-    if (action == "toggle_copy_mode")
-    {
-        if (copy_mode_.active)
-            exit_copy_mode(false);
-        else
-            enter_copy_mode();
-        return true;
     }
     if (action == "paste")
     {
@@ -1640,192 +1454,6 @@ bool RemoteTerminalHost::dispatch_action(std::string_view action)
     return false;
 }
 
-RemoteTerminalHost::GridPos
-RemoteTerminalHost::pixel_to_cell(int px, int py) const
-{
-    auto [cell_width, cell_height] = renderer().cell_size_pixels();
-    const int padding = renderer().padding();
-    cell_width = std::max(1, cell_width);
-    cell_height = std::max(1, cell_height);
-    return {
-        std::clamp((px - viewport().pixel_pos.x - padding) / cell_width,
-            0, std::max(0, grid_cols() - 1)),
-        std::clamp((py - viewport().pixel_pos.y - padding) / cell_height,
-            0, std::max(0, grid_rows() - 1)),
-    };
-}
-
-bool RemoteTerminalHost::open_link_at(
-    const GridPos& pos, ModifierFlags mod)
-{
-    const uint16_t link_id
-        = grid().effective_link_id(pos.col, pos.row);
-    if (link_id == 0)
-        return false;
-    const bool explicit_link
-        = grid().cell_has_explicit_hyperlink(pos.col, pos.row);
-    const bool url_modifier = (mod & kModCtrl) || (mod & kModSuper);
-    if (!explicit_link && !url_modifier)
-        return false;
-    const std::string_view uri = grid().link_uri(link_id);
-    if (uri.empty())
-        return false;
-    if (!window().open_url(uri))
-        callbacks().push_toast(2, "Failed to open link.");
-    return true;
-}
-
-void RemoteTerminalHost::enter_copy_mode()
-{
-    pending_selection_copy_click_.reset();
-    suppress_next_selection_copy_text_input_ = false;
-    selection_.clear();
-    copy_mode_.active = true;
-    copy_mode_.selecting = false;
-    copy_mode_.line_mode = false;
-    copy_mode_.cursor = {
-        std::clamp(metadata_.cursor.col, 0, std::max(0, grid_cols() - 1)),
-        std::clamp(metadata_.cursor.row, 0, std::max(0, grid_rows() - 1)),
-    };
-    copy_mode_.anchor = copy_mode_.cursor;
-    update_copy_mode_overlay();
-    callbacks().push_toast(0,
-        "Copy mode: hjkl/arrows to move, v/V select, y yank, q/Esc exit");
-}
-
-void RemoteTerminalHost::exit_copy_mode(bool yank)
-{
-    if (yank && selection_.is_active())
-        copy_active_selection_to_clipboard();
-    pending_selection_copy_click_.reset();
-    suppress_next_selection_copy_text_input_ = false;
-    selection_.clear();
-    copy_mode_ = {};
-    callbacks().request_frame();
-}
-
-void RemoteTerminalHost::update_copy_mode_overlay()
-{
-    if (copy_mode_.selecting)
-    {
-        if (copy_mode_.line_mode)
-        {
-            const int first_row
-                = std::min(copy_mode_.anchor.y, copy_mode_.cursor.y);
-            const int last_row
-                = std::max(copy_mode_.anchor.y, copy_mode_.cursor.y);
-            selection_.begin_drag({ { 0, first_row } });
-            selection_.end_drag(
-                { { std::max(0, grid_cols() - 1), last_row } });
-        }
-        else
-        {
-            selection_.begin_drag(
-                { { copy_mode_.anchor.x, copy_mode_.anchor.y } });
-            selection_.end_drag(
-                { { copy_mode_.cursor.x, copy_mode_.cursor.y } });
-        }
-    }
-    else
-    {
-        selection_.begin_drag(
-            { { copy_mode_.cursor.x, copy_mode_.cursor.y } });
-        selection_.end_drag(
-            { { copy_mode_.cursor.x, copy_mode_.cursor.y } });
-    }
-    callbacks().request_frame();
-}
-
-bool RemoteTerminalHost::handle_copy_mode_key(const KeyEvent& event)
-{
-    const int cols = grid_cols();
-    const int rows = grid_rows();
-    auto clamp_cursor = [&] {
-        copy_mode_.cursor.x = std::clamp(
-            copy_mode_.cursor.x, 0, std::max(0, cols - 1));
-        copy_mode_.cursor.y = std::clamp(
-            copy_mode_.cursor.y, 0, std::max(0, rows - 1));
-    };
-
-    switch (event.keycode)
-    {
-    case SDLK_ESCAPE:
-    case SDLK_Q:
-        exit_copy_mode(false);
-        return true;
-    case SDLK_Y:
-        exit_copy_mode(true);
-        return true;
-    case SDLK_V:
-        if ((event.mod & kModShift) != 0)
-        {
-            copy_mode_.selecting = true;
-            copy_mode_.line_mode = true;
-            copy_mode_.anchor = copy_mode_.cursor;
-        }
-        else
-        {
-            copy_mode_.selecting = !copy_mode_.selecting;
-            copy_mode_.line_mode = false;
-            if (copy_mode_.selecting)
-                copy_mode_.anchor = copy_mode_.cursor;
-            else
-                selection_.clear();
-        }
-        update_copy_mode_overlay();
-        return true;
-    case SDLK_H:
-    case SDLK_LEFT:
-        --copy_mode_.cursor.x;
-        clamp_cursor();
-        update_copy_mode_overlay();
-        return true;
-    case SDLK_L:
-    case SDLK_RIGHT:
-        ++copy_mode_.cursor.x;
-        clamp_cursor();
-        update_copy_mode_overlay();
-        return true;
-    case SDLK_K:
-    case SDLK_UP:
-        --copy_mode_.cursor.y;
-        clamp_cursor();
-        update_copy_mode_overlay();
-        return true;
-    case SDLK_J:
-    case SDLK_DOWN:
-        ++copy_mode_.cursor.y;
-        clamp_cursor();
-        update_copy_mode_overlay();
-        return true;
-    case SDLK_0:
-    case SDLK_HOME:
-        copy_mode_.cursor.x = 0;
-        update_copy_mode_overlay();
-        return true;
-    case SDLK_END:
-        copy_mode_.cursor.x = std::max(0, cols - 1);
-        update_copy_mode_overlay();
-        return true;
-    case SDLK_G:
-        copy_mode_.cursor.y = (event.mod & kModShift) != 0
-            ? std::max(0, rows - 1)
-            : 0;
-        update_copy_mode_overlay();
-        return true;
-    default:
-        return true;
-    }
-}
-
-bool RemoteTerminalHost::copy_active_selection_to_clipboard()
-{
-    if (!selection_.is_active())
-        return false;
-    const std::string text = selection_.extract_text();
-    return !text.empty() && window().set_clipboard_text(text);
-}
-
 bool RemoteTerminalHost::handle_scrollback_key(const KeyEvent& event)
 {
     if ((event.mod & kModShift) == 0)
@@ -1856,19 +1484,46 @@ bool RemoteTerminalHost::handle_scrollback_key(const KeyEvent& event)
         return false;
     }
 
-    selection_.clear();
-    pending_selection_copy_click_.reset();
+    clear_surface_selection();
     impl_->enqueue(std::move(command));
     return true;
 }
 
 void RemoteTerminalHost::scroll_to_live()
 {
-    selection_.clear();
-    pending_selection_copy_click_.reset();
+    clear_surface_selection();
     impl_->enqueue({
         .kind = RemoteHostCommand::Kind::ScrollToLive,
     });
+}
+
+// ---------------------------------------------------------------------------
+// Terminal-surface seams
+// ---------------------------------------------------------------------------
+
+bool RemoteTerminalHost::surface_mouse_reporting_allowed() const
+{
+    // Observers never forward mouse reports; their clicks drive the local
+    // selection surface instead.
+    return controller_client_id_ == impl_->options().client_id;
+}
+
+void RemoteTerminalHost::surface_write_mouse_report(std::string_view sequence)
+{
+    send_remote_input(std::string(sequence));
+}
+
+void RemoteTerminalHost::surface_scroll_lines(int rows)
+{
+    impl_->enqueue({
+        .kind = RemoteHostCommand::Kind::Scroll,
+        .scroll_rows = rows,
+    });
+}
+
+glm::ivec2 RemoteTerminalHost::surface_cursor_position() const
+{
+    return { metadata_.cursor.col, metadata_.cursor.row };
 }
 
 void RemoteTerminalHost::show_observer_input_hint()
@@ -1945,15 +1600,15 @@ void RemoteTerminalHost::apply_mouse_modes(
 {
     if (modes == mouse_modes_)
         return;
-    mouse_reporter_.reset();
+    mouse_reporter().reset();
     if (modes.normal_tracking)
-        mouse_reporter_.set_mode(1000, true);
+        mouse_reporter().set_mode(1000, true);
     if (modes.button_motion)
-        mouse_reporter_.set_mode(1002, true);
+        mouse_reporter().set_mode(1002, true);
     if (modes.any_motion)
-        mouse_reporter_.set_mode(1003, true);
+        mouse_reporter().set_mode(1003, true);
     if (modes.sgr_coordinates)
-        mouse_reporter_.set_mode(1006, true);
+        mouse_reporter().set_mode(1006, true);
     mouse_modes_ = modes;
 }
 
