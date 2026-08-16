@@ -1,14 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <SDL3/SDL_scancode.h>
+#include <draxul/sdl_imgui_input.h>
 #include <imgui.h>
 
-// sdl_scancode_to_imgui_key is in draxul namespace, moved out of anonymous ns
-namespace draxul
-{
-ImGuiKey sdl_scancode_to_imgui_key(int scancode);
-}
-
+// This exercises the single shared scancode table in draxul-imgui-core; core
+// UI, the renderer backends, and every product plugin translate through it.
 using namespace draxul;
 
 TEST_CASE("ui_panel: sdl_scancode_to_imgui_key maps all expected navigation keys", "[ui_panel]")
@@ -155,6 +152,23 @@ TEST_CASE("ui_panel: sdl_scancode_to_imgui_key maps modifier keys", "[ui_panel]"
         SDL_SCANCODE_RGUI,
     };
     for (int sc : mod_scancodes)
+    {
+        REQUIRE(sdl_scancode_to_imgui_key(sc) != ImGuiKey_None);
+    }
+}
+
+TEST_CASE("ui_panel: sdl_scancode_to_imgui_key maps lock and system keys", "[ui_panel]")
+{
+    // The keys product forks historically dropped (audit bug #1): losing any
+    // of these here would silently kill them in every product ImGui panel.
+    const int lock_scancodes[] = {
+        SDL_SCANCODE_CAPSLOCK,
+        SDL_SCANCODE_SCROLLLOCK,
+        SDL_SCANCODE_NUMLOCKCLEAR,
+        SDL_SCANCODE_PRINTSCREEN,
+        SDL_SCANCODE_PAUSE,
+    };
+    for (int sc : lock_scancodes)
     {
         REQUIRE(sdl_scancode_to_imgui_key(sc) != ImGuiKey_None);
     }

@@ -2,7 +2,9 @@
 
 `draxul-ui` is Draxul's *developer-facing* diagnostics layer, rendered with
 Dear ImGui: the dockable diagnostics panel (`UiPanel`), its metric/startup
-section renderers, panel styling, and the SDL-scancode-to-ImGui key mapping.
+section renderers, and panel styling. The SDL-scancode-to-ImGui key mapping
+lives in [`libs/draxul-imgui-core`](../draxul-imgui-core), the shared leaf
+consumed here, by the renderer, and by product plugins.
 
 This library is **not** for product overlays. User-facing overlays (palette,
 toasts, tooltips) are cell-grid native and live in
@@ -13,7 +15,6 @@ toasts, tooltips) are cell-grid native and live in
 | File | Purpose |
 |------|---------|
 | `include/draxul/ui_panel.h` | `UiPanel` — owns a dedicated ImGui context; `compute_panel_layout()` + `PanelLayout` (pure, unit-testable layout math); `DiagnosticPanelState` (data in) |
-| `include/draxul/sdl_imgui_input.h` | `sdl_scancode_to_imgui_key()` — int scancode so SDL headers do not leak to callers |
 | `src/ui_metrics_panel.h/.cpp` | Internal: pure ImGui section renderers (`render_window_sections()` etc.) driven only by `PanelLayout` + `DiagnosticPanelState` |
 | `src/ui_panel_style.h/.cpp` | Internal: ImGui style setup for the panel |
 
@@ -50,9 +51,9 @@ Input-capture routing against the layout is covered by
 
 ## Dependencies
 
-Public: `draxul-types`, `imgui` (the API exposes `ImGuiKey` and takes
-ImGui-adjacent state). Private: `SDL3` (scancode table only),
-`draxul-renderer` (`IImGuiHost`, `IFrameContext`).
+Public: `draxul-types`, `draxul-imgui-core` (`IImGuiHost`, the scancode
+table), `imgui` (the API exposes `ImGuiKey` and takes ImGui-adjacent state).
+Private: `SDL3`, `draxul-renderer` (`IFrameContext`).
 
 ## When does code belong here?
 

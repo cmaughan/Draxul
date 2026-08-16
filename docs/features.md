@@ -57,7 +57,14 @@ its manifest, shader payload, and staging declaration through the generic
 an explicitly allowed `Draxul::PluginSupport::*` target; only the SDK C ABI is a
 runtime contract. The allowlist exposes narrow leaves for raw-ABI host services,
 render-pass/context types, configuration documents, text and tooltip rasterizing,
-HTTP, logging/performance types, ImGui, and Vulkan resource ownership. A
+HTTP, logging/performance types, ImGui, ImGui core (the single
+SDL-scancode→ImGuiKey table plus the `IImGuiHost` backend interface in
+`libs/draxul-imgui-core`, exported as `Draxul::PluginSupport::ImGuiCore`), and
+Vulkan resource ownership. The plugin ImGui leaf also carries the shared
+`PluginImGuiContext` lifecycle (context flags, font, backend attach, frame
+begin, ordered shutdown, optional ini persistence) and the header-only
+`ImGuiInputBridge` (modifier/key, mouse remap, position/wheel/text routing)
+that all three product runtimes use instead of hand-rolled copies. A
 configure-time graph check rejects any support leaf that reaches Draxul's host,
 window, renderer implementation, topology, terminal, or app orchestration.
 SatView, MegaCity/BioView, and ScoreView are all registered in strict dependency
@@ -85,8 +92,9 @@ SatView and MegaCity use the generic plugin lifecycle/viewport contract rather
 than `IHost`, and resolve packaged assets and source roots explicitly instead of
 assuming a Draxul checkout path.
 ScoreView has the same repository-extraction proof through the opt-in
-`draxul-scoreview-extraction-smoke` target. It copies only the product and shared
-plugin ImGui support beside an installed SDK, performs a cold build, and loads
+`draxul-scoreview-extraction-smoke` target. It copies only the product, the
+shared plugin ImGui support, and the `draxul-imgui-core` leaf (staged as
+`support/imgui-core`) beside an installed SDK, performs a cold build, and loads
 the resulting module in a clean Draxul package. The target is intentionally not
 part of ordinary CTest because compiling Verovio from a cold tree is expensive.
 

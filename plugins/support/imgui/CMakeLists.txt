@@ -1,6 +1,20 @@
+# The scancode table and IImGuiHost interface live in draxul-imgui-core. In
+# the bundled build the root CMakeLists provides the target; a standalone
+# product extraction carries a copy of that directory beside this one.
+if(NOT TARGET draxul-imgui-core)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../imgui-core/CMakeLists.txt")
+        message(FATAL_ERROR
+            "draxul-plugin-imgui requires draxul-imgui-core. Standalone "
+            "product builds must copy libs/draxul-imgui-core beside this "
+            "directory as support/imgui-core.")
+    endif()
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../imgui-core"
+        "${CMAKE_CURRENT_BINARY_DIR}/draxul-imgui-core")
+endif()
+
 add_library(draxul-plugin-imgui STATIC
-    src/plugin_ui_style.cpp
-    src/sdl_imgui_input.cpp)
+    src/plugin_imgui_context.cpp
+    src/plugin_ui_style.cpp)
 
 if(APPLE)
     target_sources(draxul-plugin-imgui PRIVATE
@@ -22,7 +36,7 @@ target_include_directories(draxul-plugin-imgui
 # SDL is used for header-only scancode/keycode constants; never link the SDL
 # archive here, or every plugin dylib inherits a private copy of SDL.
 target_link_libraries(draxul-plugin-imgui
-    PUBLIC Draxul::PluginSDK
+    PUBLIC Draxul::PluginSDK draxul-imgui-core
     PRIVATE imgui SDL3::Headers)
 add_library(Draxul::PluginImGui ALIAS draxul-plugin-imgui)
 
