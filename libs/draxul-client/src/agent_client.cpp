@@ -1,121 +1,19 @@
 #include <draxul/agent_client.h>
 
-#include <draxul/client_recovery.h>
-#include <draxul/control_plane.h>
-#include <draxul/server_client.h>
-
-#include <nlohmann/json.hpp>
 #include <utility>
 
 namespace draxul
 {
 
 AgentClient::AgentClient(AgentClientOptions options)
-    : options_(std::move(options))
+    : RevisionPolledClient(std::move(options))
 {
 }
 
-bool AgentClient::refresh(std::string& error)
+std::optional<ServerAgentSnapshot> AgentClient::parse_snapshot(
+    const nlohmann::json& value, std::string& error)
 {
-    nlohmann::json result;
-    if (!request(
-            "agent.snapshot", nlohmann::json::object(),
-            result, error))
-    {
-        return false;
-    }
-    auto parsed
-        = server_agent_snapshot_from_json(result, error);
-    if (!parsed)
-    {
-        last_error_code_ = "invalid_response";
-        return false;
-    }
-    snapshot_ = std::move(*parsed);
-    return true;
-}
-
-bool AgentClient::poll(bool& changed, std::string& error)
-{
-    changed = false;
-    nlohmann::json result;
-    if (!request("agent.poll",
-            { { "after_revision", snapshot_.revision } },
-            result, error))
-    {
-        if (last_error_code_ == "stale_agent_revision")
-        {
-            if (!refresh(error))
-                return false;
-            changed = true;
-            return true;
-        }
-        return false;
-    }
-    if (!result.is_object()
-        || !result.contains("changed")
-        || !result["changed"].is_boolean()
-        || !result.contains("revision")
-        || !result["revision"].is_number_unsigned())
-    {
-        last_error_code_ = "invalid_response";
-        error = "Invalid agent poll result.";
-        return false;
-    }
-    changed = result["changed"].get<bool>();
-    if (!changed)
-        return true;
-    if (!result.contains("snapshot"))
-    {
-        last_error_code_ = "invalid_response";
-        error = "Changed agent poll has no snapshot.";
-        return false;
-    }
-    auto parsed = server_agent_snapshot_from_json(
-        result["snapshot"], error);
-    if (!parsed)
-    {
-        last_error_code_ = "invalid_response";
-        return false;
-    }
-    snapshot_ = std::move(*parsed);
-    return true;
-}
-
-bool AgentClient::request(std::string_view method,
-    nlohmann::json params, nlohmann::json& result,
-    std::string& error)
-{
-    params["session_id"] = options_.session_id.empty()
-        ? "default"
-        : options_.session_id;
-    if (!options_.client_id.empty())
-    {
-        params["client_id"] = options_.client_id;
-        if (options_.recovery)
-        {
-            const auto identity
-                = options_.recovery->server_identity();
-            if (!identity.connection_token.empty())
-            {
-                params["connection_token"]
-                    = identity.connection_token;
-            }
-        }
-    }
-    const auto response = ControlClient::request(
-        namespaced_control_id(
-            kServerControlId, options_.runtime_directory),
-        options_.runtime_directory, method, std::move(params));
-    if (!response.ok)
-    {
-        last_error_code_ = response.error_code;
-        error = response.error_message;
-        return false;
-    }
-    last_error_code_.clear();
-    result = response.result;
-    return true;
+    return server_agent_snapshot_from_json(value, error);
 }
 
 } // namespace draxul

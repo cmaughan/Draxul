@@ -230,7 +230,8 @@ bool read_node(const nlohmann::json& value, TopologyNode& node)
     const auto parsed_direction
         = parse_topology_split_direction(direction);
     if (!parsed_direction || !std::isfinite(node.ratio)
-        || node.ratio < 0.1f || node.ratio > 0.9f)
+        || node.ratio < kTopologyMinSplitRatio
+        || node.ratio > kTopologyMaxSplitRatio)
     {
         return false;
     }

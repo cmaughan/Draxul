@@ -6,6 +6,8 @@
 #include "session_topology_bridge.h"
 #include "topology_service.h"
 
+#include <draxul/topology_layout.h>
+
 #include <draxul/control_plane.h>
 #include <draxul/log.h>
 #include <draxul/process_util.h>
@@ -206,19 +208,7 @@ std::filesystem::path failure_marker_path(
 
 uint64_t numeric_suffix(std::string_view value)
 {
-    const size_t separator = value.find_last_of('-');
-    if (separator == std::string_view::npos
-        || separator + 1 >= value.size())
-    {
-        return 0;
-    }
-    uint64_t parsed = 0;
-    const char* begin = value.data() + separator + 1;
-    const char* end = value.data() + value.size();
-    const auto result = std::from_chars(begin, end, parsed);
-    return result.ec == std::errc{} && result.ptr == end
-        ? parsed
-        : 0;
+    return topology_id_serial<uint64_t>(value, 0);
 }
 
 bool valid_server_session_id(std::string_view value)
@@ -412,6 +402,21 @@ public:
         std::string_view session_id, std::string& error);
     ServerSession* ensure_session(
         std::string_view session_id, std::string& error);
+    enum class SessionServiceNeed
+    {
+        None,
+        Topology,
+        Agent,
+        TopologyAndAgent,
+    };
+    // Shared preamble for session-scoped control methods: reads the
+    // session id from params, ensures the session, and verifies that the
+    // required services exist. On failure returns nullptr with `failure`
+    // holding the error result; `unavailable_message` is used when the
+    // session error text is empty.
+    ServerSession* resolve_session(const nlohmann::json& params,
+        SessionServiceNeed need, std::string_view unavailable_message,
+        ControlMethodResult& failure);
     ControlMethodResult delete_session(
         const nlohmann::json& params);
     ControlMethodResult delete_all_sessions(
@@ -1250,6 +1255,38 @@ ServerKernel::Impl::ensure_session(
         return nullptr;
     }
     return sessions.at(key).get();
+}
+
+ServerKernel::Impl::ServerSession*
+ServerKernel::Impl::resolve_session(const nlohmann::json& params,
+    SessionServiceNeed need, std::string_view unavailable_message,
+    ControlMethodResult& failure)
+{
+    std::string session_id;
+    std::string session_error;
+    if (!read_session_id(params, session_id, session_error))
+    {
+        failure = ControlMethodResult::error(
+            "invalid_session", std::move(session_error));
+        return nullptr;
+    }
+    ServerSession* session = ensure_session(session_id, session_error);
+    const bool needs_topology
+        = need == SessionServiceNeed::Topology
+        || need == SessionServiceNeed::TopologyAndAgent;
+    const bool needs_agent = need == SessionServiceNeed::Agent
+        || need == SessionServiceNeed::TopologyAndAgent;
+    if (!session
+        || (needs_topology && !session->topology_service)
+        || (needs_agent && !session->agent_service))
+    {
+        failure = ControlMethodResult::error("session_unavailable",
+            session_error.empty()
+                ? std::string(unavailable_message)
+                : std::move(session_error));
+        return nullptr;
+    }
+    return session;
 }
 
 ControlMethodResult ServerKernel::Impl::delete_session(
@@ -2099,21 +2136,11 @@ ControlMethodResult ServerKernel::Impl::handle_request(
     }
     if (request.method.starts_with("terminal."))
     {
-        std::string session_id;
-        std::string session_error;
-        if (!read_session_id(
-                request.params, session_id, session_error))
-        {
-            return ControlMethodResult::error(
-                "invalid_session", std::move(session_error));
-        }
-        ServerSession* session
-            = ensure_session(session_id, session_error);
+        ControlMethodResult failure;
+        ServerSession* session = resolve_session(request.params,
+            SessionServiceNeed::None, {}, failure);
         if (!session)
-        {
-            return ControlMethodResult::error(
-                "session_unavailable", std::move(session_error));
-        }
+            return failure;
         std::string terminal_id
             = std::string(kServerShellTerminalId);
         if (request.params.is_object()
@@ -2138,24 +2165,12 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         || request.method == "topology.command"
         || request.method == "topology.layout_apply")
     {
-        std::string session_id;
-        std::string session_error;
-        if (!read_session_id(
-                request.params, session_id, session_error))
-        {
-            return ControlMethodResult::error(
-                "invalid_session", std::move(session_error));
-        }
-        ServerSession* session
-            = ensure_session(session_id, session_error);
-        if (!session || !session->topology_service)
-        {
-            return ControlMethodResult::error(
-                "session_unavailable",
-                session_error.empty()
-                    ? "Server Session topology is unavailable."
-                    : std::move(session_error));
-        }
+        ControlMethodResult failure;
+        ServerSession* session = resolve_session(request.params,
+            SessionServiceNeed::Topology,
+            "Server Session topology is unavailable.", failure);
+        if (!session)
+            return failure;
         return session->topology_service->handle(
             request.method, request.params);
     }
@@ -2170,24 +2185,12 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         || request.method == "agent.send_text"
         || request.method == "agent.send_keys")
     {
-        std::string session_id;
-        std::string session_error;
-        if (!read_session_id(
-                request.params, session_id, session_error))
-        {
-            return ControlMethodResult::error(
-                "invalid_session", std::move(session_error));
-        }
-        ServerSession* session
-            = ensure_session(session_id, session_error);
-        if (!session || !session->agent_service)
-        {
-            return ControlMethodResult::error(
-                "session_unavailable",
-                session_error.empty()
-                    ? "Server Session agents are unavailable."
-                    : std::move(session_error));
-        }
+        ControlMethodResult failure;
+        ServerSession* session = resolve_session(request.params,
+            SessionServiceNeed::Agent,
+            "Server Session agents are unavailable.", failure);
+        if (!session)
+            return failure;
         const bool mutating_agent_request
             = request.method == "agent.start"
             || request.method == "agent.restart"
@@ -2461,7 +2464,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             for (;;)
             {
                 instance_id = "server-agent-"
-                    + session_id + "-"
+                    + session->session_id + "-"
                     + std::to_string(
                         session->next_agent_serial++);
                 bool used = false;
@@ -2648,25 +2651,12 @@ ControlMethodResult ServerKernel::Impl::handle_request(
     }
     if (request.method == "pane.report_agent_session")
     {
-        std::string session_id;
-        std::string session_error;
-        if (!read_session_id(
-                request.params, session_id, session_error))
-        {
-            return ControlMethodResult::error(
-                "invalid_session", std::move(session_error));
-        }
-        ServerSession* session
-            = ensure_session(session_id, session_error);
-        if (!session || !session->topology_service
-            || !session->agent_service)
-        {
-            return ControlMethodResult::error(
-                "session_unavailable",
-                session_error.empty()
-                    ? "Server Session is unavailable."
-                    : std::move(session_error));
-        }
+        ControlMethodResult failure;
+        ServerSession* session = resolve_session(request.params,
+            SessionServiceNeed::TopologyAndAgent,
+            "Server Session is unavailable.", failure);
+        if (!session)
+            return failure;
         const auto required_string
             = [&](const char* name)
             -> std::optional<std::string> {
@@ -2792,24 +2782,12 @@ ControlMethodResult ServerKernel::Impl::handle_request(
     }
     if (request.method == "pane.read")
     {
-        std::string session_id;
-        std::string session_error;
-        if (!read_session_id(
-                request.params, session_id, session_error))
-        {
-            return ControlMethodResult::error(
-                "invalid_session", std::move(session_error));
-        }
-        ServerSession* session
-            = ensure_session(session_id, session_error);
-        if (!session || !session->topology_service)
-        {
-            return ControlMethodResult::error(
-                "session_unavailable",
-                session_error.empty()
-                    ? "Server Session is unavailable."
-                    : std::move(session_error));
-        }
+        ControlMethodResult failure;
+        ServerSession* session = resolve_session(request.params,
+            SessionServiceNeed::Topology,
+            "Server Session is unavailable.", failure);
+        if (!session)
+            return failure;
         if (!request.params.contains("pane_id")
             || !request.params["pane_id"].is_string())
         {

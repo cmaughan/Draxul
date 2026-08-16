@@ -136,9 +136,9 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
             .kind = TopologyCommandKind::CreateSpace,
             .name = mutation.name,
             .root_directory
-                = mutation.root_directory.string(),
+            = mutation.root_directory.string(),
             .pane_domain
-                = TopologyPaneDomain::ServerTerminal,
+            = TopologyPaneDomain::ServerTerminal,
         };
         break;
     case TopologyMutationKind::RenameSpace:
@@ -162,8 +162,9 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
         if (!space)
             return reject_unresolved("Space");
         const HostKind kind = !mutation.plugin_id.empty()
-            ? HostKind::Plugin : mutation.host_kind.value_or(
-            deps_.platform_default_host_kind);
+            ? HostKind::Plugin
+            : mutation.host_kind.value_or(
+                  deps_.platform_default_host_kind);
         const bool server_terminal
             = mutation.plugin_id.empty() && !mutation.host_kind
             || is_server_owned_shell_host(kind);
@@ -180,7 +181,7 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
                 ? std::string{}
                 : std::string(to_string(kind)),
             .client_working_directory
-                = server_terminal
+            = server_terminal
                 ? std::string{}
                 : mutation.working_directory.string(),
             .client_source_path = server_terminal
@@ -188,7 +189,7 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
                 : mutation.source_path.string(),
             .client_plugin_id = mutation.plugin_id,
             .client_plugin_config_json
-                = mutation.plugin_config_json,
+            = mutation.plugin_config_json,
         };
         break;
     }
@@ -205,7 +206,7 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
                 == TopologyMutationKind::RenameTab
             ? TopologyCommandKind::RenameTab
             : mutation.kind
-                    == TopologyMutationKind::CloseTab
+                == TopologyMutationKind::CloseTab
             ? TopologyCommandKind::CloseTab
             : TopologyCommandKind::MoveTab;
         command.space_id = *space;
@@ -224,12 +225,12 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
             return reject_unresolved("focused pane");
         const std::optional<HostKind> requested_kind
             = mutation.kind
-                    == TopologyMutationKind::DuplicatePane
+                == TopologyMutationKind::DuplicatePane
             ? std::optional<HostKind>(
                   deps_.platform_default_host_kind)
             : !mutation.plugin_id.empty()
-                ? std::optional<HostKind>(HostKind::Plugin)
-                : mutation.host_kind;
+            ? std::optional<HostKind>(HostKind::Plugin)
+            : mutation.host_kind;
         const HostKind kind = requested_kind.value_or(
             deps_.platform_default_host_kind);
         const bool server_terminal
@@ -241,8 +242,8 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
             .tab_id = *tab,
             .pane_id = *pane,
             .direction
-                = mutation.kind
-                        == TopologyMutationKind::DuplicatePane
+            = mutation.kind
+                    == TopologyMutationKind::DuplicatePane
                 ? TopologySplitDirection::Vertical
                 : mutation.direction,
             .ratio = mutation.ratio,
@@ -253,7 +254,7 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
                 ? std::string{}
                 : std::string(to_string(kind)),
             .client_working_directory
-                = server_terminal
+            = server_terminal
                 ? std::string{}
                 : mutation.working_directory.string(),
             .client_source_path = server_terminal
@@ -261,9 +262,9 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
                 : mutation.source_path.string(),
             .client_plugin_id = mutation.plugin_id,
             .client_plugin_config_json
-                = mutation.plugin_config_json,
+            = mutation.plugin_config_json,
             .companion_owner_pane_id
-                = !server_terminal
+            = !server_terminal
                     && mutation.companion_pane
                 ? *pane
                 : std::string{},
@@ -286,12 +287,12 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
                 ? std::string(to_string(*mutation.host_kind))
                 : std::string{},
             .client_working_directory
-                = mutation.working_directory.string(),
+            = mutation.working_directory.string(),
             .client_source_path
-                = mutation.source_path.string(),
+            = mutation.source_path.string(),
             .client_plugin_id = mutation.plugin_id,
             .client_plugin_config_json
-                = mutation.plugin_config_json,
+            = mutation.plugin_config_json,
         };
         break;
     }
@@ -331,10 +332,10 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
                 == TopologyMutationKind::ClosePane
             ? TopologyCommandKind::ClosePane
             : mutation.kind
-                    == TopologyMutationKind::RenamePane
+                == TopologyMutationKind::RenamePane
             ? TopologyCommandKind::RenamePane
             : mutation.kind
-                    == TopologyMutationKind::SwapPane
+                == TopologyMutationKind::SwapPane
             ? TopologyCommandKind::SwapPane
             : TopologyCommandKind::RestartPane;
         command.space_id = *space;
@@ -366,8 +367,8 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
             .space_id = *space,
             .tab_id = *tab,
             .node_id = *node,
-            .ratio = std::clamp(
-                mutation.ratio, 0.1f, 0.9f),
+            .ratio = std::clamp(mutation.ratio,
+                kTopologyMinSplitRatio, kTopologyMaxSplitRatio),
         };
         break;
     }

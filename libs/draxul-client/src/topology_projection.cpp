@@ -1,9 +1,9 @@
 #include <draxul/topology_projection.h>
 
 #include <draxul/remote_session_client.h>
+#include <draxul/topology_layout.h>
 
 #include <algorithm>
-#include <functional>
 #include <sstream>
 
 namespace draxul
@@ -159,84 +159,37 @@ TopologyProjection::project_tab(const TopologyTab& remote,
         return projection;
     }
 
-    std::unordered_map<std::string, const TopologyNode*> nodes;
-    std::unordered_map<std::string, const TopologyPane*> panes;
-    for (const TopologyNode& node : remote.nodes)
-        nodes.emplace(node.node_id, &node);
-    for (const TopologyPane& pane : remote.panes)
-        panes.emplace(pane.pane_id, &pane);
-
-    std::unordered_set<std::string> visiting;
-    std::unordered_set<std::string> projected_panes;
-    DividerId next_divider_id = 0;
-    LeafId maximum_leaf = kInvalidLeaf;
-    std::function<std::unique_ptr<SessionSplitNode>(
-        const std::string&, size_t)>
-        project_node;
-    project_node = [&](const std::string& node_id, size_t depth)
-        -> std::unique_ptr<SessionSplitNode> {
-        if (depth > kTopologyMaxPanesPerTab
-            || visiting.contains(node_id))
-        {
-            return nullptr;
-        }
-        const auto found = nodes.find(node_id);
-        if (found == nodes.end())
-            return nullptr;
-        visiting.insert(node_id);
-        const TopologyNode& source = *found->second;
-        auto result = std::make_unique<SessionSplitNode>();
-        result->is_leaf = source.is_leaf;
-        if (source.is_leaf)
-        {
-            const auto pane = panes.find(source.pane_id);
-            if (pane == panes.end())
-                return nullptr;
-            auto leaf = pane_to_leaf_.find(source.pane_id);
-            if (leaf == pane_to_leaf_.end())
-            {
-                leaf = pane_to_leaf_
-                           .emplace(source.pane_id, next_leaf_id_++)
-                           .first;
-            }
-            result->leaf_id = leaf->second;
-            maximum_leaf = std::max(maximum_leaf, leaf->second);
-            projected_panes.insert(source.pane_id);
-        }
-        else
-        {
-            projection.divider_nodes.emplace(
-                next_divider_id++, source.node_id);
-            result->direction
-                = source.direction
-                    == TopologySplitDirection::Vertical
-                ? SplitDirection::Vertical
-                : SplitDirection::Horizontal;
-            result->ratio = source.ratio;
-            result->first
-                = project_node(source.first_node_id, depth + 1);
-            result->second
-                = project_node(source.second_node_id, depth + 1);
-            if (!result->first || !result->second)
-                return nullptr;
-        }
-        visiting.erase(node_id);
-        return result;
+    // The layout itself comes from the conversion shared with the server's
+    // session capture, so the two sides cannot disagree about topology and
+    // the pane mapping keeps agent identity
+    // (agent/agent_session/restore_policy) intact.
+    const TopologyTabLayoutOptions options{
+        .fallback_host_kind = platform_default_kind,
+        .allocate_leaf =
+            [this](const TopologyNode&, const TopologyPane& pane) {
+                auto leaf = pane_to_leaf_.find(pane.pane_id);
+                if (leaf == pane_to_leaf_.end())
+                {
+                    leaf = pane_to_leaf_
+                               .emplace(pane.pane_id, next_leaf_id_++)
+                               .first;
+                }
+                return leaf->second;
+            },
     };
-
-    projection.layout.tree.root
-        = project_node(remote.root_node_id, 0);
-    if (!projection.layout.tree.root
-        || projected_panes.size() != remote.panes.size())
-    {
-        error = "Server tab contains an invalid split tree.";
+    auto converted = topology_tab_to_layout(remote, options, error);
+    if (!converted)
         return std::nullopt;
-    }
+    projection.layout = std::move(converted->layout);
+
+    DividerId next_divider_id = 0;
+    for (const std::string& node_id : converted->split_node_ids)
+        projection.divider_nodes.emplace(next_divider_id++, node_id);
 
     bool focused_survives = false;
-    for (const std::string& pane_id : projected_panes)
+    for (const auto& [pane_id, leaf] : converted->leaf_by_pane)
     {
-        if (local_pane(pane_id) == focused_leaf)
+        if (leaf == focused_leaf)
         {
             focused_survives = true;
             break;
@@ -250,64 +203,14 @@ TopologyProjection::project_tab(const TopologyTab& remote,
                   .value_or(kInvalidLeaf);
     }
     projection.layout.tree.focused_id = focused_leaf;
-    projection.layout.tree.next_leaf_id
-        = std::max(maximum_leaf + 1, next_leaf_id_);
+    projection.layout.tree.next_leaf_id = std::max(
+        projection.layout.tree.next_leaf_id, next_leaf_id_);
 
     for (const TopologyPane& pane : remote.panes)
     {
-        const auto leaf = local_pane(pane.pane_id);
-        if (!leaf)
-        {
-            error = "Server tab pane was not projected.";
-            return std::nullopt;
-        }
-        HostKind host_kind = platform_default_kind;
-        if (pane.domain == TopologyPaneDomain::ServerTerminal)
-        {
-            host_kind = HostKind::RemoteTerminal;
-        }
-        else if (pane.client_host_kind != "platform_default")
-        {
-            if (const auto parsed
-                = parse_host_kind(pane.client_host_kind))
-            {
-                host_kind = *parsed;
-            }
-        }
-        projection.layout.panes.push_back({
-            .leaf_id = *leaf,
-            .launch = {
-                .kind = host_kind,
-                .working_dir
-                = pane.domain == TopologyPaneDomain::ClientLocal
-                ? pane.client_working_directory
-                : pane.server_working_directory,
-                .source_path
-                = pane.domain == TopologyPaneDomain::ClientLocal
-                ? pane.client_source_path
-                : std::string{},
-                .remote_terminal_id = pane.terminal_id,
-                .client_host_kind
-                = pane.domain == TopologyPaneDomain::ClientLocal
-                ? pane.client_host_kind
-                : std::string{},
-                .client_plugin_id
-                = pane.domain == TopologyPaneDomain::ClientLocal
-                ? pane.client_plugin_id
-                : std::string{},
-                .client_plugin_config_json
-                = pane.domain == TopologyPaneDomain::ClientLocal
-                ? pane.client_plugin_config_json
-                : std::string{},
-                .companion_owner_pane_id
-                = pane.domain == TopologyPaneDomain::ClientLocal
-                ? pane.companion_owner_pane_id
-                : std::string{},
-            },
-            .pane_name = pane.name,
-            .pane_id = pane.pane_id,
-        });
-        projection.pane_names.emplace_back(*leaf, pane.name);
+        const auto leaf = converted->leaf_by_pane.find(pane.pane_id);
+        if (leaf != converted->leaf_by_pane.end())
+            projection.pane_names.emplace_back(leaf->second, pane.name);
     }
     error.clear();
     return projection;

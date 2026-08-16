@@ -148,4 +148,10 @@ TerminalDirtySnapshot capture_terminal_dirty_snapshot(
 
 uint64_t terminal_semantic_digest(const TerminalSemanticSnapshot& snapshot);
 
+// Expands a complete semantic snapshot into a full-coverage dirty update,
+// shared by the remote-terminal client projection and the remote terminal
+// host so both sides rebuild grids from snapshots identically.
+TerminalDirtySnapshot full_grid_update(
+    const TerminalSemanticSnapshot& snapshot);
+
 } // namespace draxul

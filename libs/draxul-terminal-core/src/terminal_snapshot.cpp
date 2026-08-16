@@ -210,4 +210,28 @@ uint64_t terminal_semantic_digest(const TerminalSemanticSnapshot& snapshot)
     return writer.value();
 }
 
+TerminalDirtySnapshot full_grid_update(
+    const TerminalSemanticSnapshot& snapshot)
+{
+    TerminalDirtySnapshot update{
+        .cols = snapshot.cols,
+        .rows = snapshot.rows,
+        .full = true,
+        .metadata = snapshot.metadata,
+    };
+    update.cells.reserve(snapshot.cells.size());
+    for (int row = 0; row < snapshot.rows; ++row)
+    {
+        for (int col = 0; col < snapshot.cols; ++col)
+        {
+            update.cells.push_back({
+                .col = col,
+                .row = row,
+                .cell = snapshot.cells[static_cast<size_t>(row) * snapshot.cols + col],
+            });
+        }
+    }
+    return update;
+}
+
 } // namespace draxul

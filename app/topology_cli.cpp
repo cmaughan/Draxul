@@ -1,19 +1,20 @@
 #include "topology_cli.h"
 
 #include <draxul/config_document.h>
-#include <draxul/plugin_manager.h>
 #include <draxul/control_plane.h>
+#include <draxul/plugin_manager.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/server_client.h>
 #include <draxul/topology_client.h>
+#include <draxul/topology_layout.h>
 #include <draxul/topology_protocol.h>
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <chrono>
-#include <cctype>
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -29,9 +30,8 @@ namespace
 
 std::string usage()
 {
-    return
-        "Usage: draxul <space|tab|pane|split|layout|plugin> <command> [target] [options]\n"
-        "Run 'draxul --help' for the complete command list.";
+    return "Usage: draxul <space|tab|pane|split|layout|plugin> <command> [target] [options]\n"
+           "Run 'draxul --help' for the complete command list.";
 }
 
 bool is_topology_verb(std::string_view noun, std::string_view verb)
@@ -94,7 +94,9 @@ std::optional<float> parse_ratio(std::string_view text)
     {
         size_t consumed = 0;
         const float value = std::stof(std::string(text), &consumed);
-        if (consumed != text.size() || value < 0.1f || value > 0.9f)
+        if (consumed != text.size()
+            || value < kTopologyMinSplitRatio
+            || value > kTopologyMaxSplitRatio)
             return std::nullopt;
         return value;
     }
@@ -170,20 +172,17 @@ struct LocatedNode
     size_t node_index = 0;
 };
 
+// Index-tracking wrappers over the shared draxul::find_* traversal in
+// <draxul/topology_layout.h>. Indices are recovered from the returned
+// element pointers, so identity matching stays single-sourced.
 const TopologySpace* find_space(
     const TopologySnapshot& snapshot, std::string_view id,
-    size_t* index = nullptr)
+    size_t* index)
 {
-    for (size_t i = 0; i < snapshot.spaces.size(); ++i)
-    {
-        if (snapshot.spaces[i].space_id == id)
-        {
-            if (index)
-                *index = i;
-            return &snapshot.spaces[i];
-        }
-    }
-    return nullptr;
+    const TopologySpace* space = draxul::find_space(snapshot, id);
+    if (space && index)
+        *index = static_cast<size_t>(space - snapshot.spaces.data());
+    return space;
 }
 
 std::optional<LocatedTab> find_tab(
@@ -192,14 +191,12 @@ std::optional<LocatedTab> find_tab(
     for (size_t si = 0; si < snapshot.spaces.size(); ++si)
     {
         const auto& space = snapshot.spaces[si];
-        for (size_t ti = 0; ti < space.tabs.size(); ++ti)
+        if (const TopologyTab* tab = draxul::find_tab(space, id))
         {
-            if (space.tabs[ti].tab_id == id)
-            {
-                return LocatedTab{
-                    &space, &space.tabs[ti], si, ti
-                };
-            }
+            return LocatedTab{
+                &space, tab,
+                si, static_cast<size_t>(tab - space.tabs.data())
+            };
         }
     }
     return std::nullopt;
@@ -214,24 +211,22 @@ std::optional<LocatedPane> find_pane(
         for (size_t ti = 0; ti < space.tabs.size(); ++ti)
         {
             const auto& tab = space.tabs[ti];
-            for (size_t pi = 0; pi < tab.panes.size(); ++pi)
-            {
-                if (tab.panes[pi].pane_id != id)
-                    continue;
-                const auto leaf = std::ranges::find_if(
-                    tab.nodes, [id](const TopologyNode& node) {
-                        return node.is_leaf && node.pane_id == id;
-                    });
-                return LocatedPane{
-                    &space,
-                    &tab,
-                    &tab.panes[pi],
-                    leaf == tab.nodes.end() ? nullptr : &*leaf,
-                    si,
-                    ti,
-                    pi,
-                };
-            }
+            const TopologyPane* pane = draxul::find_pane(tab, id);
+            if (!pane)
+                continue;
+            const auto leaf = std::ranges::find_if(
+                tab.nodes, [id](const TopologyNode& node) {
+                    return node.is_leaf && node.pane_id == id;
+                });
+            return LocatedPane{
+                &space,
+                &tab,
+                pane,
+                leaf == tab.nodes.end() ? nullptr : &*leaf,
+                si,
+                ti,
+                static_cast<size_t>(pane - tab.panes.data()),
+            };
         }
     }
     return std::nullopt;
@@ -246,14 +241,13 @@ std::optional<LocatedNode> find_node(
         for (size_t ti = 0; ti < space.tabs.size(); ++ti)
         {
             const auto& tab = space.tabs[ti];
-            for (size_t ni = 0; ni < tab.nodes.size(); ++ni)
+            if (const TopologyNode* node
+                = draxul::find_node(tab, id))
             {
-                if (tab.nodes[ni].node_id == id)
-                {
-                    return LocatedNode{
-                        &space, &tab, &tab.nodes[ni], si, ti, ni
-                    };
-                }
+                return LocatedNode{
+                    &space, &tab, node, si, ti,
+                    static_cast<size_t>(node - tab.nodes.data())
+                };
             }
         }
     }
@@ -278,8 +272,8 @@ nlohmann::json tab_json(
     const TopologySnapshot& snapshot, const LocatedTab& located)
 {
     auto encoded = topology_snapshot_to_json(snapshot)
-                       ["spaces"][located.space_index]["tabs"]
-                       [located.tab_index];
+        ["spaces"][located.space_index]["tabs"]
+        [located.tab_index];
     encoded["id"] = located.tab->tab_id;
     encoded["space_id"] = located.space->space_id;
     return encoded;
@@ -289,8 +283,8 @@ nlohmann::json pane_json(
     const TopologySnapshot& snapshot, const LocatedPane& located)
 {
     auto encoded = topology_snapshot_to_json(snapshot)
-                       ["spaces"][located.space_index]["tabs"]
-                       [located.tab_index]["panes"][located.pane_index];
+        ["spaces"][located.space_index]["tabs"]
+        [located.tab_index]["panes"][located.pane_index];
     encoded["id"] = located.pane->pane_id;
     encoded["space_id"] = located.space->space_id;
     encoded["tab_id"] = located.tab->tab_id;
@@ -304,8 +298,8 @@ nlohmann::json node_json(
     const TopologySnapshot& snapshot, const LocatedNode& located)
 {
     auto encoded = topology_snapshot_to_json(snapshot)
-                       ["spaces"][located.space_index]["tabs"]
-                       [located.tab_index]["nodes"][located.node_index];
+        ["spaces"][located.space_index]["tabs"]
+        [located.tab_index]["nodes"][located.node_index];
     encoded["id"] = located.node->node_id;
     encoded["space_id"] = located.space->space_id;
     encoded["tab_id"] = located.tab->tab_id;
@@ -317,9 +311,11 @@ int print_error(std::string_view code, std::string_view message, bool json)
     if (json)
     {
         std::fprintf(stderr, "%s\n", nlohmann::json{
-            { "ok", false },
-            { "error", { { "code", code }, { "message", message } } },
-        }.dump(2).c_str());
+                                         { "ok", false },
+                                         { "error", { { "code", code }, { "message", message } } },
+                                     }
+                                         .dump(2)
+                                         .c_str());
     }
     else
     {
@@ -400,21 +396,36 @@ std::optional<std::string> encode_key(std::string_view key)
         [](unsigned char value) {
             return static_cast<char>(std::tolower(value));
         });
-    if (normalized == "enter" || normalized == "return") return "\r";
-    if (normalized == "tab") return "\t";
-    if (normalized == "escape" || normalized == "esc") return "\x1b";
-    if (normalized == "backspace") return "\x7f";
-    if (normalized == "space") return " ";
-    if (normalized == "up") return "\x1b[A";
-    if (normalized == "down") return "\x1b[B";
-    if (normalized == "right") return "\x1b[C";
-    if (normalized == "left") return "\x1b[D";
-    if (normalized == "home") return "\x1b[H";
-    if (normalized == "end") return "\x1b[F";
-    if (normalized == "pageup") return "\x1b[5~";
-    if (normalized == "pagedown") return "\x1b[6~";
-    if (normalized == "insert") return "\x1b[2~";
-    if (normalized == "delete") return "\x1b[3~";
+    if (normalized == "enter" || normalized == "return")
+        return "\r";
+    if (normalized == "tab")
+        return "\t";
+    if (normalized == "escape" || normalized == "esc")
+        return "\x1b";
+    if (normalized == "backspace")
+        return "\x7f";
+    if (normalized == "space")
+        return " ";
+    if (normalized == "up")
+        return "\x1b[A";
+    if (normalized == "down")
+        return "\x1b[B";
+    if (normalized == "right")
+        return "\x1b[C";
+    if (normalized == "left")
+        return "\x1b[D";
+    if (normalized == "home")
+        return "\x1b[H";
+    if (normalized == "end")
+        return "\x1b[F";
+    if (normalized == "pageup")
+        return "\x1b[5~";
+    if (normalized == "pagedown")
+        return "\x1b[6~";
+    if (normalized == "insert")
+        return "\x1b[2~";
+    if (normalized == "delete")
+        return "\x1b[3~";
     if (normalized.size() == 6 && normalized.starts_with("ctrl-")
         && normalized[5] >= 'a' && normalized[5] <= 'z')
         return std::string(1, normalized[5] - 'a' + 1);
@@ -666,8 +677,7 @@ ParseTopologyCliResult parse_topology_cli(
         else if (option == "--direction")
         {
             const auto value = take_value();
-            if (!value || (*value != "right" && *value != "down"
-                              && *value != "left" && *value != "up"))
+            if (!value || (*value != "right" && *value != "down" && *value != "left" && *value != "up"))
             {
                 parsed.error = "--direction must be left, right, up, or down.";
                 return parsed;
@@ -973,7 +983,8 @@ int run_topology_cli(const TopologyCliCommand& command)
             terminal.disconnect(ignored,
                 static_cast<uint64_t>(
                     std::chrono::steady_clock::now()
-                        .time_since_epoch().count()));
+                        .time_since_epoch()
+                        .count()));
         };
 
         if (command.verb == "send" || command.verb == "run"
@@ -1021,12 +1032,13 @@ int run_topology_cli(const TopologyCliCommand& command)
             }
             disconnect();
             print_result({
-                { "ok", true },
-                { "command", "pane." + command.verb },
-                { "pane_id", command.target_id },
-                { "terminal_id", located->pane->terminal_id },
-                { "bytes_sent", input.size() },
-            }, command.json);
+                             { "ok", true },
+                             { "command", "pane." + command.verb },
+                             { "pane_id", command.target_id },
+                             { "terminal_id", located->pane->terminal_id },
+                             { "bytes_sent", input.size() },
+                         },
+                command.json);
             return 0;
         }
 
@@ -1035,7 +1047,8 @@ int run_topology_cli(const TopologyCliCommand& command)
             const auto deadline = std::chrono::steady_clock::now()
                 + std::chrono::milliseconds(command.timeout_ms);
             while (snapshot_text(terminal.projection().snapshot())
-                       .find(command.text) == std::string::npos
+                        .find(command.text)
+                    == std::string::npos
                 && std::chrono::steady_clock::now() < deadline)
             {
                 bool changed = false;
@@ -1072,9 +1085,7 @@ int run_topology_cli(const TopologyCliCommand& command)
             { "text", text },
             { "lines", lines },
             { "process_running", projection.pane().process_running },
-            { "exit_code", projection.pane().exit_code
-                    ? nlohmann::json(*projection.pane().exit_code)
-                    : nlohmann::json(nullptr) },
+            { "exit_code", projection.pane().exit_code ? nlohmann::json(*projection.pane().exit_code) : nlohmann::json(nullptr) },
         };
         disconnect();
         if (command.json)
@@ -1213,7 +1224,8 @@ int run_topology_cli(const TopologyCliCommand& command)
                 mutation.client_plugin_id = command.plugin_id;
                 mutation.client_plugin_config_json
                     = command.plugin_config_json.empty()
-                    ? "{}" : command.plugin_config_json;
+                    ? "{}"
+                    : command.plugin_config_json;
             }
         }
         else
@@ -1263,7 +1275,8 @@ int run_topology_cli(const TopologyCliCommand& command)
                 mutation.client_plugin_id = command.plugin_id;
                 mutation.client_plugin_config_json
                     = command.plugin_config_json.empty()
-                    ? "{}" : command.plugin_config_json;
+                    ? "{}"
+                    : command.plugin_config_json;
             }
         }
         else if (command.verb == "rename")

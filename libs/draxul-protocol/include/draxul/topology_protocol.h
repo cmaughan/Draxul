@@ -18,6 +18,18 @@ inline constexpr size_t kTopologyMaxTabsPerSpace = 256;
 inline constexpr size_t kTopologyMaxPanesPerTab = 256;
 inline constexpr size_t kTopologyMaxTextBytes = 4096;
 
+// Valid split-ratio range for every topology split. The app's interactive
+// paths CLAMP into this range (drag/nudge must never fail); the server and
+// the protocol validators REJECT out-of-range ratios (a wire value outside
+// the range is a protocol violation, not a gesture).
+inline constexpr float kTopologyMinSplitRatio = 0.1f;
+inline constexpr float kTopologyMaxSplitRatio = 0.9f;
+
+// Sentinel client_host_kind recorded for client-local panes that should
+// launch each connecting client's own platform-default shell.
+inline constexpr std::string_view kTopologyPlatformDefaultHostKind
+    = "platform_default";
+
 enum class TopologyPaneDomain
 {
     ServerTerminal,

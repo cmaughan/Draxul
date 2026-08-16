@@ -1,5 +1,7 @@
 #include <catch2/catch_all.hpp>
 
+#include "../libs/draxul-server/src/session_topology_bridge.h"
+
 #include <draxul/topology_projection.h>
 
 using namespace draxul;
@@ -38,15 +40,13 @@ TopologyTab split_tab()
             {
                 .pane_id = "pane-shell",
                 .name = "Shell",
-                .domain
-                = TopologyPaneDomain::ServerTerminal,
+                .domain = TopologyPaneDomain::ServerTerminal,
                 .terminal_id = "terminal-1",
             },
             {
                 .pane_id = "pane-future",
                 .name = "Future",
-                .domain
-                = TopologyPaneDomain::ClientLocal,
+                .domain = TopologyPaneDomain::ClientLocal,
                 .client_host_kind = "future-view",
                 .client_working_directory = "D:/future",
                 .client_source_path = "cards/next.md",
@@ -143,7 +143,7 @@ TEST_CASE("topology projection rejects invalid split graphs without an App",
     CHECK_FALSE(projection.project_tab(
         invalid, kInvalidLeaf, HostKind::Zsh, error));
     CHECK(error
-        == "Server tab contains an invalid split tree.");
+        == "Topology contains a missing or cyclic split node.");
 }
 
 TEST_CASE("topology projection preserves plugin launch identity and config",
@@ -188,6 +188,80 @@ TEST_CASE("topology projection releases command activations in revision order",
     auto second = projection.take_ready_command_activations(5);
     REQUIRE(second.size() == 1);
     CHECK(second.front().created_id == "pane-created");
+}
+
+TEST_CASE("agent identity survives server capture and client projection identically",
+    "[client][server][topology][projection][agent]")
+{
+    // Acceptance test for the historical bug where the client projection
+    // dropped agent/agent_session/restore_policy while the server capture
+    // preserved them. Both directions now run the shared
+    // topology_tab_to_layout conversion, so a pane that owns an agent must
+    // arrive with identical agent identity through either path.
+    TopologyTab remote = split_tab();
+    remote.panes[1].agent = AgentIdentity{
+        .profile_id = "claude",
+        .kind = "claude",
+        .display_name = "Claude",
+        .instance_id = "agent-default-7",
+    };
+    remote.panes[1].agent_session = AgentSessionRef{
+        .source = "draxul:claude",
+        .agent_kind = "claude",
+        .integration_version = 2,
+        .sequence = 41,
+        .kind = AgentSessionRefKind::Id,
+        .value = "session-1234",
+    };
+    remote.panes[1].restore_policy = AgentRestorePolicy::Fresh;
+
+    // Server path: topology -> durable session snapshot.
+    const TopologySnapshot topology{
+        .revision = 3,
+        .session_id = "default",
+        .spaces = { TopologySpace{
+            .space_id = "space-1",
+            .name = "Space 1",
+            .tabs = { remote },
+        } },
+    };
+    std::string error;
+    const auto captured = capture_session_topology(topology, error);
+    INFO(error);
+    REQUIRE(captured);
+    REQUIRE(captured->spaces.size() == 1);
+    REQUIRE(captured->spaces[0].tabs.size() == 1);
+    const auto& captured_panes
+        = captured->spaces[0].tabs[0].pane_layout.panes;
+    REQUIRE(captured_panes.size() == 2);
+
+    // Client path: topology -> projected pane layout.
+    TopologyProjection projection;
+    const auto projected = projection.project_tab(
+        remote, kInvalidLeaf, HostKind::Zsh, error);
+    INFO(error);
+    REQUIRE(projected);
+    REQUIRE(projected->layout.panes.size() == 2);
+
+    for (const SessionPaneSnapshot* pane :
+        { &captured_panes[1], &projected->layout.panes[1] })
+    {
+        CHECK(pane->pane_id == "pane-future");
+        REQUIRE(pane->agent);
+        CHECK(*pane->agent == *remote.panes[1].agent);
+        REQUIRE(pane->agent_session);
+        CHECK(*pane->agent_session == *remote.panes[1].agent_session);
+        CHECK(pane->restore_policy == AgentRestorePolicy::Fresh);
+    }
+    for (const SessionPaneSnapshot* pane :
+        { &captured_panes[0], &projected->layout.panes[0] })
+    {
+        CHECK(pane->pane_id == "pane-shell");
+        CHECK_FALSE(pane->agent);
+        CHECK_FALSE(pane->agent_session);
+        CHECK(pane->launch.kind == HostKind::RemoteTerminal);
+        CHECK(pane->launch.remote_terminal_id == "terminal-1");
+    }
 }
 
 TEST_CASE("server shell ownership classifier covers every HostKind",
