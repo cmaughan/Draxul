@@ -27,7 +27,14 @@ structurally unrepeatable.
 - [x] Slice 6: `draxul-protocol` owns topology→layout conversion, traversal
       helpers, and split-ratio constants; `ServerControlChannel` +
       `RevisionPolledClient` in `draxul-client`. (Fixes #5.)
-- [ ] Slice 7: `TerminalSurfaceHostBase` shared by local/remote terminal
+- [x] Slice 7: `TerminalSurfaceHostBase` shared by local/remote terminal
       hosts; test-support consolidation (`test_support.h` helpers, shared
       `sdk_smoke.py`, ScoreView fixture dedupe, `synthetic_piano.h` moves to
-      the scoreview repo). (Fixes #12, #13.)
+      the scoreview repo). (Fixes #12, #13.) SatView's `wait_for_idle` pairs
+      were left in place — that repo was outside this slice's file-ownership
+      boundary; migrate them onto `tests::wait_until` when SatView is next
+      touched. Repairing the ScoreView extraction smoke's macOS staging
+      surfaced a pre-existing product defect: the standalone-built plugin
+      aborts in its ImGui overlay (`SetCurrentFont: font && font->IsLoaded()`)
+      during the render probe. That fix belongs in the scoreview product
+      runtime (Slice 2/3 territory), not the test layer.
