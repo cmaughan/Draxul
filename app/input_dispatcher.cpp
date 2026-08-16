@@ -9,9 +9,11 @@
 #include <draxul/app_config.h>
 #include <draxul/events.h>
 #include <draxul/host.h>
+#include <draxul/input_types.h>
 #include <draxul/keybinding_parser.h>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
+#include <draxul/string_util.h>
 #include <draxul/ui_panel.h>
 #include <draxul/window.h>
 
@@ -20,49 +22,6 @@ namespace draxul
 
 namespace
 {
-
-std::string describe_text_for_log(std::string_view text)
-{
-    static constexpr char kHex[] = "0123456789ABCDEF";
-    std::string out;
-    out.reserve(text.size() * 4 + 2);
-    out.push_back('"');
-    for (unsigned char ch : text)
-    {
-        switch (ch)
-        {
-        case '\\':
-            out += "\\\\";
-            break;
-        case '"':
-            out += "\\\"";
-            break;
-        case '\n':
-            out += "\\n";
-            break;
-        case '\r':
-            out += "\\r";
-            break;
-        case '\t':
-            out += "\\t";
-            break;
-        default:
-            if (ch >= 0x20 && ch <= 0x7E)
-            {
-                out.push_back(static_cast<char>(ch));
-            }
-            else
-            {
-                out += "\\x";
-                out.push_back(kHex[(ch >> 4) & 0xF]);
-                out.push_back(kHex[ch & 0xF]);
-            }
-            break;
-        }
-    }
-    out.push_back('"');
-    return out;
-}
 
 std::string host_trace_name(IHost* host)
 {
@@ -220,20 +179,6 @@ std::optional<int> digit_from_keycode(int32_t keycode)
     default:
         return std::nullopt;
     }
-}
-
-ModifierFlags normalize_modifiers(ModifierFlags mod)
-{
-    ModifierFlags result = kModNone;
-    if (mod & kModShift)
-        result |= kModShift;
-    if (mod & kModCtrl)
-        result |= kModCtrl;
-    if (mod & kModAlt)
-        result |= kModAlt;
-    if (mod & kModSuper)
-        result |= kModSuper;
-    return result;
 }
 
 std::string chord_step_display(const KeyEvent& event)

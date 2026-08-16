@@ -27,10 +27,6 @@
 #include <unistd.h>
 #endif
 
-#ifndef _WIN32
-extern char** environ;
-#endif
-
 namespace draxul
 {
 
@@ -302,67 +298,6 @@ bool NvimProcess::is_running() const
 
 #else // POSIX (macOS, Linux)
 
-namespace
-{
-
-bool starts_with(std::string_view text, std::string_view prefix)
-{
-    return text.size() >= prefix.size() && text.substr(0, prefix.size()) == prefix;
-}
-
-std::vector<std::string> build_nvim_child_environment()
-{
-    std::vector<std::string> env;
-    for (char** current = environ; current != nullptr && *current != nullptr; ++current)
-    {
-        const std::string_view entry(*current);
-        if (starts_with(entry, "TERM="))
-            continue;
-        env.emplace_back(entry);
-    }
-
-    env.emplace_back("TERM=dumb");
-    return env;
-}
-
-std::vector<std::string> resolve_exec_paths(const std::string& command)
-{
-    if (command.find('/') != std::string::npos)
-        return { command };
-
-    const char* raw_path = std::getenv("PATH");
-    const std::string_view path
-        = (raw_path != nullptr && *raw_path != '\0')
-        ? std::string_view(raw_path)
-        : std::string_view("/usr/bin:/bin:/usr/sbin:/sbin");
-
-    std::vector<std::string> candidates;
-    size_t start = 0;
-    while (start <= path.size())
-    {
-        const size_t end = path.find(':', start);
-        std::string_view dir = (end == std::string_view::npos)
-            ? path.substr(start)
-            : path.substr(start, end - start);
-        if (dir.empty())
-            dir = ".";
-
-        std::string candidate(dir);
-        if (!candidate.empty() && candidate.back() != '/')
-            candidate.push_back('/');
-        candidate += command;
-        candidates.push_back(std::move(candidate));
-
-        if (end == std::string_view::npos)
-            break;
-        start = end + 1;
-    }
-
-    return candidates;
-}
-
-} // namespace
-
 Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::vector<std::string>& extra_args, const std::string& working_dir)
 {
     PERF_MEASURE();
@@ -425,7 +360,8 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
         child_argv.push_back(arg.data());
     child_argv.push_back(nullptr);
 
-    std::vector<std::string> child_env = build_nvim_child_environment();
+    // nvim --embed does not use termcap; TERM=dumb keeps it from probing.
+    std::vector<std::string> child_env = build_child_environment("dumb");
     std::vector<char*> child_envp;
     child_envp.reserve(child_env.size() + 1);
     for (auto& entry : child_env)

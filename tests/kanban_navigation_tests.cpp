@@ -12,8 +12,7 @@ using namespace draxul::kanban;
 namespace
 {
 
-constexpr ModifierFlags kModNum = 0x1000;
-constexpr ModifierFlags kModScroll = 0x8000;
+// kModNum / kModScroll come from <draxul/input_types.h>.
 
 KeyEvent key_event(int keycode, ModifierFlags mod = kModNone, bool pressed = true)
 {

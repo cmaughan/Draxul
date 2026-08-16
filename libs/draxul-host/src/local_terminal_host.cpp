@@ -5,6 +5,7 @@
 #include <draxul/input_types.h>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
+#include <draxul/string_util.h>
 #include <draxul/window.h>
 
 namespace draxul
@@ -67,61 +68,8 @@ void restore_grid_snapshot(Grid& grid, int dst_cols, int dst_rows, const GridSna
 
 bool is_selection_copy_shortcut(const KeyEvent& event)
 {
-    if (!event.pressed || event.keycode != SDLK_C)
-        return false;
-    ModifierFlags normalized_mods = kModNone;
-    if (event.mod & kModShift)
-        normalized_mods |= kModShift;
-    if (event.mod & kModCtrl)
-        normalized_mods |= kModCtrl;
-    if (event.mod & kModAlt)
-        normalized_mods |= kModAlt;
-    if (event.mod & kModSuper)
-        normalized_mods |= kModSuper;
-    return normalized_mods == kModCtrl;
-}
-
-std::string describe_text_for_log(std::string_view text)
-{
-    static constexpr char kHex[] = "0123456789ABCDEF";
-    std::string out;
-    out.reserve(text.size() * 4 + 2);
-    out.push_back('"');
-    for (unsigned char ch : text)
-    {
-        switch (ch)
-        {
-        case '\\':
-            out += "\\\\";
-            break;
-        case '"':
-            out += "\\\"";
-            break;
-        case '\n':
-            out += "\\n";
-            break;
-        case '\r':
-            out += "\\r";
-            break;
-        case '\t':
-            out += "\\t";
-            break;
-        default:
-            if (ch >= 0x20 && ch <= 0x7E)
-            {
-                out.push_back(static_cast<char>(ch));
-            }
-            else
-            {
-                out += "\\x";
-                out.push_back(kHex[(ch >> 4) & 0xF]);
-                out.push_back(kHex[ch & 0xF]);
-            }
-            break;
-        }
-    }
-    out.push_back('"');
-    return out;
+    return event.pressed && event.keycode == SDLK_C
+        && has_only_modifiers(event.mod, kModCtrl);
 }
 
 } // namespace

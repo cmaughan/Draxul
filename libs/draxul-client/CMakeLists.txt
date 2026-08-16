@@ -15,3 +15,4 @@ target_link_libraries(draxul-client PUBLIC
     draxul-protocol
     draxul-session-model
 )
+target_link_libraries(draxul-client PRIVATE draxul-types)

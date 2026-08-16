@@ -1,7 +1,8 @@
 #include <draxul/agent_model.h>
 
+#include <draxul/string_util.h>
+
 #include <algorithm>
-#include <cctype>
 #include <filesystem>
 #include <unordered_map>
 
@@ -10,13 +11,6 @@ namespace draxul
 
 namespace
 {
-
-std::string lowercase(std::string value)
-{
-    std::transform(value.begin(), value.end(), value.begin(),
-        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-    return value;
-}
 
 std::string executable_name(std::string_view value)
 {
@@ -27,7 +21,7 @@ std::string executable_name(std::string_view value)
     // POSIX filename that contains a literal backslash is an acceptable trade.
     std::string portable(value);
     std::replace(portable.begin(), portable.end(), '\\', '/');
-    std::string name = lowercase(std::filesystem::path(portable).filename().string());
+    std::string name = ascii_lower(std::filesystem::path(portable).filename().string());
     for (const std::string_view suffix :
         { ".exe", ".cmd", ".bat", ".ps1", ".js" })
     {
@@ -75,9 +69,9 @@ std::optional<AgentDiscoveryMatch> kind_from_versioned_install(std::string_view 
 {
     const std::filesystem::path path(value);
     const std::filesystem::path parent = path.parent_path();
-    if (lowercase(parent.filename().string()) != "versions")
+    if (ascii_lower(parent.filename().string()) != "versions")
         return std::nullopt;
-    const std::string product = lowercase(parent.parent_path().filename().string());
+    const std::string product = ascii_lower(parent.parent_path().filename().string());
     if (product == "codex")
         return AgentDiscoveryMatch{
             .kind = "codex",
@@ -97,7 +91,7 @@ std::optional<AgentDiscoveryMatch> kind_from_versioned_install(std::string_view 
 
 std::optional<AgentDiscoveryMatch> kind_from_hint(std::string_view hint)
 {
-    const std::string normalized = lowercase(std::string(hint));
+    const std::string normalized = ascii_lower(std::string(hint));
     if (normalized == "codex")
         return AgentDiscoveryMatch{ "codex", "Codex", "environment_hint", true };
     if (normalized == "claude" || normalized == "claude-code")
@@ -117,7 +111,7 @@ std::optional<AgentDiscoveryMatch> kind_from_path_token(std::string_view value)
     auto match = kind_from_name(value);
     if (!match)
     {
-        std::string portable = lowercase(std::string(value));
+        std::string portable = ascii_lower(std::string(value));
         std::replace(portable.begin(), portable.end(), '\\', '/');
         if (portable == "@openai/codex"
             || portable.ends_with("/@openai/codex/bin/codex.js")
@@ -152,7 +146,7 @@ std::optional<AgentDiscoveryMatch> kind_from_command_text(
             command.remove_prefix(1);
         }
         else if (command.size() >= 5
-            && lowercase(std::string(command.substr(0, 5))) == "call ")
+            && ascii_lower(std::string(command.substr(0, 5))) == "call ")
         {
             command.remove_prefix(4);
         }
@@ -190,7 +184,7 @@ std::optional<AgentDiscoveryMatch> kind_from_wrapper(
     {
         for (size_t index = 1; index + 1 < arguments.size(); ++index)
         {
-            const std::string flag = lowercase(arguments[index]);
+            const std::string flag = ascii_lower(arguments[index]);
             if (flag == "/c" || flag == "/k")
                 return kind_from_command_text(arguments[index + 1]);
         }
@@ -201,7 +195,7 @@ std::optional<AgentDiscoveryMatch> kind_from_wrapper(
     {
         for (size_t index = 1; index < arguments.size(); ++index)
         {
-            const std::string flag = lowercase(arguments[index]);
+            const std::string flag = ascii_lower(arguments[index]);
             if ((flag == "-file" || flag == "-f" || flag == "/file")
                 && index + 1 < arguments.size())
                 return kind_from_path_token(arguments[index + 1]);
@@ -229,7 +223,7 @@ std::optional<AgentDiscoveryMatch> kind_from_wrapper(
     for (size_t index = 1; index < arguments.size(); ++index)
     {
         const std::string& argument = arguments[index];
-        const std::string flag = lowercase(argument);
+        const std::string flag = ascii_lower(argument);
         if (argument == "--")
         {
             return index + 1 < arguments.size()

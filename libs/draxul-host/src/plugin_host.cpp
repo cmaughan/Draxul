@@ -7,6 +7,7 @@
 #include <draxul/log.h>
 #include <draxul/plugin_manager.h>
 #include <draxul/renderer.h>
+#include <draxul/runtime_path.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -49,13 +50,6 @@ std::optional<MouseCursor> map_mouse_cursor(uint32_t cursor)
     default:
         return std::nullopt;
     }
-}
-
-std::filesystem::path environment_path(const char* name,
-    std::filesystem::path fallback)
-{
-    const char* value = std::getenv(name);
-    return value && *value ? std::filesystem::path(value) : std::move(fallback);
 }
 
 std::string path_utf8(const std::filesystem::path& path)
@@ -117,7 +111,8 @@ bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callback
     main_thread_id_ = std::this_thread::get_id();
     plugin_id_ = context.launch_options.client_plugin_id;
     config_json_ = context.launch_options.client_plugin_config_json.empty()
-        ? "{}" : context.launch_options.client_plugin_config_json;
+        ? "{}"
+        : context.launch_options.client_plugin_config_json;
     if (!manager_ || plugin_id_.empty())
     {
         error_ = plugin_id_.empty() ? "Plugin id is missing" : "Plugin discovery is unavailable";
@@ -166,10 +161,10 @@ bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callback
         presentation_.struct_size = sizeof(presentation_);
         presentation_.extension_version = DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION;
         has_presentation_ = plugin_->api().query_extension(instance_,
-            DRAXUL_PLUGIN_PRESENTATION_EXTENSION_ID,
-            std::strlen(DRAXUL_PLUGIN_PRESENTATION_EXTENSION_ID),
-            DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION,
-            &presentation_, sizeof(presentation_))
+                                DRAXUL_PLUGIN_PRESENTATION_EXTENSION_ID,
+                                std::strlen(DRAXUL_PLUGIN_PRESENTATION_EXTENSION_ID),
+                                DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION,
+                                &presentation_, sizeof(presentation_))
             && presentation_.struct_size >= sizeof(presentation_)
             && presentation_.extension_version == DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION
             && presentation_.get_state;
@@ -408,8 +403,9 @@ void PluginHost::log_message(void*, uint32_t level, const char* message, size_t 
 {
     const std::string text(message ? message : "", message ? length : 0);
     const LogLevel mapped = level >= DRAXUL_PLUGIN_LOG_ERROR ? LogLevel::Error
-        : level == DRAXUL_PLUGIN_LOG_WARNING ? LogLevel::Warn
-        : level == DRAXUL_PLUGIN_LOG_INFO ? LogLevel::Info : LogLevel::Debug;
+        : level == DRAXUL_PLUGIN_LOG_WARNING                 ? LogLevel::Warn
+        : level == DRAXUL_PLUGIN_LOG_INFO                    ? LogLevel::Info
+                                                             : LogLevel::Debug;
     log_printf(mapped, LogCategory::Renderer, "Plugin: %s", text.c_str());
 }
 
@@ -426,29 +422,18 @@ void PluginHost::initialize_service_paths()
     }
 
 #ifdef _WIN32
-    const std::filesystem::path roaming = environment_path("APPDATA", ".");
-    const std::filesystem::path local = environment_path("LOCALAPPDATA", roaming);
-    config_path_ = roaming / "draxul" / "plugin-config" / plugin_id_;
-    data_path_ = roaming / "draxul" / "plugin-data" / plugin_id_;
-    cache_path_ = local / "draxul" / "cache" / "plugins" / plugin_id_;
+    config_path_ = user_config_dir() / "draxul" / "plugin-config" / plugin_id_;
+    data_path_ = user_data_dir() / "draxul" / "plugin-data" / plugin_id_;
+    cache_path_ = user_cache_dir() / "draxul" / "cache" / "plugins" / plugin_id_;
 #elif defined(__APPLE__)
-    const std::filesystem::path home = environment_path("HOME", ".");
-    const std::filesystem::path support
-        = home / "Library" / "Application Support" / "draxul";
+    const std::filesystem::path support = user_config_dir() / "draxul";
     config_path_ = support / "Plugin Config" / plugin_id_;
     data_path_ = support / "Plugins" / plugin_id_;
-    cache_path_ = home / "Library" / "Caches" / "draxul" / "plugins" / plugin_id_;
+    cache_path_ = user_cache_dir() / "draxul" / "plugins" / plugin_id_;
 #else
-    const std::filesystem::path home = environment_path("HOME", ".");
-    const std::filesystem::path config_root = environment_path(
-        "XDG_CONFIG_HOME", home / ".config");
-    const std::filesystem::path data_root = environment_path(
-        "XDG_DATA_HOME", home / ".local" / "share");
-    const std::filesystem::path cache_root = environment_path(
-        "XDG_CACHE_HOME", home / ".cache");
-    config_path_ = config_root / "draxul" / "plugins" / plugin_id_;
-    data_path_ = data_root / "draxul" / "plugins" / plugin_id_;
-    cache_path_ = cache_root / "draxul" / "plugins" / plugin_id_;
+    config_path_ = user_config_dir() / "draxul" / "plugins" / plugin_id_;
+    data_path_ = user_data_dir() / "draxul" / "plugins" / plugin_id_;
+    cache_path_ = user_cache_dir() / "draxul" / "plugins" / plugin_id_;
 #endif
     std::error_code temp_error;
     temporary_path_ = std::filesystem::temp_directory_path(temp_error)
@@ -726,8 +711,14 @@ void PluginHost::send_focus(bool focused)
     send_input(event);
 }
 
-void PluginHost::on_focus_gained() { send_focus(true); }
-void PluginHost::on_focus_lost() { send_focus(false); }
+void PluginHost::on_focus_gained()
+{
+    send_focus(true);
+}
+void PluginHost::on_focus_lost()
+{
+    send_focus(false);
+}
 
 void PluginHost::on_key(const KeyEvent& source)
 {
@@ -821,9 +812,11 @@ std::optional<PluginHost::PresentationSnapshot> PluginHost::presentation_snapsho
     result.content_ready = state.content_ready != 0;
     result.mouse_cursor = state.mouse_cursor;
     result.print_hint.content_pos = {
-        state.print_hint.content_x, state.print_hint.content_y };
+        state.print_hint.content_x, state.print_hint.content_y
+    };
     result.print_hint.content_size = {
-        state.print_hint.content_width, state.print_hint.content_height };
+        state.print_hint.content_width, state.print_hint.content_height
+    };
     result.print_hint.paper_white = state.print_hint.paper_white != 0;
     return result;
 }
@@ -846,7 +839,8 @@ std::string PluginHost::display_name() const
     if (const auto state = presentation_snapshot(); state && !state->display_name.empty())
         return state->display_name;
     return plugin_ && plugin_->api().display_name
-        ? plugin_->api().display_name : plugin_id_;
+        ? plugin_->api().display_name
+        : plugin_id_;
 }
 
 std::string PluginHost::status_text() const

@@ -19,8 +19,39 @@ inline constexpr ModifierFlags kModCtrl = 0x00C0; // left+right ctrl
 inline constexpr ModifierFlags kModAlt = 0x0300; // left+right alt
 inline constexpr ModifierFlags kModSuper = 0x0C00; // left+right super/GUI
 inline constexpr ModifierFlags kModCaps = 0x2000; // caps lock
+inline constexpr ModifierFlags kModNum = 0x1000; // num lock
+inline constexpr ModifierFlags kModScroll = 0x8000; // scroll lock
 
 // Mask of all modifiers recognised for GUI keybinding matching.
 inline constexpr ModifierFlags kGuiModifierMask = kModShift | kModCtrl | kModAlt | kModSuper;
+
+// Latched lock keys that must never block a keybinding match.
+inline constexpr ModifierFlags kLockModifierMask = kModCaps | kModNum | kModScroll;
+
+// Reduces a raw modifier state to the four GUI-relevant modifier groups,
+// widening a one-sided modifier (e.g. left ctrl) to its full group and
+// dropping lock keys and any unrecognised bits.
+constexpr ModifierFlags normalize_modifiers(ModifierFlags mod)
+{
+    ModifierFlags result = kModNone;
+    if (mod & kModShift)
+        result |= kModShift;
+    if (mod & kModCtrl)
+        result |= kModCtrl;
+    if (mod & kModAlt)
+        result |= kModAlt;
+    if (mod & kModSuper)
+        result |= kModSuper;
+    return result;
+}
+
+// True when exactly the `expected` GUI modifiers are held. Caps/Num/Scroll
+// lock are ignored (a latched lock key must not disable shortcuts), while any
+// other unrecognised modifier bit (e.g. AltGr/mode) blocks the match.
+constexpr bool has_only_modifiers(ModifierFlags actual, ModifierFlags expected)
+{
+    constexpr ModifierFlags kAcceptedModifiers = kGuiModifierMask | kLockModifierMask;
+    return (actual & ~kAcceptedModifiers) == 0 && normalize_modifiers(actual) == expected;
+}
 
 } // namespace draxul

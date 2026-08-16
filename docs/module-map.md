@@ -84,10 +84,20 @@ Owns:
 - shared structs
 - event types
 - highlight/logging/support types
+- canonical small helpers shared across the tree: `string_util.h`
+  (`trim`/`trim_view`/`ascii_lower`/`describe_text_for_log`), `input_types.h`
+  modifier normalization (`normalize_modifiers`/`has_only_modifiers`, lock-key
+  aware), `process_util.h` (Windows arg quoting, `spawn_detached`,
+  `resolve_exec_paths`, `build_child_environment`, `current_unix_time_ms`,
+  `process_start_token`), and `runtime_path.h` user directories
+  (`user_config_dir`/`user_data_dir`/`user_cache_dir`)
 
 Good place for:
 - narrow shared contracts
 - POD-like data passed between modules
+
+`draxul-types` (headers + static lib) also ships with the `draxul-plugin-sdk`
+install component so out-of-tree product builds can link it.
 
 Compiled BMP I/O, runtime performance collection, and host/provider identity are
 deliberately not owned here. They live in the narrowly named `draxul-bmp`,
@@ -188,6 +198,8 @@ Owns:
 - shaping
 - glyph cache / atlas population
 - text service API
+- the shared CPU cluster blit (`cluster_blit.h`) used by tooltip rendering and
+  the text-atlas builder (wide clusters advance two cells)
 
 Good place for:
 - fallback/font selection

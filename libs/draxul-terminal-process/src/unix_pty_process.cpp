@@ -2,16 +2,17 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cerrno>
 #include <chrono>
-#include <cctype>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
 #include <draxul/perf_timing.h>
+#include <draxul/process_util.h>
+#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
-#include <fcntl.h>
 #include <poll.h>
 #include <sstream>
 #include <sys/ioctl.h>
@@ -28,81 +29,23 @@
 #include <pty.h>
 #endif
 
-extern char** environ;
-
 namespace draxul
 {
 
 namespace
 {
 
-bool starts_with(std::string_view text, std::string_view prefix)
-{
-    return text.size() >= prefix.size() && text.substr(0, prefix.size()) == prefix;
-}
-
-std::vector<std::string> build_child_environment(
+// Terminal children get a real terminal identity plus any caller overrides;
+// the shared helper strips the parent's values of the same variables first.
+std::vector<std::string> build_terminal_child_environment(
     const std::vector<std::pair<std::string, std::string>>& overrides)
 {
-    std::vector<std::string> env;
-    for (char** current = environ; current != nullptr && *current != nullptr; ++current)
-    {
-        const std::string_view entry(*current);
-        const size_t equals = entry.find('=');
-        const std::string_view key = entry.substr(0, equals);
-        if (starts_with(entry, "TERM=")
-            || starts_with(entry, "COLORTERM=")
-            || starts_with(entry, "TERM_PROGRAM=")
-            || std::any_of(overrides.begin(), overrides.end(),
-                [&](const auto& value) { return value.first == key; }))
-        {
-            continue;
-        }
-        env.emplace_back(entry);
-    }
-
-    env.emplace_back("TERM=xterm-256color");
-    env.emplace_back("COLORTERM=truecolor");
-    env.emplace_back("TERM_PROGRAM=draxul");
-    for (const auto& [key, value] : overrides)
-        env.push_back(key + "=" + value);
-    return env;
-}
-
-std::vector<std::string> resolve_exec_paths(const std::string& command)
-{
-    if (command.find('/') != std::string::npos)
-        return { command };
-
-    const char* raw_path = std::getenv("PATH");
-    const std::string_view path
-        = (raw_path != nullptr && *raw_path != '\0')
-        ? std::string_view(raw_path)
-        : std::string_view("/usr/bin:/bin:/usr/sbin:/sbin");
-
-    std::vector<std::string> candidates;
-    size_t start = 0;
-    while (start <= path.size())
-    {
-        const size_t end = path.find(':', start);
-        std::string_view dir = (end == std::string_view::npos)
-            ? path.substr(start)
-            : path.substr(start, end - start);
-        if (dir.empty())
-            dir = ".";
-
-        std::string candidate(dir);
-        if (!candidate.empty() && candidate.back() != '/')
-            candidate.push_back('/');
-        candidate += command;
-        candidates.push_back(std::move(candidate));
-
-        if (end == std::string_view::npos)
-            break;
-        start = end + 1;
-    }
-
-    return candidates;
+    std::vector<std::pair<std::string, std::string>> extra_entries{
+        { "COLORTERM", "truecolor" },
+        { "TERM_PROGRAM", "draxul" },
+    };
+    extra_entries.insert(extra_entries.end(), overrides.begin(), overrides.end());
+    return build_child_environment("xterm-256color", extra_entries);
 }
 
 std::string process_working_directory(pid_t pid)
@@ -145,8 +88,7 @@ std::vector<std::string> read_null_separated_file(
     while (offset < contents.size() && values.size() < 64)
     {
         const size_t end = contents.find('\0', offset);
-        const size_t length =
-            (end == std::string::npos ? contents.size() : end) - offset;
+        const size_t length = (end == std::string::npos ? contents.size() : end) - offset;
         if (length != 0)
             values.emplace_back(contents.substr(offset, length));
         if (end == std::string::npos)
@@ -186,11 +128,10 @@ void read_macos_arguments_and_hint(pid_t process_id,
         ++offset;
 
     for (int index = 0;
-         index < argument_count && index < 64 && offset < size; ++index)
+        index < argument_count && index < 64 && offset < size; ++index)
     {
-        const size_t end =
-            std::find(buffer.begin() + static_cast<std::ptrdiff_t>(offset),
-                buffer.begin() + static_cast<std::ptrdiff_t>(size), '\0')
+        const size_t end = std::find(buffer.begin() + static_cast<std::ptrdiff_t>(offset),
+                               buffer.begin() + static_cast<std::ptrdiff_t>(size), '\0')
             - buffer.begin();
         if (end > offset && arguments)
             arguments->emplace_back(buffer.data() + offset, end - offset);
@@ -202,9 +143,8 @@ void read_macos_arguments_and_hint(pid_t process_id,
             ++offset;
         if (offset >= size)
             break;
-        const size_t end =
-            std::find(buffer.begin() + static_cast<std::ptrdiff_t>(offset),
-                buffer.begin() + static_cast<std::ptrdiff_t>(size), '\0')
+        const size_t end = std::find(buffer.begin() + static_cast<std::ptrdiff_t>(offset),
+                               buffer.begin() + static_cast<std::ptrdiff_t>(size), '\0')
             - buffer.begin();
         const std::string_view value(buffer.data() + offset, end - offset);
         constexpr std::string_view prefix = "DRAXUL_AGENT=";
@@ -247,7 +187,7 @@ bool UnixPtyProcess::spawn(const std::string& command, const std::vector<std::st
     struct winsize ws = {};
     ws.ws_col = static_cast<unsigned short>(std::clamp(initial_cols, 1, 320));
     ws.ws_row = static_cast<unsigned short>(std::clamp(initial_rows, 1, 200));
-    std::vector<std::string> child_env = build_child_environment(environment);
+    std::vector<std::string> child_env = build_terminal_child_environment(environment);
     std::vector<std::string> exec_paths = resolve_exec_paths(command);
     std::string login_argv0 = login_shell ? "-" : "";
     const auto slash = command.rfind('/');
@@ -521,21 +461,18 @@ UnixPtyProcess::capture_agent_process_observation_now(
     observation.foreground_reliable = true;
 
 #ifdef __APPLE__
-    const int bytes =
-        proc_listpids(PROC_PGRP_ONLY, static_cast<uint32_t>(foreground_group),
-            nullptr, 0);
+    const int bytes = proc_listpids(PROC_PGRP_ONLY, static_cast<uint32_t>(foreground_group),
+        nullptr, 0);
     if (bytes <= 0)
         return observation;
     std::vector<pid_t> process_ids(
         static_cast<size_t>(bytes) / sizeof(pid_t) + 8, 0);
-    const int written =
-        proc_listpids(PROC_PGRP_ONLY, static_cast<uint32_t>(foreground_group),
-            process_ids.data(),
-            static_cast<int>(process_ids.size() * sizeof(pid_t)));
-    const size_t count =
-        written > 0 ? static_cast<size_t>(written) / sizeof(pid_t) : 0;
+    const int written = proc_listpids(PROC_PGRP_ONLY, static_cast<uint32_t>(foreground_group),
+        process_ids.data(),
+        static_cast<int>(process_ids.size() * sizeof(pid_t)));
+    const size_t count = written > 0 ? static_cast<size_t>(written) / sizeof(pid_t) : 0;
     for (size_t index = 0;
-         index < count && observation.processes.size() < 128; ++index)
+        index < count && observation.processes.size() < 128; ++index)
     {
         const pid_t process_id = process_ids[index];
         if (process_id <= 0)
@@ -545,8 +482,7 @@ UnixPtyProcess::capture_agent_process_observation_now(
             != static_cast<int>(sizeof(info)))
             continue;
         std::array<char, PROC_PIDPATHINFO_MAXSIZE> path = {};
-        const int path_length =
-            proc_pidpath(process_id, path.data(), static_cast<uint32_t>(path.size()));
+        const int path_length = proc_pidpath(process_id, path.data(), static_cast<uint32_t>(path.size()));
         std::vector<std::string> arguments;
         std::string hint;
         read_macos_arguments_and_hint(process_id, &arguments, &hint);
@@ -554,7 +490,7 @@ UnixPtyProcess::capture_agent_process_observation_now(
             .process_id = static_cast<uint64_t>(process_id),
             .parent_process_id = static_cast<uint64_t>(info.pbi_ppid),
             .executable = path_length > 0 ? std::string(path.data())
-                                         : std::string(info.pbi_name),
+                                          : std::string(info.pbi_name),
             .arguments = std::move(arguments),
             .agent_hint = std::move(hint),
         });
@@ -571,8 +507,7 @@ UnixPtyProcess::capture_agent_process_observation_now(
             || !std::all_of(name.begin(), name.end(),
                 [](unsigned char ch) { return std::isdigit(ch) != 0; }))
             continue;
-        const pid_t process_id =
-            static_cast<pid_t>(std::strtol(name.c_str(), nullptr, 10));
+        const pid_t process_id = static_cast<pid_t>(std::strtol(name.c_str(), nullptr, 10));
         std::ifstream stat(directory.path() / "stat");
         std::string stat_line;
         std::getline(stat, stat_line);
@@ -588,13 +523,11 @@ UnixPtyProcess::capture_agent_process_observation_now(
             continue;
 
         std::string executable;
-        const auto executable_path =
-            std::filesystem::read_symlink(directory.path() / "exe", ec);
+        const auto executable_path = std::filesystem::read_symlink(directory.path() / "exe", ec);
         if (!ec)
             executable = executable_path.string();
         ec.clear();
-        auto arguments =
-            read_null_separated_file(directory.path() / "cmdline", 16 * 1024);
+        auto arguments = read_null_separated_file(directory.path() / "cmdline", 16 * 1024);
         std::string hint;
         for (const auto& value :
             read_null_separated_file(directory.path() / "environ", 64 * 1024))
@@ -811,7 +744,7 @@ void UnixPtyProcess::reader_main()
                 output_space_.wait(lock, [this, chunk_bytes] {
                     return !reader_running_
                         || output_bytes_
-                            <= kMaxQueuedOutputBytes - chunk_bytes;
+                        <= kMaxQueuedOutputBytes - chunk_bytes;
                 });
                 if (!reader_running_)
                     break;

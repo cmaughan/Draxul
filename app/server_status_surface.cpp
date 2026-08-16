@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <draxul/process_util.h>
 #include <draxul/server_client.h>
 #include <iomanip>
 #include <sstream>
@@ -19,11 +20,8 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include <windows.h>
 #include <shellapi.h>
-#else
-#include <fcntl.h>
-#include <unistd.h>
+#include <windows.h>
 #endif
 
 namespace draxul
@@ -40,41 +38,6 @@ std::string count_label(
         + std::string(count == 1 ? singular : plural);
 }
 
-#ifdef _WIN32
-std::wstring quote_windows_argument(
-    const std::wstring& argument)
-{
-    if (argument.find_first_of(L" \t\"")
-        == std::wstring::npos)
-    {
-        return argument;
-    }
-    std::wstring result = L"\"";
-    size_t backslashes = 0;
-    for (const wchar_t ch : argument)
-    {
-        if (ch == L'\\')
-        {
-            ++backslashes;
-            continue;
-        }
-        if (ch == L'"')
-        {
-            result.append(backslashes * 2 + 1, L'\\');
-            result.push_back(L'"');
-            backslashes = 0;
-            continue;
-        }
-        result.append(backslashes, L'\\');
-        backslashes = 0;
-        result.push_back(ch);
-    }
-    result.append(backslashes * 2, L'\\');
-    result.push_back(L'"');
-    return result;
-}
-#endif
-
 bool launch_draxul_process(
     const std::filesystem::path& executable,
     const std::filesystem::path& runtime_directory,
@@ -86,68 +49,12 @@ bool launch_draxul_process(
         error = "The Draxul executable is unavailable.";
         return false;
     }
-#ifdef _WIN32
-    std::wstring command
-        = quote_windows_argument(executable.wstring());
+    std::vector<std::filesystem::path> arguments;
     if (mode_argument && mode_argument[0] != '\0')
-    {
-        command += L" ";
-        command.append(
-            mode_argument,
-            mode_argument + std::char_traits<char>::length(
-                                mode_argument));
-    }
-    command += L" --server-runtime-dir "
-        + quote_windows_argument(runtime_directory.wstring());
-    std::vector<wchar_t> mutable_command(
-        command.begin(), command.end());
-    mutable_command.push_back(L'\0');
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION process{};
-    if (!CreateProcessW(executable.wstring().c_str(),
-            mutable_command.data(), nullptr, nullptr, FALSE,
-            CREATE_NEW_PROCESS_GROUP, nullptr, nullptr,
-            &startup, &process))
-    {
-        error = "Unable to launch Draxul (error "
-            + std::to_string(GetLastError()) + ").";
-        return false;
-    }
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
-    return true;
-#else
-    const pid_t child = ::fork();
-    if (child < 0)
-    {
-        error = "Unable to fork a Draxul process.";
-        return false;
-    }
-    if (child == 0)
-    {
-        ::setsid();
-        const std::string executable_text = executable.string();
-        const std::string runtime_text
-            = runtime_directory.string();
-        if (mode_argument && mode_argument[0] != '\0')
-        {
-            ::execl(executable_text.c_str(),
-                executable_text.c_str(), mode_argument,
-                "--server-runtime-dir",
-                runtime_text.c_str(), nullptr);
-        }
-        else
-        {
-            ::execl(executable_text.c_str(),
-                executable_text.c_str(),
-                "--server-runtime-dir",
-                runtime_text.c_str(), nullptr);
-        }
-        _exit(127);
-    }
-    return true;
-#endif
+        arguments.emplace_back(mode_argument);
+    arguments.emplace_back("--server-runtime-dir");
+    arguments.emplace_back(runtime_directory);
+    return spawn_detached(executable, arguments, {}, error);
 }
 
 enum class ConfirmationResult
@@ -322,8 +229,8 @@ std::string format_server_session_listing_table(
             << "  " << std::left
             << std::setw(static_cast<int>(name_width))
             << (session.session_name.empty()
-                    ? session.session_id
-                    : session.session_name)
+                       ? session.session_id
+                       : session.session_name)
             << "  " << std::right
             << std::setw(static_cast<int>(space_width))
             << session.spaces
@@ -369,8 +276,7 @@ int run_server_stop_dialog(
     size_t live_terminals = 0;
     if (status.ok && status.status)
     {
-        for (const auto& session
-            : status.status->session_statuses)
+        for (const auto& session : status.status->session_statuses)
         {
             live_terminals += session.live_terminals;
         }
@@ -460,22 +366,16 @@ bool open_server_log(
     }
     return true;
 #else
-    const pid_t child = ::fork();
-    if (child < 0)
+#ifdef __APPLE__
+    const std::filesystem::path viewer = "open";
+#else
+    const std::filesystem::path viewer = "xdg-open";
+#endif
+    std::string spawn_error;
+    if (!spawn_detached(viewer, { log_path }, {}, spawn_error))
     {
         error = "Unable to launch the system file viewer.";
         return false;
-    }
-    if (child == 0)
-    {
-        ::setsid();
-        const std::string path = log_path.string();
-#ifdef __APPLE__
-        ::execlp("open", "open", path.c_str(), nullptr);
-#else
-        ::execlp("xdg-open", "xdg-open", path.c_str(), nullptr);
-#endif
-        _exit(127);
     }
     return true;
 #endif

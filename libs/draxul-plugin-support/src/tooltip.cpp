@@ -1,12 +1,11 @@
-#include <draxul/gui/tooltip.h>
 #include <draxul/gui/overlay_text.h>
+#include <draxul/gui/tooltip.h>
 
 #include <algorithm>
-#include <cmath>
-#include <cstring>
+#include <draxul/cluster_blit.h>
 #include <draxul/perf_timing.h>
 #include <draxul/text_service.h>
-#include <limits>
+#include <draxul/unicode.h>
 
 namespace draxul::gui
 {
@@ -38,66 +37,18 @@ void blit_text_line(
     uint8_t r, uint8_t g, uint8_t b)
 {
     PERF_MEASURE();
-    const FontMetrics metrics = text_service.metrics();
-    const int cell_width = std::max(metrics.cell_width, 1);
-
-    for (const auto& cluster : layout_overlay_text(text, std::numeric_limits<int>::max()))
-    {
-        const AtlasRegion region = text_service.resolve_cluster(cluster.text);
-        const int advance = cell_width * cluster.cell_width;
-        if (region.bitmap_size.x <= 0 || region.bitmap_size.y <= 0)
-        {
-            pen_x += advance;
-            continue;
-        }
-
-        const uint8_t* atlas = text_service.atlas_data();
-        const int atlas_width = text_service.atlas_width();
-        const int atlas_height = text_service.atlas_height();
-        if (!atlas || atlas_width <= 0 || atlas_height <= 0)
-        {
-            pen_x += advance;
-            continue;
-        }
-
-        const int src_x0 = std::clamp(
-            static_cast<int>(std::lround(region.uv.x * atlas_width)), 0, atlas_width - 1);
-        const int src_y0 = std::clamp(
-            static_cast<int>(std::lround(region.uv.y * atlas_height)), 0, atlas_height - 1);
-        const int dst_x0 = pen_x + region.bitmap_bearing.x;
-        const int dst_y0 = baseline_y - region.bitmap_bearing.y;
-
-        for (int row = 0; row < region.bitmap_size.y; ++row)
-        {
-            const int dst_y = dst_y0 + row;
-            const int src_y = src_y0 + row;
-            if (dst_y < 0 || dst_y >= dst_height || src_y < 0 || src_y >= atlas_height)
-                continue;
-
-            for (int col = 0; col < region.bitmap_size.x; ++col)
-            {
-                const int dst_x = dst_x0 + col;
-                const int src_x = src_x0 + col;
-                if (dst_x < 0 || dst_x >= dst_width || src_x < 0 || src_x >= atlas_width)
-                    continue;
-
-                const uint8_t* src = atlas + (((src_y * atlas_width) + src_x) * 4);
-                if (src[3] == 0)
-                    continue;
-
-                uint8_t* dst = dst_pixels + (((dst_y * dst_width) + dst_x) * 4);
-                // Alpha-blend text over existing background.
-                const float sa = static_cast<float>(src[3]) / 255.0f;
-                const float da = 1.0f - sa;
-                dst[0] = static_cast<uint8_t>(std::min(255.0f, r * sa + dst[0] * da));
-                dst[1] = static_cast<uint8_t>(std::min(255.0f, g * sa + dst[1] * da));
-                dst[2] = static_cast<uint8_t>(std::min(255.0f, b * sa + dst[2] * da));
-                dst[3] = static_cast<uint8_t>(std::min(255.0f, src[3] + dst[3] * da));
-            }
-        }
-
-        pen_x += advance;
-    }
+    const std::vector<DisplayCluster> clusters = display_clusters(text);
+    blit_cluster_run_rgba(text_service, clusters, pen_x, baseline_y,
+        dst_pixels, dst_width, dst_height,
+        [r, g, b](uint8_t* dst, uint8_t coverage, int, int) {
+            // Alpha-blend text over existing background.
+            const float sa = static_cast<float>(coverage) / 255.0f;
+            const float da = 1.0f - sa;
+            dst[0] = static_cast<uint8_t>(std::min(255.0f, r * sa + dst[0] * da));
+            dst[1] = static_cast<uint8_t>(std::min(255.0f, g * sa + dst[1] * da));
+            dst[2] = static_cast<uint8_t>(std::min(255.0f, b * sa + dst[2] * da));
+            dst[3] = static_cast<uint8_t>(std::min(255.0f, coverage + dst[3] * da));
+        });
 }
 
 } // namespace

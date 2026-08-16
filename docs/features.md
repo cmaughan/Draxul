@@ -46,7 +46,9 @@ together when the ABI changes.
 
 The public header is also exported as the installable CMake package
 `DraxulPluginSDK`; external plugins link `Draxul::PluginSDK` and do not need a
-Draxul source checkout. The spinning-triangle example supports a standalone
+Draxul source checkout. The `draxul-plugin-sdk` install component additionally
+ships the `draxul-types` headers and static library so standalone product
+builds can link the shared foundation types. The spinning-triangle example supports a standalone
 CMake build, and the `draxul-sdk-external-smoke` target installs the SDK, builds
 that example from a clean copied tree, loads the resulting module, and renders a
 non-blank raw-GPU frame. When mounted in the Draxul tree, the same example owns

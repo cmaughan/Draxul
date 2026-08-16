@@ -8,7 +8,7 @@ smoke-clean with an observable gate; full plan in
 Fourteen confirmed divergence bugs are fixed in the slice that makes each one
 structurally unrepeatable.
 
-- [ ] Slice 1: `draxul-types` absorbs string/modifier/log/process/path
+- [x] Slice 1: `draxul-types` absorbs string/modifier/log/process/path
       helpers, `draxul-font` gains the shared glyph blit, and types ship with
       the SDK install component. (Fixes audit bugs #4, #6, #14.)
 - [ ] Slice 2: `libs/draxul-imgui-core` — one scancode table + `IImGuiHost`;

@@ -6,29 +6,6 @@
 
 namespace draxul::markdown
 {
-namespace
-{
-
-ModifierFlags normalize_modifiers(ModifierFlags mod)
-{
-    ModifierFlags result = kModNone;
-    if (mod & kModShift)
-        result |= kModShift;
-    if (mod & kModCtrl)
-        result |= kModCtrl;
-    if (mod & kModAlt)
-        result |= kModAlt;
-    if (mod & kModSuper)
-        result |= kModSuper;
-    return result;
-}
-
-bool has_only_modifiers(ModifierFlags actual, ModifierFlags expected)
-{
-    return normalize_modifiers(actual) == expected;
-}
-
-} // namespace
 
 MarkdownNavigationCommand MarkdownNavigationState::on_key(const draxul::KeyEvent& event)
 {

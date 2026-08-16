@@ -1,9 +1,9 @@
 #include <draxul/config_document.h>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
+#include <draxul/runtime_path.h>
 #include <draxul/toml_support.h>
 
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -38,40 +38,7 @@ std::vector<std::string_view> split_dotted_path(std::string_view dotted_path)
 std::filesystem::path ConfigDocument::default_path()
 {
     PERF_MEASURE();
-#ifdef _WIN32
-    const char* appdata = std::getenv("APPDATA");
-    if (!appdata || appdata[0] == '\0')
-    {
-        DRAXUL_LOG_WARN(LogCategory::App, "APPDATA is not set or empty; using fallback config path");
-        appdata = nullptr;
-    }
-    std::filesystem::path base = appdata ? appdata : ".";
-    return base / "draxul" / "config.toml";
-#elif defined(__APPLE__)
-    const char* home = std::getenv("HOME");
-    if (!home || home[0] == '\0')
-    {
-        DRAXUL_LOG_WARN(LogCategory::App, "HOME is not set or empty; using fallback config path");
-        home = nullptr;
-    }
-    std::filesystem::path base = home ? home : ".";
-    return base / "Library" / "Application Support" / "draxul" / "config.toml";
-#else
-    const char* xdg = std::getenv("XDG_CONFIG_HOME");
-    const char* home = std::getenv("HOME");
-    if (xdg && xdg[0] == '\0')
-    {
-        DRAXUL_LOG_WARN(LogCategory::App, "XDG_CONFIG_HOME is empty; using fallback config path");
-        xdg = nullptr;
-    }
-    if (home && home[0] == '\0')
-    {
-        DRAXUL_LOG_WARN(LogCategory::App, "HOME is empty; using fallback config path");
-        home = nullptr;
-    }
-    std::filesystem::path base = xdg ? xdg : (home ? std::filesystem::path(home) / ".config" : std::filesystem::path("."));
-    return base / "draxul" / "config.toml";
-#endif
+    return user_config_dir() / "draxul" / "config.toml";
 }
 
 ConfigDocument ConfigDocument::load()

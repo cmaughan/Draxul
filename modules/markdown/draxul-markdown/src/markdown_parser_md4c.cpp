@@ -1,9 +1,10 @@
 #include <draxul/markdown/markdown_parser.h>
 
+#include <draxul/string_util.h>
+
 #include <md4c.h>
 
 #include <algorithm>
-#include <cctype>
 #include <cstddef>
 #include <string>
 #include <string_view>
@@ -16,25 +17,6 @@ namespace
 std::string attr_to_string(const MD_ATTRIBUTE& attr)
 {
     return std::string(attr.text, attr.text + attr.size);
-}
-
-std::string lowercase(std::string value)
-{
-    std::ranges::transform(value, value.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
-    return value;
-}
-
-std::string trim(std::string_view value)
-{
-    auto begin = value.begin();
-    auto end = value.end();
-    while (begin != end && std::isspace(static_cast<unsigned char>(*begin)))
-        ++begin;
-    while (begin != end && std::isspace(static_cast<unsigned char>(*(end - 1))))
-        --end;
-    return std::string(begin, end);
 }
 
 bool is_allowed_callout_type(std::string_view type)
@@ -168,7 +150,7 @@ CalloutHeader parse_callout_header(std::string_view text)
     if (close == std::string_view::npos || close <= 2)
         return {};
 
-    auto type = lowercase(std::string(text.substr(2, close - 2)));
+    auto type = ascii_lower(text.substr(2, close - 2));
     if (!is_allowed_callout_type(type))
         return {};
 

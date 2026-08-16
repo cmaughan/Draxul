@@ -64,3 +64,21 @@ TEST_CASE("markdown vim navigation normalizes left and right modifier bits", "[m
     REQUIRE(navigation.on_key(key_event(SDLK_F, 0x0040)) == MarkdownNavigationCommand::PageDown);
     REQUIRE(navigation.on_key(key_event(SDLK_G, 0x0001)) == MarkdownNavigationCommand::Bottom);
 }
+
+TEST_CASE("markdown vim navigation still works with lock modifiers latched", "[markdown][navigation]")
+{
+    // Regression: a latched Caps/Num/Scroll Lock key must never disable
+    // navigation (audit bug #4 — the pre-consolidation modifier copy could
+    // drift away from masking lock keys).
+    MarkdownNavigationState navigation;
+
+    REQUIRE(navigation.on_key(key_event(SDLK_J, kModCaps)) == MarkdownNavigationCommand::LineDown);
+    REQUIRE(navigation.on_key(key_event(SDLK_K, kModNum)) == MarkdownNavigationCommand::LineUp);
+    REQUIRE(navigation.on_key(key_event(SDLK_PAGEDOWN, kModScroll)) == MarkdownNavigationCommand::PageDown);
+    REQUIRE(navigation.on_key(key_event(SDLK_F, kModCtrl | kModCaps)) == MarkdownNavigationCommand::PageDown);
+    REQUIRE(navigation.on_key(key_event(SDLK_G, kModShift | kModCaps | kModNum))
+        == MarkdownNavigationCommand::Bottom);
+
+    REQUIRE(navigation.on_key(key_event(SDLK_G, kModCaps)) == MarkdownNavigationCommand::None);
+    REQUIRE(navigation.on_key(key_event(SDLK_G, kModCaps)) == MarkdownNavigationCommand::Top);
+}

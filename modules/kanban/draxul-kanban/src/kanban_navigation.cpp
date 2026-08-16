@@ -9,28 +9,6 @@ namespace draxul::kanban
 namespace
 {
 
-ModifierFlags normalize_modifiers(ModifierFlags mod)
-{
-    ModifierFlags result = kModNone;
-    if (mod & kModShift)
-        result |= kModShift;
-    if (mod & kModCtrl)
-        result |= kModCtrl;
-    if (mod & kModAlt)
-        result |= kModAlt;
-    if (mod & kModSuper)
-        result |= kModSuper;
-    return result;
-}
-
-bool has_only_modifiers(ModifierFlags actual, ModifierFlags expected)
-{
-    constexpr ModifierFlags kModNum = 0x1000;
-    constexpr ModifierFlags kModScroll = 0x8000;
-    constexpr ModifierFlags kAcceptedModifiers = kGuiModifierMask | kModCaps | kModNum | kModScroll;
-    return (actual & ~kAcceptedModifiers) == 0 && normalize_modifiers(actual) == expected;
-}
-
 KanbanNavigationCommand movement_command(int keycode, bool move)
 {
     switch (keycode)

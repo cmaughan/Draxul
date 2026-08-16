@@ -1,6 +1,7 @@
 #include <draxul/remote_terminal_host.h>
 
 #include <draxul/client_recovery.h>
+#include <draxul/input_types.h>
 #include <draxul/log.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/terminal_key_encoder.h>
@@ -70,18 +71,8 @@ bool needs_identity_refresh(std::string_view code)
 
 bool is_selection_copy_shortcut(const KeyEvent& event)
 {
-    if (!event.pressed || event.keycode != SDLK_C)
-        return false;
-    ModifierFlags normalized_mods = kModNone;
-    if (event.mod & kModShift)
-        normalized_mods |= kModShift;
-    if (event.mod & kModCtrl)
-        normalized_mods |= kModCtrl;
-    if (event.mod & kModAlt)
-        normalized_mods |= kModAlt;
-    if (event.mod & kModSuper)
-        normalized_mods |= kModSuper;
-    return normalized_mods == kModCtrl;
+    return event.pressed && event.keycode == SDLK_C
+        && has_only_modifiers(event.mod, kModCtrl);
 }
 
 struct RemoteHostCommand
@@ -169,8 +160,7 @@ TerminalDirtySnapshot full_grid_update(
             update.cells.push_back({
                 .col = col,
                 .row = row,
-                .cell = snapshot.cells[
-                    static_cast<size_t>(row) * snapshot.cols + col],
+                .cell = snapshot.cells[static_cast<size_t>(row) * snapshot.cols + col],
             });
         }
     }
@@ -335,8 +325,7 @@ public:
             = (text.size() + kRemoteInputBatchBytes - 1)
             / kRemoteInputBatchBytes;
         if (maximum_new_commands
-            > kRemoteHostCommandLimit - std::min(
-                  commands_.size(), kRemoteHostCommandLimit))
+            > kRemoteHostCommandLimit - std::min(commands_.size(), kRemoteHostCommandLimit))
         {
             return false;
         }
@@ -622,8 +611,8 @@ private:
                 }
                 presentation_visible = presentation_visible_;
                 for (size_t count = 0;
-                     count < kRemoteCommandsPerPoll && !commands_.empty();
-                     ++count)
+                    count < kRemoteCommandsPerPoll && !commands_.empty();
+                    ++count)
                 {
                     commands.push_back(std::move(commands_.front()));
                     commands_.pop_front();
@@ -740,7 +729,7 @@ private:
 
             bool retry_batch = false;
             for (size_t command_index = 0;
-                 command_index < commands.size(); ++command_index)
+                command_index < commands.size(); ++command_index)
             {
                 auto& command = commands[command_index];
                 if (stopping_)
@@ -989,10 +978,10 @@ private:
             .scroll_offset = scroll_offset_,
             .scrollback_total = scrollback_total_,
             .controller_client_id
-                = client_->projection().controller_client_id(),
+            = client_->projection().controller_client_id(),
             .display_name = client_->projection().pane().name,
             .process_running
-                = client_->projection().pane().process_running,
+            = client_->projection().pane().process_running,
             .exit_code = client_->projection().pane().exit_code,
             .clipboard_write = client_->take_clipboard_write(),
             .attach_latency = client_->last_attach_latency(),
@@ -1283,10 +1272,7 @@ void RemoteTerminalHost::pump()
             {
                 for (int col = 0; col < display_snapshot.cols; ++col)
                 {
-                    apply_cell(col, row, display_snapshot.cells[
-                        static_cast<size_t>(row)
-                            * display_snapshot.cols
-                        + col]);
+                    apply_cell(col, row, display_snapshot.cells[static_cast<size_t>(row) * display_snapshot.cols + col]);
                 }
             }
         }
@@ -1638,8 +1624,7 @@ bool RemoteTerminalHost::dispatch_action(std::string_view action)
         const int threshold = launch_options().paste_confirm_lines;
         if (threshold > 0 && !clipboard.empty())
         {
-            const int lines = 1 + static_cast<int>(
-                std::count(clipboard.begin(), clipboard.end(), '\n'));
+            const int lines = 1 + static_cast<int>(std::count(clipboard.begin(), clipboard.end(), '\n'));
             if (lines >= threshold)
             {
                 if (!pending_paste_.empty())

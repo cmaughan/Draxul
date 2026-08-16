@@ -63,18 +63,7 @@ void* module_symbol(void* module, const char* name)
 
 std::filesystem::path user_plugin_directory()
 {
-#ifdef _WIN32
-    const char* appdata = std::getenv("APPDATA");
-    return std::filesystem::path(appdata && *appdata ? appdata : ".") / "draxul" / "plugins";
-#elif defined(__APPLE__)
-    const char* home = std::getenv("HOME");
-    return std::filesystem::path(home && *home ? home : ".") / "Library" / "Application Support" / "draxul" / "plugins";
-#else
-    const char* xdg = std::getenv("XDG_CONFIG_HOME");
-    const char* home = std::getenv("HOME");
-    std::filesystem::path base = xdg && *xdg ? xdg : (home && *home ? std::filesystem::path(home) / ".config" : std::filesystem::path("."));
-    return base / "draxul" / "plugins";
-#endif
+    return user_config_dir() / "draxul" / "plugins";
 }
 
 std::filesystem::path bundled_plugin_directory()

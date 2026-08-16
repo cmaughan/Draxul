@@ -1,6 +1,8 @@
+#include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/runtime_path.h>
 
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -72,6 +74,81 @@ std::filesystem::path bundled_asset_path(const std::filesystem::path& relative_p
         return exe_dir / relative_path;
 
     return relative_path;
+}
+
+namespace
+{
+
+// Environment lookup for user-directory resolution. Empty values are treated
+// as unset so a broken `export XDG_CONFIG_HOME=` does not redirect files to
+// the working directory silently.
+const char* environment_value(const char* name)
+{
+    const char* value = std::getenv(name);
+    return (value && *value) ? value : nullptr;
+}
+
+std::filesystem::path fallback_current_directory(const char* missing)
+{
+    DRAXUL_LOG_WARN(LogCategory::App,
+        "%s is not set or empty; using fallback user directory \".\"", missing);
+    return ".";
+}
+
+#ifndef _WIN32
+#ifndef __APPLE__
+std::filesystem::path xdg_directory(const char* xdg_name, const char* home_suffix)
+{
+    if (const char* xdg = environment_value(xdg_name))
+        return xdg;
+    if (const char* home = environment_value("HOME"))
+        return std::filesystem::path(home) / home_suffix;
+    return fallback_current_directory("HOME");
+}
+#endif
+#endif
+
+} // namespace
+
+std::filesystem::path user_config_dir()
+{
+#ifdef _WIN32
+    if (const char* appdata = environment_value("APPDATA"))
+        return appdata;
+    return fallback_current_directory("APPDATA");
+#elif defined(__APPLE__)
+    if (const char* home = environment_value("HOME"))
+        return std::filesystem::path(home) / "Library" / "Application Support";
+    return fallback_current_directory("HOME") / "Library" / "Application Support";
+#else
+    return xdg_directory("XDG_CONFIG_HOME", ".config");
+#endif
+}
+
+std::filesystem::path user_data_dir()
+{
+#ifdef _WIN32
+    return user_config_dir();
+#elif defined(__APPLE__)
+    return user_config_dir();
+#else
+    return xdg_directory("XDG_DATA_HOME", ".local/share");
+#endif
+}
+
+std::filesystem::path user_cache_dir()
+{
+#ifdef _WIN32
+    if (const char* local = environment_value("LOCALAPPDATA"))
+        return local;
+    return user_config_dir();
+#elif defined(__APPLE__)
+    if (const char* home = environment_value("HOME"))
+        return std::filesystem::path(home) / "Library" / "Caches";
+    return fallback_current_directory("HOME") / "Library" / "Caches";
+#else
+    return xdg_directory("XDG_CACHE_HOME", ".cache");
+#endif
 }
 
 } // namespace draxul

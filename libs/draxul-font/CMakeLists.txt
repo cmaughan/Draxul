@@ -1,5 +1,6 @@
 add_library(draxul-font
     src/box_drawing.cpp
+    src/cluster_blit.cpp
     src/font_manager.cpp
     src/font_resolver.cpp
     src/glyph_cache.cpp

@@ -8,6 +8,7 @@
 
 #include <draxul/control_plane.h>
 #include <draxul/log.h>
+#include <draxul/process_util.h>
 #include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_agent_service.h>
 #include <draxul/server_protocol.h>
@@ -112,27 +113,6 @@ uint64_t current_process_id()
 #endif
 }
 
-uint64_t current_unix_time_ms()
-{
-    return static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-            .count());
-}
-
-#ifdef _WIN32
-std::optional<std::string> process_start_token(HANDLE process)
-{
-    FILETIME created{}, exited{}, kernel{}, user{};
-    if (!GetProcessTimes(process, &created, &exited, &kernel, &user))
-        return std::nullopt;
-    const uint64_t value
-        = (static_cast<uint64_t>(created.dwHighDateTime) << 32)
-        | created.dwLowDateTime;
-    return std::to_string(value);
-}
-#endif
-
 std::optional<std::string> process_start_token(uint64_t pid)
 {
     if (pid == 0)
@@ -144,7 +124,9 @@ std::optional<std::string> process_start_token(uint64_t pid)
         FALSE, static_cast<DWORD>(pid));
     if (!process)
         return std::nullopt;
-    const auto token = process_start_token(process);
+    // Qualified: the shared HANDLE overload lives at draxul scope and would
+    // otherwise be hidden by this anonymous-namespace uint64_t overload.
+    const auto token = draxul::process_start_token(process);
     CloseHandle(process);
     return token;
 #elif defined(__APPLE__)
@@ -1040,10 +1022,8 @@ bool ServerKernel::Impl::initialize_session(
         .create_server_terminal
         = [this, stable_session_id](
               const ServerTerminalTopologyLaunch& launch,
-              std::string& callback_error) {
-              return create_server_terminal(
-                  stable_session_id, launch, callback_error);
-          },
+              std::string& callback_error) { return create_server_terminal(
+                                                 stable_session_id, launch, callback_error); },
         .destroy_server_terminal
         = [this, stable_session_id](std::string_view terminal_id) { destroy_server_terminal(
                                                                         stable_session_id, terminal_id); },
@@ -1953,7 +1933,8 @@ ServerStartResult ServerKernel::Impl::start()
                     state->control_work_pending = true;
                     state->condition.notify_one();
                 }
-            }, &error, metadata))
+            },
+            &error, metadata))
     {
         remove_starting_marker();
         if (control.endpoint_in_use())
@@ -3345,11 +3326,7 @@ void ServerKernel::Impl::refresh_agents(
                     },
                     .runtime_running = running,
                     .exit_code = endpoint.runtime->exit_code(),
-                    .process_observation
-                    = running && !pane.agent
-                        ? endpoint.runtime
-                              ->capture_agent_process_observation()
-                        : std::nullopt,
+                    .process_observation = running && !pane.agent ? endpoint.runtime->capture_agent_process_observation() : std::nullopt,
                     .terminal_observation = running ? endpoint.runtime->capture_agent_observation(12, 8 * 1024) : std::nullopt,
                 });
             }

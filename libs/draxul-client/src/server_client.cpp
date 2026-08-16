@@ -1,6 +1,7 @@
 #include <draxul/server_client.h>
 
 #include <draxul/control_plane.h>
+#include <draxul/process_util.h>
 
 #include <fstream>
 #include <iomanip>
@@ -56,26 +57,7 @@ std::optional<nlohmann::json> read_bounded_json(
     return value;
 }
 
-uint64_t current_unix_time_ms()
-{
-    return static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-            .count());
-}
-
 #ifdef _WIN32
-std::optional<std::string> process_start_token(HANDLE process)
-{
-    FILETIME created{}, exited{}, kernel{}, user{};
-    if (!GetProcessTimes(process, &created, &exited, &kernel, &user))
-        return std::nullopt;
-    const uint64_t value
-        = (static_cast<uint64_t>(created.dwHighDateTime) << 32)
-        | created.dwLowDateTime;
-    return std::to_string(value);
-}
-
 bool prepare_windows_server_helper(
     const std::filesystem::path& client_executable,
     std::filesystem::path& server_executable,
@@ -155,8 +137,10 @@ std::optional<std::string> process_start_token(uint64_t pid)
     DWORD code = 0;
     const bool alive = GetExitCodeProcess(process, &code)
         && code == STILL_ACTIVE;
+    // Qualified: the shared HANDLE overload lives at draxul scope and would
+    // otherwise be hidden by this anonymous-namespace uint64_t overload.
     const auto token = alive
-        ? process_start_token(process)
+        ? draxul::process_start_token(process)
         : std::nullopt;
     CloseHandle(process);
     return token;
@@ -506,39 +490,6 @@ ServerProbeResult unavailable_result(
         .error_message = std::move(error_message),
     };
 }
-
-#ifdef _WIN32
-
-std::wstring quote_windows_argument(const std::wstring& argument)
-{
-    if (argument.find_first_of(L" \t\"") == std::wstring::npos)
-        return argument;
-    std::wstring result = L"\"";
-    size_t backslashes = 0;
-    for (const wchar_t ch : argument)
-    {
-        if (ch == L'\\')
-        {
-            ++backslashes;
-            continue;
-        }
-        if (ch == L'"')
-        {
-            result.append(backslashes * 2 + 1, L'\\');
-            result.push_back(L'"');
-            backslashes = 0;
-            continue;
-        }
-        result.append(backslashes, L'\\');
-        backslashes = 0;
-        result.push_back(ch);
-    }
-    result.append(backslashes * 2, L'\\');
-    result.push_back(L'"');
-    return result;
-}
-
-#endif
 
 } // namespace
 
@@ -1081,27 +1032,27 @@ bool ServerClient::launch_detached(
     }
     const std::wstring executable
         = server_executable.wstring();
-    std::wstring command = quote_windows_argument(executable)
+    std::wstring command = quote_windows_arg(executable)
         + L" --server --server-runtime-dir "
-        + quote_windows_argument(runtime_directory.wstring());
+        + quote_windows_arg(runtime_directory.wstring());
     if (!options.terminal_shell_kind.empty())
     {
         command += L" --server-shell "
-            + quote_windows_argument(std::filesystem::path(
+            + quote_windows_arg(std::filesystem::path(
                 options.terminal_shell_kind)
                     .wstring());
     }
     if (!options.terminal_command.empty())
     {
         command += L" --server-command "
-            + quote_windows_argument(
+            + quote_windows_arg(
                 std::filesystem::path(options.terminal_command)
                     .wstring());
     }
     if (!options.terminal_working_directory.empty())
     {
         command += L" --server-working-dir "
-            + quote_windows_argument(
+            + quote_windows_arg(
                 options.terminal_working_directory.wstring());
     }
     command += L" --server-scrollback-lines "
@@ -1128,77 +1079,37 @@ bool ServerClient::launch_detached(
     CloseHandle(process.hProcess);
     return true;
 #else
-    // Build the argv BEFORE forking. The parent is multithreaded (GUI or test
-    // harness), and heap allocation between fork() and execv() can inherit a
-    // locked allocator and deadlock the child — the exact failure recorded in
-    // kanban done/01 macos-app-self-launch. After fork, only async-signal-safe
-    // calls (setsid/fork/dup2/execv/_exit) run.
-    const std::string executable = executable_path.string();
-    const std::string runtime = runtime_directory.string();
-    const std::string scrollback
-        = std::to_string(options.terminal_scrollback_lines);
-    std::vector<std::string> arguments{
-        executable,
+    // Thin wrapper over draxul::spawn_detached, which carries the double-fork
+    // + pre-built-argv + /dev/null machinery (and its rationale) for every
+    // detached launch in the tree.
+    std::vector<std::filesystem::path> arguments{
         "--server",
         "--server-runtime-dir",
-        runtime,
+        runtime_directory,
     };
     if (!options.terminal_shell_kind.empty())
     {
-        arguments.push_back("--server-shell");
-        arguments.push_back(options.terminal_shell_kind);
+        arguments.emplace_back("--server-shell");
+        arguments.emplace_back(options.terminal_shell_kind);
     }
     if (!options.terminal_command.empty())
     {
-        arguments.push_back("--server-command");
-        arguments.push_back(options.terminal_command);
+        arguments.emplace_back("--server-command");
+        arguments.emplace_back(options.terminal_command);
     }
     if (!options.terminal_working_directory.empty())
     {
-        arguments.push_back("--server-working-dir");
-        arguments.push_back(
-            options.terminal_working_directory.string());
+        arguments.emplace_back("--server-working-dir");
+        arguments.emplace_back(options.terminal_working_directory);
     }
-    arguments.push_back("--server-scrollback-lines");
-    arguments.push_back(scrollback);
-    std::vector<char*> argv;
-    argv.reserve(arguments.size() + 1);
-    for (std::string& argument : arguments)
-        argv.push_back(argument.data());
-    argv.push_back(nullptr);
-
-    // Double-fork so the server reparents to launchd/init and is reaped
-    // automatically when it dies. As a direct child it became a ZOMBIE on
-    // exit — no caller reaps it, so `kill(pid, 0)` kept reporting the dead
-    // server alive (and force-stopped servers appeared unkillable).
-    const pid_t child = ::fork();
-    if (child < 0)
+    arguments.emplace_back("--server-scrollback-lines");
+    arguments.emplace_back(
+        std::to_string(options.terminal_scrollback_lines));
+    if (!spawn_detached(executable_path, arguments, {}, error))
     {
         error = "Unable to fork the Draxul server process.";
         return false;
     }
-    if (child == 0)
-    {
-        ::setsid();
-        const pid_t grandchild = ::fork();
-        if (grandchild != 0)
-            _exit(grandchild < 0 ? 127 : 0);
-        const int null_fd = ::open("/dev/null", O_RDWR);
-        if (null_fd >= 0)
-        {
-            ::dup2(null_fd, STDIN_FILENO);
-            ::dup2(null_fd, STDOUT_FILENO);
-            ::dup2(null_fd, STDERR_FILENO);
-            if (null_fd > STDERR_FILENO)
-                ::close(null_fd);
-        }
-        ::execv(executable.c_str(), argv.data());
-        _exit(127);
-    }
-    // The intermediate exits immediately after its fork; reap it so the
-    // launcher itself leaves no zombie behind.
-    int intermediate_status = 0;
-    ::waitpid(child, &intermediate_status, 0);
     return true;
 #endif
 }

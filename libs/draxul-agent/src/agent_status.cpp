@@ -1,8 +1,9 @@
 #include <draxul/agent_model.h>
 
+#include <draxul/string_util.h>
+
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <span>
 
 namespace draxul
@@ -42,26 +43,6 @@ constexpr std::array kClaudeRules = {
     ScreenRule{ "prompt_ready", AgentStatus::Idle, "input_prompt", "how can i help you today" },
 };
 
-std::string normalized_text(std::string_view text)
-{
-    std::string normalized(text);
-    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
-    return normalized;
-}
-
-std::string_view trim(std::string_view text)
-{
-    while (!text.empty()
-        && std::isspace(static_cast<unsigned char>(text.front())))
-        text.remove_prefix(1);
-    while (!text.empty()
-        && std::isspace(static_cast<unsigned char>(text.back())))
-        text.remove_suffix(1);
-    return text;
-}
-
 bool codex_title_has_spinner(std::string_view title)
 {
     constexpr std::array<std::string_view, 10> spinners = {
@@ -69,7 +50,7 @@ bool codex_title_has_spinner(std::string_view title)
     };
     while (!title.empty())
     {
-        title = trim(title);
+        title = trim_view(title);
         const size_t separator = title.find_first_of(" \t");
         const std::string_view token = title.substr(0, separator);
         if (std::ranges::find(spinners, token) != spinners.end())
@@ -83,7 +64,7 @@ bool codex_title_has_spinner(std::string_view title)
 
 bool codex_working_line(std::string_view line)
 {
-    line = trim(line);
+    line = trim_view(line);
     constexpr std::string_view solid_bullet = "• ";
     constexpr std::string_view hollow_bullet = "◦ ";
     if (line.starts_with(solid_bullet))
@@ -93,7 +74,7 @@ bool codex_working_line(std::string_view line)
     else
         return false;
 
-    const std::string normalized = normalized_text(line);
+    const std::string normalized = ascii_lower(line);
     return normalized.starts_with("working (")
         && normalized.find("esc to interrupt)") != std::string::npos;
 }
@@ -128,7 +109,7 @@ AgentStatusExplanation evaluate_agent_observation(
     result.manifest_version = agent_kind == "codex" ? 2 : 1;
 
     const auto apply_rules = [&rules, &result](std::string_view evidence) {
-        const std::string normalized = normalized_text(evidence);
+        const std::string normalized = ascii_lower(evidence);
         for (const auto& rule : rules)
         {
             if (normalized.find(rule.needle) == std::string::npos)
@@ -143,7 +124,7 @@ AgentStatusExplanation evaluate_agent_observation(
 
     if (agent_kind == "codex")
     {
-        const std::string title = normalized_text(observation.terminal_title);
+        const std::string title = ascii_lower(observation.terminal_title);
         if (title.find("action required") != std::string::npos)
         {
             result.status = AgentStatus::Blocked;
@@ -163,7 +144,7 @@ AgentStatusExplanation evaluate_agent_observation(
     // Newest visible rows take precedence over stale progress/completion text
     // higher in the terminal. Rule order resolves conflicts within one row.
     for (auto row = observation.bottom_rows.rbegin();
-         row != observation.bottom_rows.rend(); ++row)
+        row != observation.bottom_rows.rend(); ++row)
     {
         if (apply_rules(*row))
             return result;
@@ -174,16 +155,16 @@ AgentStatusExplanation evaluate_agent_observation(
         std::array<std::string_view, 3> recent_non_empty_rows;
         size_t recent_count = 0;
         for (auto row = observation.bottom_rows.rbegin();
-             row != observation.bottom_rows.rend() && recent_count < 3; ++row)
+            row != observation.bottom_rows.rend() && recent_count < 3; ++row)
         {
-            if (trim(*row).empty())
+            if (trim_view(*row).empty())
                 continue;
             recent_non_empty_rows[recent_count++] = *row;
         }
         const bool interrupted = std::any_of(recent_non_empty_rows.begin(),
             recent_non_empty_rows.begin() + recent_count,
             [](std::string_view row) {
-                return normalized_text(row).find("conversation interrupted")
+                return ascii_lower(row).find("conversation interrupted")
                     != std::string::npos;
             });
         if (!interrupted)
@@ -200,7 +181,7 @@ AgentStatusExplanation evaluate_agent_observation(
             }
         }
 
-        if (!trim(observation.terminal_title).empty())
+        if (!trim_view(observation.terminal_title).empty())
         {
             result.status = AgentStatus::Idle;
             result.rule_id = "osc_title_idle";
@@ -208,9 +189,9 @@ AgentStatusExplanation evaluate_agent_observation(
             return result;
         }
         for (auto row = observation.bottom_rows.rbegin();
-             row != observation.bottom_rows.rend(); ++row)
+            row != observation.bottom_rows.rend(); ++row)
         {
-            const std::string_view prompt = trim(*row);
+            const std::string_view prompt = trim_view(*row);
             if (prompt == "›" || prompt.starts_with("› "))
             {
                 result.status = AgentStatus::Idle;
