@@ -24,7 +24,7 @@ TEST_CASE("NanoVG Vulkan textures use tracked transfer uploads", "[nanovg][vulka
 {
     const auto source = read_text_file(
         std::filesystem::path(DRAXUL_PROJECT_ROOT)
-        / "libs" / "draxul-nanovg" / "src" / "nanovg_vk.cpp");
+        / "libs" / "draxul-nanovg" / "backend" / "src" / "nanovg_vk.cpp");
     REQUIRE_FALSE(source.empty());
 
     CHECK(source.find("VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED") != std::string::npos);
@@ -44,7 +44,7 @@ TEST_CASE("NanoVG Vulkan frame resources follow the renderer contract", "[nanovg
 {
     const auto source = read_text_file(
         std::filesystem::path(DRAXUL_PROJECT_ROOT)
-        / "libs" / "draxul-nanovg" / "src" / "nanovg_vk.cpp");
+        / "libs" / "draxul-nanovg" / "backend" / "src" / "nanovg_vk.cpp");
     const auto pass = read_text_file(
         std::filesystem::path(DRAXUL_PROJECT_ROOT)
         / "libs" / "draxul-nanovg" / "src" / "nanovg_pass_vk.cpp");
@@ -72,15 +72,25 @@ TEST_CASE("Vulkan presentation semaphores follow acquired swapchain images", "[n
 
 TEST_CASE("NanoVG dependency is immutable", "[nanovg][dependency]")
 {
+    // The pin lives beside the backend so standalone product extractions of
+    // libs/draxul-nanovg fetch the identical source.
     const auto cmake = read_text_file(
-        std::filesystem::path(DRAXUL_PROJECT_ROOT) / "cmake" / "FetchDependencies.cmake");
+        std::filesystem::path(DRAXUL_PROJECT_ROOT)
+        / "libs" / "draxul-nanovg" / "CMakeLists.txt");
     REQUIRE_FALSE(cmake.empty());
 
-    const auto declaration = cmake.find("FetchContent_Declare(\n    nanovg");
+    const auto declaration = cmake.find("FetchContent_Declare(");
     REQUIRE(declaration != std::string::npos);
     const auto end = cmake.find(')', declaration);
     REQUIRE(end != std::string::npos);
     const auto block = cmake.substr(declaration, end - declaration);
+    CHECK(block.find("nanovg") != std::string::npos);
     CHECK(block.find("GIT_TAG ce3bf745eb2d2dbc14a50bf2446783f691ac4353") != std::string::npos);
     CHECK(block.find("GIT_TAG master") == std::string::npos);
+
+    // And it must not quietly reappear in the central fetch list.
+    const auto central = read_text_file(
+        std::filesystem::path(DRAXUL_PROJECT_ROOT) / "cmake" / "FetchDependencies.cmake");
+    REQUIRE_FALSE(central.empty());
+    CHECK(central.find("FetchContent_Declare(\n    nanovg") == std::string::npos);
 }

@@ -126,6 +126,7 @@ function(draxul_check_core_product_isolation)
         draxul-app-support
         draxul-host
         draxul-nanovg
+        draxul-nanovg-backend
         draxul-markdown
         draxul-markdown-host
         draxul-kanban

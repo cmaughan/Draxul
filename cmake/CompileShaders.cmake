@@ -11,6 +11,10 @@ file(MAKE_DIRECTORY ${SHADER_OUTPUT_DIR})
 file(GLOB SHADER_SOURCES CONFIGURE_DEPENDS
     ${SHADER_SOURCE_DIR}/*.vert
     ${SHADER_SOURCE_DIR}/*.frag
+    # The NanoVG shaders live beside their backend (single home, shared with
+    # product plugins through the staged draxul-nanovg tree).
+    ${CMAKE_SOURCE_DIR}/libs/draxul-nanovg/shaders/*.vert
+    ${CMAKE_SOURCE_DIR}/libs/draxul-nanovg/shaders/*.frag
 )
 
 file(GLOB SHADER_GLSL_INCLUDES CONFIGURE_DEPENDS ${SHADER_SOURCE_DIR}/*.glsl ${SHADER_SOURCE_DIR}/*.h)

@@ -47,7 +47,9 @@ together when the ABI changes.
 The public header is also exported as the installable CMake package
 `DraxulPluginSDK`; external plugins link `Draxul::PluginSDK` and do not need a
 Draxul source checkout. The `draxul-plugin-sdk` install component additionally
-ships the `draxul-types` headers and static library so standalone product
+ships the `draxul-types` headers and static library (plus the
+`draxul-performance` archive its `PERF_MEASURE` spans reference and the
+`<draxul/plugin_runtime.h>` runtime-context vocabulary) so standalone product
 builds can link the shared foundation types. The spinning-triangle example supports a standalone
 CMake build, and the `draxul-sdk-external-smoke` target installs the SDK, builds
 that example from a clean copied tree, loads the resulting module, and renders a
@@ -59,8 +61,11 @@ runtime contract. The allowlist exposes narrow leaves for raw-ABI host services,
 render-pass/context types, configuration documents, text and tooltip rasterizing,
 HTTP, logging/performance types, ImGui, ImGui core (the single
 SDL-scancode→ImGuiKey table plus the `IImGuiHost` backend interface in
-`libs/draxul-imgui-core`, exported as `Draxul::PluginSupport::ImGuiCore`), and
-Vulkan resource ownership. The plugin ImGui leaf also carries the shared
+`libs/draxul-imgui-core`, exported as `Draxul::PluginSupport::ImGuiCore`),
+NanoVG (the NanoVG core plus Draxul's custom Vulkan/Metal backends with a
+settable shader root, exported as `Draxul::PluginSupport::NanoVG` from
+`libs/draxul-nanovg`; a standalone extraction builds the same directory with
+`DRAXUL_NANOVG_BACKEND_ONLY=ON`), and Vulkan resource ownership. The plugin ImGui leaf also carries the shared
 `PluginImGuiContext` lifecycle (context flags, font, backend attach, frame
 begin, ordered shutdown, optional ini persistence) and the header-only
 `ImGuiInputBridge` (modifier/key, mouse remap, position/wheel/text routing)

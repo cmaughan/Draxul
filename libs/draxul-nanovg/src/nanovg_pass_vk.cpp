@@ -1,5 +1,5 @@
-#include "nanovg_vk.h"
 #include <draxul/nanovg_pass.h>
+#include <draxul/nanovg_vk.h>
 
 // Include the Vulkan render context for typed access to command buffer / swapchain.
 #include <draxul/vulkan/vk_render_context.h>
@@ -30,9 +30,7 @@ public:
 
         auto& vk_ctx = static_cast<VkRenderContext&>(ctx);
 
-        if (vg_ && (device_ != vk_ctx.device()
-                       || allocator_ != vk_ctx.allocator()
-                       || color_format_ != vk_ctx.swapchain_format()))
+        if (vg_ && (device_ != vk_ctx.device() || allocator_ != vk_ctx.allocator() || color_format_ != vk_ctx.swapchain_format()))
         {
             // A device or swapchain-format change invalidates the backend's
             // render pass and pipelines. Context deletion waits for outstanding
