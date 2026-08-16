@@ -41,7 +41,7 @@ draxul executable
                 │   draxul-runtime-support / draxul-render-test
                 ├── draxul-config / draxul-gui / draxul-ui / draxul-nanovg
                 └── draxul-http / draxul-font / draxul-grid / draxul-nvim /
-                    draxul-renderer / draxul-window
+                    draxul-renderer / draxul-window / draxul-imgui-core
                             │
                             └── narrow foundations: draxul-types / draxul-performance /
                                 draxul-agent / draxul-session-model / draxul-bmp / draxul-host-identity /
@@ -99,7 +99,8 @@ does not rebuild or extend the universal value-type archive.
 | Directory | Ownership |
 |---|---|
 | `sdk/` | Installable, versioned native plugin C ABI and the dependency-free `Draxul::PluginSDK` CMake target |
-| `plugins/support/imgui/` | Product-owned optional ImGui Vulkan/Metal encoder, SDL-to-ImGui input translation, and public UI-style service client, linked inside native plugin modules and never exposed across the ABI |
+| `plugins/support/imgui/` | Product-owned optional ImGui Vulkan/Metal encoder, the shared `PluginImGuiContext` lifecycle and `ImGuiInputBridge` event routing, and public UI-style service client, linked inside native plugin modules and never exposed across the ABI |
+| `libs/draxul-imgui-core/` | The single SDL-scancode-to-ImGuiKey table and `IImGuiHost` backend interface; leaf-narrow (links only ImGui + SDL headers) so core UI, the renderer, and plugin support all consume the same definitions (`Draxul::PluginSupport::ImGuiCore`) |
 | `libs/draxul-plugin-support/` | Same-build plugin leaves: C-ABI path/storage/UI-style wrappers, product lifecycle/viewport vocabulary, backend-neutral render contracts, Vulkan resource ownership, explicit-path TOML documents, and tooltip layout; exports only `Draxul::PluginSupport::*` targets |
 | `libs/draxul-performance/` | Runtime timing collection and the `PERF_MEASURE` instrumentation API |
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
@@ -229,7 +230,7 @@ Good place for:
 | `libs/draxul-http/` | Cross-platform HTTP transport (WinHTTP on Windows, Foundation on macOS) |
 | `libs/draxul-config/` | Config schema, TOML document I/O, and keybinding parsing |
 | `libs/draxul-gui/` | GPU-grid-native overlays such as palettes, tooltips, and toasts; no ImGui frame loop |
-| `libs/draxul-ui/` | ImGui diagnostics and developer-facing UI |
+| `libs/draxul-ui/` | ImGui diagnostics and developer-facing UI (key translation lives in `libs/draxul-imgui-core`) |
 | `libs/draxul-runtime-support/` | Shared grid-render pipeline, printing, resource monitoring, and background UI requests |
 | `libs/draxul-host/` | UI/process host adapters, terminal/Neovim hosts, PTY/ConPTY behavior, selection, copy mode, and client-side terminal presentation |
 | `libs/draxul-nanovg/` | Cross-platform NanoVG render-pass integration |

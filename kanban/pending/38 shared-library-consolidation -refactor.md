@@ -11,7 +11,7 @@ structurally unrepeatable.
 - [ ] Slice 1: `draxul-types` absorbs string/modifier/log/process/path
       helpers, `draxul-font` gains the shared glyph blit, and types ship with
       the SDK install component. (Fixes audit bugs #4, #6, #14.)
-- [ ] Slice 2: `libs/draxul-imgui-core` — one scancode table + `IImGuiHost`;
+- [x] Slice 2: `libs/draxul-imgui-core` — one scancode table + `IImGuiHost`;
       `PluginImGuiContext` + `ImGuiInputBridge` in `plugins/support/imgui`;
       all three product runtimes adopt. (Fixes #1, #2, #10.)
 - [ ] Slice 3: promote `draxul-nanovg` to `Draxul::PluginSupport::NanoVG`;

@@ -165,6 +165,7 @@ add_subdirectory(libs/draxul-bmp)
 add_subdirectory(libs/draxul-http)
 add_subdirectory(libs/draxul-window)
 add_subdirectory(libs/draxul-font)
+add_subdirectory(libs/draxul-imgui-core)
 add_subdirectory(libs/draxul-plugin-support)
 add_subdirectory(libs/draxul-renderer)
 add_subdirectory(libs/draxul-ui)
@@ -237,7 +238,8 @@ draxul_allow_plugin_support_targets(
     Draxul::PluginSupport::Types
     Draxul::PluginSupport::Performance
     Draxul::PluginSupport::Text
-    Draxul::PluginSupport::Http)
+    Draxul::PluginSupport::Http
+    Draxul::PluginSupport::ImGuiCore)
 if(TARGET Draxul::PluginSupport::ImGui)
     draxul_allow_plugin_support_targets(Draxul::PluginSupport::ImGui)
 endif()
@@ -256,7 +258,7 @@ draxul_check_core_source_product_isolation("${CMAKE_SOURCE_DIR}")
 foreach(_draxul_lib
     draxul-performance draxul-types draxul-plugin draxul-bmp draxul-http draxul-window
     draxul-plugin-runtime-support draxul-plugin-config-support draxul-plugin-tooltip-support
-    draxul-renderer draxul-ui
+    draxul-imgui-core draxul-renderer draxul-ui
     draxul-font draxul-grid draxul-nvim
     draxul-terminal-core draxul-terminal-process
     draxul-config draxul-session-model draxul-protocol draxul-control draxul-client draxul-server

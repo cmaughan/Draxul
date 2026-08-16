@@ -6,8 +6,12 @@ struct ImGuiContext;
 namespace draxul
 {
 
-// Product-local UI renderer contract. This interface is implemented and
-// consumed inside a plugin module; it never crosses Draxul's C ABI boundary.
+class IFrameContext;
+
+// Backend contract for anything that renders ImGui draw data: the core grid
+// renderer implements it for the diagnostics panel, and the plugin-support
+// GpuImGuiHost implements it inside product modules. This is the single
+// definition for the whole tree; it never crosses Draxul's C ABI boundary.
 class IImGuiHost
 {
 public:

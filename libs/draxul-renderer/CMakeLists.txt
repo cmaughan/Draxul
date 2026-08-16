@@ -1,6 +1,7 @@
 set(DRAXUL_RENDERER_PUBLIC_DEPS
     draxul-plugin-render-support
     draxul-window
+    draxul-imgui-core
     SDL3::SDL3
     imgui
 )
