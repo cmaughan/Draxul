@@ -1,5 +1,12 @@
 # Multiplexed Session Event Stream Plan
 
+**Tracker:** `kanban/pending/40 multiplexed-session-event-stream -feature.md`
+
+**Sequencing:** diagnostics and UI coordination may start alongside
+`kanban/pending/12 control-transport-boundary -refactor.md`; batched polling waits
+for card 12, and the persistent endpoint also waits for
+`kanban/pending/13 server-kernel-private-decomposition -refactor.md`.
+
 ## Goal
 
 Replace per-pane timer polling with one multiplexed Session transport per attached UI.

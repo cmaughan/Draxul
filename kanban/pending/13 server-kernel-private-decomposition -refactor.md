@@ -1,13 +1,17 @@
 # Decompose `ServerKernel::Impl` behind its façade
 
-**Type:** refactor  
-**Priority:** P1  
-**Raised by:** Claude, Codex, and Grok  
+**Type:** refactor
+**Priority:** P1
+**Raised by:** Claude, Codex, and Grok
 **Depends on:** `kanban/pending/12 control-transport-boundary -refactor.md`.
 The earlier lifecycle prerequisites are complete in
 `kanban/done/09 macos-remote-terminal-channel -bug.md`,
 `kanban/done/10 server-lifecycle-sigterm-eviction -bug.md`, and
 `kanban/done/14 server-agent-runtime-control -feature.md`.
+
+**Downstream:** the persistent endpoint and bounded per-UI writer ownership in
+`kanban/pending/40 multiplexed-session-event-stream -feature.md` wait for this
+decomposition. This card does not implement Session streaming.
 
 ## Boundary verification
 

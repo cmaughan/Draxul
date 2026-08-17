@@ -1,0 +1,131 @@
+# Multiplex client/server Session communication
+
+**Type:** feature
+**Priority:** P1 / sequence 40
+**Design:** `plans/session-event-stream.md`
+**Depends on by phase:** `kanban/pending/12 control-transport-boundary -refactor.md`
+and `kanban/pending/13 server-kernel-private-decomposition -refactor.md`
+
+## Goal
+
+Replace per-pane short-lived polling with one multiplexed Session transport per
+attached UI. The final path is one persistent bidirectional connection carrying
+terminal presentation, topology, agents, commands, responses, heartbeats, and
+recovery over independently ordered logical channels.
+
+`session.poll` is the first release-worthy milestone and remains the negotiated
+fallback. The existing short-lived control endpoint remains available for bootstrap,
+status, diagnostics, CLI access, and compatibility.
+
+## Boundary and sequencing
+
+- `kanban/pending/12 control-transport-boundary -refactor.md` owns the current
+  synchronous endpoint's reusable framing, deadlines, cancellation/error contracts,
+  and private Windows/POSIX backends. It does not implement this feature.
+- Diagnostics/load baselines and the UI Session coordinator may land alongside card
+  12 because they do not change the wire transport.
+- Batched `session.poll` starts after card 12 so it uses the stabilized control
+  boundary rather than adding more behavior to the monolith.
+- The persistent endpoint and per-UI writer lifecycle also wait for the private
+  ownership split in
+  `kanban/pending/13 server-kernel-private-decomposition -refactor.md`.
+- Do not implement per-pane long polling on the four-worker synchronous control
+  endpoint. It recreates the starvation this card is intended to remove.
+
+## Phase 0 — diagnostics and baseline
+
+- [ ] Preserve operation, transport stage, and native platform errors instead of
+      collapsing every failure into `io_error`.
+- [ ] Record connection attempts, listener occupancy, request counts by method,
+      queue/dispatch/response time, and failures by transport stage.
+- [ ] Add deterministic 1-, 10-, and 50-pane continuously-updating scenarios with
+      one and multiple attached UIs.
+- [ ] Capture request rate, CPU, presentation/topology latency, failures, and
+      recovery behavior before changing transport ownership.
+
+## Phase 1 — one UI Session coordinator
+
+- [ ] Move polling, command dispatch, and recovery ownership out of each
+      `RemoteTerminalHost` into one coordinator owned beside `RemoteSessionClient`.
+- [ ] Keep one `RemoteTerminalProjection` per pane and register consumers by terminal
+      ID plus visibility generation.
+- [ ] Route decoded updates into pane mailboxes and coalesce ready projections into
+      one UI wake.
+- [ ] Retain capability-selected legacy per-pane clients during migration.
+
+## Phase 2 — batched Session polling
+
+- [ ] Add `session.poll` with topology/agent revisions and subscribed terminal
+      generation/sequence cursors.
+- [ ] Return bounded, fairly scheduled topology, agent, and terminal changes with
+      channel-local snapshot resynchronization.
+- [ ] Poll once per attached UI, with active cadence and adaptive idle backoff.
+- [ ] Keep mutations on existing request/response control methods in this phase.
+- [ ] Negotiate `session-poll-v1` and fall back to legacy clients only for servers
+      that do not support batched polling.
+
+## Phase 3 — persistent server-to-UI events
+
+- [ ] Add a dedicated asynchronous Session event endpoint; do not hold a synchronous
+      control listener worker for the lifetime of the UI.
+- [ ] Keep one authenticated stream per UI, bound to client ID, Session ID, server
+      epoch, negotiated budgets, subscriptions, and cursors.
+- [ ] Push fair bounded batches for terminal output, topology, agents, and heartbeat
+      state; the server state thread never waits for platform I/O.
+- [ ] Resume from cursors where possible and snapshot only channels that cannot
+      resume after a gap, generation change, overflow, or epoch replacement.
+- [ ] Negotiate `session-stream-v1` and retain `session.poll` as fallback.
+
+## Phase 4 — bidirectional multiplexing
+
+- [ ] Carry commands on the persistent connection with request IDs, idempotency, and
+      correlated responses.
+- [ ] Prioritize input, resize, topology commands, acknowledgements, responses, and
+      heartbeats over bulk presentation traffic.
+- [ ] Bound bytes globally per UI and per logical channel; reserve control capacity
+      and rotate fairly between busy terminals.
+- [ ] Negotiate `session-stream-commands-v1`; keep the short-lived endpoint for
+      bootstrap, CLI, diagnostics, and compatibility.
+- [ ] Remove legacy per-pane polling only after fallback and recovery are proven.
+
+## Phase 5 — interruption UX and diagnostics
+
+- [ ] Keep last coherent projections visible through transient disconnects and do
+      not toast on the first retryable failure.
+- [ ] Show one sustained-outage warning, clear it quietly after recovery, and expose
+      reconnect/fallback/resync reasons in diagnostics.
+- [ ] A stream failure falls back to `session.poll`, never silently to per-pane
+      polling when batched polling is available.
+
+## Validation
+
+- [ ] Multiplex at least two terminals plus topology and agents; prove independent
+      per-channel ordering and correlated command responses.
+- [ ] Flood one terminal and prove another terminal, topology, commands, and
+      heartbeats stay within their latency budgets.
+- [ ] Stop one UI reading and prove bounded memory, channel-local snapshot recovery,
+      and no effect on other clients or the server state loop.
+- [ ] Drop and reconnect at frame boundaries; prove cursor resume or authoritative
+      snapshot convergence without duplicated mutations.
+- [ ] Restart the server; reject old-epoch events, re-handshake, and converge without
+      restarting terminals or losing controller/scrollback state.
+- [ ] Suspend/resume hidden panes and prove presentation stops while runtimes continue
+      headlessly, then resumes through one current snapshot.
+- [ ] Exercise new-UI/old-server and old-UI/new-server compatibility.
+- [ ] Validate Unix-domain sockets on macOS and named pipes on Windows, including
+      cancellation, bounded shutdown, and simultaneous CLI traffic.
+
+## Acceptance criteria
+
+- [ ] One UI with ten active panes owns one event connection or one batched polling
+      worker; request count does not grow linearly with pane count.
+- [ ] Normal load produces no control starvation, `Shared topology unavailable`
+      toast, or generic unexplained transport `io_error`.
+- [ ] At the 95th percentile, terminal presentation is below 50 ms and topology plus
+      interactive commands are below 100 ms in the defined load fixture.
+- [ ] One noisy terminal cannot starve another channel; slow clients degrade without
+      unbounded queues or blocking other clients.
+- [ ] Fifty panes across multiple UIs retain bounded memory and recover automatically
+      across transport interruption and server replacement.
+- [ ] Reconnection alone never restarts a terminal process or loses controller,
+      topology, or scrollback state.
