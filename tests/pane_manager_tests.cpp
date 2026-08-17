@@ -278,6 +278,63 @@ TEST_CASE("pane manager: explicit primary host override does not inherit incompa
     REQUIRE(launch.working_dir == "D:/work");
 }
 
+TEST_CASE("pane manager: custom host factory precedes app composition factory",
+    "[pane_manager][host-factory]")
+{
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TextService text_service;
+    draxul::tests::init_text_service(text_service);
+    TestHostCallbacks callbacks;
+    AppConfig config;
+    AppOptions options;
+    options.host_kind = HostKind::RemoteTerminal;
+
+    int custom_calls = 0;
+    int composition_calls = 0;
+    options.host_factory = [&](HostKind) -> std::unique_ptr<IHost> {
+        ++custom_calls;
+        return std::make_unique<FakeHost>("custom");
+    };
+
+    PaneManager::Deps deps;
+    deps.options = &options;
+    deps.config = &config;
+    deps.window = &window;
+    deps.grid_renderer = &renderer;
+    deps.text_service = &text_service;
+    deps.host_factory = [&](HostKind) -> std::unique_ptr<IHost> {
+        ++composition_calls;
+        return std::make_unique<FakeHost>("composition");
+    };
+    deps.compute_viewport = [](const PaneDescriptor& desc) {
+        HostViewport viewport;
+        viewport.pixel_pos = desc.pixel_pos;
+        viewport.pixel_size = desc.pixel_size;
+        viewport.grid_size = { 80, 24 };
+        return viewport;
+    };
+
+    {
+        PaneManager manager(deps);
+        REQUIRE(manager.create(
+            callbacks, 800, 600, HostKind::RemoteTerminal));
+        CHECK(custom_calls == 1);
+        CHECK(composition_calls == 0);
+        manager.shutdown();
+    }
+
+    options.host_factory = {};
+    {
+        PaneManager manager(deps);
+        REQUIRE(manager.create(
+            callbacks, 800, 600, HostKind::RemoteTerminal));
+        CHECK(custom_calls == 1);
+        CHECK(composition_calls == 1);
+        manager.shutdown();
+    }
+}
+
 TEST_CASE("pane manager: shell launch options inherit configured scrollback capacity",
     "[pane_manager][scrollback]")
 {

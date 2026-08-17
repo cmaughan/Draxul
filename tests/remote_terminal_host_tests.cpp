@@ -7,6 +7,7 @@
 
 #include <draxul/client_recovery.h>
 #include <draxul/control_plane.h>
+#include <draxul/remote_session_coordinator.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/remote_terminal_host.h>
 #include <draxul/remote_terminal_protocol.h>
@@ -18,6 +19,7 @@
 
 #include <SDL3/SDL_keycode.h>
 
+#include <atomic>
 #include <thread>
 
 using namespace draxul;
@@ -1056,7 +1058,7 @@ TEST_CASE("remote terminal hosts recover in place after a long server restart",
 }
 
 TEST_CASE("remote terminal host renders shared state and can take control",
-    "[host][remote-terminal]")
+    "[host][remote-terminal][coordinator]")
 {
     TempDir temp("draxul-remote-host");
     ServerKernel server({
@@ -1072,10 +1074,20 @@ TEST_CASE("remote terminal host renders shared state and can take control",
     draxul::tests::init_text_service(text_service);
 
     TestHostCallbacks callbacks;
+    std::atomic<int> coordinator_wakes = 0;
+    auto coordinator = std::make_shared<RemoteSessionCoordinator>(
+        RemoteSessionCoordinatorOptions{
+            .runtime_directory = temp.path,
+            .client_id = "render-client",
+            .expected_server_epoch = "host-test-epoch",
+            .wake_consumer = [&] { ++coordinator_wakes; },
+        });
+    REQUIRE(coordinator->start());
     RemoteTerminalHost host({
         .runtime_directory = temp.path,
         .client_id = "render-client",
         .server_epoch = "host-test-epoch",
+        .coordinator = coordinator,
     });
     HostContext context{
         .window = &window,
@@ -1091,6 +1103,7 @@ TEST_CASE("remote terminal host renders shared state and can take control",
         .display_ppi = 96.0f,
     };
     REQUIRE(host.initialize(context, callbacks));
+    CHECK_FALSE(host.requires_periodic_wake());
     REQUIRE(pump_until(host, [&] {
         return host.grid_cols() == 20 && host.grid_rows() == 5;
     }));
@@ -1155,8 +1168,10 @@ TEST_CASE("remote terminal host renders shared state and can take control",
         < static_cast<size_t>(host.grid_cols() * host.grid_rows()));
     REQUIRE(observer.poll(changed, error));
     REQUIRE(changed);
+    CHECK(coordinator_wakes.load() > 0);
 
     host.shutdown();
+    coordinator->stop();
 }
 
 TEST_CASE("hidden remote terminal host suspends presentation and resumes with current state",

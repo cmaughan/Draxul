@@ -22,11 +22,14 @@
 #include <draxul/client_recovery.h>
 #include <draxul/control_plane.h>
 #include <draxul/grid_host_base.h>
+#include <draxul/host_registry.h>
 #include <draxul/log.h>
 #include <draxul/pane_print.h>
 #include <draxul/perf_timing.h>
 #include <draxul/pixel_scale.h>
 #include <draxul/remote_session_client.h>
+#include <draxul/remote_session_coordinator.h>
+#include <draxul/remote_terminal_host.h>
 #include <draxul/render_test_driver.h>
 #include <draxul/sdl_window.h>
 #include <draxul/server_client.h>
@@ -2321,6 +2324,8 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         rebuild_render_tree();
         walk_pump(render_root_);
         pump_background_hosts();
+        if (remote_session_coordinator_)
+            remote_session_coordinator_->acknowledge_wake();
         refresh_tab_default_names();
         // An agent launched by hand into an existing pane (rather than through
         // launch_agent) mutates no pane, tab, or Space, so no existing event
@@ -3003,6 +3008,35 @@ PaneManager::Deps App::make_pane_manager_deps(const Space* space)
     deps.text_service = &text_service_;
     deps.display_ppi = &display_ppi_;
     deps.owner_lifetime = host_owner_lifetime_;
+    deps.host_factory = [this](HostKind kind)
+        -> std::unique_ptr<IHost> {
+        if (kind == HostKind::RemoteTerminal
+            && remote_session_coordinator_)
+        {
+            const bool suspend_supported
+                = options_.server_connection
+                && std::ranges::find(
+                       options_.server_connection->capabilities,
+                       "terminal-presentation-suspend-v1")
+                    != options_.server_connection->capabilities.end();
+            return std::make_unique<RemoteTerminalHost>(
+                RemoteTerminalHostOptions{
+                    .runtime_directory
+                    = options_.server_runtime_directory,
+                    .client_id = options_.server_client_id,
+                    .session_id = options_.session_id,
+                    .server_epoch = options_.server_connection
+                        ? options_.server_connection->server_epoch
+                        : std::string{},
+                    .method_prefix = "terminal",
+                    .recovery = options_.client_recovery,
+                    .coordinator = remote_session_coordinator_,
+                    .presentation_suspend_supported
+                    = suspend_supported,
+                });
+        }
+        return HostProviderRegistry::global().create(kind);
+    };
     deps.allow_local_layout_mutation
         = !options_.enable_remote_topology;
     if (options_.enable_remote_topology)
@@ -3069,6 +3103,38 @@ bool App::initialize_remote_topology()
             = "Remote topology requires a server runtime and client identity.";
         return false;
     }
+    if (!options_.host_factory)
+    {
+        const bool suspend_supported
+            = options_.server_connection
+            && std::ranges::find(
+                   options_.server_connection->capabilities,
+                   "terminal-presentation-suspend-v1")
+                != options_.server_connection->capabilities.end();
+        remote_session_coordinator_
+            = std::make_shared<RemoteSessionCoordinator>(
+                RemoteSessionCoordinatorOptions{
+                    .runtime_directory
+                    = options_.server_runtime_directory,
+                    .client_id = options_.server_client_id,
+                    .session_id = options_.session_id,
+                    .expected_server_epoch = options_.server_connection
+                        ? options_.server_connection->server_epoch
+                        : std::string{},
+                    .method_prefix = "terminal",
+                    .recovery = options_.client_recovery,
+                    .presentation_suspend_supported
+                    = suspend_supported,
+                    .wake_consumer = [this] { wake_window(); },
+                });
+        if (!remote_session_coordinator_->start())
+        {
+            last_init_error_
+                = "Failed to start the remote terminal Session coordinator.";
+            remote_session_coordinator_.reset();
+            return false;
+        }
+    }
     if (find_active_tab() == nullptr)
     {
         TabController& tabs = active_tab_controller();
@@ -3080,6 +3146,11 @@ bool App::initialize_remote_topology()
         {
             last_init_error_
                 = "Failed to create the shared Session placeholder.";
+            if (remote_session_coordinator_)
+            {
+                remote_session_coordinator_->stop();
+                remote_session_coordinator_.reset();
+            }
             return false;
         }
     }
@@ -3097,6 +3168,11 @@ bool App::initialize_remote_topology()
         last_init_error_
             = "Failed to start the shared Session client worker.";
         remote_session_client_.reset();
+        if (remote_session_coordinator_)
+        {
+            remote_session_coordinator_->stop();
+            remote_session_coordinator_.reset();
+        }
         return false;
     }
     push_toast(0, "Connecting to shared Session...");
@@ -5393,6 +5469,12 @@ void App::shutdown()
         remote_session_client_->stop();
         remote_session_client_.reset();
     }
+    // Stop every coordinator entry against one shared deadline, then retain
+    // the coordinator object until pane registrations have been destroyed.
+    // Stopping registrations one-by-one would turn the per-entry join budget
+    // into an O(pane-count) window shutdown delay.
+    if (remote_session_coordinator_)
+        remote_session_coordinator_->stop();
     if (control_server_)
     {
         control_server_->stop();
@@ -5415,6 +5497,7 @@ void App::shutdown()
 
     space_controller_.shutdown_all();
     render_root_ = RenderNode{};
+    remote_session_coordinator_.reset();
 
     if (chrome_host_)
         chrome_host_->shutdown();

@@ -42,6 +42,7 @@ class MacOsMenu;
 class ControlServer;
 class ControlEventJournal;
 class RemoteSessionClient;
+class RemoteSessionCoordinator;
 struct ServerAgentSnapshot;
 struct TopologyCommand;
 struct TopologySnapshot;
@@ -329,6 +330,8 @@ private:
     std::unique_ptr<ControlServer> control_server_;
     std::unique_ptr<ControlEventJournal> control_events_;
     std::unique_ptr<RemoteSessionClient> remote_session_client_;
+    std::shared_ptr<RemoteSessionCoordinator>
+        remote_session_coordinator_;
     std::unique_ptr<ITopologyMutationRoute>
         topology_mutation_route_;
     TopologySnapshot remote_topology_snapshot_;

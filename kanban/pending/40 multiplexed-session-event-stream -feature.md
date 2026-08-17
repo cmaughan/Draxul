@@ -61,13 +61,30 @@ diagnostic evidence for the coordinator/multiplex work, not timing gates for CI.
 
 ## Phase 1 — one UI Session coordinator
 
-- [ ] Move polling, command dispatch, and recovery ownership out of each
+- [x] Move polling, command dispatch, and recovery ownership out of each
       `RemoteTerminalHost` into one coordinator owned beside `RemoteSessionClient`.
-- [ ] Keep one `RemoteTerminalProjection` per pane and register consumers by terminal
+- [x] Keep one `RemoteTerminalProjection` per pane and register consumers by terminal
       ID plus visibility generation.
-- [ ] Route decoded updates into pane mailboxes and coalesce ready projections into
+- [x] Route decoded updates into pane mailboxes and coalesce ready projections into
       one UI wake.
-- [ ] Retain capability-selected legacy per-pane clients during migration.
+- [x] Retain capability-selected legacy per-pane clients during migration.
+
+### Delivered checkpoint — UI Session coordinator
+
+`RemoteSessionCoordinator` now owns production remote-terminal registrations,
+legacy client workers, bounded command queues, recovery, suspension, scrollback,
+projection mailboxes, visibility generations, and coalesced UI wakes. `App` owns one
+coordinator beside `RemoteSessionClient`, drains every active and background pane
+before acknowledging a wake, and stops all entries against one shared shutdown
+deadline. `RemoteTerminalHost` is a main-thread presentation adapter on this path;
+the experimental fake transport and caller-supplied host factories retain the
+legacy per-host implementation as the migration fallback.
+
+Focused coverage lives in `tests/remote_session_coordinator_tests.cpp`, the
+coordinator-backed render/control-transfer case in
+`tests/remote_terminal_host_tests.cpp`, and the composition precedence case in
+`tests/pane_manager_tests.cpp`. The wire protocol and request count are deliberately
+unchanged in this phase; `session.poll` remains Phase 2.
 
 ## Phase 2 — batched Session polling
 

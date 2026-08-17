@@ -3,6 +3,7 @@
 #include <draxul/client_recovery.h>
 #include <draxul/input_types.h>
 #include <draxul/log.h>
+#include <draxul/remote_session_coordinator.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/terminal_key_encoder.h>
 #include <draxul/terminal_snapshot.h>
@@ -91,20 +92,7 @@ struct RemoteHostCommand
     bool mergeable = true;
 };
 
-struct RemotePublishedState
-{
-    TerminalSemanticSnapshot snapshot;
-    std::optional<TerminalDirtySnapshot> grid_update;
-    std::optional<RemoteTerminalScrollbackPage> scrollback_page;
-    uint64_t scroll_offset = 0;
-    uint64_t scrollback_total = 0;
-    std::string controller_client_id;
-    std::string display_name;
-    bool process_running = true;
-    std::optional<int> exit_code;
-    std::optional<std::string> clipboard_write;
-    std::chrono::microseconds attach_latency{ 0 };
-};
+using RemotePublishedState = RemoteTerminalPublishedState;
 
 TerminalSemanticSnapshot compose_scrollback_view(
     const TerminalSemanticSnapshot& live,
@@ -157,8 +145,18 @@ public:
         join_worker();
     }
 
-    bool start(std::string&)
+    bool start(std::string& error)
     {
+        if (options_.coordinator)
+        {
+            coordinator_registration_
+                = options_.coordinator->register_terminal(
+                    options_.terminal_id);
+            running_ = static_cast<bool>(coordinator_registration_);
+            if (!running_)
+                error = "Failed to register the remote terminal with the Session coordinator.";
+            return running_;
+        }
         if (!options_.recovery)
         {
             options_.recovery = std::make_shared<ClientRecoveryState>(
@@ -186,6 +184,12 @@ public:
 
     void stop()
     {
+        if (options_.coordinator)
+        {
+            coordinator_registration_.reset();
+            running_ = false;
+            return;
+        }
         request_stop();
         if (reaper_started_)
         {
@@ -233,6 +237,26 @@ public:
 
     bool enqueue(RemoteHostCommand command)
     {
+        if (options_.coordinator)
+        {
+            switch (command.kind)
+            {
+            case RemoteHostCommand::Kind::Input:
+                return coordinator_registration_.enqueue_input(
+                    command.text);
+            case RemoteHostCommand::Kind::Resize:
+                return coordinator_registration_.enqueue_resize(
+                    command.cols, command.rows);
+            case RemoteHostCommand::Kind::TakeControl:
+                return coordinator_registration_.enqueue_take_control();
+            case RemoteHostCommand::Kind::Scroll:
+                return coordinator_registration_.enqueue_scroll(
+                    command.scroll_rows);
+            case RemoteHostCommand::Kind::ScrollToLive:
+                return coordinator_registration_.enqueue_scroll_to_live();
+            }
+            return false;
+        }
         std::lock_guard guard(mutex_);
         if (stopping_)
             return false;
@@ -285,6 +309,8 @@ public:
 
     bool enqueue_input(std::string_view text)
     {
+        if (options_.coordinator)
+            return coordinator_registration_.enqueue_input(text);
         if (text.empty())
             return true;
 
@@ -342,6 +368,11 @@ public:
 
     bool enqueue_input_chunks(std::vector<std::string> chunks)
     {
+        if (options_.coordinator)
+        {
+            return coordinator_registration_.enqueue_input_chunks(
+                std::move(chunks));
+        }
         if (chunks.empty())
             return true;
 
@@ -377,6 +408,8 @@ public:
 
     std::optional<RemotePublishedState> take_published_state()
     {
+        if (options_.coordinator)
+            return coordinator_registration_.take_published_state();
         std::lock_guard guard(mutex_);
         auto result = std::move(published_state_);
         published_state_.reset();
@@ -385,12 +418,16 @@ public:
 
     std::string take_error()
     {
+        if (options_.coordinator)
+            return coordinator_registration_.take_error();
         std::lock_guard guard(mutex_);
         return std::exchange(pending_error_, {});
     }
 
     bool running() const
     {
+        if (options_.coordinator)
+            return coordinator_registration_.running();
         return running_;
     }
 
@@ -401,6 +438,8 @@ public:
 
     std::string init_error_code() const
     {
+        if (options_.coordinator)
+            return coordinator_registration_.last_error_code();
         return client_ ? client_->last_error_code() : std::string{};
     }
 
@@ -411,6 +450,12 @@ public:
 
     void set_presentation_visible(bool visible)
     {
+        if (options_.coordinator)
+        {
+            coordinator_registration_.set_presentation_visible(
+                visible);
+            return;
+        }
         if (presentation_visible_.exchange(visible) == visible)
             return;
         if (!visible)
@@ -423,7 +468,23 @@ public:
 
     bool presentation_visible() const noexcept
     {
+        if (options_.coordinator)
+            return coordinator_registration_.presentation_visible();
         return presentation_visible_;
+    }
+
+    bool uses_coordinator() const noexcept
+    {
+        return static_cast<bool>(options_.coordinator);
+    }
+
+    bool accepts_published_state(
+        const RemotePublishedState& state) const noexcept
+    {
+        return !options_.coordinator
+            || (coordinator_registration_.presentation_visible()
+                && state.visibility_generation
+                    == coordinator_registration_.visibility_generation());
     }
 
 private:
@@ -1069,6 +1130,7 @@ private:
     RemoteTerminalHost& owner_;
     RemoteTerminalHostOptions options_;
     std::unique_ptr<RemoteTerminalClient> client_;
+    RemoteSessionCoordinator::Registration coordinator_registration_;
     std::jthread worker_;
     std::atomic<bool> running_ = false;
     std::atomic<bool> stopping_ = false;
@@ -1129,7 +1191,8 @@ std::string RemoteTerminalHost::init_error_code() const
 
 void RemoteTerminalHost::pump()
 {
-    if (auto state = impl_->take_published_state())
+    if (auto state = impl_->take_published_state();
+        state && impl_->accepts_published_state(*state))
     {
         const TerminalSemanticSnapshot display_snapshot
             = state->scroll_offset > 0 && state->scrollback_page
@@ -1306,7 +1369,8 @@ void RemoteTerminalHost::set_presentation_visible(bool visible)
 
 bool RemoteTerminalHost::requires_periodic_wake() const
 {
-    return impl_->presentation_visible() && is_running();
+    return !impl_->uses_coordinator()
+        && impl_->presentation_visible() && is_running();
 }
 
 void RemoteTerminalHost::on_config_reloaded(
@@ -1649,6 +1713,8 @@ RemoteTerminalHost::next_deadline() const
 {
     if (!impl_->presentation_visible())
         return std::nullopt;
+    if (impl_->uses_coordinator())
+        return GridHostBase::next_deadline();
     const auto remote_deadline
         = std::chrono::steady_clock::now() + kRemotePollInterval;
     const auto base_deadline = GridHostBase::next_deadline();
