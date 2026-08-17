@@ -503,6 +503,25 @@ bool wait_for_text(
     return false;
 }
 
+bool wait_for_alternate_screen(
+    RemoteTerminalClient& client, bool expected, std::string& error)
+{
+    for (int attempt = 0; attempt < 200; ++attempt)
+    {
+        bool changed = false;
+        if (!client.poll(changed, error))
+            return false;
+        if (client.projection().snapshot().metadata.modes.alternate_screen
+            == expected)
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    error = expected
+        ? "Timed out waiting to enter the alternate screen."
+        : "Timed out waiting to leave the alternate screen.";
+    return false;
+}
+
 bool wait_for_agent(AgentClient& client,
     std::string_view kind, std::string& error)
 {
@@ -4559,7 +4578,7 @@ TEST_CASE("remote alternate screen preserves Unicode and resize semantics",
     INFO(error);
     INFO(snapshot_text(client.projection().snapshot()));
     REQUIRE(saw_alternate_text);
-    REQUIRE(client.projection().snapshot().metadata.modes.alternate_screen);
+    REQUIRE(wait_for_alternate_screen(client, true, error));
     REQUIRE(client.resize(52, 11, error));
     bool changed = false;
     REQUIRE(client.poll(changed, error));
@@ -4568,15 +4587,7 @@ TEST_CASE("remote alternate screen preserves Unicode and resize semantics",
     REQUIRE(client.projection().snapshot().metadata.modes.alternate_screen);
 
     REQUIRE(client.send_input(leave, error));
-    for (int attempt = 0; attempt < 200
-        && client.projection().snapshot().metadata.modes.alternate_screen;
-        ++attempt)
-    {
-        REQUIRE(client.poll(changed, error));
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    REQUIRE_FALSE(
-        client.projection().snapshot().metadata.modes.alternate_screen);
+    REQUIRE(wait_for_alternate_screen(client, false, error));
 
     run_guard.join();
 }

@@ -52,7 +52,12 @@ jobs:
       - name: Build and test
         env:
           DRAXUL_RUN_SLOW_TESTS: "1"
-        run: cmd /c scripts\run_tests.bat %BUILD_MODE%
+        run: |
+          # Hosted Windows runners expose the SDK/compiler but no Vulkan
+          # surface. Keep the real external DLL build and discovery smoke;
+          # GPU rendering remains covered on GPU-capable developer machines.
+          cmake --preset default -DDRAXUL_ENABLE_EXTERNAL_SDK_RENDER_SMOKE=OFF
+          cmd /c scripts\run_tests.bat %BUILD_MODE%
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
