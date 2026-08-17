@@ -59,5 +59,5 @@ structurally unrepeatable.
 
 **Completed 2026-08-17.** All seven slices landed on `main`, each validated
 with a full build, `do.py smoke`, and 26/26 `ctest` before the next merge.
-Windows acceptance is the one outstanding gate — see
-`kanban/pending/39 windows-consolidation-acceptance -test.md`.
+Windows acceptance is complete; see
+[`39 windows-consolidation-acceptance -test.md`](39%20windows-consolidation-acceptance%20-test.md).
