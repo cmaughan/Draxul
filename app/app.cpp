@@ -3103,6 +3103,29 @@ bool App::initialize_remote_topology()
             = "Remote topology requires a server runtime and client identity.";
         return false;
     }
+    const bool session_poll_supported
+        = !options_.host_factory && options_.server_connection
+        && std::ranges::find(
+               options_.server_connection->capabilities,
+               "session-poll-v1")
+            != options_.server_connection->capabilities.end();
+    remote_session_client_
+        = std::make_unique<RemoteSessionClient>(
+            RemoteSessionClientOptions{
+                .runtime_directory = options_.server_runtime_directory,
+                .client_id = options_.server_client_id,
+                .session_id = options_.session_id,
+                .wake_consumer = [this] { wake_window(); },
+                .recovery = options_.client_recovery,
+                .externally_fed = session_poll_supported,
+            });
+    if (!remote_session_client_->start())
+    {
+        last_init_error_
+            = "Failed to start the shared Session client worker.";
+        remote_session_client_.reset();
+        return false;
+    }
     if (!options_.host_factory)
     {
         const bool suspend_supported
@@ -3125,6 +3148,10 @@ bool App::initialize_remote_topology()
                     .recovery = options_.client_recovery,
                     .presentation_suspend_supported
                     = suspend_supported,
+                    .session_poll_supported
+                    = session_poll_supported,
+                    .session_client
+                    = remote_session_client_.get(),
                     .wake_consumer = [this] { wake_window(); },
                 });
         if (!remote_session_coordinator_->start())
@@ -3132,6 +3159,8 @@ bool App::initialize_remote_topology()
             last_init_error_
                 = "Failed to start the remote terminal Session coordinator.";
             remote_session_coordinator_.reset();
+            remote_session_client_->stop();
+            remote_session_client_.reset();
             return false;
         }
     }
@@ -3151,29 +3180,10 @@ bool App::initialize_remote_topology()
                 remote_session_coordinator_->stop();
                 remote_session_coordinator_.reset();
             }
+            remote_session_client_->stop();
+            remote_session_client_.reset();
             return false;
         }
-    }
-    remote_session_client_
-        = std::make_unique<RemoteSessionClient>(
-            RemoteSessionClientOptions{
-                .runtime_directory = options_.server_runtime_directory,
-                .client_id = options_.server_client_id,
-                .session_id = options_.session_id,
-                .wake_consumer = [this] { wake_window(); },
-                .recovery = options_.client_recovery,
-            });
-    if (!remote_session_client_->start())
-    {
-        last_init_error_
-            = "Failed to start the shared Session client worker.";
-        remote_session_client_.reset();
-        if (remote_session_coordinator_)
-        {
-            remote_session_coordinator_->stop();
-            remote_session_coordinator_.reset();
-        }
-        return false;
     }
     push_toast(0, "Connecting to shared Session...");
     return true;
@@ -5464,6 +5474,10 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
 void App::shutdown()
 {
     PERF_MEASURE();
+    // The coordinator's batch worker publishes through RemoteSessionClient,
+    // so quiesce it before releasing that client.
+    if (remote_session_coordinator_)
+        remote_session_coordinator_->stop();
     if (remote_session_client_)
     {
         remote_session_client_->stop();
@@ -5473,8 +5487,6 @@ void App::shutdown()
     // the coordinator object until pane registrations have been destroyed.
     // Stopping registrations one-by-one would turn the per-entry join budget
     // into an O(pane-count) window shutdown delay.
-    if (remote_session_coordinator_)
-        remote_session_coordinator_->stop();
     if (control_server_)
     {
         control_server_->stop();

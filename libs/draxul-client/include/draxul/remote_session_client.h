@@ -23,6 +23,15 @@ struct RemoteSessionClientOptions
     std::string session_id = "default";
     std::function<void()> wake_consumer;
     std::shared_ptr<ClientRecoveryState> recovery;
+    // The Session coordinator supplies topology and agent snapshots from
+    // session.poll. The worker still owns commands and one-shot status calls.
+    bool externally_fed = false;
+};
+
+struct RemoteSessionPollRevisions
+{
+    uint64_t topology = 0;
+    uint64_t agents = 0;
 };
 
 struct RemoteTopologyCommandCompletion
@@ -78,6 +87,18 @@ public:
         std::string_view server_epoch, uint64_t revision);
     void acknowledge_agents(
         std::string_view server_epoch, uint64_t revision);
+
+    // Thread-safe ingress used by the UI-scoped Session poll worker.
+    RemoteSessionPollRevisions session_poll_revisions() const;
+    void accept_session_poll_topology(
+        std::string server_epoch, TopologySnapshot snapshot);
+    void accept_session_poll_agents(
+        std::string server_epoch, ServerAgentSnapshot snapshot);
+    void accept_session_poll_epoch(std::string server_epoch);
+    void invalidate_session_poll_cursors(std::string server_epoch);
+    void accept_session_poll_error(
+        std::string channel, std::string error);
+    void enable_legacy_polling();
 
 private:
     class Impl;

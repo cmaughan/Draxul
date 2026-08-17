@@ -2,11 +2,112 @@
 
 #include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_protocol.h>
+#include <draxul/session_protocol.h>
 #include <draxul/topology_protocol.h>
 
 #include <nlohmann/json.hpp>
 
 using namespace draxul;
+
+TEST_CASE("Session poll protocol preserves subscription and visibility identity",
+    "[server][protocol][session-poll]")
+{
+    SessionPollRequest request{
+        .request_serial = 7,
+        .server_epoch = "epoch-a",
+        .topology_after_revision = 4,
+        .agent_after_revision = 5,
+        .terminals = {
+            {
+                .subscription_id = 11,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 3,
+                .visible = true,
+                .cursor = std::nullopt,
+            },
+            {
+                .subscription_id = 12,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 8,
+                .visible = false,
+                .cursor = SessionTerminalCursor{
+                    .generation = 2,
+                    .after_sequence = 19,
+                },
+            },
+        },
+    };
+    const auto encoded = session_poll_request_to_json(request);
+    REQUIRE(encoded["terminals"][0]["cursor"].is_null());
+    std::string error;
+    const auto decoded = session_poll_request_from_json(encoded, error);
+    INFO(error);
+    REQUIRE(decoded);
+    CHECK(*decoded == request);
+
+    SessionPollResponse response{
+        .request_serial = request.request_serial,
+        .server_epoch = request.server_epoch,
+        .topology = { .revision = 4 },
+        .agents = { .revision = 5 },
+        .terminals = {
+            {
+                .subscription_id = 11,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 3,
+                .suspended = false,
+                .resync = true,
+            },
+            {
+                .subscription_id = 12,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 8,
+                .suspended = true,
+            },
+        },
+    };
+    const auto decoded_response = session_poll_response_from_json(
+        session_poll_response_to_json(response), error);
+    INFO(error);
+    REQUIRE(decoded_response);
+    CHECK(*decoded_response == response);
+}
+
+TEST_CASE("Session poll protocol rejects hostile subscription envelopes",
+    "[server][protocol][session-poll]")
+{
+    SessionPollRequest request{
+        .request_serial = 1,
+        .server_epoch = "epoch-a",
+        .terminals = {
+            {
+                .subscription_id = 1,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 1,
+            },
+            {
+                .subscription_id = 1,
+                .terminal_id = "terminal-b",
+                .visibility_generation = 1,
+            },
+        },
+    };
+    std::string error;
+    CHECK_FALSE(session_poll_request_from_json(
+        session_poll_request_to_json(request), error));
+
+    auto missing_epoch = session_poll_request_to_json(request);
+    missing_epoch["server_epoch"] = "";
+    CHECK_FALSE(session_poll_request_from_json(
+        missing_epoch, error));
+
+    request.terminals.resize(kSessionPollMaxSubscriptions + 1,
+        request.terminals.front());
+    for (size_t index = 0; index < request.terminals.size(); ++index)
+        request.terminals[index].subscription_id = index + 1;
+    CHECK_FALSE(session_poll_request_from_json(
+        session_poll_request_to_json(request), error));
+}
 
 TEST_CASE("server protocol round-trips hello welcome and status", "[server][protocol]")
 {

@@ -3,6 +3,7 @@
 #include "fake_terminal_runtime.h"
 #include "remote_terminal_service.h"
 #include "server_terminal_runtime.h"
+#include "session_poll_service.h"
 #include "session_topology_bridge.h"
 #include "topology_service.h"
 
@@ -224,6 +225,7 @@ bool valid_server_session_id(std::string_view value)
 bool is_session_scoped_method(std::string_view method)
 {
     return method.starts_with("terminal.")
+        || method.starts_with("session.")
         || method.starts_with("topology.")
         || method.starts_with("agent.")
         || method.starts_with("pane.");
@@ -247,6 +249,7 @@ const std::vector<std::string>& server_capabilities()
         "real-remote-terminal",
         "session-delete-v1",
         "session-persistence-v1",
+        "session-poll-v1",
         "session-rename-v1",
         "status",
         "terminal-metrics-v1",
@@ -539,6 +542,7 @@ public:
         std::string session_name;
         std::unique_ptr<TopologyService> topology_service;
         std::unique_ptr<ServerAgentService> agent_service;
+        std::unique_ptr<SessionPollService> poll_service;
         std::unordered_map<std::string, ServerTerminalEndpoint>
             terminals;
         uint64_t next_terminal_serial = 2;
@@ -785,6 +789,7 @@ void ServerKernel::Impl::reset_services()
         (void)session_id;
         session->topology_service.reset();
         session->agent_service.reset();
+        session->poll_service.reset();
         session->terminals.clear();
         session->next_terminal_serial = 2;
     }
@@ -1018,6 +1023,7 @@ bool ServerKernel::Impl::initialize_session(
     ServerSession& session = *found->second;
     session.topology_service.reset();
     session.agent_service.reset();
+    session.poll_service.reset();
     session.terminals.clear();
     session.next_terminal_serial = 2;
     session.next_agent_serial = 1;
@@ -1224,6 +1230,8 @@ bool ServerKernel::Impl::initialize_session(
     session.agent_service
         = std::make_unique<ServerAgentService>(
             stable_session_id);
+    session.poll_service
+        = std::make_unique<SessionPollService>(epoch_value);
     session.next_agent_refresh_at
         = std::chrono::steady_clock::now();
     return true;
@@ -1673,6 +1681,8 @@ void ServerKernel::Impl::detach_client_from_services(
             (void)terminal_id;
             endpoint.service->disconnect_client(client_id);
         }
+        if (session->poll_service)
+            session->poll_service->disconnect_client(client_id);
     }
 }
 
@@ -2159,6 +2169,40 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         }
         return terminal->second.service->handle(
             request.method, request.params);
+    }
+    if (request.method == "session.poll")
+    {
+        if (request_client_id.empty())
+        {
+            return ControlMethodResult::error(
+                "invalid_client",
+                "Session polling requires an authenticated client identity.");
+        }
+        ControlMethodResult failure;
+        ServerSession* session = resolve_session(request.params,
+            SessionServiceNeed::TopologyAndAgent,
+            "Server Session projections are unavailable.", failure);
+        if (!session)
+            return failure;
+        if (!session->poll_service)
+        {
+            return ControlMethodResult::error(
+                "session_unavailable",
+                "Server Session polling is unavailable.");
+        }
+        std::vector<SessionPollTerminalView> terminals;
+        terminals.reserve(session->terminals.size());
+        for (auto& [terminal_id, endpoint] : session->terminals)
+        {
+            terminals.push_back({
+                .terminal_id = terminal_id,
+                .service = endpoint.service.get(),
+            });
+        }
+        return session->poll_service->handle(request.params,
+            request_client_id,
+            session->topology_service->snapshot(),
+            session->agent_service->snapshot(), terminals);
     }
     if (request.method == "topology.snapshot"
         || request.method == "topology.poll"

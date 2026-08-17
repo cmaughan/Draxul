@@ -3,6 +3,7 @@
 #include "../libs/draxul-server/src/fake_terminal_runtime.h"
 #include "../libs/draxul-server/src/remote_terminal_service.h"
 #include "../libs/draxul-server/src/server_terminal_runtime.h"
+#include "../libs/draxul-server/src/session_poll_service.h"
 #include "../libs/draxul-server/src/session_topology_bridge.h"
 #include "../libs/draxul-server/src/topology_service.h"
 #include "support/temp_dir.h"
@@ -15,6 +16,7 @@
 #include <draxul/server_client.h>
 #include <draxul/server_kernel.h>
 #include <draxul/server_protocol.h>
+#include <draxul/session_protocol.h>
 #include <draxul/session_state.h>
 #include <draxul/topology_client.h>
 
@@ -48,6 +50,111 @@ TEST_CASE("server terminal scrollback storage is lazy",
     });
     CHECK_FALSE(runtime.scrollback_storage_initialized());
     CHECK(runtime.scrollback_rows() == 0);
+}
+
+TEST_CASE("Session poll keeps duplicate terminal subscriptions independent",
+    "[server][session-poll][remote-terminal]")
+{
+    FakeTerminalRuntime runtime;
+    RemoteTerminalService service(
+        {
+            .method_prefix = "session-test",
+            .server_epoch = "session-epoch",
+            .pane_id = "pane-a",
+            .terminal_id = "terminal-a",
+            .name = "Terminal A",
+        },
+        runtime);
+    TopologyService topology("default");
+    ServerAgentService agents("default");
+    SessionPollService poll("session-epoch");
+    const std::array terminal_views{
+        SessionPollTerminalView{
+            .terminal_id = "terminal-a",
+            .service = &service,
+        },
+    };
+    SessionPollRequest initial{
+        .request_serial = 1,
+        .server_epoch = "session-epoch",
+        .topology_after_revision = topology.snapshot().revision,
+        .agent_after_revision = agents.snapshot().revision,
+        .terminals = {
+            {
+                .subscription_id = 1,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 1,
+            },
+            {
+                .subscription_id = 2,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 1,
+            },
+        },
+    };
+    auto initial_json = session_poll_request_to_json(initial);
+    const auto first = poll.handle(initial_json, "client-a",
+        topology.snapshot(), agents.snapshot(), terminal_views);
+    REQUIRE(first.ok);
+    std::string parse_error;
+    const auto first_response = session_poll_response_from_json(
+        first.value, parse_error);
+    INFO(parse_error);
+    REQUIRE(first_response);
+    REQUIRE(first_response->terminals.size() == 2);
+    REQUIRE(first_response->terminals[0].attach);
+    REQUIRE(first_response->terminals[1].attach);
+    const auto cursor_for = [&](uint64_t subscription_id) {
+        const auto found = std::ranges::find_if(
+            first_response->terminals,
+            [subscription_id](const auto& batch) {
+                return batch.subscription_id == subscription_id;
+            });
+        REQUIRE(found != first_response->terminals.end());
+        return SessionTerminalCursor{
+            .generation = found->attach->state.version.generation,
+            .after_sequence
+            = found->attach->state.version.sequence,
+        };
+    };
+    const auto first_cursor = cursor_for(1);
+    const auto second_cursor = cursor_for(2);
+
+    REQUIRE(service.handle("session-test.resize",
+        {
+            { "client_id", "client-a" },
+            { "request_id", uint64_t{ 9 } },
+            { "cols", 90 },
+            { "rows", 30 },
+        }).ok);
+    SessionPollRequest changed = initial;
+    changed.request_serial = 2;
+    changed.terminals[0].cursor = first_cursor;
+    changed.terminals[0].visible = false;
+    changed.terminals[0].visibility_generation = 2;
+    changed.terminals[1].cursor = second_cursor;
+    const auto changed_result = poll.handle(
+        session_poll_request_to_json(changed), "client-a",
+        topology.snapshot(), agents.snapshot(), terminal_views);
+    REQUIRE(changed_result.ok);
+    const auto changed_response = session_poll_response_from_json(
+        changed_result.value, parse_error);
+    INFO(parse_error);
+    REQUIRE(changed_response);
+    const auto hidden = std::ranges::find_if(
+        changed_response->terminals, [](const auto& batch) {
+            return batch.subscription_id == 1;
+        });
+    const auto visible = std::ranges::find_if(
+        changed_response->terminals, [](const auto& batch) {
+            return batch.subscription_id == 2;
+        });
+    REQUIRE(hidden != changed_response->terminals.end());
+    CHECK(hidden->suspended);
+    REQUIRE(visible != changed_response->terminals.end());
+    CHECK_FALSE(visible->events.empty());
+    CHECK(session_poll_response_to_json(*changed_response).dump().size()
+        <= kControlMaxMessageBytes);
 }
 
 TEST_CASE("server scrollback budget reserves rejects and releases cells",
@@ -1325,6 +1432,39 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
                 kServerClientTokenCapability)
         != probe.welcome->capabilities.end());
     REQUIRE_FALSE(probe.welcome->connection_token.empty());
+
+    SessionPollRequest session_poll{
+        .request_serial = 1,
+        .server_epoch = probe.welcome->server_epoch,
+        .terminals = {
+            {
+                .subscription_id = 1,
+                .terminal_id = std::string(kServerShellTerminalId),
+                .visibility_generation = 1,
+            },
+        },
+    };
+    auto session_poll_params
+        = session_poll_request_to_json(session_poll);
+    session_poll_params["session_id"] = "default";
+    session_poll_params["client_id"] = "unit-client";
+    session_poll_params["connection_token"]
+        = probe.welcome->connection_token;
+    const auto session_poll_result = ControlClient::request(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, "session.poll", session_poll_params);
+    REQUIRE(session_poll_result.ok);
+    std::string session_poll_error;
+    const auto session_poll_response
+        = session_poll_response_from_json(
+            session_poll_result.result, session_poll_error);
+    INFO(session_poll_error);
+    REQUIRE(session_poll_response);
+    CHECK(session_poll_response->request_serial == 1);
+    REQUIRE(session_poll_response->topology.snapshot);
+    REQUIRE(session_poll_response->agents.snapshot);
+    REQUIRE(session_poll_response->terminals.size() == 1);
+    REQUIRE(session_poll_response->terminals.front().attach);
 
     const auto agents = ControlClient::request(
         namespaced_control_id(kServerControlId, temp.path),

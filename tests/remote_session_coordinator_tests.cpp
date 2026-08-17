@@ -4,11 +4,15 @@
 
 #include <draxul/control_plane.h>
 #include <draxul/remote_session_coordinator.h>
+#include <draxul/remote_session_client.h>
 #include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_protocol.h>
+#include <draxul/session_protocol.h>
 
 #include <atomic>
+#include <mutex>
 #include <thread>
+#include <vector>
 
 using namespace draxul;
 using namespace draxul::tests;
@@ -336,4 +340,281 @@ TEST_CASE("remote Session coordinator registration teardown is bounded by a bloc
     dispatcher.join();
     coordinator.stop();
     server.stop();
+}
+
+TEST_CASE("remote Session coordinator multiplexes registrations through one Session poll worker",
+    "[client][remote-session-coordinator][session-poll]")
+{
+    TempDir temp("draxul-session-coordinator-batch");
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &start_error));
+
+    auto recovery
+        = std::make_shared<ClientRecoveryState>("coordinator-ui");
+    REQUIRE(recovery->set_server_epoch("coordinator-epoch"));
+    RemoteSessionClient session_client({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .recovery = recovery,
+        .externally_fed = true,
+    });
+    std::atomic<int> session_polls = 0;
+    std::atomic<int> legacy_polls = 0;
+    std::atomic<int> input_calls = 0;
+    std::atomic<uint64_t> published_sequence = 0;
+    std::mutex observations_mutex;
+    std::vector<SessionPollRequest> observations;
+    std::jthread dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            server.process_pending([&](const ControlRequest& control) {
+                if (control.method == "session.poll")
+                {
+                    ++session_polls;
+                    std::string error;
+                    auto request = session_poll_request_from_json(
+                        control.params, error);
+                    if (!request)
+                    {
+                        return ControlMethodResult::error(
+                            "invalid_request", error);
+                    }
+                    {
+                        std::lock_guard guard(observations_mutex);
+                        observations.push_back(*request);
+                    }
+                    SessionPollResponse response{
+                        .request_serial = request->request_serial,
+                        .server_epoch = "coordinator-epoch",
+                    };
+                    for (const auto& subscription : request->terminals)
+                    {
+                        SessionTerminalPollBatch batch{
+                            .subscription_id
+                            = subscription.subscription_id,
+                            .terminal_id = subscription.terminal_id,
+                            .visibility_generation
+                            = subscription.visibility_generation,
+                            .suspended = !subscription.visible,
+                        };
+                        if (!subscription.cursor)
+                        {
+                            batch.attach = terminal_attach(
+                                published_sequence);
+                        }
+                        else if (subscription.visible
+                            && subscription.cursor->after_sequence
+                                < published_sequence)
+                        {
+                            batch.events.push_back(terminal_attach(
+                                published_sequence)
+                                                       .state);
+                        }
+                        response.terminals.push_back(std::move(batch));
+                    }
+                    return ControlMethodResult::success(
+                        session_poll_response_to_json(response));
+                }
+                if (control.method == "fake.poll"
+                    || control.method == "fake.attach")
+                {
+                    ++legacy_polls;
+                }
+                if (control.method == "fake.input")
+                {
+                    ++input_calls;
+                    return ControlMethodResult::success(
+                        nlohmann::json::object());
+                }
+                return ControlMethodResult::error(
+                    "unknown_method", "Unexpected batch test method.");
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    RemoteSessionCoordinator coordinator({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .expected_server_epoch = "coordinator-epoch",
+        .method_prefix = "fake",
+        .recovery = recovery,
+        .session_poll_supported = true,
+        .session_client = &session_client,
+    });
+    REQUIRE(coordinator.start());
+    auto first = coordinator.register_terminal("terminal-shared");
+    auto second = coordinator.register_terminal("terminal-shared");
+    REQUIRE(first);
+    REQUIRE(second);
+    REQUIRE(wait_for_state(first));
+    REQUIRE(wait_for_state(second));
+    CHECK(legacy_polls == 0);
+    REQUIRE(wait_for_condition([&] {
+        std::lock_guard guard(observations_mutex);
+        if (observations.empty()
+            || observations.back().terminals.size() != 2)
+        {
+            return false;
+        }
+        return observations.back().terminals[0].subscription_id
+            != observations.back().terminals[1].subscription_id;
+    }));
+
+    published_sequence = 1;
+    auto first_update = wait_for_state(first);
+    auto second_update = wait_for_state(second);
+    REQUIRE(first_update);
+    REQUIRE(second_update);
+    CHECK(first_update->snapshot.metadata.title == "Updated");
+    CHECK(second_update->snapshot.metadata.title == "Updated");
+
+    REQUIRE(first.enqueue_input("batch-input"));
+    REQUIRE(wait_for_condition([&] { return input_calls.load() == 1; }));
+    const uint64_t hidden_generation
+        = first.set_presentation_visible(false);
+    REQUIRE(wait_for_condition([&] {
+        std::lock_guard guard(observations_mutex);
+        for (const auto& request : observations)
+        {
+            for (const auto& subscription : request.terminals)
+            {
+                if (subscription.subscription_id == first.id()
+                    && !subscription.visible
+                    && subscription.visibility_generation
+                        == hidden_generation)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }));
+    const uint64_t visible_generation
+        = first.set_presentation_visible(true);
+    auto resumed = wait_for_state(first);
+    REQUIRE(resumed);
+    CHECK(resumed->visibility_generation == visible_generation);
+    CHECK(legacy_polls == 0);
+    CHECK(session_polls > 0);
+
+    coordinator.stop();
+    dispatcher.request_stop();
+    dispatcher.join();
+    server.stop();
+}
+
+TEST_CASE("remote Session coordinator falls back when Session poll is unavailable",
+    "[client][remote-session-coordinator][session-poll][fallback]")
+{
+    TempDir temp("draxul-session-coordinator-fallback");
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &start_error));
+    auto recovery
+        = std::make_shared<ClientRecoveryState>("coordinator-ui");
+    REQUIRE(recovery->set_server_epoch("coordinator-epoch"));
+    RemoteSessionClient session_client({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .recovery = recovery,
+        .externally_fed = true,
+    });
+    std::atomic<int> session_polls = 0;
+    std::atomic<int> legacy_attaches = 0;
+    std::jthread dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            server.process_pending([&](const ControlRequest& request) {
+                if (request.method == "session.poll")
+                {
+                    ++session_polls;
+                    return ControlMethodResult::error(
+                        "unknown_method", "Old server.");
+                }
+                if (request.method == "fake.attach")
+                {
+                    ++legacy_attaches;
+                    return ControlMethodResult::success(
+                        remote_terminal_attach_to_json(
+                            terminal_attach(0)));
+                }
+                if (request.method == "fake.poll")
+                {
+                    return ControlMethodResult::success({
+                        { "events", nlohmann::json::array() },
+                    });
+                }
+                return ControlMethodResult::error(
+                    "unknown_method", "Unexpected fallback method.");
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    RemoteSessionCoordinator coordinator({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .expected_server_epoch = "coordinator-epoch",
+        .method_prefix = "fake",
+        .recovery = recovery,
+        .session_poll_supported = true,
+        .session_client = &session_client,
+    });
+    REQUIRE(coordinator.start());
+    auto registration
+        = coordinator.register_terminal("terminal-shared");
+    REQUIRE(registration);
+    REQUIRE(wait_for_state(registration));
+    CHECK(session_polls == 1);
+    CHECK(legacy_attaches == 1);
+
+    coordinator.stop();
+    dispatcher.request_stop();
+    dispatcher.join();
+    server.stop();
+}
+
+TEST_CASE("remote Session client accepts multiplexed topology and agent channels",
+    "[client][remote-session-client][session-poll]")
+{
+    auto recovery = std::make_shared<ClientRecoveryState>("session-ui");
+    REQUIRE(recovery->set_server_epoch("epoch-a"));
+    RemoteSessionClient client({
+        .client_id = "session-ui",
+        .recovery = recovery,
+        .externally_fed = true,
+    });
+    client.accept_session_poll_topology("epoch-a", {
+        .revision = 7,
+        .session_id = "default",
+    });
+    client.accept_session_poll_agents("epoch-a", {
+        .revision = 3,
+        .session_id = "default",
+    });
+    const auto revisions = client.session_poll_revisions();
+    CHECK(revisions.topology == 7);
+    CHECK(revisions.agents == 3);
+    auto state = client.take_published_state();
+    REQUIRE(state);
+    REQUIRE(state->topology);
+    REQUIRE(state->agents);
+    CHECK(state->topology->revision == 7);
+    CHECK(state->agents->revision == 3);
+    CHECK(state->topology_server_epoch == "epoch-a");
+    CHECK(state->agent_server_epoch == "epoch-a");
+
+    client.accept_session_poll_epoch("epoch-b");
+    const auto reset = client.session_poll_revisions();
+    CHECK(reset.topology == 0);
+    CHECK(reset.agents == 0);
+    auto epoch_state = client.take_published_state();
+    REQUIRE(epoch_state);
+    CHECK(epoch_state->server_epoch_changed);
 }

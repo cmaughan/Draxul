@@ -2,11 +2,14 @@
 
 #include "../libs/draxul-server/src/fake_terminal_runtime.h"
 #include "../libs/draxul-server/src/remote_terminal_service.h"
+#include "../libs/draxul-server/src/session_poll_service.h"
+#include "../libs/draxul-server/src/topology_service.h"
 #include "support/temp_dir.h"
 
 #include <draxul/control_plane.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/server_protocol.h>
+#include <draxul/session_protocol.h>
 
 #include <algorithm>
 #include <chrono>
@@ -41,7 +44,10 @@ struct LoadScenario
 struct PaneFixture
 {
     std::string method_prefix;
+    std::string terminal_id;
     std::string client_id;
+    size_t ui_index = 0;
+    uint64_t subscription_id = 0;
     std::unique_ptr<FakeTerminalRuntime> runtime;
     std::unique_ptr<RemoteTerminalService> service;
     std::unique_ptr<RemoteTerminalClient> client;
@@ -55,6 +61,23 @@ struct RequestSample
     uint64_t request_latency_us = 0;
     uint64_t delivery_latency_us = 0;
     uint64_t terminal_sequence = 0;
+};
+
+struct SessionPollSample
+{
+    bool ok = false;
+    uint64_t request_serial = 0;
+    std::string error_code;
+    std::string error_message;
+    std::optional<SessionPollResponse> response;
+};
+
+struct BatchedUiState
+{
+    std::string client_id;
+    uint64_t topology_revision = 0;
+    uint64_t agent_revision = 0;
+    uint64_t next_request_serial = 1;
 };
 
 template <typename T>
@@ -162,7 +185,10 @@ nlohmann::json run_load_scenario(const LoadScenario scenario)
             });
         panes.push_back({
             .method_prefix = prefix,
+            .terminal_id = terminal_id,
             .client_id = client_id,
+            .ui_index = index % scenario.attached_uis,
+            .subscription_id = index + 1,
             .runtime = std::move(runtime),
             .service = std::move(service),
             .client = std::move(client),
@@ -450,6 +476,378 @@ nlohmann::json run_load_scenario(const LoadScenario scenario)
     return result;
 }
 
+SessionPollRequest make_session_poll_request(
+    BatchedUiState& ui,
+    const std::vector<PaneFixture>& panes)
+{
+    SessionPollRequest request{
+        .request_serial = ui.next_request_serial++,
+        .server_epoch = "load-epoch",
+        .topology_after_revision = ui.topology_revision,
+        .agent_after_revision = ui.agent_revision,
+    };
+    for (const auto& pane : panes)
+    {
+        if (pane.client_id != ui.client_id)
+            continue;
+        SessionTerminalSubscription subscription{
+            .subscription_id = pane.subscription_id,
+            .terminal_id = pane.terminal_id,
+            .visibility_generation = 1,
+            .visible = true,
+        };
+        if (pane.client->projection().attached())
+        {
+            const auto& version
+                = pane.client->projection().version();
+            subscription.cursor = SessionTerminalCursor{
+                .generation = version.generation,
+                .after_sequence = version.sequence,
+            };
+        }
+        request.terminals.push_back(std::move(subscription));
+    }
+    return request;
+}
+
+bool apply_session_poll_response(
+    BatchedUiState& ui, std::vector<PaneFixture>& panes,
+    const SessionPollResponse& response, std::string& error)
+{
+    if (response.server_epoch != "load-epoch")
+    {
+        error = "Batched load response used the wrong server epoch.";
+        return false;
+    }
+    if (!response.topology.error_code.empty()
+        || !response.agents.error_code.empty())
+    {
+        error = !response.topology.error_code.empty()
+            ? response.topology.error_code
+            : response.agents.error_code;
+        return false;
+    }
+    if (response.topology.snapshot)
+        ui.topology_revision = response.topology.snapshot->revision;
+    if (response.agents.snapshot)
+        ui.agent_revision = response.agents.snapshot->revision;
+
+    for (const auto& batch : response.terminals)
+    {
+        auto found = std::ranges::find_if(panes,
+            [&](const PaneFixture& pane) {
+                return pane.client_id == ui.client_id
+                    && pane.subscription_id
+                        == batch.subscription_id;
+            });
+        if (found == panes.end()
+            || found->terminal_id != batch.terminal_id
+            || batch.visibility_generation != 1
+            || !batch.error_code.empty())
+        {
+            error = batch.error_code.empty()
+                ? "Batched terminal identity did not match its subscription."
+                : batch.error_code;
+            return false;
+        }
+        if (batch.attach
+            && !found->client->accept_attach(*batch.attach, error))
+        {
+            return false;
+        }
+        if (!batch.events.empty())
+        {
+            bool changed = false;
+            if (!found->client->accept_events(
+                    batch.events, changed, error)
+                || !changed)
+            {
+                return false;
+            }
+        }
+    }
+    error.clear();
+    return true;
+}
+
+nlohmann::json run_batched_load_scenario(
+    const LoadScenario scenario)
+{
+    INFO("batched panes=" << scenario.panes
+                           << " attached_uis="
+                           << scenario.attached_uis);
+    REQUIRE(scenario.panes > 0);
+    REQUIRE(scenario.attached_uis > 0);
+
+    TempDir temp("draxul-session-batched-load");
+    const std::string control_id
+        = namespaced_control_id(kServerControlId, temp.path);
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(
+        control_id, temp.path, [] {}, &start_error));
+
+    std::vector<PaneFixture> panes;
+    panes.reserve(scenario.panes);
+    for (size_t index = 0; index < scenario.panes; ++index)
+    {
+        const std::string suffix = std::to_string(index);
+        const std::string prefix = "batch-" + suffix;
+        const std::string terminal_id
+            = "batch-terminal-" + suffix;
+        const size_t ui_index
+            = index % scenario.attached_uis;
+        const std::string client_id
+            = "batch-ui-" + std::to_string(ui_index);
+        auto runtime = std::make_unique<FakeTerminalRuntime>();
+        auto service = std::make_unique<RemoteTerminalService>(
+            RemoteTerminalServiceOptions{
+                .method_prefix = prefix,
+                .server_epoch = "load-epoch",
+                .pane_id = "batch-pane-" + suffix,
+                .terminal_id = terminal_id,
+                .name = "Batched load pane " + suffix,
+            },
+            *runtime);
+        auto client = std::make_unique<RemoteTerminalClient>(
+            RemoteTerminalClientOptions{
+                .runtime_directory = temp.path,
+                .client_id = client_id,
+                .expected_server_epoch = "load-epoch",
+                .method_prefix = prefix,
+                .terminal_id = terminal_id,
+            });
+        panes.push_back({
+            .method_prefix = prefix,
+            .terminal_id = terminal_id,
+            .client_id = client_id,
+            .ui_index = ui_index,
+            .subscription_id = index + 1,
+            .runtime = std::move(runtime),
+            .service = std::move(service),
+            .client = std::move(client),
+        });
+    }
+    std::vector<BatchedUiState> uis;
+    uis.reserve(scenario.attached_uis);
+    for (size_t index = 0;
+         index < scenario.attached_uis; ++index)
+    {
+        uis.push_back({
+            .client_id = "batch-ui-" + std::to_string(index),
+        });
+    }
+
+    TopologyService topology_service("default");
+    TopologySnapshot topology = topology_service.snapshot();
+    ServerAgentSnapshot agents{
+        .revision = 1,
+        .session_id = "default",
+    };
+    std::vector<SessionPollTerminalView> terminal_views;
+    terminal_views.reserve(panes.size());
+    for (auto& pane : panes)
+    {
+        terminal_views.push_back({
+            .terminal_id = pane.terminal_id,
+            .service = pane.service.get(),
+        });
+    }
+    SessionPollService session_poll("load-epoch");
+    std::map<std::string, uint64_t> handled_methods;
+    const ControlServer::Handler handler
+        = [&](const ControlRequest& control_request) {
+              ++handled_methods[control_request.method];
+              if (control_request.method != "session.poll")
+              {
+                  return ControlMethodResult::error(
+                      "unknown_method",
+                      "Unexpected batched load-test method.");
+              }
+              const std::string client_id
+                  = control_request.params.value(
+                      "client_id", std::string{});
+              return session_poll.handle(
+                  control_request.params, client_id,
+                  topology, agents, terminal_views);
+          };
+
+    const auto poll_uis = [&]() -> bool {
+        std::vector<std::future<SessionPollSample>> requests;
+        requests.reserve(uis.size());
+        for (auto& ui : uis)
+        {
+            SessionPollRequest request
+                = make_session_poll_request(ui, panes);
+            const uint64_t request_serial
+                = request.request_serial;
+            nlohmann::json params
+                = session_poll_request_to_json(request);
+            params["client_id"] = ui.client_id;
+            params["session_id"] = "default";
+            requests.push_back(std::async(std::launch::async,
+                [&, params = std::move(params),
+                    request_serial]() mutable {
+                    const auto result = ControlClient::request(
+                        control_id, temp.path,
+                        "session.poll", std::move(params));
+                    SessionPollSample sample{
+                        .ok = result.ok,
+                        .request_serial = request_serial,
+                        .error_code = result.error_code,
+                        .error_message = result.error_message,
+                    };
+                    if (!result.ok)
+                        return sample;
+                    std::string parse_error;
+                    sample.response
+                        = session_poll_response_from_json(
+                            result.result, parse_error);
+                    if (!sample.response)
+                    {
+                        sample.ok = false;
+                        sample.error_code
+                            = "invalid_session_poll_response";
+                        sample.error_message
+                            = std::move(parse_error);
+                    }
+                    return sample;
+                }));
+        }
+        REQUIRE(pump_until_ready(
+            server, handler, requests,
+            std::chrono::seconds(8)));
+        bool any_more = false;
+        for (size_t index = 0;
+             index < requests.size(); ++index)
+        {
+            SessionPollSample sample
+                = requests[index].get();
+            INFO(sample.error_code << ": "
+                                   << sample.error_message);
+            REQUIRE(sample.ok);
+            REQUIRE(sample.response);
+            REQUIRE(sample.response->request_serial
+                == sample.request_serial);
+            std::string apply_error;
+            const bool applied = apply_session_poll_response(
+                uis[index], panes, *sample.response,
+                apply_error);
+            INFO(apply_error);
+            REQUIRE(applied);
+            any_more = any_more
+                || sample.response->more;
+        }
+        return any_more;
+    };
+
+    // One negotiated setup poll per UI establishes every subscription and
+    // supplies authoritative channel snapshots. Setup is deliberately
+    // excluded from the recurring request-count assertion below.
+    bool setup_complete = false;
+    for (size_t attempt = 0;
+         attempt < kSessionPollMaxSubscriptions
+         && !setup_complete; ++attempt)
+    {
+        const bool more = poll_uis();
+        setup_complete = !more
+            && std::ranges::all_of(panes,
+                [](const PaneFixture& pane) {
+                    return pane.client->projection()
+                        .attached();
+                });
+    }
+    REQUIRE(setup_complete);
+    const uint64_t setup_session_poll_requests
+        = handled_methods["session.poll"];
+    REQUIRE(setup_session_poll_requests
+        >= scenario.attached_uis);
+    handled_methods.clear();
+
+    std::vector<uint64_t> expected_final_sequences;
+    expected_final_sequences.reserve(panes.size());
+    for (const auto& pane : panes)
+    {
+        expected_final_sequences.push_back(
+            pane.client->projection().version().sequence
+            + static_cast<uint64_t>(kLoadRounds));
+    }
+
+    for (int round = 1; round <= kLoadRounds; ++round)
+    {
+        for (auto& pane : panes)
+        {
+            const auto update = pane.service->handle(
+                pane.method_prefix + ".input",
+                {
+                    { "client_id", pane.client_id },
+                    { "request_id",
+                        static_cast<uint64_t>(round) },
+                    { "text", "x" },
+                });
+            REQUIRE(update.ok);
+        }
+        ++topology.revision;
+        ++agents.revision;
+        CHECK_FALSE(poll_uis());
+    }
+
+    const size_t expected_recurring_requests
+        = static_cast<size_t>(kLoadRounds)
+        * scenario.attached_uis;
+    const size_t legacy_equivalent_recurring_requests
+        = static_cast<size_t>(kLoadRounds)
+        * (scenario.panes + 2 * scenario.attached_uis);
+    REQUIRE(expected_recurring_requests
+        < legacy_equivalent_recurring_requests);
+    REQUIRE(handled_methods["session.poll"]
+        == expected_recurring_requests);
+    REQUIRE(handled_methods["topology.poll"] == 0);
+    REQUIRE(handled_methods["agent.poll"] == 0);
+    for (const auto& pane : panes)
+        REQUIRE(handled_methods[pane.method_prefix + ".poll"] == 0);
+
+    for (size_t index = 0; index < panes.size(); ++index)
+    {
+        INFO("batched pane=" << index
+                              << " client_sequence="
+                              << panes[index]
+                                     .client->projection()
+                                     .version().sequence
+                              << " expected_sequence="
+                              << expected_final_sequences[index]);
+        REQUIRE(panes[index].client->projection()
+                  .version().sequence
+            == expected_final_sequences[index]);
+    }
+    for (const auto& ui : uis)
+    {
+        REQUIRE(ui.topology_revision == topology.revision);
+        REQUIRE(ui.agent_revision == agents.revision);
+    }
+
+    nlohmann::json result{
+        { "panes", scenario.panes },
+        { "attached_uis", scenario.attached_uis },
+        { "rounds", kLoadRounds },
+        { "capability", "session-poll-v1" },
+        { "setup_session_poll_requests",
+            setup_session_poll_requests },
+        { "recurring_session_poll_requests",
+            expected_recurring_requests },
+        { "legacy_equivalent_recurring_requests",
+            legacy_equivalent_recurring_requests },
+        { "legacy_terminal_poll_requests", 0 },
+        { "legacy_topology_poll_requests", 0 },
+        { "legacy_agent_poll_requests", 0 },
+        { "final_topology_revision", topology.revision },
+        { "final_agent_revision", agents.revision },
+        { "final_projection_convergence", true },
+    };
+    server.stop();
+    return result;
+}
+
 } // namespace
 
 TEST_CASE("legacy Session control transport load baseline",
@@ -459,6 +857,8 @@ TEST_CASE("legacy Session control transport load baseline",
         { "fixture", "legacy-per-pane-control" },
         { "latency_unit", "microseconds" },
         { "scenarios", nlohmann::json::array() },
+        { "batched_fixture", "session-poll-v1" },
+        { "batched_scenarios", nlohmann::json::array() },
     };
     for (const LoadScenario scenario : {
              LoadScenario{ 1, 1 },
@@ -467,6 +867,8 @@ TEST_CASE("legacy Session control transport load baseline",
          })
     {
         report["scenarios"].push_back(run_load_scenario(scenario));
+        report["batched_scenarios"].push_back(
+            run_batched_load_scenario(scenario));
     }
 
     const std::string encoded = report.dump(2);

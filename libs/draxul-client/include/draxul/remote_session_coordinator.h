@@ -15,6 +15,8 @@
 namespace draxul
 {
 
+class RemoteSessionClient;
+
 struct RemoteSessionCoordinatorOptions
 {
     std::filesystem::path runtime_directory;
@@ -24,6 +26,10 @@ struct RemoteSessionCoordinatorOptions
     std::string method_prefix = "fake";
     std::shared_ptr<ClientRecoveryState> recovery;
     bool presentation_suspend_supported = false;
+    bool session_poll_supported = false;
+    // Required only when session_poll_supported is true. App owns this client
+    // for longer than the coordinator and stops the coordinator first.
+    RemoteSessionClient* session_client = nullptr;
     std::function<void()> wake_consumer;
 };
 
@@ -46,11 +52,10 @@ struct RemoteTerminalPublishedState
     uint64_t visibility_generation = 1;
 };
 
-// UI-scoped owner for legacy per-terminal transports. Phase 1 deliberately
-// preserves the existing attach/poll/command wire methods while moving their
-// worker, recovery, and mailbox ownership out of RemoteTerminalHost. A later
-// transport can therefore replace the coordinator backend without changing
-// pane registration or UI delivery.
+// UI-scoped owner for remote terminal transports. A negotiated Session poll
+// uses one recurring worker for all registrations; older servers retain the
+// Phase-1 per-terminal workers. Registration, command, recovery, and mailbox
+// behavior is intentionally identical across both backends.
 class RemoteSessionCoordinator
 {
 public:

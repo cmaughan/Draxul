@@ -113,6 +113,24 @@ RemoteTerminalService::RemoteTerminalService(
 {
 }
 
+std::string RemoteTerminalService::subscriber_key(
+    std::string_view client_id, uint64_t subscription_id)
+{
+    if (subscription_id == 0)
+        return std::string(client_id);
+    return std::string(client_id) + '\n'
+        + std::to_string(subscription_id);
+}
+
+RemoteTerminalService::Subscriber*
+RemoteTerminalService::find_subscriber(
+    std::string_view client_id, uint64_t subscription_id)
+{
+    const auto found = subscribers_.find(
+        subscriber_key(client_id, subscription_id));
+    return found == subscribers_.end() ? nullptr : &found->second;
+}
+
 bool RemoteTerminalService::handles(std::string_view method) const
 {
     return method.starts_with(options_.method_prefix + ".");
@@ -288,6 +306,23 @@ RemoteTerminalEvent RemoteTerminalService::snapshot_event()
     return event;
 }
 
+RemoteTerminalAttach RemoteTerminalService::make_attach(
+    const std::shared_ptr<const EncodedEvent>& state) const
+{
+    return {
+        .pane = {
+            .pane_id = options_.pane_id,
+            .terminal_id = options_.terminal_id,
+            .name = options_.name,
+            .execution_domain = "server_terminal",
+            .process_id = runtime_.process_id(),
+            .process_running = runtime_.is_running(),
+            .exit_code = runtime_.exit_code(),
+        },
+        .state = state->event,
+    };
+}
+
 RemoteTerminalEvent RemoteTerminalService::make_delta_event()
 {
     ++sequence_;
@@ -398,10 +433,13 @@ void RemoteTerminalService::broadcast(const RemoteTerminalEvent& event)
     }
     if (event.kind == RemoteTerminalEventKind::Clipboard)
     {
-        const auto controller
-            = subscribers_.find(controller_client_id_);
-        if (controller == subscribers_.end()
-            || controller->second.suspended)
+        const bool controller_active = std::ranges::any_of(
+            subscribers_, [this](const auto& entry) {
+                return entry.second.client_id
+                        == controller_client_id_
+                    && !entry.second.suspended;
+            });
+        if (!controller_active)
         {
             ++suppressed_clipboard_events_;
             return;
@@ -465,7 +503,7 @@ ControlMethodResult RemoteTerminalService::attach(
     published_process_running_ = true;
     published_exit_code_.reset();
 
-    subscribers_[client_id] = {};
+    subscribers_[client_id] = { .client_id = client_id };
     if (controller_client_id_.empty()
         && (preferred_controller_client_id_.empty()
             || preferred_controller_client_id_ == client_id))
@@ -484,18 +522,7 @@ ControlMethodResult RemoteTerminalService::attach(
             "The terminal snapshot exceeds the transport frame budget.");
     }
     snapshot_bytes_ += state->bytes;
-    RemoteTerminalAttach result{
-        .pane = {
-            .pane_id = options_.pane_id,
-            .terminal_id = options_.terminal_id,
-            .name = options_.name,
-            .execution_domain = "server_terminal",
-            .process_id = runtime_.process_id(),
-            .process_running = runtime_.is_running(),
-            .exit_code = runtime_.exit_code(),
-        },
-        .state = state->event,
-    };
+    RemoteTerminalAttach result = make_attach(state);
     return ControlMethodResult::success(remote_terminal_attach_to_json(result));
 }
 
@@ -556,6 +583,7 @@ ControlMethodResult RemoteTerminalService::resume(
     auto [found, inserted]
         = subscribers_.try_emplace(client_id);
     auto& subscriber = found->second;
+    subscriber.client_id = client_id;
     const bool changed = inserted || subscriber.suspended;
     subscriber.events.clear();
     subscriber.queued_bytes = 0;
@@ -581,18 +609,7 @@ ControlMethodResult RemoteTerminalService::resume(
             "The terminal snapshot exceeds the transport frame budget.");
     }
     snapshot_bytes_ += state->bytes;
-    RemoteTerminalAttach result{
-        .pane = {
-            .pane_id = options_.pane_id,
-            .terminal_id = options_.terminal_id,
-            .name = options_.name,
-            .execution_domain = "server_terminal",
-            .process_id = runtime_.process_id(),
-            .process_running = runtime_.is_running(),
-            .exit_code = runtime_.exit_code(),
-        },
-        .state = state->event,
-    };
+    RemoteTerminalAttach result = make_attach(state);
     return ControlMethodResult::success(
         remote_terminal_attach_to_json(result));
 }
@@ -607,80 +624,223 @@ ControlMethodResult RemoteTerminalService::poll(
         return ControlMethodResult::error(
             "invalid_poll", "A valid client and terminal version are required.");
     }
-    auto found = subscribers_.find(client_id);
-    if (found == subscribers_.end())
+    Subscriber* delivery = find_subscriber(client_id, 0);
+    if (!delivery)
     {
         return ControlMethodResult::error(
             "not_attached", "Attach to the terminal before polling.");
     }
-    if (requested.server_epoch != options_.server_epoch)
+    auto slice = poll_delivery(*delivery, requested,
+        kPollPayloadBudget, kPollPayloadBudget,
+        kRemoteTerminalMaxEventsPerPoll, false);
+    if (!slice.ok())
     {
         return ControlMethodResult::error(
-            "stale_epoch", "The terminal server epoch has changed.");
+            std::move(slice.error_code),
+            std::move(slice.error_message));
+    }
+    nlohmann::json events = nlohmann::json::array();
+    for (const auto& event : slice.events)
+        events.push_back(remote_terminal_event_to_json(event));
+    return ControlMethodResult::success({ { "events", std::move(events) } });
+}
+
+RemoteTerminalPollSlice RemoteTerminalService::poll_delivery(
+    Subscriber& delivery, const RemoteTerminalVersion& requested,
+    size_t soft_byte_budget, size_t hard_byte_budget,
+    size_t event_limit, bool resync_stale_sequence)
+{
+    RemoteTerminalPollSlice result;
+    if (requested.server_epoch != options_.server_epoch)
+    {
+        result.error_code = "stale_epoch";
+        result.error_message = "The terminal server epoch has changed.";
+        return result;
     }
     if (requested.terminal_id != options_.terminal_id)
     {
-        return ControlMethodResult::error(
-            "stale_terminal", "The terminal identity has changed.");
+        result.error_code = "stale_terminal";
+        result.error_message = "The terminal identity has changed.";
+        return result;
     }
-
-    auto& delivery = found->second;
     if (delivery.suspended)
     {
-        return ControlMethodResult::error(
-            "suspended", "Resume the terminal before polling it.");
+        result.error_code = "suspended";
+        result.error_message = "Resume the terminal before polling it.";
+        return result;
     }
-    nlohmann::json events = nlohmann::json::array();
-    if (requested.generation != generation_ || delivery.needs_resync)
+    const bool requires_resync
+        = requested.generation != generation_ || delivery.needs_resync;
+    const bool stale_sequence = requested.sequence > sequence_;
+    if (stale_sequence && !resync_stale_sequence && !requires_resync)
+    {
+        result.error_code = "stale_sequence";
+        result.error_message = "The client sequence is ahead of the server.";
+        return result;
+    }
+    if (requires_resync || stale_sequence)
     {
         const auto encoded = encode_event(snapshot_event(), true);
         if (!encoded)
         {
-            return ControlMethodResult::error(
-                "frame_too_large",
-                "The terminal snapshot exceeds the transport frame budget.");
+            result.error_code = "frame_too_large";
+            result.error_message
+                = "The terminal snapshot exceeds the transport frame budget.";
+            return result;
         }
+        if (encoded->bytes > hard_byte_budget)
+        {
+            result.more = true;
+            return result;
+        }
+        result.events.push_back(encoded->event);
+        result.payload_bytes = encoded->bytes;
+        result.resync = true;
+        result.oversized = encoded->bytes > soft_byte_budget;
         snapshot_bytes_ += encoded->bytes;
-        events.push_back(encoded->encoded);
         delivery.events.clear();
         delivery.queued_bytes = 0;
         delivery.needs_resync = false;
+        return result;
     }
-    else
+
+    while (!delivery.events.empty()
+        && delivery.events.front()->event.version.sequence
+            <= requested.sequence)
     {
-        if (requested.sequence > sequence_)
+        delivery.queued_bytes -= std::min(
+            delivery.queued_bytes,
+            delivery.events.front()->bytes);
+        delivery.events.pop_front();
+    }
+    const size_t bounded_events = std::min(
+        event_limit, kRemoteTerminalMaxEventsPerPoll);
+    for (const auto& encoded : delivery.events)
+    {
+        if (result.events.size() >= bounded_events
+            || encoded->bytes > hard_byte_budget - result.payload_bytes)
         {
-            return ControlMethodResult::error(
-                "stale_sequence", "The client sequence is ahead of the server.");
+            result.more = true;
+            break;
         }
-        while (!delivery.events.empty()
-            && delivery.events.front()->event.version.sequence
-                <= requested.sequence)
+        if (encoded->bytes > soft_byte_budget - result.payload_bytes)
         {
-            delivery.queued_bytes -= std::min(
-                delivery.queued_bytes,
-                delivery.events.front()->bytes);
-            delivery.events.pop_front();
-        }
-        size_t count = 0;
-        size_t payload_bytes = 0;
-        for (const auto& encoded : delivery.events)
-        {
-            if (count++ >= kRemoteTerminalMaxEventsPerPoll)
-                break;
-            if (encoded->bytes > kPollPayloadBudget - payload_bytes)
+            if (!result.events.empty())
             {
+                result.more = true;
                 break;
             }
-            events.push_back(encoded->encoded);
-            payload_bytes += encoded->bytes;
-            if (encoded->event.kind == RemoteTerminalEventKind::Snapshot)
-                snapshot_bytes_ += encoded->bytes;
-            else if (encoded->event.kind == RemoteTerminalEventKind::Delta)
-                delta_bytes_ += encoded->bytes;
+            result.oversized = true;
+        }
+        result.events.push_back(encoded->event);
+        result.payload_bytes += encoded->bytes;
+        if (encoded->event.kind == RemoteTerminalEventKind::Snapshot)
+            snapshot_bytes_ += encoded->bytes;
+        else if (encoded->event.kind == RemoteTerminalEventKind::Delta)
+            delta_bytes_ += encoded->bytes;
+        if (result.oversized)
+        {
+            result.more = delivery.events.size() > 1;
+            break;
         }
     }
-    return ControlMethodResult::success({ { "events", std::move(events) } });
+    return result;
+}
+
+RemoteTerminalPollSlice RemoteTerminalService::poll_subscription(
+    std::string_view client_id,
+    const SessionTerminalSubscription& subscription,
+    size_t soft_byte_budget, size_t hard_byte_budget,
+    size_t event_limit)
+{
+    RemoteTerminalPollSlice result;
+    if (subscription.terminal_id != options_.terminal_id)
+    {
+        result.error_code = "stale_terminal";
+        result.error_message = "The terminal identity has changed.";
+        return result;
+    }
+    const std::string key = subscriber_key(
+        client_id, subscription.subscription_id);
+    auto found = subscribers_.find(key);
+    if (!subscription.visible)
+    {
+        if (found == subscribers_.end())
+        {
+            found = subscribers_.emplace(key,
+                Subscriber{ .client_id = std::string(client_id) })
+                        .first;
+        }
+        auto& subscriber = found->second;
+        subscriber.events.clear();
+        subscriber.queued_bytes = 0;
+        subscriber.needs_resync = true;
+        if (!subscriber.suspended)
+            ++suspension_count_;
+        subscriber.suspended = true;
+        result.suspended = true;
+        return result;
+    }
+
+    const bool was_suspended = found != subscribers_.end()
+        && found->second.suspended;
+    const bool requires_attach = found == subscribers_.end()
+        || found->second.suspended || !subscription.cursor;
+    if (requires_attach)
+    {
+        std::string start_error;
+        if (!ensure_runtime_started(start_error))
+        {
+            result.error_code = "process_start_failed";
+            result.error_message = std::move(start_error);
+            return result;
+        }
+        published_process_running_ = true;
+        published_exit_code_.reset();
+        Subscriber subscriber{ .client_id = std::string(client_id) };
+        subscribers_[key] = std::move(subscriber);
+        if (controller_client_id_.empty()
+            && (preferred_controller_client_id_.empty()
+                || preferred_controller_client_id_ == client_id))
+        {
+            controller_client_id_ = std::string(client_id);
+            preferred_controller_client_id_.clear();
+            broadcast(make_controller_event());
+            subscribers_[key].events.clear();
+            subscribers_[key].queued_bytes = 0;
+        }
+        const auto state = encode_event(snapshot_event(), true);
+        if (!state)
+        {
+            result.error_code = "frame_too_large";
+            result.error_message
+                = "The terminal snapshot exceeds the transport frame budget.";
+            return result;
+        }
+        if (state->bytes > hard_byte_budget)
+        {
+            subscribers_[key].needs_resync = true;
+            result.more = true;
+            return result;
+        }
+        result.attach = make_attach(state);
+        result.payload_bytes = state->bytes;
+        result.resync = subscription.cursor.has_value();
+        result.oversized = state->bytes > soft_byte_budget;
+        snapshot_bytes_ += state->bytes;
+        if (was_suspended)
+            ++resume_count_;
+        return result;
+    }
+
+    const RemoteTerminalVersion requested{
+        .server_epoch = options_.server_epoch,
+        .terminal_id = options_.terminal_id,
+        .generation = subscription.cursor->generation,
+        .sequence = subscription.cursor->after_sequence,
+    };
+    return poll_delivery(found->second, requested,
+        soft_byte_budget, hard_byte_budget, event_limit, true);
 }
 
 ControlMethodResult RemoteTerminalService::input(
@@ -701,7 +861,11 @@ ControlMethodResult RemoteTerminalService::input(
     }
     if (auto cached = cached_mutation(mutation))
         return *cached;
-    if (!subscribers_.contains(client_id))
+    const bool attached = std::ranges::any_of(
+        subscribers_, [&client_id](const auto& entry) {
+            return entry.second.client_id == client_id;
+        });
+    if (!attached)
     {
         return ControlMethodResult::error(
             "not_attached", "Attach to the terminal before sending input.");
@@ -757,7 +921,11 @@ ControlMethodResult RemoteTerminalService::resize(
     }
     if (auto cached = cached_mutation(mutation))
         return *cached;
-    if (!subscribers_.contains(client_id))
+    const bool attached = std::ranges::any_of(
+        subscribers_, [&client_id](const auto& entry) {
+            return entry.second.client_id == client_id;
+        });
+    if (!attached)
     {
         return ControlMethodResult::error(
             "not_attached", "Attach to the terminal before resizing.");
@@ -812,7 +980,11 @@ ControlMethodResult RemoteTerminalService::take_control(
     }
     if (auto cached = cached_mutation(mutation))
         return *cached;
-    if (!subscribers_.contains(client_id))
+    const bool attached = std::ranges::any_of(
+        subscribers_, [&client_id](const auto& entry) {
+            return entry.second.client_id == client_id;
+        });
+    if (!attached)
     {
         return ControlMethodResult::error(
             "not_attached", "Attach to the terminal before taking control.");
@@ -855,7 +1027,9 @@ ControlMethodResult RemoteTerminalService::disconnect(
 void RemoteTerminalService::disconnect_client(std::string_view client_id)
 {
     const bool was_controller = controller_client_id_ == client_id;
-    subscribers_.erase(std::string(client_id));
+    std::erase_if(subscribers_, [&client_id](const auto& entry) {
+        return entry.second.client_id == client_id;
+    });
     if (was_controller)
     {
         controller_client_id_.clear();
@@ -868,7 +1042,10 @@ ControlMethodResult RemoteTerminalService::restart(
 {
     std::string client_id;
     if (!read_client_id(params, client_id)
-        || !subscribers_.contains(client_id))
+        || !std::ranges::any_of(
+            subscribers_, [&client_id](const auto& entry) {
+                return entry.second.client_id == client_id;
+            }))
     {
         return ControlMethodResult::error(
             "not_attached", "Attach to the terminal before restarting it.");
@@ -936,7 +1113,11 @@ ControlMethodResult RemoteTerminalService::read_scrollback(
             "invalid_scrollback",
             "A valid client, terminal version, offset, and row count are required.");
     }
-    if (!subscribers_.contains(client_id))
+    const bool attached = std::ranges::any_of(
+        subscribers_, [&client_id](const auto& entry) {
+            return entry.second.client_id == client_id;
+        });
+    if (!attached)
     {
         return ControlMethodResult::error(
             "not_attached", "Attach to the terminal before reading scrollback.");

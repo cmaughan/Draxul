@@ -580,6 +580,7 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             "ordered-terminal-events",
             "real-remote-terminal",
             "session-delete-v1",
+            "session-poll-v1",
             "status",
             "terminal-metrics-v1",
             "terminal-presentation-suspend-v1",

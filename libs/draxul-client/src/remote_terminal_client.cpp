@@ -303,26 +303,9 @@ bool RemoteTerminalClient::attach(std::string& error)
         error = std::move(parse_error);
         return false;
     }
-    const std::string expected_epoch = options_.recovery
-        ? options_.recovery->server_epoch()
-        : options_.expected_server_epoch;
-    if (!expected_epoch.empty()
-        && attach->state.version.server_epoch
-            != expected_epoch)
-    {
-        last_error_code_ = "stale_epoch";
-        error = "Attached server epoch does not match the negotiated server.";
-        return false;
-    }
-    if (!projection_.attach(*attach, error))
-    {
-        last_error_code_ = "invalid_attach";
-        return false;
-    }
-    last_attach_latency_
-        = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now() - started_at);
-    return true;
+    return accept_attach(*attach, error,
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - started_at));
 }
 
 bool RemoteTerminalClient::suspend(
@@ -349,25 +332,12 @@ bool RemoteTerminalClient::resume(std::string& error)
         error = std::move(parse_error);
         return false;
     }
-    const std::string expected_epoch = options_.recovery
-        ? options_.recovery->server_epoch()
-        : options_.expected_server_epoch;
-    if (!expected_epoch.empty()
-        && attach->state.version.server_epoch != expected_epoch)
-    {
-        last_error_code_ = "stale_epoch";
-        error = "Resumed server epoch does not match the negotiated server.";
-        return false;
-    }
-    if (!projection_.attach(*attach, error))
-    {
+    const bool accepted = accept_attach(*attach, error,
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - started_at));
+    if (!accepted && last_error_code_ == "invalid_attach")
         last_error_code_ = "invalid_resume";
-        return false;
-    }
-    last_attach_latency_
-        = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now() - started_at);
-    return true;
+    return accepted;
 }
 
 bool RemoteTerminalClient::poll(bool& changed, std::string& error)
@@ -395,6 +365,8 @@ bool RemoteTerminalClient::poll(bool& changed, std::string& error)
         error = "Remote terminal poll response is invalid.";
         return false;
     }
+    std::vector<RemoteTerminalEvent> events;
+    events.reserve(result["events"].size());
     for (const auto& value : result["events"])
     {
         if (value.is_object()
@@ -414,13 +386,58 @@ bool RemoteTerminalClient::poll(bool& changed, std::string& error)
             error = std::move(parse_error);
             return false;
         }
-        if (!projection_.apply(*event, error))
+        events.push_back(std::move(*event));
+    }
+    return accept_events(events, changed, error);
+}
+
+bool RemoteTerminalClient::accept_attach(
+    const RemoteTerminalAttach& attach, std::string& error,
+    std::chrono::microseconds latency)
+{
+    const std::string expected_epoch = options_.recovery
+        ? options_.recovery->server_epoch()
+        : options_.expected_server_epoch;
+    if (!expected_epoch.empty()
+        && attach.state.version.server_epoch != expected_epoch)
+    {
+        last_error_code_ = "stale_epoch";
+        error = "Attached server epoch does not match the negotiated server.";
+        return false;
+    }
+    if (!projection_.attach(attach, error))
+    {
+        last_error_code_ = "invalid_attach";
+        return false;
+    }
+    last_attach_latency_ = latency;
+    last_error_code_.clear();
+    error.clear();
+    return true;
+}
+
+bool RemoteTerminalClient::accept_events(
+    std::span<const RemoteTerminalEvent> events, bool& changed,
+    std::string& error)
+{
+    changed = false;
+    if (!projection_.attached())
+    {
+        last_error_code_ = "not_attached";
+        error = "Attach before applying remote terminal events.";
+        return false;
+    }
+    for (const auto& event : events)
+    {
+        if (!projection_.apply(event, error))
         {
             last_error_code_ = "invalid_event";
             return false;
         }
         changed = true;
     }
+    last_error_code_.clear();
+    error.clear();
     return true;
 }
 
@@ -557,9 +574,13 @@ bool RemoteTerminalClient::request(
     std::string_view method, nlohmann::json params,
     nlohmann::json& result, std::string& error)
 {
+    ControlRequestOptions request_options;
+    if (options_.request_timeout)
+        request_options.timeout = *options_.request_timeout;
     const auto response = ControlClient::request(
         namespaced_control_id(kServerControlId, options_.runtime_directory),
-        options_.runtime_directory, method, std::move(params));
+        options_.runtime_directory, method, std::move(params),
+        request_options);
     if (!response.ok)
     {
         last_error_code_ = response.error_code;

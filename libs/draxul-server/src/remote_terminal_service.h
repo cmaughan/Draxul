@@ -3,6 +3,7 @@
 #include "remote_terminal_runtime.h"
 
 #include <draxul/control_plane.h>
+#include <draxul/session_protocol.h>
 
 #include <chrono>
 #include <deque>
@@ -29,6 +30,24 @@ struct RemoteTerminalServiceOptions
     std::function<void(uint64_t)> prepare_restart_generation;
 };
 
+struct RemoteTerminalPollSlice
+{
+    std::optional<RemoteTerminalAttach> attach;
+    std::vector<RemoteTerminalEvent> events;
+    size_t payload_bytes = 0;
+    bool suspended = false;
+    bool resync = false;
+    bool more = false;
+    bool oversized = false;
+    std::string error_code;
+    std::string error_message;
+
+    bool ok() const noexcept
+    {
+        return error_code.empty();
+    }
+};
+
 class RemoteTerminalService
 {
 public:
@@ -38,6 +57,11 @@ public:
     bool handles(std::string_view method) const;
     ControlMethodResult handle(
         std::string_view method, const nlohmann::json& params);
+    RemoteTerminalPollSlice poll_subscription(
+        std::string_view client_id,
+        const SessionTerminalSubscription& subscription,
+        size_t soft_byte_budget, size_t hard_byte_budget,
+        size_t event_limit);
     void disconnect_client(std::string_view client_id);
     void pump();
     bool started() const;
@@ -58,11 +82,23 @@ private:
 
     struct Subscriber
     {
+        std::string client_id;
         std::deque<std::shared_ptr<const EncodedEvent>> events;
         size_t queued_bytes = 0;
         bool needs_resync = false;
         bool suspended = false;
     };
+
+    static std::string subscriber_key(
+        std::string_view client_id, uint64_t subscription_id);
+    Subscriber* find_subscriber(
+        std::string_view client_id, uint64_t subscription_id);
+    RemoteTerminalAttach make_attach(
+        const std::shared_ptr<const EncodedEvent>& state) const;
+    RemoteTerminalPollSlice poll_delivery(Subscriber& delivery,
+        const RemoteTerminalVersion& requested,
+        size_t soft_byte_budget, size_t hard_byte_budget,
+        size_t event_limit, bool resync_stale_sequence);
 
     bool read_client_id(
         const nlohmann::json& params, std::string& client_id) const;

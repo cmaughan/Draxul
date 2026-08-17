@@ -24,8 +24,10 @@ status, diagnostics, CLI access, and compatibility.
   and private Windows/POSIX backends. It does not implement this feature.
 - Diagnostics/load baselines and the UI Session coordinator may land alongside card
   12 because they do not change the wire transport.
-- Batched `session.poll` starts after card 12 so it uses the stabilized control
-  boundary rather than adding more behavior to the monolith.
+- Batched `session.poll` is an immediate bounded request through the unchanged public
+  control API, so it may land alongside card 12. Card 12 still owns the reusable
+  framing, deadline, cancellation, and staged-error internals; the batch service does
+  not reach into or duplicate those platform backends.
 - The persistent endpoint and per-UI writer lifecycle also wait for the private
   ownership split in
   `kanban/pending/13 server-kernel-private-decomposition -refactor.md`.
@@ -88,14 +90,34 @@ unchanged in this phase; `session.poll` remains Phase 2.
 
 ## Phase 2 — batched Session polling
 
-- [ ] Add `session.poll` with topology/agent revisions and subscribed terminal
+- [x] Add `session.poll` with topology/agent revisions and subscribed terminal
       generation/sequence cursors.
-- [ ] Return bounded, fairly scheduled topology, agent, and terminal changes with
+- [x] Return bounded, fairly scheduled topology, agent, and terminal changes with
       channel-local snapshot resynchronization.
-- [ ] Poll once per attached UI, with active cadence and adaptive idle backoff.
-- [ ] Keep mutations on existing request/response control methods in this phase.
-- [ ] Negotiate `session-poll-v1` and fall back to legacy clients only for servers
+- [x] Poll once per attached UI, with active cadence and adaptive idle backoff.
+- [x] Keep mutations on existing request/response control methods in this phase.
+- [x] Negotiate `session-poll-v1` and fall back to legacy clients only for servers
       that do not support batched polling.
+
+### Delivered checkpoint — bounded Session polling
+
+The server now negotiates `session-poll-v1` and serves one immediate, authenticated
+batch containing topology, agent, and per-registration terminal channels. The private
+Session scheduler applies a hard response budget, per-terminal soft quantum, rotated
+fairness, independent duplicate-terminal subscriptions, visibility generations, and
+channel-local snapshot recovery over the existing bounded terminal subscriber queues.
+
+When negotiated, `RemoteSessionCoordinator` owns one recurring batch worker for the
+UI and externally feeds topology/agent snapshots into `RemoteSessionClient`; terminal
+input, resize, control, scrollback, topology mutations, and status remain ordinary
+short requests. Idle polls back off from 25 to 50 to 100 ms and new work wakes the
+worker. Missing capability keeps the Phase-1 workers; a server that advertises but
+rejects the method falls back once, while transient failures remain on the batch path.
+
+The deterministic Windows Debug load fixture converges all projections and records
+exactly 20, 20, and 40 recurring `session.poll` requests for 1/1, 10/1, and 50/2
+pane/UI scenarios, versus 60, 240, and 1,080 equivalent legacy requests. Batched mode
+issues zero recurring `terminal.poll`, `topology.poll`, or `agent.poll` requests.
 
 ## Phase 3 — persistent server-to-UI events
 
@@ -150,7 +172,7 @@ unchanged in this phase; `session.poll` remains Phase 2.
 
 ## Acceptance criteria
 
-- [ ] One UI with ten active panes owns one event connection or one batched polling
+- [x] One UI with ten active panes owns one event connection or one batched polling
       worker; request count does not grow linearly with pane count.
 - [ ] Normal load produces no control starvation, `Shared topology unavailable`
       toast, or generic unexplained transport `io_error`.

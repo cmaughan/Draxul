@@ -16,9 +16,10 @@ implementations.
 
 It does **not** add `session.poll`, capability negotiation, a persistent event
 endpoint, bidirectional multiplexing, or UI Session coordination. Those belong to
-card 40. Card 40's diagnostics baseline and UI coordinator may start alongside
-this refactor; its batched polling waits for this card, and its persistent endpoint
-also waits for the server ownership boundaries in
+card 40. Card 40's diagnostics baseline, UI coordinator, and bounded
+`session.poll` request may land alongside this refactor through the unchanged public
+`ControlClient` API. Card 12 still owns the reusable framing/deadline/error boundary
+needed before a persistent endpoint; that endpoint also waits for the server ownership boundaries in
 `kanban/pending/13 server-kernel-private-decomposition -refactor.md`.
 
 ## Boundary verification

@@ -1,6 +1,10 @@
 #include <draxul/remote_session_coordinator.h>
 
+#include <draxul/remote_session_client.h>
 #include <draxul/remote_terminal_client.h>
+#include <draxul/server_client.h>
+#include <draxul/server_control_channel.h>
+#include <draxul/session_protocol.h>
 
 #include <algorithm>
 #include <atomic>
@@ -23,6 +27,9 @@ constexpr size_t kCommandLimit = 128;
 constexpr size_t kCommandsPerPoll = 8;
 constexpr size_t kInputBatchBytes = 48 * 1024;
 constexpr auto kPollInterval = std::chrono::milliseconds(25);
+constexpr auto kIntermediatePollInterval = std::chrono::milliseconds(50);
+constexpr auto kIdlePollInterval = std::chrono::milliseconds(100);
+constexpr auto kSessionPollRequestBudget = std::chrono::milliseconds(100);
 constexpr auto kShutdownJoinBudget = std::chrono::milliseconds(250);
 std::atomic<uint64_t> g_next_request_id{ 1 };
 
@@ -102,7 +109,7 @@ public:
             join_worker();
         }
 
-        bool start()
+        bool start(bool legacy_worker)
         {
             if (!options_.recovery)
             {
@@ -112,6 +119,26 @@ public:
                 options_.recovery->set_server_epoch(
                     options_.expected_server_epoch);
             }
+            reset_client(legacy_worker
+                    ? std::optional<std::chrono::milliseconds>{}
+                    : std::optional<std::chrono::milliseconds>{
+                        kSessionPollRequestBudget });
+            bool expected = false;
+            if (!running_.compare_exchange_strong(expected, true))
+                return false;
+            stopping_ = false;
+            if (legacy_worker)
+            {
+                std::lock_guard lock(worker_exit_mutex_);
+                worker_exited_ = false;
+                worker_ = std::jthread([this] { worker_main(); });
+            }
+            return true;
+        }
+
+        void reset_client(
+            std::optional<std::chrono::milliseconds> request_timeout)
+        {
             client_ = std::make_unique<RemoteTerminalClient>(
                 RemoteTerminalClientOptions{
                     .runtime_directory = options_.runtime_directory,
@@ -122,17 +149,20 @@ public:
                     .method_prefix = options_.method_prefix,
                     .terminal_id = terminal_id_,
                     .recovery = options_.recovery,
+                    .request_timeout = request_timeout,
                 });
-            bool expected = false;
-            if (!running_.compare_exchange_strong(expected, true))
-                return false;
-            stopping_ = false;
+        }
+
+        void start_legacy_worker()
+        {
+            if (stopping_ || worker_.joinable())
+                return;
+            reset_client(std::nullopt);
             {
                 std::lock_guard lock(worker_exit_mutex_);
                 worker_exited_ = false;
             }
             worker_ = std::jthread([this] { worker_main(); });
-            return true;
         }
 
         void request_stop()
@@ -226,6 +256,7 @@ public:
             }
             commands_.swap(staged);
             command_wake_.notify_one();
+            wake_coordinator();
             return true;
         }
 
@@ -256,6 +287,7 @@ public:
             }
             commands_.swap(staged);
             command_wake_.notify_one();
+            wake_coordinator();
             return true;
         }
 
@@ -274,6 +306,7 @@ public:
             {
                 commands_.back() = std::move(command);
                 command_wake_.notify_one();
+                wake_coordinator();
                 return true;
             }
             if (!commands_.empty()
@@ -293,12 +326,14 @@ public:
                         static_cast<int64_t>(
                             std::numeric_limits<int>::max())));
                 command_wake_.notify_one();
+                wake_coordinator();
                 return true;
             }
             if (commands_.size() >= kCommandLimit)
                 return false;
             commands_.push_back(std::move(command));
             command_wake_.notify_one();
+            wake_coordinator();
             return true;
         }
 
@@ -310,6 +345,7 @@ public:
                     return visibility_generation_;
                 ++visibility_generation_;
                 presentation_visible_ = visible;
+                batch_needs_attach_ = true;
                 if (!visible)
                 {
                     published_state_.reset();
@@ -317,6 +353,7 @@ public:
                 }
             }
             command_wake_.notify_one();
+            wake_coordinator();
             return visibility_generation_;
         }
 
@@ -375,7 +412,174 @@ public:
             return last_error_code_;
         }
 
+        SessionTerminalSubscription batch_subscription() const
+        {
+            std::lock_guard guard(mutex_);
+            SessionTerminalSubscription result{
+                .subscription_id = registration_id_,
+                .terminal_id = terminal_id_,
+                .visibility_generation = visibility_generation_,
+                .visible = presentation_visible_,
+            };
+            if (!batch_needs_attach_ && client_->projection().attached())
+            {
+                const auto& version = client_->projection().version();
+                result.cursor = SessionTerminalCursor{
+                    .generation = version.generation,
+                    .after_sequence = version.sequence,
+                };
+            }
+            return result;
+        }
+
+        bool batch_active() const noexcept
+        {
+            return running_ && !stopping_;
+        }
+
+        bool process_batch_commands()
+        {
+            std::deque<CoordinatorCommand> commands;
+            {
+                std::lock_guard guard(mutex_);
+                for (size_t count = 0;
+                    count < 1 && !commands_.empty(); ++count)
+                {
+                    commands.push_back(std::move(commands_.front()));
+                    commands_.pop_front();
+                }
+            }
+            for (size_t index = 0; index < commands.size(); ++index)
+            {
+                auto& command = commands[index];
+                command.attempted = true;
+                std::string error;
+                if (execute_command(command, error))
+                {
+                    note_connected(recovery_channel());
+                    continue;
+                }
+                const std::string error_code = client_error_code();
+                if (is_expected_command_error(error_code)
+                    || error_code == "unknown_method")
+                {
+                    publish_error_once(error_code, error);
+                    continue;
+                }
+                if (error_code == "not_attached"
+                    || is_resynchronizing_client_error(error_code))
+                {
+                    std::lock_guard guard(mutex_);
+                    batch_needs_attach_ = true;
+                }
+                if (is_transient_client_error(error_code)
+                    || is_resynchronizing_client_error(error_code)
+                    || needs_identity_refresh(error_code))
+                {
+                    requeue_commands(commands, index);
+                    break;
+                }
+                publish_error_once(error_code, error);
+            }
+            return !commands.empty();
+        }
+
+        bool accept_batch(const SessionTerminalPollBatch& batch,
+            std::chrono::microseconds latency)
+        {
+            if (batch.subscription_id != registration_id_)
+                return false;
+            bool suspension_changed = false;
+            {
+                std::lock_guard guard(mutex_);
+                if (batch.visibility_generation
+                    != visibility_generation_)
+                {
+                    return false;
+                }
+                suspension_changed
+                    = presentation_suspended_ != batch.suspended;
+                presentation_suspended_ = batch.suspended;
+            }
+            if (!batch.error_code.empty())
+            {
+                remember_error_code(batch.error_code);
+                const bool published = publish_error_once(
+                    batch.error_code, batch.error_message);
+                if (is_removed_terminal(batch.error_code))
+                {
+                    stopping_ = true;
+                    running_ = false;
+                }
+                return published;
+            }
+            std::string error;
+            if (batch.attach)
+            {
+                if (!client_->accept_attach(*batch.attach, error, latency))
+                {
+                    publish_error_once(client_error_code(), error);
+                    std::lock_guard guard(mutex_);
+                    batch_needs_attach_ = true;
+                    return true;
+                }
+                terminal_id_ = client_->projection().version().terminal_id;
+                scroll_offset_ = 0;
+                scrollback_total_ = 0;
+                scrollback_page_.reset();
+                std::lock_guard guard(mutex_);
+                batch_needs_attach_ = false;
+            }
+            if (batch.resync && !batch.attach)
+            {
+                std::lock_guard guard(mutex_);
+                batch_needs_attach_ = true;
+            }
+            bool changed = false;
+            if (!batch.events.empty()
+                && !client_->accept_events(batch.events, changed, error))
+            {
+                publish_error_once(client_error_code(), error);
+                std::lock_guard guard(mutex_);
+                batch_needs_attach_ = true;
+                return true;
+            }
+            note_connected(recovery_channel());
+            if (batch.attach || changed)
+            {
+                if (changed && scroll_offset_ > 0
+                    && !refresh_scrollback_after_output(error))
+                {
+                    publish_error_once(client_error_code(), error);
+                    scroll_offset_ = 0;
+                    scrollback_total_ = 0;
+                    scrollback_page_.reset();
+                }
+                if (presentation_visible_)
+                    publish_projection();
+                else
+                {
+                    client_->take_grid_update();
+                    client_->take_clipboard_write();
+                }
+            }
+            return batch.attach.has_value() || changed
+                || suspension_changed || batch.resync
+                || !batch.error_code.empty();
+        }
+
+        void invalidate_batch_cursor()
+        {
+            std::lock_guard guard(mutex_);
+            batch_needs_attach_ = true;
+        }
+
     private:
+        void wake_coordinator()
+        {
+            if (auto coordinator = coordinator_.lock())
+                coordinator->wake_worker();
+        }
         void acknowledge_if_idle_locked()
         {
             if (pending_error_.empty())
@@ -1010,7 +1214,7 @@ public:
                 wake();
         }
 
-        void publish_error_once(
+        bool publish_error_once(
             std::string_view error_code, const std::string& error)
         {
             const std::string key = error_code.empty()
@@ -1019,9 +1223,10 @@ public:
             {
                 std::lock_guard guard(mutex_);
                 if (!published_error_keys_.insert(key).second)
-                    return;
+                    return false;
             }
             publish_error(error);
+            return true;
         }
 
         std::weak_ptr<Impl> coordinator_;
@@ -1052,10 +1257,13 @@ public:
         std::string last_error_code_;
         std::unordered_set<std::string> published_error_keys_;
         uint64_t publication_serial_ = 0;
+        bool batch_needs_attach_ = true;
     };
 
     explicit Impl(RemoteSessionCoordinatorOptions options)
         : options_(std::move(options))
+        , batch_mode_(options_.session_poll_supported
+              && options_.session_client != nullptr)
     {
         if (!options_.recovery)
         {
@@ -1078,6 +1286,8 @@ public:
         if (!running_.compare_exchange_strong(expected, true))
             return false;
         stopping_ = false;
+        if (batch_mode_)
+            batch_worker_ = std::jthread([this] { batch_worker_main(); });
         return true;
     }
 
@@ -1086,6 +1296,9 @@ public:
         if (!running_.exchange(false) && stopping_)
             return;
         stopping_ = true;
+        worker_wake_.notify_all();
+        if (batch_worker_.joinable())
+            batch_worker_.join();
         std::vector<std::shared_ptr<Entry>> entries;
         {
             std::lock_guard guard(mutex_);
@@ -1122,8 +1335,11 @@ public:
                 options_, std::move(terminal_id));
             entries_.emplace(id, entry);
         }
-        if (entry->start())
+        if (entry->start(!batch_mode_))
+        {
+            wake_worker();
             return id;
+        }
         unregister_terminal(id);
         return 0;
     }
@@ -1143,6 +1359,7 @@ public:
         entry->stop_until(
             std::chrono::steady_clock::now()
             + kShutdownJoinBudget);
+        wake_worker();
     }
 
     std::shared_ptr<Entry> entry(uint64_t id) const
@@ -1189,7 +1406,232 @@ public:
             wake();
     }
 
+    void wake_worker()
+    {
+        worker_wake_.notify_one();
+    }
+
 private:
+    std::vector<std::shared_ptr<Entry>> entries_snapshot() const
+    {
+        std::vector<std::shared_ptr<Entry>> result;
+        {
+            std::lock_guard guard(mutex_);
+            result.reserve(entries_.size());
+            for (const auto& [id, entry] : entries_)
+                result.push_back(entry);
+        }
+        std::ranges::sort(result, {}, [](const auto& entry) {
+            return entry->batch_subscription().subscription_id;
+        });
+        return result;
+    }
+
+    void fall_back_to_legacy()
+    {
+        batch_mode_ = false;
+        if (options_.session_client)
+            options_.session_client->enable_legacy_polling();
+        const auto entries = entries_snapshot();
+        for (const auto& entry : entries)
+        {
+            entry->invalidate_batch_cursor();
+            entry->start_legacy_worker();
+        }
+    }
+
+    bool refresh_epoch_bounded()
+    {
+        const auto identity = options_.recovery->server_identity();
+        const auto probe = ServerClient::probe({
+            .runtime_directory = options_.runtime_directory,
+            .client_id = options_.client_id,
+            .connection_token = identity.connection_token,
+            .registration_nonce
+            = options_.recovery->registration_nonce(),
+            .timeout = kSessionPollRequestBudget,
+            .request_timeout = kSessionPollRequestBudget,
+            .launch_if_missing = false,
+        });
+        return probe.ready() && probe.welcome
+            && options_.recovery->set_server_identity(
+                probe.welcome->server_epoch,
+                probe.welcome->connection_token);
+    }
+
+    void batch_worker_main()
+    {
+        ServerControlChannel channel({
+            .runtime_directory = options_.runtime_directory,
+            .client_id = options_.client_id,
+            .session_id = options_.session_id,
+            .recovery = options_.recovery,
+        });
+        auto interval = kPollInterval;
+        size_t idle_polls = 0;
+        uint64_t request_serial = 1;
+        while (!stopping_ && batch_mode_)
+        {
+            const auto entries = entries_snapshot();
+            bool commands_processed = false;
+            for (const auto& entry : entries)
+                commands_processed
+                    = entry->process_batch_commands()
+                    || commands_processed;
+            if (stopping_)
+                break;
+
+            const auto revisions = options_.session_client
+                ? options_.session_client->session_poll_revisions()
+                : RemoteSessionPollRevisions{};
+            SessionPollRequest request{
+                .request_serial = request_serial,
+                .server_epoch = options_.recovery->server_epoch(),
+                .topology_after_revision = revisions.topology,
+                .agent_after_revision = revisions.agents,
+            };
+            request.terminals.reserve(entries.size());
+            for (const auto& entry : entries)
+            {
+                if (entry->batch_active())
+                {
+                    request.terminals.push_back(
+                        entry->batch_subscription());
+                }
+            }
+
+            const auto started_at = std::chrono::steady_clock::now();
+            const auto result = channel.request("session.poll",
+                session_poll_request_to_json(request),
+                kSessionPollRequestBudget);
+            if (stopping_)
+                break;
+            if (!result.ok)
+            {
+                if (result.error_code == "unknown_method")
+                {
+                    fall_back_to_legacy();
+                    break;
+                }
+                if (needs_identity_refresh(result.error_code))
+                {
+                    refresh_epoch_bounded();
+                    for (const auto& entry : entries)
+                        entry->invalidate_batch_cursor();
+                    if (options_.session_client)
+                    {
+                        options_.session_client->invalidate_session_poll_cursors(
+                            options_.recovery->server_epoch());
+                    }
+                }
+                const auto delay = options_.recovery->note_failure(
+                    "session.poll");
+                if (options_.session_client)
+                {
+                    options_.session_client->accept_session_poll_error(
+                        "topology", result.error_message);
+                    options_.session_client->accept_session_poll_error(
+                        "agents", result.error_message);
+                }
+                std::unique_lock lock(worker_mutex_);
+                worker_wake_.wait_for(lock, delay);
+                continue;
+            }
+
+            std::string parse_error;
+            auto response = session_poll_response_from_json(
+                result.result, parse_error);
+            if (response
+                && response->request_serial != request.request_serial)
+            {
+                parse_error
+                    = "Session poll response serial does not match its request.";
+                response.reset();
+            }
+            if (++request_serial == 0)
+                request_serial = 1;
+            if (!response)
+            {
+                if (options_.session_client)
+                {
+                    options_.session_client->accept_session_poll_error(
+                        "topology", parse_error);
+                    options_.session_client->accept_session_poll_error(
+                        "agents", parse_error);
+                }
+                interval = kIdlePollInterval;
+                idle_polls = 2;
+            }
+            else
+            {
+                options_.recovery->note_connected("session.poll");
+                bool changed = response->more || commands_processed;
+                if (options_.session_client)
+                {
+                    options_.session_client->accept_session_poll_epoch(
+                        response->server_epoch);
+                    if (response->topology.snapshot)
+                    {
+                        options_.session_client->accept_session_poll_topology(
+                            response->server_epoch,
+                            std::move(*response->topology.snapshot));
+                        changed = true;
+                    }
+                    if (!response->topology.error_code.empty())
+                    {
+                        options_.session_client->accept_session_poll_error(
+                            "topology",
+                            response->topology.error_message);
+                    }
+                    if (response->agents.snapshot)
+                    {
+                        options_.session_client->accept_session_poll_agents(
+                            response->server_epoch,
+                            std::move(*response->agents.snapshot));
+                        changed = true;
+                    }
+                    if (!response->agents.error_code.empty())
+                    {
+                        options_.session_client->accept_session_poll_error(
+                            "agents", response->agents.error_message);
+                    }
+                }
+                const auto latency
+                    = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now() - started_at);
+                for (const auto& batch : response->terminals)
+                {
+                    const auto found = std::ranges::find(entries,
+                        batch.subscription_id,
+                        [](const auto& entry) {
+                            return entry->batch_subscription()
+                                .subscription_id;
+                        });
+                    if (found != entries.end())
+                        changed = (*found)->accept_batch(batch, latency)
+                            || changed;
+                }
+                if (changed)
+                {
+                    idle_polls = 0;
+                    interval = kPollInterval;
+                }
+                else if (idle_polls++ == 0)
+                {
+                    interval = kIntermediatePollInterval;
+                }
+                else
+                {
+                    interval = kIdlePollInterval;
+                }
+                if (response->more)
+                    continue;
+            }
+            std::unique_lock lock(worker_mutex_);
+            worker_wake_.wait_for(lock, interval);
+        }
+    }
+
     RemoteSessionCoordinatorOptions options_;
     std::atomic<bool> running_ = false;
     std::atomic<bool> stopping_ = true;
@@ -1198,6 +1640,10 @@ private:
     std::unordered_map<uint64_t, uint64_t> ready_;
     uint64_t next_registration_id_ = 1;
     bool wake_pending_ = false;
+    std::atomic<bool> batch_mode_ = false;
+    std::jthread batch_worker_;
+    std::mutex worker_mutex_;
+    std::condition_variable worker_wake_;
 };
 
 class RemoteSessionCoordinator::Registration::State
