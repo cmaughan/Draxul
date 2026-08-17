@@ -15,6 +15,17 @@
 // A one-sided edit in any consumer fails here; a one-sided C++ *layout* edit also
 // fails earlier, at compile time, via the static_asserts in grid_contract.h.
 //
+// The same mechanism now also guards the SHARED SHADER MATH the product plugins
+// consume, starting with the ACES tone-map curve:
+//
+//   SINGLE SOURCE OF TRUTH: shaders/contracts/tone_map_aces.toml
+//   * GLSL  shaders/include/tone_map_aces.glsl
+//   * MSL   shaders/include/tone_map_aces.metal
+//
+// Those two includes replaced four hand-synced copies (MegaCity and SatView, in
+// both languages). Deduplicating them removes the drift; this test is what keeps
+// the remaining GLSL/MSL pair from drifting again.
+//
 // VULKAN SCOPE (honest): the GLSL checks below are a deterministic TEXT scan,
 // which is all that is possible on macOS (no glslc / SPIR-V reflection tooling
 // here).  The AUTHORITATIVE Vulkan check — SPIR-V reflection of the compiled
@@ -350,4 +361,198 @@ TEST_CASE("grid GLSL declarations match the manifest (text scan; SPIR-V reflecti
     const SetBinding sampler = glsl_set_binding(frag, "uniform\\s+sampler2D\\s+atlas");
     REQUIRE(sampler.set == man.vk_set);
     REQUIRE(sampler.binding == man.vk_sampler_binding);
+}
+
+// ---------------------------------------------------------------------------
+// Shared ACES tone-map curve: GLSL include vs MSL include vs the manifest.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+constexpr const char* kToneMapManifestRel = "shaders/contracts/tone_map_aces.toml";
+constexpr const char* kToneMapGlslRel = "shaders/include/tone_map_aces.glsl";
+constexpr const char* kToneMapMslRel = "shaders/include/tone_map_aces.metal";
+
+struct ToneMapConstant
+{
+    std::string name;
+    double value = 0.0;
+};
+
+struct ToneMapManifest
+{
+    std::string function;
+    std::vector<std::string> params;
+    std::vector<ToneMapConstant> constants;
+    double exposure_floor = 0.0;
+    double white_point_floor = 0.0;
+    double output_min = 0.0;
+    double output_max = 0.0;
+};
+
+double as_double(const toml::node_view<const toml::node>& node)
+{
+    const auto value = node.value<double>();
+    INFO("manifest floating-point value missing");
+    REQUIRE(value.has_value());
+    return *value;
+}
+
+ToneMapManifest load_tone_map_manifest()
+{
+    std::string error;
+    const auto table = draxul::toml_support::parse_file(
+        std::filesystem::path(DRAXUL_PROJECT_ROOT) / kToneMapManifestRel, &error);
+    INFO("tone-map manifest parse error: " << error);
+    REQUIRE(table.has_value());
+
+    ToneMapManifest man;
+    man.function = table->at_path("function.name").value_or(std::string{});
+    const toml::array* params = (*table)["function"]["params"].as_array();
+    INFO("manifest function.params array missing");
+    REQUIRE(params != nullptr);
+    for (const auto& element : *params)
+        man.params.push_back(element.value_or(std::string{}));
+
+    const toml::array* constants = (*table)["constant"].as_array();
+    INFO("manifest [[constant]] array missing");
+    REQUIRE(constants != nullptr);
+    for (const auto& element : *constants)
+    {
+        const toml::table* entry = element.as_table();
+        REQUIRE(entry != nullptr);
+        ToneMapConstant constant;
+        constant.name = (*entry)["name"].value_or(std::string{});
+        constant.value = as_double((*entry)["value"]);
+        man.constants.push_back(constant);
+    }
+
+    man.exposure_floor = as_double((*table)["clamps"]["exposure_floor"]);
+    man.white_point_floor = as_double((*table)["clamps"]["white_point_floor"]);
+    man.output_min = as_double((*table)["clamps"]["output_min"]);
+    man.output_max = as_double((*table)["clamps"]["output_max"]);
+    return man;
+}
+
+// Reads `<qualifiers> <name> = <literal>;` out of a shader include. Works for
+// both GLSL's `const float a = 2.51;` and MSL's `constexpr float a = 2.51f;`.
+double shader_scalar_constant(const std::string& source, const std::string& name)
+{
+    const std::regex re(
+        "\\b(?:const|constexpr)\\s+float\\s+" + name + "\\s*=\\s*([-0-9.eE+]+)f?\\s*;");
+    std::smatch match;
+    INFO("shader constant '" << name << "'");
+    REQUIRE(std::regex_search(source, match, re));
+    return std::stod(match[1].str());
+}
+
+// Extracts the parameter NAMES of the tone-map function definition, in order.
+std::vector<std::string> shader_function_params(const std::string& source,
+    const std::string& function)
+{
+    const std::regex re("\\b" + function + "\\s*\\(([^)]*)\\)");
+    std::smatch match;
+    INFO("shader function '" << function << "' definition");
+    REQUIRE(std::regex_search(source, match, re));
+
+    std::vector<std::string> params;
+    std::stringstream args(match[1].str());
+    std::string arg;
+    while (std::getline(args, arg, ','))
+    {
+        std::istringstream tokens(arg);
+        std::vector<std::string> parts;
+        std::string token;
+        while (tokens >> token)
+            parts.push_back(token);
+        if (!parts.empty())
+            params.push_back(parts.back());
+    }
+    return params;
+}
+
+// The clamp floors are written as literals inside max(...) calls; find the
+// argument paired with the named parameter.
+double shader_max_floor(const std::string& source, const std::string& expression)
+{
+    const std::regex re("max\\s*\\(\\s*" + expression + "\\s*,\\s*([-0-9.eE+]+)f?\\s*\\)");
+    std::smatch match;
+    INFO("shader max() floor for '" << expression << "'");
+    REQUIRE(std::regex_search(source, match, re));
+    return std::stod(match[1].str());
+}
+
+void check_tone_map_source(const ToneMapManifest& man, const std::string& source,
+    const std::string& label)
+{
+    INFO("tone-map source " << label);
+
+    // Same function name and parameter order in both languages: a caller written
+    // against one include must compile unchanged against the other.
+    const auto params = shader_function_params(source, man.function);
+    REQUIRE(params.size() == man.params.size());
+    for (std::size_t i = 0; i < man.params.size(); ++i)
+    {
+        INFO("parameter " << i << " of " << man.function << " in " << label);
+        REQUIRE(params[i] == man.params[i]);
+    }
+
+    for (const auto& constant : man.constants)
+    {
+        INFO("curve constant " << constant.name << " in " << label);
+        REQUIRE(shader_scalar_constant(source, constant.name)
+            == Catch::Approx(constant.value));
+    }
+
+    REQUIRE(shader_max_floor(source, "exposure") == Catch::Approx(man.exposure_floor));
+    REQUIRE(shader_max_floor(source, "white_point") == Catch::Approx(man.white_point_floor));
+
+    // The curve expression itself, whitespace-normalised, must be identical
+    // modulo the float suffix and the vec3/float3 spelling — an algebraic edit
+    // to one language is exactly the drift these four copies used to allow.
+    const std::regex expression(
+        "\\(\\s*color\\s*\\*\\s*\\(\\s*a\\s*\\*\\s*color\\s*\\+\\s*b\\s*\\)\\s*\\)"
+        "\\s*/\\s*"
+        "\\(\\s*color\\s*\\*\\s*\\(\\s*c\\s*\\*\\s*color\\s*\\+\\s*d\\s*\\)\\s*\\+\\s*e\\s*\\)");
+    INFO("ACES curve expression in " << label);
+    REQUIRE(std::regex_search(source, expression));
+
+    // Output clamp bounds.
+    const std::regex clamp_bounds(
+        "clamp\\s*\\([\\s\\S]*?(?:vec3|float3)\\s*\\(\\s*([-0-9.eE+]+)f?\\s*\\)\\s*,"
+        "\\s*(?:vec3|float3)\\s*\\(\\s*([-0-9.eE+]+)f?\\s*\\)\\s*\\)");
+    std::smatch clamp_match;
+    INFO("ACES output clamp in " << label);
+    REQUIRE(std::regex_search(source, clamp_match, clamp_bounds));
+    REQUIRE(std::stod(clamp_match[1].str()) == Catch::Approx(man.output_min));
+    REQUIRE(std::stod(clamp_match[2].str()) == Catch::Approx(man.output_max));
+}
+
+} // namespace
+
+TEST_CASE("tone-map manifest is internally consistent", "[shader_abi]")
+{
+    const ToneMapManifest man = load_tone_map_manifest();
+
+    REQUIRE(man.function == "tone_map_aces");
+    REQUIRE(man.params == std::vector<std::string>{ "hdr", "exposure", "white_point" });
+
+    // The five Narkowicz coefficients, named in expression order.
+    REQUIRE(man.constants.size() == 5);
+    const std::vector<std::string> expected_names = { "a", "b", "c", "d", "e" };
+    for (std::size_t i = 0; i < man.constants.size(); ++i)
+    {
+        INFO("constant " << i);
+        REQUIRE(man.constants[i].name == expected_names[i]);
+    }
+    REQUIRE(man.output_min < man.output_max);
+    REQUIRE(man.white_point_floor > 0.0);
+}
+
+TEST_CASE("shared ACES tone-map includes agree across GLSL and MSL", "[shader_abi]")
+{
+    const ToneMapManifest man = load_tone_map_manifest();
+    check_tone_map_source(man, read_project_file(kToneMapGlslRel), kToneMapGlslRel);
+    check_tone_map_source(man, read_project_file(kToneMapMslRel), kToneMapMslRel);
 }

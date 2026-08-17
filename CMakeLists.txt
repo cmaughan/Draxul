@@ -237,6 +237,7 @@ endif()
 draxul_allow_plugin_support_targets(
     Draxul::PluginSDK
     Draxul::PluginSupport::Adapter
+    Draxul::PluginSupport::CameraInput
     Draxul::PluginSupport::Runtime
     Draxul::PluginSupport::Render
     Draxul::PluginSupport::Config

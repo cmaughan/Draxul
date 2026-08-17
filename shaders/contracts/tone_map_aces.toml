@@ -1,0 +1,61 @@
+# ACES filmic tone-map constants — DECLARATIVE SINGLE SOURCE OF TRUTH.
+#
+# The Narkowicz ACES fit is used identically by every product that renders an HDR
+# scene. It existed as FOUR hand-synced copies (MegaCity GLSL + MSL, SatView GLSL
+# + MSL) until the shared-include work; the copies are now two include files:
+#
+#   GLSL (Vulkan reader)  shaders/include/tone_map_aces.glsl
+#   MSL  (macOS reader)   shaders/include/tone_map_aces.metal
+#
+# tests/shader_abi_parity_tests.cpp re-derives the constants and the mapping
+# expression from BOTH includes and asserts they equal the values here, so the
+# two languages cannot drift apart again — the failure mode that made four
+# copies dangerous rather than merely redundant.
+#
+# Editing rules:
+#   * Change a coefficient HERE first, then both includes in the same commit.
+#   * `exposure_floor` / `white_point_floor` are the clamps applied before the
+#     curve; they are part of the contract because a mismatch there shows up as
+#     a difference in near-black output, not as a build error.
+
+[contract]
+name = "ToneMapAces"
+description = "Narkowicz ACES filmic curve applied to linear HDR before the sRGB store. Shared by every product's tone-map pass on both backends."
+
+# Function name each include must define. Callers reference it by this name.
+[function]
+name = "tone_map_aces"
+# Signature in each language, so a parameter reorder is a contract change.
+params = ["hdr", "exposure", "white_point"]
+
+# Curve coefficients, in the order they appear in the expression
+#   (color * (a * color + b)) / (color * (c * color + d) + e)
+[[constant]]
+name = "a"
+value = 2.51
+
+[[constant]]
+name = "b"
+value = 0.03
+
+[[constant]]
+name = "c"
+value = 2.43
+
+[[constant]]
+name = "d"
+value = 0.59
+
+[[constant]]
+name = "e"
+value = 0.14
+
+# Pre-curve clamps.
+[clamps]
+# exposure is clamped to >= this before multiplying.
+exposure_floor = 0.0
+# white_point is clamped to >= this before dividing (avoids a divide by zero).
+white_point_floor = 0.001
+# The curve result is clamped to this closed range.
+output_min = 0.0
+output_max = 1.0

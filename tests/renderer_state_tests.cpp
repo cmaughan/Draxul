@@ -1,9 +1,12 @@
 
 #include <draxul/renderer_state.h>
 
+#include "shared/pane_scissor.h"
 #include "support/fake_renderer.h"
 #include "support/fake_window.h"
 
+#include <cstdint>
+#include <utility>
 #include <vector>
 
 #include <catch2/catch_all.hpp>
@@ -348,4 +351,73 @@ TEST_CASE("renderer frame context accepts recorded render passes", "[renderer]")
     CHECK(renderer.last_recorded_render_pass == &pass);
 
     renderer.end_frame();
+}
+
+// ---------------------------------------------------------------------------
+// Pane scissor clamping (audit bug #8).
+//
+// Both backends cast the clamped extents to an UNSIGNED platform type
+// (NSUInteger on Metal, uint32_t on Vulkan). The Metal grid draw was missing the
+// std::max(0, ...) on the extents, so a pane positioned past the right or bottom
+// edge produced a negative extent that wrapped to an enormous scissor. All three
+// call sites now share shared/pane_scissor.h; these cases pin its contract.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("pane scissor clamps a fully on-screen pane unchanged", "[renderer][scissor]")
+{
+    const auto rect = pane_scissor::clamp(10, 20, 100, 50, 800, 600);
+    CHECK(rect.x == 10);
+    CHECK(rect.y == 20);
+    CHECK(rect.width == 100);
+    CHECK(rect.height == 50);
+    CHECK_FALSE(rect.empty());
+}
+
+TEST_CASE("pane scissor crops a pane overhanging the far edges", "[renderer][scissor]")
+{
+    const auto rect = pane_scissor::clamp(700, 550, 400, 400, 800, 600);
+    CHECK(rect.x == 700);
+    CHECK(rect.y == 550);
+    CHECK(rect.width == 100);
+    CHECK(rect.height == 50);
+}
+
+TEST_CASE("pane scissor pulls a negative origin to zero without growing", "[renderer][scissor]")
+{
+    const auto rect = pane_scissor::clamp(-30, -40, 100, 50, 800, 600);
+    CHECK(rect.x == 0);
+    CHECK(rect.y == 0);
+    // The off-screen columns/rows are cropped, not shifted back on screen.
+    CHECK(rect.width == 100);
+    CHECK(rect.height == 50);
+}
+
+TEST_CASE("pane scissor never yields a negative extent", "[renderer][scissor]")
+{
+    // Origin at or past a far edge: `surface - origin` is <= 0 on that axis,
+    // which is exactly the case that underflowed to a huge unsigned scissor.
+    // Only the offending axis collapses; the other keeps its real extent.
+    for (const auto& [x, y] : std::vector<std::pair<int, int>>{
+             { 800, 300 }, { 300, 600 }, { 900, 700 }, { 1600, 1200 } })
+    {
+        INFO("origin (" << x << ", " << y << ")");
+        const auto rect = pane_scissor::clamp(x, y, 200, 200, 800, 600);
+        CHECK(rect.width >= 0);
+        CHECK(rect.height >= 0);
+        // Past an edge on either axis means nothing is drawn.
+        CHECK(rect.empty());
+        if (x >= 800)
+            CHECK(static_cast<uint32_t>(rect.width) == 0u);
+        if (y >= 600)
+            CHECK(static_cast<uint32_t>(rect.height) == 0u);
+    }
+}
+
+TEST_CASE("pane scissor treats a non-positive pane size as empty", "[renderer][scissor]")
+{
+    const auto zero = pane_scissor::clamp(10, 10, 0, 0, 800, 600);
+    CHECK(zero.empty());
+    const auto negative = pane_scissor::clamp(10, 10, -50, -50, 800, 600);
+    CHECK(negative.width == 0);
+    CHECK(negative.height == 0);
 }

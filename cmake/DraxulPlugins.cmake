@@ -6,6 +6,25 @@ include(CMakeParseArguments)
 # CMake files register their module, runtime payload, and product-owned targets;
 # the root build stages the result without knowing any product-specific details.
 
+# Shared shader includes (GLSL + MSL) that any mounted product may consume. This
+# is the shader-side analogue of the Draxul::PluginSupport::* allowlist: one
+# directory, added to the product's glslc / `xcrun metal` include path.
+get_filename_component(DRAXUL_SHARED_SHADER_INCLUDE_DIR
+    "${CMAKE_CURRENT_LIST_DIR}/../shaders/include" ABSOLUTE)
+
+# Returns the shared include directory plus every file in it, so a product's
+# add_custom_command can list them in DEPENDS and rebuild its shaders when a
+# shared include changes (the mistake SatView's own include wiring already
+# avoids and the other products' shader loops did not).
+function(draxul_shared_shader_includes dir_output files_output)
+    file(GLOB _shared_includes CONFIGURE_DEPENDS
+        "${DRAXUL_SHARED_SHADER_INCLUDE_DIR}/*.glsl"
+        "${DRAXUL_SHARED_SHADER_INCLUDE_DIR}/*.metal"
+        "${DRAXUL_SHARED_SHADER_INCLUDE_DIR}/*.h")
+    set(${dir_output} "${DRAXUL_SHARED_SHADER_INCLUDE_DIR}" PARENT_SCOPE)
+    set(${files_output} "${_shared_includes}" PARENT_SCOPE)
+endfunction()
+
 function(_draxul_plugin_property_key output plugin_id)
     string(MAKE_C_IDENTIFIER "${plugin_id}" _key)
     string(TOLOWER "${_key}" _key)

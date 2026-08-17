@@ -51,6 +51,15 @@ target_link_libraries(draxul-plugin-config-support
     PUBLIC draxul-types tomlplusplus::tomlplusplus
     PRIVATE draxul-performance)
 
+# Shared camera key-latch + drag-inertia layer. Deliberately narrow: draxul-types
+# (for KeyEvent/MouseEvent) plus SDL3 scancode/keycode headers, nothing else.
+add_library(draxul-plugin-camera-input-support STATIC
+    src/camera_input.cpp)
+target_include_directories(draxul-plugin-camera-input-support PUBLIC include)
+target_link_libraries(draxul-plugin-camera-input-support PUBLIC
+    draxul-types
+    SDL3::Headers)
+
 add_library(draxul-plugin-tooltip-support STATIC
     src/overlay_text.cpp
     src/tooltip.cpp)
@@ -61,15 +70,21 @@ target_link_libraries(draxul-plugin-tooltip-support
 
 if(NOT APPLE)
     add_library(draxul-vulkan-resources STATIC
+        src/vulkan/vk_hdr_scene_pipeline.cpp
         src/vulkan/vk_plugin_allocator.cpp
         src/vulkan/vk_resource_helpers.cpp
         src/vulkan/vma_impl.cpp)
     target_include_directories(draxul-vulkan-resources PUBLIC include)
-    target_link_libraries(draxul-vulkan-resources PRIVATE
-        Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)
+    # draxul-types is PUBLIC: HdrScenePipeline's headers expose nothing from it,
+    # but the helpers log through draxul/log.h and both are allowlisted plugin
+    # support targets, so this does not widen the plugin surface.
+    target_link_libraries(draxul-vulkan-resources
+        PUBLIC draxul-types
+        PRIVATE Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)
 endif()
 
 add_library(Draxul::PluginSupport::Adapter ALIAS draxul-plugin-adapter-support)
+add_library(Draxul::PluginSupport::CameraInput ALIAS draxul-plugin-camera-input-support)
 add_library(Draxul::PluginSupport::Runtime ALIAS draxul-plugin-runtime-support)
 add_library(Draxul::PluginSupport::Render ALIAS draxul-plugin-render-support)
 add_library(Draxul::PluginSupport::Config ALIAS draxul-plugin-config-support)

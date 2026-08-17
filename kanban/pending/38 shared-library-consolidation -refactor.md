@@ -26,10 +26,20 @@ structurally unrepeatable.
       spinning-triangle adopt the header-only shell core, which ships with
       the SDK install component; their raw path/storage blocks stay local
       because standalone extractions link only the installed SDK.)
-- [ ] Slice 5: extend `PluginSupport::VulkanResources` (safe MSAA probe,
+- [x] Slice 5: extend `PluginSupport::VulkanResources` (safe MSAA probe,
       `HdrScenePipeline`), shared ACES/atmosphere shader includes with
       contract parity tests, Vulkan adopts `grid_contract.h`, new
-      `PluginSupport::CameraInput`. (Fixes #7, #8, #11.)
+      `PluginSupport::CameraInput`. (Fixes #7, #8, #11. Notes: the atmosphere
+      scattering math was deliberately NOT extracted — the three copies have
+      different step counts, ray-start policies and output tinting, so a shared
+      include would need enough parameters to stop being shared math; recorded
+      as a follow-up rather than forced. MegaCity keeps its in-frame staged
+      texture upload; only SatView's load-time path adopts
+      `upload_image_immediate`, because a blocking queue wait mid-frame would be
+      a behaviour change, not a dedupe. Adopting the shared scene pass also
+      fixed a latent MegaCity bug: its pass declared a resolve attachment
+      unconditionally, which is invalid whenever the MSAA probe falls back
+      to 1x.)
 - [x] Slice 6: `draxul-protocol` owns topology→layout conversion, traversal
       helpers, and split-ratio constants; `ServerControlChannel` +
       `RevisionPolledClient` in `draxul-client`. (Fixes #5.)

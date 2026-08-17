@@ -261,6 +261,7 @@ target_link_libraries(draxul-test-core PRIVATE
     draxul-host
     draxul-nanovg
     draxul-renderer-test-internals
+    Draxul::PluginSupport::CameraInput
 )
 # Four core suites launch this helper through DRAXUL_RPC_FAKE_PATH. Building a
 # focused core target must therefore remain sufficient on its own.

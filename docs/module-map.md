@@ -111,7 +111,7 @@ does not rebuild or extend the universal value-type archive.
 | `sdk/` | Installable, versioned native plugin C ABI and the dependency-free `Draxul::PluginSDK` CMake target |
 | `plugins/support/imgui/` | Product-owned optional ImGui Vulkan/Metal encoder, the shared `PluginImGuiContext` lifecycle and `ImGuiInputBridge` event routing, and public UI-style service client, linked inside native plugin modules and never exposed across the ABI |
 | `libs/draxul-imgui-core/` | The single SDL-scancode-to-ImGuiKey table and `IImGuiHost` backend interface; leaf-narrow (links only ImGui + SDL headers) so core UI, the renderer, and plugin support all consume the same definitions (`Draxul::PluginSupport::ImGuiCore`) |
-| `libs/draxul-plugin-support/` | Same-build plugin leaves: C-ABI path/storage wrappers, the plugin adapter shell (`Draxul::PluginSupport::Adapter` — result factories, config parse, pane-state persistence, action registrar, `kApi` assembly; its header-only core `draxul/plugin_adapter.h` ships with the SDK install component), product lifecycle/viewport vocabulary, backend-neutral render contracts, Vulkan resource ownership incl. the shared adapter VMA allocator, explicit-path TOML documents, and tooltip layout; exports only `Draxul::PluginSupport::*` targets |
+| `libs/draxul-plugin-support/` | Same-build plugin leaves: C-ABI path/storage wrappers, the plugin adapter shell (`Draxul::PluginSupport::Adapter` — result factories, config parse, pane-state persistence, action registrar, `kApi` assembly; its header-only core `draxul/plugin_adapter.h` ships with the SDK install component), product lifecycle/viewport vocabulary, backend-neutral render contracts, Vulkan resource ownership incl. the shared adapter VMA allocator, the HDR/MSAA scene scaffolding (`Draxul::PluginSupport::VulkanResources` — attachments, the per-format MSAA probe, shader loading, immediate image upload, and `HdrScenePipeline`, which owns the one set of scene/tone-map subpass dependency masks both 3D products use), the camera key-latch and drag-inertia layer (`Draxul::PluginSupport::CameraInput`), explicit-path TOML documents, and tooltip layout; exports only `Draxul::PluginSupport::*` targets |
 | `libs/draxul-performance/` | Runtime timing collection and the `PERF_MEASURE` instrumentation API |
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
@@ -151,6 +151,15 @@ strict contract and only consume their own targets, third-party targets, or the
 named plugin-support leaves.
 The process adapter, client, and server libraries remain free of host, window,
 renderer, font, SDL, and product dependencies.
+
+Shared *shader* code follows the same allowlist idea in a single directory:
+`shaders/include/` holds GLSL and MSL includes that any mounted product may
+consume (currently the ACES tone-map curve). Products reach it through
+`draxul_shared_shader_includes()` in `cmake/DraxulPlugins.cmake`, which returns
+the include directory for `glslc -I` / `xcrun metal -I` and the file list for
+`add_custom_command(DEPENDS ...)`. Each shared include has a declarative
+contract under `shaders/contracts/`, and `tests/shader_abi_parity_tests.cpp`
+re-derives both language copies from source and asserts they match it.
 
 ### libs/draxul-window/
 

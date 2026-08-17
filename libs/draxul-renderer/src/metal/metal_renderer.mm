@@ -13,6 +13,7 @@
 #include <imgui.h>
 
 #include "shared/grid_contract.h"
+#include "shared/pane_scissor.h"
 
 #import <CoreGraphics/CoreGraphics.h>
 #import <Metal/Metal.h>
@@ -891,13 +892,18 @@ bool MetalRenderer::draw_grid_handle_now(IGridHandle& handle)
     reset_full_window_viewport();
 
     {
+        // Bug #8: this clamp was missing the std::max(0, ...) on the EXTENTS that
+        // the identical clamp in record_render_pass_now already had. A pane whose
+        // origin sits past the right/bottom edge makes `pixel_w_ - origin`
+        // negative, and the cast to the unsigned NSUInteger turned that into an
+        // enormous scissor. Both copies now call the one shared clamp.
+        const auto clamped = pane_scissor::clamp(desc.pixel_pos.x, desc.pixel_pos.y,
+            desc.pixel_size.x, desc.pixel_size.y, pixel_w_, pixel_h_);
         MTLScissorRect scissor;
-        scissor.x = static_cast<NSUInteger>(std::max(0, desc.pixel_pos.x));
-        scissor.y = static_cast<NSUInteger>(std::max(0, desc.pixel_pos.y));
-        scissor.width = static_cast<NSUInteger>(std::min(desc.pixel_size.x,
-            pixel_w_ - std::max(0, desc.pixel_pos.x)));
-        scissor.height = static_cast<NSUInteger>(std::min(desc.pixel_size.y,
-            pixel_h_ - std::max(0, desc.pixel_pos.y)));
+        scissor.x = static_cast<NSUInteger>(clamped.x);
+        scissor.y = static_cast<NSUInteger>(clamped.y);
+        scissor.width = static_cast<NSUInteger>(clamped.width);
+        scissor.height = static_cast<NSUInteger>(clamped.height);
         [active_encoder_.get() setScissorRect:scissor];
     }
 
@@ -991,11 +997,12 @@ bool MetalRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewpo
     pass_viewport.zfar = 1.0;
     [active_encoder_.get() setViewport:pass_viewport];
 
+    const auto clamped_pass = pane_scissor::clamp(vx, vy, vw, vh, pixel_w_, pixel_h_);
     MTLScissorRect pass_scissor;
-    pass_scissor.x = static_cast<NSUInteger>(std::max(0, vx));
-    pass_scissor.y = static_cast<NSUInteger>(std::max(0, vy));
-    pass_scissor.width = static_cast<NSUInteger>(std::max(0, std::min(vw, pixel_w_ - static_cast<int>(pass_scissor.x))));
-    pass_scissor.height = static_cast<NSUInteger>(std::max(0, std::min(vh, pixel_h_ - static_cast<int>(pass_scissor.y))));
+    pass_scissor.x = static_cast<NSUInteger>(clamped_pass.x);
+    pass_scissor.y = static_cast<NSUInteger>(clamped_pass.y);
+    pass_scissor.width = static_cast<NSUInteger>(clamped_pass.width);
+    pass_scissor.height = static_cast<NSUInteger>(clamped_pass.height);
     [active_encoder_.get() setScissorRect:pass_scissor];
 
     MetalRenderContext ctx(active_command_buffer_.get(), active_encoder_.get(), current_frame_, MAX_FRAMES_IN_FLIGHT,
