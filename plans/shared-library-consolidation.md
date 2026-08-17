@@ -1,6 +1,8 @@
 # Shared-library consolidation — seven slices
 
-**Date:** 2026-08-16 · **Card:** kanban `38 shared-library-consolidation -refactor.md`
+**Date:** 2026-08-16 · **Card:** kanban `done/38 shared-library-consolidation -refactor.md`
+**Status:** all seven slices landed 2026-08-17; Windows acceptance tracked in
+`kanban/pending/39 windows-consolidation-acceptance -test.md`.
 **Input:** [duplication-audit-2026-08-15.md](duplication-audit-2026-08-15.md)
 
 Retire the audited duplication by giving each duplicated concern exactly one

@@ -50,7 +50,14 @@ structurally unrepeatable.
       were left in place — that repo was outside this slice's file-ownership
       boundary; migrate them onto `tests::wait_until` when SatView is next
       touched. Repairing the ScoreView extraction smoke's macOS staging
-      surfaced a pre-existing product defect: the standalone-built plugin
-      aborts in its ImGui overlay (`SetCurrentFont: font && font->IsLoaded()`)
-      during the render probe. That fix belongs in the scoreview product
-      runtime (Slice 2/3 territory), not the test layer.
+      surfaced a standalone-plugin crash (`SetCurrentFont: font &&
+      font->IsLoaded()`); Slice 3 root-caused and fixed it — the standalone
+      macOS module was missing the single-exported-symbol link contract, so
+      dyld coalesced ImGui's weak inline symbols with the host and the plugin
+      read the host's ImGui context. The extraction smoke now passes
+      end-to-end including a real Grieg render.
+
+**Completed 2026-08-17.** All seven slices landed on `main`, each validated
+with a full build, `do.py smoke`, and 26/26 `ctest` before the next merge.
+Windows acceptance is the one outstanding gate — see
+`kanban/pending/39 windows-consolidation-acceptance -test.md`.
