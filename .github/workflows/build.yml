@@ -12,7 +12,9 @@ permissions:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    # CMakePresets.json deliberately targets Visual Studio 17 2022. Pin the
+    # matching runner instead of following windows-latest onto VS 2026 images.
+    runs-on: windows-2022
     env:
       VULKAN_SDK_VERSION: 1.3.283.0
       BUILD_MODE: debug
