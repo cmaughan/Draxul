@@ -16,7 +16,7 @@ jobs:
     # matching runner instead of following windows-latest onto VS 2026 images.
     runs-on: windows-2022
     env:
-      VULKAN_SDK_VERSION: 1.3.283.0
+      VULKAN_SDK_VERSION: 1.4.357.0
       BUILD_MODE: debug
       BUILD_CONFIG: Debug
     steps:
@@ -35,8 +35,8 @@ jobs:
         if: steps.cache-vulkan.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          $url = "https://sdk.lunarg.com/sdk/download/${{ env.VULKAN_SDK_VERSION }}/windows/VulkanSDK-${{ env.VULKAN_SDK_VERSION }}-Installer.exe"
-          Invoke-WebRequest -Uri $url -OutFile VulkanSDK.exe
+          $url = "https://sdk.lunarg.com/sdk/download/${{ env.VULKAN_SDK_VERSION }}/windows/vulkan_sdk.exe"
+          curl.exe -f -L $url -o VulkanSDK.exe
           .\VulkanSDK.exe --root C:\VulkanSDK\${{ env.VULKAN_SDK_VERSION }} --accept-licenses --default-answer --confirm-command install
 
       - name: Set Vulkan environment

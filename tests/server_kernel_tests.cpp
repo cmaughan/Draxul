@@ -1557,7 +1557,9 @@ TEST_CASE("server releases expired terminal leases",
     TempDir temp("draxul-server-client-leases");
     ServerKernel server({
         .runtime_directory = temp.path,
-        .client_activity_timeout = std::chrono::milliseconds(75),
+        // Keep setup RPCs comfortably inside the lease on Windows debug
+        // builds; the one-second sleep below still proves expiry.
+        .client_activity_timeout = std::chrono::milliseconds(500),
         .build_version = "unit-test",
         .epoch_override = "lease-epoch",
     });

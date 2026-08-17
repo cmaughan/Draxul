@@ -278,7 +278,8 @@ std::optional<RenderTestScenario> load_render_test_scenario(const std::filesyste
         scenario.plugin_id = *plugin_id;
     if (auto plugin_config = toml_support::get_string(
             *document, "plugin_config_json"))
-        scenario.plugin_config_json = *plugin_config;
+        scenario.plugin_config_json
+            = expand_placeholders(*plugin_config, scenario_dir);
     if (auto nvim_args = toml_support::get_string_array(*document, "nvim_args"))
     {
         scenario.host_args.clear();

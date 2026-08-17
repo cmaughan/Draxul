@@ -1558,8 +1558,9 @@ TEST_CASE("two rendered remote terminal hosts survive repeated control transfer"
     TempDir temp("draxul-remote-host-takeover");
     ServerKernel server({
         .runtime_directory = temp.path,
-        .client_activity_timeout
-        = std::chrono::milliseconds(150),
+        // This test exercises transport recovery and repeated control changes,
+        // not lease expiry. Leave enough headroom for a Windows debug build.
+        .client_activity_timeout = std::chrono::seconds(2),
         .epoch_override = "takeover-test-epoch",
     });
     REQUIRE(server.start().disposition == ServerStartDisposition::Started);
@@ -1655,6 +1656,9 @@ TEST_CASE("two rendered remote terminal hosts survive repeated control transfer"
         }));
         const int expected_cols = transfer % 2 == 0 ? 30 : 20;
         const int expected_rows = transfer % 2 == 0 ? 6 : 5;
+        INFO("transfer=" << transfer
+                         << " first=" << first.grid_cols() << "x" << first.grid_rows()
+                         << " second=" << second.grid_cols() << "x" << second.grid_rows());
         REQUIRE(pump_until(next, [&] {
             previous.pump();
             return next.grid_cols() == expected_cols

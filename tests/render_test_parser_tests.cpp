@@ -201,7 +201,7 @@ TEST_CASE("render test parser: plugin identity and configuration flow to app opt
     write_text_file(path,
         "host = \"plugin\"\n"
         "plugin_id = \"dev.draxul.spinning-triangle\"\n"
-        "plugin_config_json = '{\"paused\":true}'\n"
+        "plugin_config_json = '{\"paused\":true,\"source\":\"${PROJECT_ROOT}/plugins\"}'\n"
         "commands = [\"\"]\n");
     std::string error;
     const auto scenario = draxul::load_render_test_scenario(path, &error);
@@ -210,7 +210,12 @@ TEST_CASE("render test parser: plugin identity and configuration flow to app opt
     const auto options = scenario->make_app_options();
     CHECK(options.host_plugin_id
         == "dev.draxul.spinning-triangle");
-    CHECK(options.host_plugin_config_json == R"({"paused":true})");
+    const auto expected_plugin_root
+        = (std::filesystem::path{ DRAXUL_PROJECT_ROOT } / "plugins")
+              .lexically_normal()
+              .generic_string();
+    CHECK(options.host_plugin_config_json
+        == "{\"paused\":true,\"source\":\"" + expected_plugin_root + "\"}");
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
 }

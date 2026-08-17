@@ -252,6 +252,12 @@ bool create_fullscreen_pipeline(VkDevice device, const FullscreenPipelineRequest
         VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO
     };
     multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineDepthStencilStateCreateInfo depth_stencil{
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
+    };
+    depth_stencil.depthTestEnable = VK_FALSE;
+    depth_stencil.depthWriteEnable = VK_FALSE;
+    depth_stencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
     VkPipelineColorBlendAttachmentState blend_attachment{};
     blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
         | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -275,7 +281,10 @@ bool create_fullscreen_pipeline(VkDevice device, const FullscreenPipelineRequest
     create_info.pViewportState = &viewport_state;
     create_info.pRasterizationState = &raster;
     create_info.pMultisampleState = &multisample;
-    // No depth attachment in any fullscreen pass, so no depth-stencil state.
+    // A product's fullscreen present pass can target the host continuation
+    // render pass, whose subpass includes a depth attachment. Vulkan requires
+    // a valid state object in that case even though depth testing is disabled.
+    create_info.pDepthStencilState = &depth_stencil;
     create_info.pColorBlendState = &blend;
     create_info.pDynamicState = &dynamic;
     create_info.layout = request.layout;

@@ -236,8 +236,7 @@ RuntimeEvidence inspect_runtime(const std::filesystem::path& runtime_directory)
         = std::filesystem::status(runtime_directory, runtime_error);
     if (runtime_error)
     {
-        if (runtime_error
-            == std::make_error_code(std::errc::no_such_file_or_directory))
+        if (runtime_error == std::errc::no_such_file_or_directory)
         {
             auto ancestor = runtime_directory.parent_path();
             while (!ancestor.empty())
@@ -257,9 +256,7 @@ RuntimeEvidence inspect_runtime(const std::filesystem::path& runtime_directory)
                     return evidence;
                 }
                 if (ancestor_error
-                    && ancestor_error
-                        != std::make_error_code(
-                            std::errc::no_such_file_or_directory))
+                    && ancestor_error != std::errc::no_such_file_or_directory)
                 {
                     evidence.inspection_error
                         = "Unable to inspect the Draxul server runtime directory: "

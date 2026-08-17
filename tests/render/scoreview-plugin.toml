@@ -1,7 +1,7 @@
 name = "scoreview-plugin"
 host = "plugin"
 plugin_id = "dev.draxul.scoreview"
-plugin_config_json = '{"source":"plugins/scoreview/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.musicxml","mode":"paged"}'
+plugin_config_json = '{"source":"${PROJECT_ROOT}/plugins/scoreview/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.musicxml","mode":"paged"}'
 width = 960
 height = 640
 settle_ms = 1200

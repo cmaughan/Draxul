@@ -87,15 +87,15 @@
     },
     {
       "name": "megacity-plugin",
-      "purpose": "Dynamic MegaCity plugin composition using the real semantic-city product",
-      "status": "developer",
-      "platforms": ["windows", "macos"],
-      "ctest": false,
-      "reference_required": false,
-      "renderall": false,
-      "blessall": false,
-      "compare_command": "",
-      "bless_command": ""
+      "purpose": "Dynamic MegaCity Vulkan composition using a deterministic semantic-city fixture",
+      "status": "regression",
+      "platforms": ["windows"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "megacityplugin",
+      "bless_command": "blessmegacityplugin"
     },
     {
       "name": "bioview-plugin",
@@ -111,15 +111,15 @@
     },
     {
       "name": "scoreview-plugin",
-      "purpose": "Dynamic ScoreView plugin-owned Vulkan/Metal composition with a real MusicXML source",
-      "status": "developer",
-      "platforms": ["windows", "macos"],
-      "ctest": false,
-      "reference_required": false,
-      "renderall": false,
-      "blessall": false,
-      "compare_command": "",
-      "bless_command": ""
+      "purpose": "Dynamic ScoreView Vulkan composition with the Grieg MusicXML reference",
+      "status": "regression",
+      "platforms": ["windows"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "scoreviewplugin",
+      "bless_command": "blessscoreviewplugin"
     },
     {
       "name": "wide-char-scroll",
