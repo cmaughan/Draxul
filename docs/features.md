@@ -840,9 +840,9 @@ and `draxul integration status` do not pass through the launch-option parser.
 |--------|----------|-------------|
 | `default` | Windows | Debug, VS 2022 x64 |
 | `release` | Windows | Release |
-| `win-ninja-debug` | Windows | Debug, Ninja Multi-Config local-iteration build in `build-ninja-debug/` |
-| `win-ninja-release` | Windows | Release, Ninja Multi-Config local-iteration build in `build-ninja-release/` |
-| `win-ninja-relwithdebinfo` | Windows | RelWithDebInfo, Ninja Multi-Config local-iteration build in `build-ninja-relwithdebinfo/` |
+| `win-ninja-debug` | Windows | Debug, Ninja single-config local-iteration build in `build-ninja-debug/` |
+| `win-ninja-release` | Windows | Release, Ninja single-config local-iteration build in `build-ninja-release/` |
+| `win-ninja-relwithdebinfo` | Windows | RelWithDebInfo, Ninja single-config local-iteration build in `build-ninja-relwithdebinfo/` |
 | `mac-debug` | macOS | Debug |
 | `mac-release` | macOS | Release |
 | `mac-asan` | macOS | Debug + AddressSanitizer + UBSan |
@@ -852,16 +852,18 @@ and `draxul integration status` do not pass through the launch-option parser.
 
 ### Convenience Scripts
 
-- `do run` configures, builds, and runs — defaults to Ninja on Windows, only builds the `draxul` target
+- `do build`, `do run`, and `do test` use one shared build-selection path. They default to Debug and Ninja on Windows, reuse `build-ninja-debug/`, and accept `debug` / `release` plus `--vs` / `--ninja` without silently switching generators between commands
 - `do run relwithdebinfo` / `do build relwithdebinfo` use `RelWithDebInfo` on Windows for optimized builds with PDB symbols
 - `do run --vs` falls back to the Visual Studio generator if you want the existing `build/` workflow
 - `do run --ninja` forces the Ninja local-iteration path explicitly
-- `do test` configures Debug as needed, builds only `draxul-tests` and its helper/dependency targets, and runs the unit suite as four parallel Catch2 shards plus the Python `tests/do_py_tests.py` suite. It does not build or launch the app and does not run smoke or render snapshots
+- `do test` builds `draxul-tests-core` and its helper/dependency targets in the selected `do.py` cache, then runs the core, app, Markdown/Kanban, and Python workflow unit entries through CTest with bounded parallelism. It does not launch the app or run smoke/render snapshots
+- Product unit suites are opt-in and additive: `do test --megacity`, `--satview`, or `--scoreview` adds only that product's aggregate and CTest entries; `--products` adds all three for shared plugin SDK/support/renderer changes; `--all` builds the historical `draxul-tests` aggregate and runs the complete unit inventory
 - `do clean` recursively removes repository-root build directories named `build/` or `build-*`, covering Visual Studio, Ninja, tooling, and custom build trees. It succeeds when none exist and preserves deploy packages, render outputs and references, databases, source files, and similarly named regular files
 - `do hygiene` fails (exit 1) if a forbidden artifact is tracked — OS/coverage temps (`.DS_Store`, partial-transfer `.!*`, `*.profraw`, `*.profdata`) anywhere, or `key.txt` / `NUL.obj` / `megacity-linux-drivers-mesh.bmp` / stray `*.log`, `*.obj`, `*.bmp` at the repo root — or if the feature docs have duplicated (`docs/features.md` must exist and root `FEATURES.md` must stay a short pointer, not a second inventory). Legitimate nested assets (mesh `*.obj`, render-reference `*.bmp`) are allowed
 - `do kanban-report` reads `kanban/` as the authoritative tracker and prints lane counts, flags `kanban/done` cards that still carry unchecked task boxes, and lists fully-ticked `kanban/pending` cards as move candidates. It is strictly read-only — it never edits, ticks, or moves a card
 - Normal Debug/Release presets explicitly disable coverage and sanitizers, and the test scripts reject an instrumented shared cache before running. This prevents a prior coverage/ASan/TSan configure from silently slowing or changing the ordinary unit workflow
-- `do smoke` remains the explicit startup check; the individual render shortcuts and `renderall` remain the explicit visual checks. `t.sh`, `t.bat`, and `scripts/run_tests.*` retain the full unit + smoke + available render-snapshot workflow for pre-commit, release, and CI validation
+- `do smoke --skip-build` runs the explicit startup check from an already-built selected cache, avoiding a second compile/plugin-staging pass after `do test`; omitting `--skip-build` still configures/builds when needed. The normal completion path is Debug iteration, one parallel `do test debug`, smoke from that cache, relevant render checks only, then `do run release` for the final Release startup confirmation
+- `t.sh`, `t.bat`, and `scripts/run_tests.*` retain the broad unit + smoke + available render-snapshot workflow for explicitly requested full/multi-configuration or CI validation; they are not stacked onto the normal `do.py` completion path
 - `do deploy` creates a Release build, stages the runtime payload into `deploy/YYYY_MM_DD/mac` or `deploy/YYYY_MM_DD/win`, and writes a matching `draxul-YYYY_MM_DD-mac|win.zip` archive under the date folder. Windows packages contain only `draxul.exe`, its Microsoft C++ and adjacent runtime DLLs, compiled shaders, bundled fonts, and runtime assets; CMake metadata, object files, static libraries, tests, and source/build directories are excluded
 - The repo-scoped `$draxul-review` skill runs isolated, read-only multi-AI reviews through installed Codex, Claude, Agy/Gemini, and Grok CLIs. Its default panel selects one healthy OpenAI, Anthropic, and Google transport; explicit panels reject duplicate companies, and `--all` adds every healthy configured company. When a synthesis prompt requests Kanban work items, the trusted parent runner validates the returned card paths/content and atomically creates them under `kanban/pending/`; providers never receive repository write access
 - Reviews and synthesis are separate operations. Immutable run archives, manifests, diagnostics, and optional summaries live under `plans/reviews/runs/`, while atomically refreshed `*-latest.*.md`, `*-consensus.md`, `*-latest.manifest.json`, and `*-latest.summary.manifest.json` files preserve stable pointers without synthesis hiding the latest review manifest
@@ -896,6 +898,8 @@ Markdown and Kanban are product modules under `modules/markdown/` and `modules/k
 ### Build Targets
 - `draxul` -- Main executable (.app bundle on macOS)
 - `draxul-tests` -- Unit test suite (Catch2), compiled with a test-only precompiled header and registered as four disjoint CTest shards labeled `unit`
+- `draxul-tests-core` -- Core/app/Markdown/Kanban test executables and public-header link-isolation checks used by default by `do test`
+- `draxul-tests-megacity`, `draxul-tests-satview`, `draxul-tests-scoreview` -- Product-specific aggregates selected explicitly by the corresponding `do test` flags
 - `draxul-rpc-fake` -- Fake RPC server for integration tests
 
 ScoreView builds as private product libraries beneath `plugins/scoreview` inside

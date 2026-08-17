@@ -125,9 +125,9 @@ run_config() {
 
   run cmake --build build --parallel
   if [ "$VERBOSE" -eq 1 ]; then
-    run ctest --test-dir build --verbose --timeout 120
+    run ctest --test-dir build --parallel 4 --verbose --timeout 120
   else
-    run ctest --test-dir build --progress --output-on-failure --timeout 120
+    run ctest --test-dir build --parallel 4 --progress --output-on-failure --timeout 120
   fi
 }
 

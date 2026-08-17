@@ -95,34 +95,29 @@ with Kanban/Markdown and no product plugins.
 
 ### Windows
 
-Debug:
+The recommended path is `do.py`; Debug + Ninja is the default development cache:
 
 ```powershell
-cmake --preset default
-cmake --build build --config Debug --parallel
+py do.py build debug
+py do.py run debug
+py do.py test debug
 ```
 
-Release:
+Use Release for the final build/startup confirmation:
 
 ```powershell
-cmake --preset release
-cmake --build build --config Release --parallel
+py do.py run release
 ```
 
 ### macOS
 
-Debug:
+Debug development and the final Release confirmation use the same commands:
 
 ```bash
-cmake --preset mac-debug
-cmake --build build --parallel
-```
-
-Release:
-
-```bash
-cmake --preset mac-release
-cmake --build build --parallel
+python3 do.py build debug
+python3 do.py run debug
+python3 do.py test debug
+python3 do.py run release
 ```
 
 ## Running
@@ -197,8 +192,11 @@ The root `do.py` script is the recommended entry point for common tasks:
 
 ```bash
 ./do.py run          # build (if needed) and launch Draxul
-./do.py smoke        # build and run the startup smoke test
-./do.py test         # fast unit suite (four C++ shards + do.py tests)
+./do.py test         # Debug build + parallel core suite in the same cache
+./do.py test --satview  # Add SatView's test suite
+./do.py test --products # Add every product test suite
+./do.py test --all      # Complete unit inventory
+./do.py smoke --skip-build # reuse that built app for the startup smoke test
 ./do.py clean        # remove repository-root build/ and build-* directories
 
 ./do.py basic        # run basic-view render snapshot compare
@@ -219,18 +217,20 @@ The root `do.py` script is the recommended entry point for common tasks:
 ./do.py coverage     # macOS: export build/coverage.lcov and refresh db/coverage.lcov
 ```
 
-On Windows, use `do <command>` (via `do.bat`) instead of `./do.py`.
+On Windows, use `py do.py <command>`.
 
 ```bash
-do build relwithdebinfo  # Windows: optimized build with PDB symbols
-do run                   # Debug build + run (ninja on Windows, make on macOS)
-do run release           # Release build + run
-do run relwithdebinfo    # Windows: optimized build with PDB symbols
-do run release --vs      # Release build with VS generator (Windows)
-do run --console         # Attach a debug console (Windows)
-do smoke                 # Smoke test
-do test                  # Fast unit suite
-do clean                 # Remove build/ and build-*/
+py do.py build relwithdebinfo  # Windows: optimized build with PDB symbols
+py do.py run                   # Debug build + run (Ninja on Windows)
+py do.py test                  # Same Debug cache + parallel core suite
+py do.py test --scoreview      # Core + ScoreView suites
+py do.py test --products       # Core + every product suite
+py do.py test --all            # Complete unit inventory
+py do.py smoke --skip-build    # Startup check without another build
+py do.py run release           # Final Release build + startup confirmation
+py do.py run release --vs      # Explicit VS-generator check when needed
+py do.py run --console         # Attach a debug console (Windows)
+py do.py clean                 # Remove build/ and build-*/
 ```
 
 `do.py clean` removes repository-root build trees named `build/` or `build-*` (including the Visual Studio, Ninja, and tooling build directories). It leaves deploy packages, render outputs, render references, databases, source files, and similarly named regular files untouched; running it when no matching build directory exists succeeds.
@@ -239,9 +239,15 @@ do clean                 # Remove build/ and build-*/
 
 The repository includes lightweight native tests for grid logic, redraw parsing, input translation, RPC behavior, renderer state, and Unicode width conformance against headless Neovim.
 
-For the normal edit-test loop, `do.py test` (or `do test` on Windows) configures Debug as needed, builds only `draxul-tests` and its dependencies, then runs four disjoint Catch2 shards in parallel plus the Python `do.py` unit suite. It does not build or launch the Draxul application and does not run smoke or render comparisons.
+For the normal edit-test loop, `do.py build`, `do.py run`, and `do.py test` share the same selected generator, configuration, and build tree. They default to Debug and Ninja on Windows. `do.py test` builds the core test aggregate and its dependencies—including the app required by the core test contract—then runs only the core, app, Markdown/Kanban, and Python workflow tests with bounded parallelism. It does not launch the app or run smoke/render comparisons.
 
-Use `do.py smoke` and the render shortcuts when an application-facing change needs them. Before committing or releasing, use `./t.sh` on macOS or `t.bat` on Windows; those full-validation wrappers retain the unit, app-smoke, and available render-snapshot checks.
+Product tests are opt-in and additive: use `--megacity`, `--satview`, or `--scoreview` when changing that product or a shared seam it consumes. Use `--products` for changes to shared plugin SDK/support/renderer code that can affect every product. `--all` builds the historical `draxul-tests` aggregate and runs the complete unit inventory. The individual product flags and `--products` keep the build scoped to their named aggregates; `--all` is the explicit broad acceptance path.
+
+Before committing, run `do.py test debug` with any relevant product flag, then `do.py smoke --skip-build` so smoke reuses the app already produced in that cache. Run only the relevant render shortcut for rendering-affecting changes. Finish a completed feature or bug fix with `do.py run release` and confirm startup; headless automation can use `do.py run release --console -- --smoke-test`.
+
+On Windows, a long-lived Draxul server keeps its selected cache's `draxul-server.exe` open. If the Debug app has since been relinked, run process-launch tests before starting that server or safely stop that exact server after checking for connected clients and live terminals. Do not switch the entire test pass to another generator merely to avoid the helper lock.
+
+The `t.sh`, `t.bat`, and `scripts/run_tests.*` wrappers remain available for an explicitly requested broad or multi-configuration validation pass. They are not the normal edit-build-test path and should not be stacked with equivalent `do.py` validation.
 
 ### Windows
 
@@ -279,7 +285,7 @@ Other modes:
 ./scripts/run_tests.sh --unit
 ```
 
-The test scripts reuse the existing CMake cache when possible and only reconfigure when needed. Their default is full validation; `--unit` selects the same fast unit-only path used by `do.py test`. By default they use failure-only CTest output so CI logs stay readable; pass `--verbose` when you want full per-test output locally.
+The test scripts reuse the existing CMake cache when possible and only reconfigure when needed. Their default is broad validation; `--unit` still selects the complete CTest unit inventory, whereas the normal `do.py test` path is core-scoped unless a product flag is supplied. By default they use failure-only CTest output so CI logs stay readable; pass `--verbose` when you want full per-test output locally.
 
 The CTest suite also includes:
 

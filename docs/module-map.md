@@ -326,8 +326,12 @@ Use this when:
 
 ### Fast confidence
 
-- `python do.py smoke`
-- `python do.py test`
+- `python do.py test debug` — build and run core unit shards in the shared Debug cache
+- `python do.py test debug --megacity|--satview|--scoreview` — add only an affected product suite
+- `python do.py test debug --products` — add every product suite for shared plugin seams
+- `python do.py test debug --all` — explicit complete unit inventory
+- `python do.py smoke --skip-build` — startup-check that already-built app
+- `python do.py run release` — final Release build and startup confirmation
 
 ### Deterministic UI confidence
 

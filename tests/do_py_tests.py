@@ -270,32 +270,181 @@ class TestCommandTests(unittest.TestCase):
     def test_help_describes_fast_unit_scope(self) -> None:
         help_output = draxul_do.help_text()
 
-        self.assertIn("Run unit tests", help_output)
+        self.assertIn("run core unit tests in parallel", help_output.lower())
+        self.assertIn("--satview", help_output)
+        self.assertIn("--scoreview", help_output)
+        self.assertIn("--products", help_output)
+        self.assertIn("--all", help_output)
         self.assertNotIn("test         Run the full local test suite", help_output)
 
-    def test_test_command_routes_posix_to_unit_script_mode(self) -> None:
+    def test_test_command_uses_default_debug_ninja_cache_and_parallel_ctest(self) -> None:
+        build_dir = ROOT / "build-ninja-debug"
+        build_env = {"DRAXUL_TEST_ENV": "1"}
         with (
             mock.patch.object(draxul_do.sys, "argv", ["do.py", "test"]),
-            mock.patch.object(draxul_do.sys, "platform", "darwin"),
+            mock.patch.object(
+                draxul_do,
+                "_configure_and_build",
+                return_value=(0, build_dir, "Debug", build_env),
+            ) as build_mock,
             mock.patch.object(draxul_do, "run", return_value=0) as run_mock,
         ):
             self.assertEqual(0, draxul_do.main())
 
+        build_mock.assert_called_once_with(
+            ROOT,
+            "debug",
+            False,
+            "ninja",
+            targets=("draxul-tests-core",),
+        )
+        _, ctest_filter, _ = draxul_do._test_scope_selection(set(), False)
         run_mock.assert_called_once_with(
-            ["sh", "./scripts/run_tests.sh", "--unit"], ROOT
+            [
+                "ctest",
+                "--test-dir", str(build_dir),
+                "--build-config", "Debug",
+                "--parallel", draxul_do._test_parallel_jobs(),
+                "--timeout", "120",
+                *ctest_filter,
+                "--output-on-failure",
+            ],
+            ROOT,
+            env=build_env,
         )
 
-    def test_test_command_routes_windows_to_unit_script_mode(self) -> None:
+    def test_test_command_passes_release_vs_and_verbose_selection(self) -> None:
+        build_dir = ROOT / "build"
         with (
-            mock.patch.object(draxul_do.sys, "argv", ["do.py", "test"]),
-            mock.patch.object(draxul_do.sys, "platform", "win32"),
+            mock.patch.object(
+                draxul_do.sys,
+                "argv",
+                ["do.py", "test", "release", "--vs", "--verbose"],
+            ),
+            mock.patch.object(
+                draxul_do,
+                "_configure_and_build",
+                return_value=(0, build_dir, "Release", None),
+            ) as build_mock,
             mock.patch.object(draxul_do, "run", return_value=0) as run_mock,
         ):
             self.assertEqual(0, draxul_do.main())
 
-        run_mock.assert_called_once_with(
-            ["cmd", "/c", "t.bat", "--unit"], ROOT
+        build_mock.assert_called_once_with(
+            ROOT,
+            "release",
+            False,
+            "vs",
+            targets=("draxul-tests-core",),
         )
+        self.assertEqual("--verbose", run_mock.call_args.args[0][-1])
+
+    def test_individual_product_scopes_add_targets_and_ctest_names(self) -> None:
+        targets, ctest_filter, label = draxul_do._test_scope_selection(
+            {"satview", "scoreview"}, False
+        )
+
+        self.assertEqual(
+            (
+                "draxul-tests-core",
+                "draxul-tests-satview",
+                "draxul-tests-scoreview",
+            ),
+            targets,
+        )
+        self.assertEqual("--tests-regex", ctest_filter[0])
+        self.assertIn("draxul-test-satview-shard", ctest_filter[1])
+        self.assertIn("draxul-satview-catalog-py-tests", ctest_filter[1])
+        self.assertIn("draxul-test-scoreview-shard", ctest_filter[1])
+        self.assertIn("draxul-test-scoreview-runtime-shard", ctest_filter[1])
+        self.assertNotIn("draxul-test-megacity-shard", ctest_filter[1])
+        self.assertEqual("core + satview, scoreview", label)
+
+    def test_products_scope_selects_every_product(self) -> None:
+        parsed = draxul_do._parse_test_args(["--products"])
+        targets, ctest_filter, label = draxul_do._test_scope_selection(
+            parsed[4], parsed[5]
+        )
+
+        self.assertEqual(
+            (
+                "draxul-tests-core",
+                "draxul-tests-megacity",
+                "draxul-tests-satview",
+                "draxul-tests-scoreview",
+            ),
+            targets,
+        )
+        for product in ("megacity", "satview", "scoreview"):
+            self.assertIn(f"draxul-test-{product}-shard", ctest_filter[1])
+        self.assertEqual("core + megacity, satview, scoreview", label)
+
+    def test_all_scope_uses_complete_unit_aggregate(self) -> None:
+        parsed = draxul_do._parse_test_args(["--all"])
+
+        self.assertEqual(
+            (("draxul-tests",), ["--label-regex", "unit"], "all unit tests"),
+            draxul_do._test_scope_selection(parsed[4], parsed[5]),
+        )
+
+    def test_test_command_rejects_app_arguments(self) -> None:
+        error = io.StringIO()
+        with (
+            contextlib.redirect_stderr(error),
+            mock.patch.object(draxul_do.sys, "argv", ["do.py", "test", "--console"]),
+            mock.patch.object(draxul_do, "_configure_and_build") as build_mock,
+        ):
+            self.assertEqual(2, draxul_do.main())
+
+        build_mock.assert_not_called()
+        self.assertIn("test accepts", error.getvalue())
+
+
+class SmokeCommandTests(unittest.TestCase):
+    def test_smoke_can_reuse_selected_debug_build_without_rebuilding(self) -> None:
+        executable = ROOT / "build-ninja-debug" / "draxul.exe"
+        build_env = {"DRAXUL_TEST_ENV": "1"}
+        with (
+            mock.patch.object(
+                draxul_do.sys,
+                "argv",
+                ["do.py", "smoke", "--skip-build"],
+            ),
+            mock.patch.object(
+                draxul_do,
+                "build_shortcut_exe",
+                return_value=(0, executable, build_env),
+            ) as build_mock,
+            mock.patch.object(draxul_do, "run", return_value=0) as run_mock,
+        ):
+            self.assertEqual(0, draxul_do.main())
+
+        build_mock.assert_called_once_with(
+            ROOT,
+            mode="debug",
+            force_reconfigure=False,
+            build_system="ninja",
+            skip_build=True,
+        )
+        run_mock.assert_called_once_with(
+            [str(executable), "--console", "--smoke-test"],
+            ROOT,
+            env=build_env,
+        )
+
+    def test_smoke_rejects_duplicate_skip_build(self) -> None:
+        error = io.StringIO()
+        with (
+            contextlib.redirect_stderr(error),
+            mock.patch.object(
+                draxul_do.sys,
+                "argv",
+                ["do.py", "smoke", "--skip-build", "--skip-build"],
+            ),
+        ):
+            self.assertEqual(2, draxul_do.main())
+
+        self.assertIn("only once", error.getvalue())
 
 
 class DeployPackagingTests(unittest.TestCase):
