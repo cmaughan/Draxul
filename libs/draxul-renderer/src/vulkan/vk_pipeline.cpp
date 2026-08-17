@@ -1,5 +1,7 @@
 #include "vk_pipeline.h"
 
+#include "shared/grid_contract.h"
+
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/runtime_path.h>
@@ -69,14 +71,17 @@ bool VkPipelineManager::initialize(VkDevice device, VkRenderPass render_pass, co
         vkDestroyShaderModule(device, fg_frag, nullptr);
     };
 
+    // Range and binding indices come from the shared grid contract (bug #11):
+    // the size was a bare `sizeof(float) * 7` that agreed with the shaders only
+    // by convention.
     VkPushConstantRange push_range = {};
     push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    push_range.offset = 0;
-    push_range.size = sizeof(float) * 7;
+    push_range.offset = grid_contract::kVulkanPushConstantOffset;
+    push_range.size = sizeof(grid_contract::GridPushConstants);
 
     {
         VkDescriptorSetLayoutBinding ssbo_binding = {};
-        ssbo_binding.binding = 0;
+        ssbo_binding.binding = grid_contract::kVulkanCellBufferBinding;
         ssbo_binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         ssbo_binding.descriptorCount = 1;
         ssbo_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -93,11 +98,11 @@ bool VkPipelineManager::initialize(VkDevice device, VkRenderPass render_pass, co
 
     {
         VkDescriptorSetLayoutBinding bindings[2] = {};
-        bindings[0].binding = 0;
+        bindings[0].binding = grid_contract::kVulkanCellBufferBinding;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         bindings[0].descriptorCount = 1;
         bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-        bindings[1].binding = 1;
+        bindings[1].binding = grid_contract::kVulkanAtlasSamplerBinding;
         bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[1].descriptorCount = 1;
         bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;

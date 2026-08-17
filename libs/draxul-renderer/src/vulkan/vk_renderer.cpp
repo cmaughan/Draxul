@@ -1,6 +1,9 @@
 #include "vk_renderer.h"
 #include <draxul/vulkan/vk_render_context.h>
 
+#include "shared/grid_contract.h"
+#include "shared/pane_scissor.h"
+
 #include <algorithm>
 #include <backends/imgui_impl_vulkan.h>
 #include <cstdio>
@@ -1082,18 +1085,32 @@ bool VkRenderer::draw_grid_handle_now(IGridHandle& handle)
     viewport.maxDepth = 1.0f;
     vkCmdSetViewport(active_cmd_buffer_, 0, 1, &viewport);
 
-    VkRect2D pane_scissor = {};
-    pane_scissor.offset.x = std::max(0, desc.pixel_pos.x);
-    pane_scissor.offset.y = std::max(0, desc.pixel_pos.y);
-    pane_scissor.extent.width = static_cast<uint32_t>(std::max(0,
-        std::min(desc.pixel_size.x, pixel_w_ - pane_scissor.offset.x)));
-    pane_scissor.extent.height = static_cast<uint32_t>(std::max(0,
-        std::min(desc.pixel_size.y, pixel_h_ - pane_scissor.offset.y)));
-    vkCmdSetScissor(active_cmd_buffer_, 0, 1, &pane_scissor);
+    const auto clamped_pane = pane_scissor::clamp(desc.pixel_pos.x, desc.pixel_pos.y,
+        desc.pixel_size.x, desc.pixel_size.y, pixel_w_, pixel_h_);
+    VkRect2D pane_rect = {};
+    pane_rect.offset.x = clamped_pane.x;
+    pane_rect.offset.y = clamped_pane.y;
+    pane_rect.extent.width = static_cast<uint32_t>(clamped_pane.width);
+    pane_rect.extent.height = static_cast<uint32_t>(clamped_pane.height);
+    vkCmdSetScissor(active_cmd_buffer_, 0, 1, &pane_rect);
 
-    float push_data[7] = {
-        static_cast<float>(ctx_.swapchain().extent.width),
-        static_cast<float>(ctx_.swapchain().extent.height),
+    // Wire format is the shared grid push-constant contract; layout is guarded
+    // by static_asserts in shared/grid_contract.h against grid_push_constants.toml.
+    //
+    // SCREEN SIZE (audit bug #11): this used to read the swapchain extent while
+    // the Metal backend read pixel_w_/pixel_h_. pixel_w_/pixel_h_ is the correct
+    // source: screen_w/screen_h only exist to normalise PANE pixel coordinates
+    // (desc.pixel_pos, desc.pixel_size, cell_w_/cell_h_) into NDC, and every one
+    // of those arrives from the app in window-pixel space — the same space
+    // pixel_w_/pixel_h_ records and the same space this function's own scissor
+    // clamp already used. The swapchain extent can differ from it whenever the
+    // surface clamps the requested extent, or for the frame between resize() and
+    // the swapchain rebuild; using it there rescales grid content relative to the
+    // scissor that crops it. The viewport below deliberately keeps the swapchain
+    // extent: that is the real attachment size, not a coordinate space.
+    const grid_contract::GridPushConstants push_data = {
+        static_cast<float>(pixel_w_),
+        static_cast<float>(pixel_h_),
         static_cast<float>(cell_w_),
         static_cast<float>(cell_h_),
         vk_handle->scroll_offset_px_,
@@ -1107,13 +1124,15 @@ bool VkRenderer::draw_grid_handle_now(IGridHandle& handle)
     vkCmdBindPipeline(active_cmd_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.bg_pipeline());
     vkCmdBindDescriptorSets(active_cmd_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.bg_layout(),
         0, 1, &bg_desc_set, 0, nullptr);
-    vkCmdPushConstants(active_cmd_buffer_, pipeline_.bg_layout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_data), push_data);
+    vkCmdPushConstants(active_cmd_buffer_, pipeline_.bg_layout(), VK_SHADER_STAGE_VERTEX_BIT,
+        grid_contract::kVulkanPushConstantOffset, sizeof(push_data), &push_data);
     vkCmdDraw(active_cmd_buffer_, 6, bg_instances, 0, 0);
 
     vkCmdBindPipeline(active_cmd_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.fg_pipeline());
     vkCmdBindDescriptorSets(active_cmd_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.fg_layout(),
         0, 1, &fg_desc_set, 0, nullptr);
-    vkCmdPushConstants(active_cmd_buffer_, pipeline_.fg_layout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_data), push_data);
+    vkCmdPushConstants(active_cmd_buffer_, pipeline_.fg_layout(), VK_SHADER_STAGE_VERTEX_BIT,
+        grid_contract::kVulkanPushConstantOffset, sizeof(push_data), &push_data);
     vkCmdDraw(active_cmd_buffer_, 6, fg_instances, 0, 0);
     chunk_has_work_ = true;
     return true;
@@ -1195,13 +1214,12 @@ bool VkRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewport&
     pass_viewport.maxDepth = 1.0f;
     vkCmdSetViewport(active_cmd_buffer_, 0, 1, &pass_viewport);
 
+    const auto clamped_pass = pane_scissor::clamp(vx, vy, vw, vh, pixel_w_, pixel_h_);
     VkRect2D pass_scissor = {};
-    pass_scissor.offset.x = std::max(0, vx);
-    pass_scissor.offset.y = std::max(0, vy);
-    pass_scissor.extent.width = static_cast<uint32_t>(std::max(0,
-        std::min(vw, pixel_w_ - pass_scissor.offset.x)));
-    pass_scissor.extent.height = static_cast<uint32_t>(std::max(0,
-        std::min(vh, pixel_h_ - pass_scissor.offset.y)));
+    pass_scissor.offset.x = clamped_pass.x;
+    pass_scissor.offset.y = clamped_pass.y;
+    pass_scissor.extent.width = static_cast<uint32_t>(clamped_pass.width);
+    pass_scissor.extent.height = static_cast<uint32_t>(clamped_pass.height);
     vkCmdSetScissor(active_cmd_buffer_, 0, 1, &pass_scissor);
 
     VkRenderContext ctx(active_cmd_buffer_, ctx_.physical_device(), ctx_.device(), ctx_.allocator(), ctx_.render_pass(),

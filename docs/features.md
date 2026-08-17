@@ -60,7 +60,18 @@ render-pass/context types, configuration documents, text and tooltip rasterizing
 HTTP, logging/performance types, ImGui, ImGui core (the single
 SDL-scancode→ImGuiKey table plus the `IImGuiHost` backend interface in
 `libs/draxul-imgui-core`, exported as `Draxul::PluginSupport::ImGuiCore`), and
-Vulkan resource ownership. The plugin ImGui leaf also carries the shared
+Vulkan resource ownership. The Vulkan leaf owns the whole HDR/MSAA scene
+scaffolding both 3D products render with: attachment creation, a per-format MSAA
+sample-count probe that walks 4x/2x/1x against the real colour and depth formats
+(never device limits alone), shader-module loading, load-time image upload with
+sampler and mip generation, and an `HdrScenePipeline` that owns the MSAA scene
+pass, the resolve, the tone-map pass, their per-frame targets, and the single set
+of subpass dependency masks. A `Draxul::PluginSupport::CameraInput` leaf owns the
+shared camera key-latch table (arrows/WASD, Q/E orbit, R/F zoom with a
+configurable modifier guard so a host accelerator such as Ctrl+R is not consumed,
+T/G pitch) and the drag-inertia plus click/double-click state machine; each
+product binds the key groups to its own camera axes, and the camera math stays
+per-product. The plugin ImGui leaf also carries the shared
 `PluginImGuiContext` lifecycle (context flags, font, backend attach, frame
 begin, ordered shutdown, optional ini persistence) and the header-only
 `ImGuiInputBridge` (modifier/key, mouse remap, position/wheel/text routing)
@@ -365,6 +376,7 @@ filename drift and dynamic-loader or ABI failures are caught on both platforms.
 - **MegaCity materials**: Textured asphalt road surfaces, paving-stone sidewalks, flat-color procedural n-gon building shell meshes with configurable roughness/metallic, bark-textured central-park trees, plus forward-lit material debug controls including metallic, tangent, bitangent, packed-TBN, directional-shadow, point-shadow, point-shadow-face, point-shadow-stored-depth, and point-shadow-depth-delta views
 - **MegaCity surface pipeline**: Opaque MegaCity rendering now uses cascaded directional shadow maps, point-light cubemap shadow maps, a depth/normal AO prepass, an offscreen MSAA depth buffer, an MSAA `RGBA16F` scene color target, a resolved HDR scene texture, and a final `BGRA8 sRGB` scene texture before the main swapchain present; the debug panel can inspect the resolved HDR/final scene targets, directional shadow cascades, and point-shadow faces alongside the AO/GBuffer surfaces
 - **MegaCity tone mapping controls**: The HDR post pass now applies tone mapping before the final sRGB target, with configurable `Exposure` and `White Point` controls in the Megacity lighting UI
+- **Shared shader includes with a parity contract**: `shaders/include/` holds GLSL and MSL includes any mounted product may consume (currently the ACES tone-map curve, previously four hand-synced copies across MegaCity and SatView in both languages). Products reach the directory through `draxul_shared_shader_includes()` in `cmake/DraxulPlugins.cmake`, which supplies both the `-I` path for `glslc`/`xcrun metal` and the file list for shader rebuild dependencies. Each shared include has a declarative manifest under `shaders/contracts/`, and `tests/shader_abi_parity_tests.cpp` re-derives the constants, the function signature and the curve expression from both language copies and asserts they match it, so GLSL and MSL cannot drift apart
 - **SatView HDR surface pipeline**: SatView scene layers render into a linear `RGBA16F` target with MSAA fallback, ACES tone mapping, and persisted exposure/white-point controls; details in [docs/features/satview.md](features/satview.md#rendering-and-data-pipeline)
 - **MegaCity module surfaces**: Each non-central module now draws a thin module-colored outline above the shared road layer so module footprints are readable beneath sidewalks and buildings
 - **MegaCity park dressing**: Central park now includes a procedurally generated `DraxulTree` mesh with atlas-based PBR leaf cards
