@@ -24,15 +24,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Cache Vulkan SDK
-        id: cache-vulkan
-        uses: actions/cache@v4
-        with:
-          path: C:\VulkanSDK
-          key: vulkan-sdk-${{ env.VULKAN_SDK_VERSION }}-windows
-
       - name: Install Vulkan SDK
-        if: steps.cache-vulkan.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $url = "https://sdk.lunarg.com/sdk/download/${{ env.VULKAN_SDK_VERSION }}/windows/vulkan_sdk.exe"
@@ -42,6 +34,9 @@ jobs:
       - name: Set Vulkan environment
         shell: pwsh
         run: |
+          if (-not (Test-Path "$env:WINDIR\System32\vulkan-1.dll")) {
+            throw "The Vulkan SDK installer did not install the 64-bit Vulkan loader."
+          }
           echo "VULKAN_SDK=C:\VulkanSDK\${{ env.VULKAN_SDK_VERSION }}" >> $env:GITHUB_ENV
           echo "C:\VulkanSDK\${{ env.VULKAN_SDK_VERSION }}\Bin" >> $env:GITHUB_PATH
 
