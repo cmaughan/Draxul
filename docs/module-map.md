@@ -249,7 +249,7 @@ Good place for:
 | `libs/draxul-ui/` | ImGui diagnostics and developer-facing UI (key translation lives in `libs/draxul-imgui-core`) |
 | `libs/draxul-runtime-support/` | Shared grid-render pipeline, printing, resource monitoring, and background UI requests |
 | `libs/draxul-host/` | UI/process host adapters, terminal/Neovim hosts, PTY/ConPTY behavior, selection, copy mode, and client-side terminal presentation |
-| `libs/draxul-nanovg/` | Cross-platform NanoVG render-pass integration |
+| `libs/draxul-nanovg/` | Two targets: `draxul-nanovg-backend` (NanoVG core + custom Vulkan/Metal backends and their GLSL shaders; leaf-narrow, exported as `Draxul::PluginSupport::NanoVG` with a settable shader root for plugin hosts) and `draxul-nanovg` (the in-process `INanoVGPass` render-pass integration) |
 | `libs/draxul-render-test/` | Render-test driver and reusable render-test hosts |
 | `libs/draxul-app-support/` | Interface target bundling reusable config/runtime/render-test dependencies |
 

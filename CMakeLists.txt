@@ -165,6 +165,10 @@ add_subdirectory(libs/draxul-http)
 add_subdirectory(libs/draxul-window)
 add_subdirectory(libs/draxul-font)
 add_subdirectory(libs/draxul-imgui-core)
+# Before draxul-plugin-support so the Draxul::PluginSupport::NanoVG alias can
+# name draxul-nanovg-backend. The pass half links draxul-renderer by name;
+# CMake resolves that when the renderer target is defined below.
+add_subdirectory(libs/draxul-nanovg)
 add_subdirectory(libs/draxul-plugin-support)
 # The reference plugin consumes Draxul::PluginSupport::Adapter, so it mounts
 # after the plugin-support leaves exist.
@@ -189,7 +193,6 @@ add_subdirectory(libs/draxul-render-test)
 add_subdirectory(libs/draxul-app-support)
 add_subdirectory(libs/draxul-host)
 add_subdirectory(modules/kanban)
-add_subdirectory(libs/draxul-nanovg)
 
 set(DRAXUL_HAVE_MEGACITY OFF)
 set(DRAXUL_HAVE_SATVIEW OFF)
@@ -242,7 +245,8 @@ draxul_allow_plugin_support_targets(
     Draxul::PluginSupport::Performance
     Draxul::PluginSupport::Text
     Draxul::PluginSupport::Http
-    Draxul::PluginSupport::ImGuiCore)
+    Draxul::PluginSupport::ImGuiCore
+    Draxul::PluginSupport::NanoVG)
 if(TARGET Draxul::PluginSupport::ImGui)
     draxul_allow_plugin_support_targets(Draxul::PluginSupport::ImGui)
 endif()

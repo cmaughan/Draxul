@@ -141,16 +141,9 @@ FetchContent_MakeAvailable(tomlplusplus)
 get_target_property(_toml_inc tomlplusplus_tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
 set_target_properties(tomlplusplus_tomlplusplus PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_toml_inc}")
 
-# NanoVG (antialiased 2D vector graphics — core library only, custom backends)
-# Pinned to a reviewed immutable upstream commit. Draxul's Vulkan and Metal
-# backends live under libs/draxul-nanovg; no patch is applied to this fetched
-# core source.
-FetchContent_Declare(
-    nanovg
-    GIT_REPOSITORY https://github.com/memononen/nanovg.git
-    GIT_TAG ce3bf745eb2d2dbc14a50bf2446783f691ac4353
-)
-FetchContent_MakeAvailable(nanovg)
+# NanoVG is fetched by libs/draxul-nanovg/CMakeLists.txt, beside the backends
+# that consume it, so a standalone product extraction of that directory pins
+# the identical source without a second declaration here.
 
 # GLM (OpenGL Mathematics — header-only vector/matrix library)
 FetchContent_Declare(

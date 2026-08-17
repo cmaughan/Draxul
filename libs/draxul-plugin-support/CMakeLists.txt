@@ -8,6 +8,14 @@ target_link_libraries(draxul-plugin-runtime-support PUBLIC
     Draxul::PluginSDK
     draxul-types)
 
+# The plugin-runtime vocabulary (PluginRuntimeContext and friends) ships with
+# the plugin SDK so out-of-tree product builds can speak it; it only needs the
+# draxul-types headers that already travel with the SDK.
+include(GNUInstallDirs)
+install(FILES include/draxul/plugin_runtime.h
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/draxul"
+    COMPONENT draxul-plugin-sdk)
+
 add_library(draxul-plugin-render-support INTERFACE)
 target_include_directories(draxul-plugin-render-support INTERFACE include)
 target_link_libraries(draxul-plugin-render-support INTERFACE draxul-types)
@@ -68,6 +76,7 @@ add_library(Draxul::PluginSupport::Config ALIAS draxul-plugin-config-support)
 add_library(Draxul::PluginSupport::Tooltip ALIAS draxul-plugin-tooltip-support)
 add_library(Draxul::PluginSupport::Types ALIAS draxul-types)
 add_library(Draxul::PluginSupport::ImGuiCore ALIAS draxul-imgui-core)
+add_library(Draxul::PluginSupport::NanoVG ALIAS draxul-nanovg-backend)
 add_library(Draxul::PluginSupport::Performance ALIAS draxul-performance)
 add_library(Draxul::PluginSupport::Text ALIAS draxul-font)
 add_library(Draxul::PluginSupport::Http ALIAS draxul-http)

@@ -14,7 +14,7 @@ structurally unrepeatable.
 - [x] Slice 2: `libs/draxul-imgui-core` — one scancode table + `IImGuiHost`;
       `PluginImGuiContext` + `ImGuiInputBridge` in `plugins/support/imgui`;
       all three product runtimes adopt. (Fixes #1, #2, #10.)
-- [ ] Slice 3: promote `draxul-nanovg` to `Draxul::PluginSupport::NanoVG`;
+- [x] Slice 3: promote `draxul-nanovg` to `Draxul::PluginSupport::NanoVG`;
       ScoreView deletes its vendored NanoVG stack and shadow `draxul/`
       headers. (Fixes #3.)
 - [x] Slice 4: `Draxul::PluginSupport::Adapter` plugin shell; SatView and

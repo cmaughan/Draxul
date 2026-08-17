@@ -3,8 +3,8 @@
 
 // nanovg.h must come before our backend header so NVGparams etc. are defined.
 #include "nanovg.h"
-#import "nanovg_mtl.h"
 #import "nanovg_mtl_shaders.h"
+#import <draxul/nanovg_mtl.h>
 
 #include <algorithm>
 #include <cstring>
@@ -100,7 +100,11 @@ struct MtlNVGtexture
 // ---------------------------------------------------------------------------
 struct MtlNVGcontext
 {
-    id<MTLDevice> device = nil;
+    // Non-owning: the device belongs to the hosting renderer (or, for plugin
+    // dylibs, to the host process). Never retain host-owned Metal objects in
+    // this context — the context can outlive its last frame but must not
+    // extend the lifetime of objects it does not own.
+    __unsafe_unretained id<MTLDevice> device = nil;
     id<MTLLibrary> library = nil;
     id<MTLRenderPipelineState> pipelineFillAA = nil;
     id<MTLRenderPipelineState> pipelineFillNoAA = nil;
@@ -119,9 +123,10 @@ struct MtlNVGcontext
     int stencilW = 0;
     int stencilH = 0;
 
-    // Per-frame state (set before nvgEndFrame)
-    id<MTLCommandBuffer> commandBuffer = nil;
-    id<MTLTexture> drawableTexture = nil;
+    // Per-frame state (set before nvgEndFrame). Non-owning: valid only for
+    // the frame the host handed them over for.
+    __unsafe_unretained id<MTLCommandBuffer> commandBuffer = nil;
+    __unsafe_unretained id<MTLTexture> drawableTexture = nil;
     uint32_t frameIndex = 0;
 
     float viewWidth = 0;

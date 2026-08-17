@@ -1,13 +1,15 @@
 // Custom Vulkan NanoVG backend — implements the NVGparams interface.
 // Modeled on the Metal backend (nanovg_mtl.mm) and the nanovg_gl.h reference.
 
-#include "nanovg_vk.h"
+#include <draxul/nanovg_vk.h>
+
 #include "nanovg.h"
 
 #include <algorithm>
 #include <cstring>
 #include <draxul/log.h>
 #include <draxul/runtime_path.h>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <unordered_map>
@@ -15,6 +17,19 @@
 
 namespace draxul
 {
+
+namespace
+{
+// Empty by default: shaders resolve through the application's bundled asset
+// path. A host that stages its own shaders (a plugin directory, a test
+// fixture) overrides this via nvgVkSetShaderRoot.
+std::filesystem::path g_shader_root;
+} // namespace
+
+void nvgVkSetShaderRoot(const std::filesystem::path& root)
+{
+    g_shader_root = root;
+}
 
 // ---------------------------------------------------------------------------
 // Internal types matching the NanoVG GL reference backend
@@ -183,6 +198,12 @@ struct VkNVGcontext
         std::vector<RetiredTexture> retiredTextures;
     };
     std::vector<FrameResources> frameResources;
+    // A frame-slot count change can happen while commands recorded against the
+    // former slots are still in flight. The context owner (renderer or plugin
+    // host) guarantees device idleness before the context is destroyed, so
+    // retain those old owned resources until then instead of synchronizing
+    // the device mid-frame.
+    std::vector<FrameResources> retiredFrameResources;
 };
 
 // ---------------------------------------------------------------------------
@@ -438,7 +459,8 @@ static void vknvg__ensureStencilImage(VkNVGcontext* vk, int w, int h)
 
 static std::vector<char> vknvg__loadShaderBytes(const char* name)
 {
-    const auto shader_dir = bundled_asset_path("shaders");
+    const auto shader_dir
+        = g_shader_root.empty() ? bundled_asset_path("shaders") : g_shader_root;
     const auto shader_path = shader_dir / name;
 
     std::ifstream file(shader_path, std::ios::ate | std::ios::binary);
@@ -1372,12 +1394,9 @@ static void vknvg__renderTriangles(void* uptr, NVGpaint* paint, NVGcompositeOper
 // renderFlush — the main GPU work
 // ---------------------------------------------------------------------------
 
-static void vknvg__cleanupFrameResources(VkNVGcontext* vk, size_t slot)
+static void vknvg__cleanupFrameResources(VkNVGcontext* vk,
+    VkNVGcontext::FrameResources& fr)
 {
-    if (slot >= vk->frameResources.size())
-        return;
-
-    auto& fr = vk->frameResources[slot];
     if (!fr.descriptorSets.empty())
         vkFreeDescriptorSets(vk->device, vk->descriptorPool,
             static_cast<uint32_t>(fr.descriptorSets.size()), fr.descriptorSets.data());
@@ -1399,18 +1418,24 @@ static void vknvg__cleanupFrameResources(VkNVGcontext* vk, size_t slot)
     fr.retiredTextures.clear();
 }
 
+static void vknvg__cleanupFrameResources(VkNVGcontext* vk, size_t slot)
+{
+    if (slot < vk->frameResources.size())
+        vknvg__cleanupFrameResources(vk, vk->frameResources[slot]);
+}
+
 static void vknvg__ensureFrameResources(VkNVGcontext* vk, uint32_t requestedCount)
 {
     requestedCount = std::max(1u, requestedCount);
     if (vk->frameResources.size() == requestedCount)
         return;
 
-    // A buffering-policy change is a rare swapchain event. Waiting here makes
-    // it safe to retire resources associated with slots that no longer exist.
-    if (vk->device != VK_NULL_HANDLE)
-        vkDeviceWaitIdle(vk->device);
-    for (size_t i = 0; i < vk->frameResources.size(); ++i)
-        vknvg__cleanupFrameResources(vk, i);
+    // A buffering-policy change is a rare swapchain event that can arrive
+    // mid-frame, with commands referencing the old slots still in flight.
+    // Retire the old slots instead of synchronizing the device here; they are
+    // destroyed in renderDelete, once the context owner guarantees idleness.
+    for (auto& resources : vk->frameResources)
+        vk->retiredFrameResources.push_back(std::move(resources));
     vk->frameResources.clear();
     vk->frameResources.resize(requestedCount);
 }
@@ -1910,12 +1935,18 @@ static void vknvg__renderDelete(void* uptr)
 {
     VkNVGcontext* vk = static_cast<VkNVGcontext*>(uptr);
 
+    // Belt and braces: owners guarantee device idleness before destroying the
+    // context, and waiting on an idle device returns immediately. This keeps
+    // teardown safe even for hosts that destroy the pass mid-run.
     if (vk->device != VK_NULL_HANDLE)
         vkDeviceWaitIdle(vk->device);
 
     for (size_t i = 0; i < vk->frameResources.size(); ++i)
         vknvg__cleanupFrameResources(vk, i);
     vk->frameResources.clear();
+    for (auto& resources : vk->retiredFrameResources)
+        vknvg__cleanupFrameResources(vk, resources);
+    vk->retiredFrameResources.clear();
 
     vknvg__destroyStencil(vk);
     vknvg__destroyTexture(vk, vk->dummyTex);

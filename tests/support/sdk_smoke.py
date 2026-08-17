@@ -199,6 +199,9 @@ def run_render(draxul: pathlib.Path, scenario: pathlib.Path,
     command.extend([
         "--render-test", str(scenario),
         "--export-render-test", str(rendered),
+        # Keep host-side diagnostics in the captured stderr so a failing
+        # staged render explains itself. Output is only printed on failure.
+        "--log-level", "debug",
     ])
     print("+", subprocess.list2cmdline(command), flush=True)
     process = subprocess.run(command, capture_output=True, text=True,
