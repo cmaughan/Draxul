@@ -396,8 +396,14 @@ def _parallel_jobs() -> str:
     return str(os.cpu_count() or 8)
 
 
+def _test_parallel_jobs() -> str:
+    """Bound test concurrency while still running independent shards in parallel."""
+    return str(min(os.cpu_count() or 4, 4))
+
+
 def _configure_and_build(
     root: pathlib.Path, mode: str, force_reconfigure: bool, build_system: str,
+    targets: tuple[str, ...] = ("draxul",),
 ) -> tuple[int, pathlib.Path, str, dict[str, str] | None]:
     """Configure + build.  Returns (rc, build_dir, config, env)."""
     is_win = sys.platform.startswith("win")
@@ -464,7 +470,10 @@ def _configure_and_build(
     else:
         print(f"\n> using existing CMake cache: {cache_file}")
 
-    build_cmd = ["cmake", "--build", str(bd), "--config", config, "--target", "draxul", "--parallel", _parallel_jobs()]
+    build_cmd = ["cmake", "--build", str(bd), "--config", config]
+    if targets:
+        build_cmd.extend(["--target", *targets])
+    build_cmd.extend(["--parallel", _parallel_jobs()])
     rc = run(build_cmd, root, env=env)
     return rc, bd, config, env
 
@@ -474,6 +483,116 @@ def cmd_build(root: pathlib.Path, args: list[str]) -> int:
     mode, force_reconfigure, build_system, _, _ = _parse_build_args(args)
     rc, _, _, _ = _configure_and_build(root, mode, force_reconfigure, build_system)
     return rc
+
+
+_TEST_PRODUCT_SCOPES = ("megacity", "satview", "scoreview")
+
+
+def _parse_test_args(args: list[str]) -> tuple[str, bool, str, bool, set[str], bool]:
+    verbose = False
+    product_scopes: set[str] = set()
+    all_tests = False
+    build_args: list[str] = []
+    for arg in args:
+        if arg == "--verbose":
+            verbose = True
+        elif arg == "--megacity":
+            product_scopes.add("megacity")
+        elif arg == "--satview":
+            product_scopes.add("satview")
+        elif arg == "--scoreview":
+            product_scopes.add("scoreview")
+        elif arg == "--products":
+            product_scopes.update(_TEST_PRODUCT_SCOPES)
+        elif arg == "--all":
+            all_tests = True
+        elif arg == "--unit":
+            # Compatibility with t.bat/scripts/run_tests.* terminology. `do test`
+            # is intentionally the focused unit path by default.
+            continue
+        else:
+            build_args.append(arg)
+
+    mode, force_reconfigure, build_system, use_console, extra_args = _parse_build_args(build_args)
+    if use_console or extra_args:
+        raise ValueError(
+            "test accepts [debug|release|relwithdebinfo] "
+            "[--reconfigure] [--vs|--ninja] [--verbose] "
+            "[--megacity|--satview|--scoreview|--products|--all]"
+        )
+    return mode, force_reconfigure, build_system, verbose, product_scopes, all_tests
+
+
+def _test_scope_selection(
+    product_scopes: set[str], all_tests: bool,
+) -> tuple[tuple[str, ...], list[str], str]:
+    if all_tests:
+        return ("draxul-tests",), ["--label-regex", "unit"], "all unit tests"
+
+    targets = ["draxul-tests-core"]
+    patterns = [
+        r"draxul-test-core-shard-[0-9]+",
+        r"draxul-test-app-shard-[0-9]+",
+        r"draxul-test-markdown-kanban-shard-[0-9]+",
+        r"draxul-do-py-tests",
+        r"draxul-review-skill-py-tests",
+    ]
+    for scope in _TEST_PRODUCT_SCOPES:
+        if scope not in product_scopes:
+            continue
+        targets.append(f"draxul-tests-{scope}")
+        patterns.append(rf"draxul-test-{scope}-shard-[0-9]+")
+        if scope == "satview":
+            patterns.append(r"draxul-satview-catalog-py-tests")
+        elif scope == "scoreview":
+            patterns.append(r"draxul-test-scoreview-runtime-shard-[0-9]+")
+
+    scope_label = "core" if not product_scopes else "core + " + ", ".join(
+        scope for scope in _TEST_PRODUCT_SCOPES if scope in product_scopes
+    )
+    regex = "^(" + "|".join(patterns) + ")$"
+    return tuple(targets), ["--tests-regex", regex], scope_label
+
+
+def cmd_test(root: pathlib.Path, args: list[str]) -> int:
+    """Build and run unit tests through the same cached path as build/run."""
+    try:
+        (
+            mode,
+            force_reconfigure,
+            build_system,
+            verbose,
+            product_scopes,
+            all_tests,
+        ) = _parse_test_args(args)
+    except ValueError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+
+    targets, ctest_filter, scope_label = _test_scope_selection(
+        product_scopes, all_tests
+    )
+    print(f"\n> test scope: {scope_label}")
+    rc, bd, config, env = _configure_and_build(
+        root,
+        mode,
+        force_reconfigure,
+        build_system,
+        targets=targets,
+    )
+    if rc != 0:
+        return rc
+
+    command = [
+        "ctest",
+        "--test-dir", str(bd),
+        "--build-config", config,
+        "--parallel", _test_parallel_jobs(),
+        "--timeout", "120",
+    ]
+    command.extend(ctest_filter)
+    command.append("--verbose" if verbose else "--output-on-failure")
+    return run(command, root, env=env)
 
 
 def cmd_run(root: pathlib.Path, args: list[str]) -> int:
@@ -799,17 +918,91 @@ def run(command: list[str], cwd: pathlib.Path, *, env: dict[str, str] | None = N
     return completed.returncode
 
 
-def build_shortcut_exe(root: pathlib.Path) -> tuple[int, pathlib.Path | None, dict[str, str] | None]:
-    """Build the app for smoke/render shortcuts using the current default pipeline."""
-    rc, bd, config, env = _configure_and_build(root, "debug", False, "ninja")
-    if rc != 0:
-        return rc, None, env
+def _selected_build_context(
+    root: pathlib.Path, mode: str, build_system: str,
+) -> tuple[pathlib.Path, str, dict[str, str] | None]:
+    if sys.platform.startswith("win"):
+        config = {
+            "debug": "Debug",
+            "release": "Release",
+            "relwithdebinfo": "RelWithDebInfo",
+        }[mode]
+        if build_system == "ninja":
+            return root / f"build-ninja-{mode}", config, _ensure_msvc_env()
+        return root / "build", config, None
+
+    if mode == "relwithdebinfo":
+        raise ValueError("RelWithDebInfo is currently supported only on Windows in do.py")
+    return root / "build", "Debug" if mode == "debug" else "Release", None
+
+
+def build_shortcut_exe(
+    root: pathlib.Path,
+    mode: str = "debug",
+    force_reconfigure: bool = False,
+    build_system: str = "ninja",
+    skip_build: bool = False,
+) -> tuple[int, pathlib.Path | None, dict[str, str] | None]:
+    """Resolve the app for smoke/render shortcuts through the selected pipeline."""
+    if skip_build:
+        try:
+            bd, config, env = _selected_build_context(root, mode, build_system)
+        except ValueError as error:
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 2, None, None
+        cache_file = bd / "CMakeCache.txt"
+        if not cache_file.exists():
+            print(f"\nMissing CMake cache: {cache_file}")
+            return 1, None, env
+        cached = _cache_build_type(cache_file)
+        if cached and cached != config:
+            print(f"\nBuild cache is {cached}, not requested {config}: {cache_file}")
+            return 1, None, env
+    else:
+        rc, bd, config, env = _configure_and_build(
+            root, mode, force_reconfigure, build_system
+        )
+        if rc != 0:
+            return rc, None, env
 
     exe = draxul_exe(bd, config)
     if not exe.exists():
         print(f"\nMissing executable: {exe}")
         return 1, None, env
     return 0, exe, env
+
+
+def cmd_smoke(root: pathlib.Path, args: list[str]) -> int:
+    skip_build = False
+    build_args: list[str] = []
+    for arg in args:
+        if arg == "--skip-build":
+            if skip_build:
+                print("ERROR: --skip-build may be specified only once", file=sys.stderr)
+                return 2
+            skip_build = True
+        else:
+            build_args.append(arg)
+
+    mode, force_reconfigure, build_system, use_console, extra_args = _parse_build_args(build_args)
+    if use_console or extra_args:
+        print(
+            "ERROR: smoke accepts [debug|release|relwithdebinfo] "
+            "[--reconfigure] [--vs|--ninja] [--skip-build]",
+            file=sys.stderr,
+        )
+        return 2
+
+    rc, exe, env = build_shortcut_exe(
+        root,
+        mode=mode,
+        force_reconfigure=force_reconfigure,
+        build_system=build_system,
+        skip_build=skip_build,
+    )
+    if rc != 0 or exe is None:
+        return rc if rc != 0 else 1
+    return run([str(exe), "--console", "--smoke-test"], root, env=env)
 
 
 def cmd_score_shot_check(root: pathlib.Path) -> int:
@@ -1064,9 +1257,14 @@ Single-word shortcuts:
   deploy [release] [--reconfigure] [--vs|--ninja]
                Build Release and package deploy/YYYY_MM_DD/mac|win plus a zip archive
   clean        Remove repository build directories
-  smoke        Run the app smoke test
+  smoke [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--skip-build]
+               Run the app smoke test (default: debug, ninja on Windows)
   score-shot-check  Regression guard (kanban 74): ScoreView plugin --screenshot-size + .musicxml
-  test         Run unit tests (four C++ shards plus do.py tests)
+  test [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--verbose]
+       [--megacity|--satview|--scoreview|--products|--all]
+               Build and run core unit tests in parallel (default: debug, ninja)
+               Product flags add their suites; --products adds all products;
+               --all builds and runs the complete unit inventory
   shot         Regenerate the README hero screenshot
   api          Build local Doxygen API docs
   docs         Build all docs artifacts
@@ -1094,7 +1292,12 @@ Examples:
   do deploy                 # Release build + deploy/YYYY_MM_DD/mac|win zip package
   do run --reconfigure     # Force CMake reconfigure
   do clean
-  do smoke
+  do test                  # Core tests in the Debug development cache
+  do test --satview        # Core + SatView tests
+  do test --products       # Core + every product test suite
+  do test --all            # Complete unit inventory
+  do smoke --skip-build    # Reuse that already-built Debug cache
+  do run release           # Final Release build and startup check
   do basic
   do blessall
 """
@@ -1139,9 +1342,7 @@ def main() -> int:
         return cmd_kanban_report(root)
 
     if command == "test":
-        if sys.platform.startswith("win"):
-            return run(["cmd", "/c", "t.bat", "--unit"], root)
-        return run(["sh", "./scripts/run_tests.sh", "--unit"], root)
+        return cmd_test(root, args[1:])
 
     if command == "shot":
         cmd = [sys.executable, str(root / "scripts" / "update_screenshot.py")]
@@ -1257,10 +1458,7 @@ def main() -> int:
         return cmd_deploy(root, args[1:])
 
     if command == "smoke":
-        rc, exe, env = build_shortcut_exe(root)
-        if rc != 0 or exe is None:
-            return 1
-        return run([str(exe), "--console", "--smoke-test"], root, env=env)
+        return cmd_smoke(root, args[1:])
 
     if command == "score-shot-check":
         return cmd_score_shot_check(root)

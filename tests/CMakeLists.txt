@@ -439,6 +439,40 @@ add_dependencies(draxul-tests
     draxul-server-link-isolation
 )
 
+# Developer-facing scoped aggregates. `do.py test` builds the core aggregate by
+# default and opts into product test executables only when their scope is named.
+add_custom_target(draxul-tests-core)
+add_dependencies(draxul-tests-core
+    draxul-test-core
+    draxul-test-app
+    draxul-test-markdown-kanban
+    draxul-bmp-link-isolation
+    draxul-plugin-sdk-c-link-isolation
+    draxul-performance-link-isolation
+    draxul-host-link-isolation
+    draxul-terminal-core-link-isolation
+    draxul-terminal-process-link-isolation
+    draxul-protocol-link-isolation
+    draxul-client-link-isolation
+    draxul-server-link-isolation
+)
+
+if(TARGET draxul-test-megacity)
+    add_custom_target(draxul-tests-megacity)
+    add_dependencies(draxul-tests-megacity draxul-test-megacity)
+endif()
+if(TARGET draxul-test-satview)
+    add_custom_target(draxul-tests-satview)
+    add_dependencies(draxul-tests-satview draxul-test-satview)
+endif()
+if(TARGET draxul-test-scoreview AND TARGET draxul-test-scoreview-runtime)
+    add_custom_target(draxul-tests-scoreview)
+    add_dependencies(draxul-tests-scoreview
+        draxul-test-scoreview
+        draxul-test-scoreview-runtime
+    )
+endif()
+
 target_compile_definitions(draxul-test-core PRIVATE
     DRAXUL_EXECUTABLE_PATH="$<TARGET_FILE:draxul>"
 )

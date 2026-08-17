@@ -109,9 +109,9 @@ call :run cmake --build build --config %CONFIG% --parallel -- %BUILD_LOG_ARGS%
 if errorlevel 1 exit /b !errorlevel!
 set "VK_LOADER_LAYERS_DISABLE=~implicit~"
 if "%VERBOSE%"=="1" (
-    call :run ctest --test-dir build --build-config %CONFIG% --verbose
+    call :run ctest --test-dir build --build-config %CONFIG% --parallel 4 --verbose
 ) else (
-    call :run ctest --test-dir build --build-config %CONFIG% --progress --output-on-failure
+    call :run ctest --test-dir build --build-config %CONFIG% --parallel 4 --progress --output-on-failure
 )
 if errorlevel 1 exit /b !errorlevel!
 exit /b 0

@@ -34,39 +34,45 @@ Keep `app/` focused on orchestration. Put reusable platform or subsystem behavio
 Requires CMake 3.25+, Visual Studio 2022, and Vulkan SDK (with glslc).
 
 ```bash
-cmake --preset default                              # Configure (Debug, VS 2022 x64)
-cmake --preset release                               # Configure (Release)
-cmake --build build --config Release --target draxul # Build
-ctest --test-dir build --build-config Release --output-on-failure
+py do.py build debug    # Default development build: Ninja Debug
+py do.py run debug      # Incremental Debug build and launch
+py do.py test debug     # Same Ninja Debug cache; parallel core unit tests
+py do.py run release    # Final Release build and startup confirmation
 ```
 
-Run: `.\build\Release\draxul.exe` (requires `nvim` on PATH). Pass `--console` to allocate a debug console window.
+`--vs` remains available for a Visual Studio generator check when a change is
+specifically VS/build-system-facing. Pass `--console` to allocate a debug console
+window. Raw CMake presets remain supported, but are not the default agent workflow.
 
 ### macOS
 Requires CMake 3.25+, Xcode Command Line Tools (for Metal compiler).
 
 ```bash
-cmake --preset mac-debug                             # Configure (Debug)
-cmake --preset mac-release                           # Configure (Release)
+python3 do.py build debug                            # Configure/build Debug
+python3 do.py run debug                              # Incremental Debug build and launch
+python3 do.py test debug                             # Same Debug cache; parallel core unit tests
+python3 do.py run release                            # Final Release build and startup confirmation
 cmake --preset mac-asan                              # Configure (Debug + AddressSanitizer/LSan)
 cmake --preset mac-tsan                              # Configure (Debug + ThreadSanitizer)
-cmake --build build --target draxul                 # Build
-cmake --build build --target draxul-tests           # Build unit tests (with sanitizer presets: sanitizers enabled)
 ```
 
 Run: `./build/draxul.app/Contents/MacOS/draxul` or `open ./build/draxul.app` (requires `nvim` on PATH).
 
-To run the unit test suite under ASan: `cmake --preset mac-asan && cmake --build build --target draxul-tests && ctest --test-dir build -R draxul-tests`.
+To run the unit test suite under ASan: `cmake --preset mac-asan && cmake --build build --target draxul-tests --parallel && ctest --test-dir build -R draxul-tests --parallel 4`.
 
-To run the unit test suite under TSan (ThreadSanitizer — mutually exclusive with ASan, so it uses its own preset): `cmake --preset mac-tsan && cmake --build build --target draxul-tests && ctest --test-dir build -R draxul-tests`.
+To run the unit test suite under TSan (ThreadSanitizer — mutually exclusive with ASan, so it uses its own preset): `cmake --preset mac-tsan && cmake --build build --target draxul-tests --parallel && ctest --test-dir build -R draxul-tests --parallel 4`.
 
 TSan suppressions for third-party library noise (SDL3, Metal, system frameworks) live in `tsan.supp` at the repo root. When running TSan locally, set `TSAN_OPTIONS="suppressions=tsan.supp"`.
 
 ### Convenience scripts
 
-- `do run`: configure, build, and run the application; supports `debug`/`release`,
-  `--vs`/`--ninja`, and `--reconfigure`.
-- `t.bat` / `t.sh`: build and run the test suite.
+- `do build`, `do run`, and `do test` share the same configuration and generator
+  selection. They default to Debug and Ninja on Windows; use `release` only for
+  the final confirmation or when optimized behavior is relevant.
+- `do smoke --skip-build` runs the startup check against the already-built selected
+  cache. Omit `--skip-build` when no preceding build/test has produced the app.
+- `t.bat` / `t.sh` remain explicit broad validation wrappers, not the normal
+  edit-build-test path.
 
 ### Debugging / Logging
 
@@ -216,10 +222,42 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
   protects an existing behavior, or makes an otherwise difficult edge case
   deterministic. Do not add small-scale tests merely because a helper or parser
   can be tested in isolation.
-- **Always build and run the smoke test before committing.** Use `cmake --build build --target draxul draxul-tests` followed by `py do.py smoke` (or `python do.py smoke` on Windows). This catches broken includes, link errors, and basic startup failures that only surface after merging changes from multiple sources.
-- If you touch RPC, redraw handling, or input translation, run `ctest`.
+- Use one build tree throughout a task. The normal edit-build-test loop is
+  `py do.py build debug`, `py do.py run debug`, and `py do.py test debug`; all
+  use the Ninja Debug cache on Windows. Do not alternate between Visual Studio,
+  Ninja, Debug, and Release trees unless the change specifically requires that
+  matrix.
+- Keep build and test execution parallel whenever the tool supports it. The
+  `do.py` paths supply bounded parallelism for both compilation and CTest.
+- `do.py test` is core-scoped by default. Add `--megacity`, `--satview`, or
+  `--scoreview` only when that product or a seam it consumes changed. Use
+  `--products` when shared plugin SDK/support/renderer changes can affect every
+  product, and `--all` only for an explicitly requested complete unit inventory.
+- During implementation, build the narrowest affected target and run focused
+  tests. Do not repeatedly stack overlapping aggregate builds, `do.py test`,
+  broad CTest, smoke, and render suites after each small edit.
+- **Before committing, build the core test aggregate once and run smoke from that same
+  cache:** `py do.py test debug` followed by `py do.py smoke --skip-build` (or
+  `python do.py ...`). This catches broken includes, link errors, unit failures,
+  and basic startup failures without rebuilding through another generator. Add
+  the relevant product scope to the test command when product code changed.
+- On Windows, run process-launch tests before starting a long-lived server from
+  that build tree where practical. A server intentionally keeps
+  `draxul-server.exe` open; after `draxul.exe` is relinked, helper-refresh tests
+  cannot replace that same-cache helper until the exact server is safely stopped.
+  Inspect connected clients and live terminals before stopping it; do not evade
+  the lock by silently switching the whole validation pass to another generator.
+- Finish a completed feature or bug fix with `py do.py run release` and confirm
+  startup. In a headless/non-interactive environment, use
+  `py do.py run release --console -- --smoke-test` so the Release run exits
+  deterministically.
+- If you touch RPC, redraw handling, or input translation, run the relevant CTest
+  selection from the active `do.py` build tree with `--parallel` (normally through
+  `do.py test debug`), broadening to the full suite only when the change warrants it.
 - If you touch renderer code, build the platform-specific app target and verify startup at least once.
-- After implementing a user-facing feature or rendering-affecting change, run the render smoke/snapshot suite with `t.bat` or `ctest` and confirm the relevant `draxul-render-*` scenario still passes.
+- After implementing a user-facing feature or rendering-affecting change, run the
+  relevant render smoke/snapshot scenario and confirm its `draxul-render-*` test
+  passes. Run the full render inventory only for shared renderer/harness changes.
 - When blessing render references, use `py do.py blessbasic`, `py do.py blesscmdline`, `py do.py blessunicode`, `py do.py blessnanovg`, or `py do.py blessall` from the repo root instead of calling `draxul.exe --render-test` manually.
 - If you change build wiring, keep both Windows and macOS paths valid in CI.
 - Do not run `clang-format` manually in this repo. The pre-commit hook runs `clang-format` automatically on staged files, so if formatting is needed the first commit attempt may fail; re-stage the hook's edits and retry the commit.
