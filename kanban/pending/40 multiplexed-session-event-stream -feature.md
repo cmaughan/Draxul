@@ -38,10 +38,26 @@ status, diagnostics, CLI access, and compatibility.
       collapsing every failure into `io_error`.
 - [ ] Record connection attempts, listener occupancy, request counts by method,
       queue/dispatch/response time, and failures by transport stage.
-- [ ] Add deterministic 1-, 10-, and 50-pane continuously-updating scenarios with
+- [x] Add deterministic 1-, 10-, and 50-pane continuously-updating scenarios with
       one and multiple attached UIs.
-- [ ] Capture request rate, CPU, presentation/topology latency, failures, and
+- [x] Capture request rate, CPU, presentation/topology latency, failures, and
       recovery behavior before changing transport ownership.
+
+### Delivered checkpoint — legacy transport load fixture
+
+`tests/session_transport_load_tests.cpp` adds a hidden
+`[.session-load][control][remote-terminal]` integration fixture. It exercises the
+real control endpoint with production terminal clients/services and deterministic
+fake terminal runtimes, emits JSON to stdout (and optionally to
+`DRAXUL_SESSION_LOAD_REPORT`), and treats saturation failures as baseline data. A
+bounded sequential recovery pass must still converge every terminal projection.
+
+The initial Windows Debug baseline on 2026-08-17 completed all 1,536 assertions:
+1 and 10 panes had no request failures; 50 panes across two UIs recorded 133
+`endpoint_unavailable` failures and recovered every projection. Terminal delivery
+p95 increased from 9.8 ms at one pane to 129.2 ms at ten panes and 970.1 ms at
+fifty panes; topology p95 reached 635.9 ms at fifty panes. These measurements are
+diagnostic evidence for the coordinator/multiplex work, not timing gates for CI.
 
 ## Phase 1 — one UI Session coordinator
 
