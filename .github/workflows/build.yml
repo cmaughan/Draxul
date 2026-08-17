@@ -88,6 +88,11 @@ jobs:
       - name: Install Neovim
         run: brew install neovim
 
+      - name: Install Metal toolchain
+        run: |
+          xcodebuild -downloadComponent MetalToolchain
+          xcrun --find metal
+
       - name: Build and test
         env:
           DRAXUL_RUN_SLOW_TESTS: "1"
