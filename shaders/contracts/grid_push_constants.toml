@@ -13,7 +13,7 @@
 # binding indices from EACH consumer and asserts they equal this manifest, so a
 # one-sided edit (in the C++ header, the MSL, or the GLSL) can no longer slip
 # through: it fails either the renderer build (C++ static_assert) or the
-# `[shader_abi]` integrity test. See kanban/pending/19 shader-abi-parity -test.md.
+# `[shader_abi]` integrity test. See kanban/ice-box/19 shader-abi-parity -test.md.
 #
 # WHY THIS CONTRACT FIRST: the block is only 28 bytes (7 tightly packed floats)
 # yet it is written CPU-side today as an *unnamed* anonymous struct (Metal) and a

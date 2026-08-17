@@ -26,6 +26,7 @@ Offer normal paste, single-line paste, and shell-escaped paste so multi-line cli
 
 ## Dependencies and parallelism
 
-Independent host-layer feature. Reuse the safe quoting primitives required by item 52; one owner should define quoting contracts to avoid divergent shell policies.
+Independent host-layer feature. Reuse the safe quoting contract from
+`kanban/ice-box/52 type-aware-file-drop -feature.md` to avoid divergent shell policies.
 
 <model>GPT-5 Codex</model>

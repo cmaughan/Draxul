@@ -11,18 +11,26 @@ Reduce `App` without recreating the already-completed `InputDispatcher`,
 client-side tab/topology projection and Session navigation; authoritative
 Session mutation and persistence belong to the server.
 
+## Delivered checkpoint
+
+`app/tab_controller.*` now owns tab records, active-tab identity, creation,
+activation, closure, and per-tab `PaneManager` state. `app/space_controller.*`
+owns Space navigation. The remaining work is client topology projection/revision
+reconciliation that still lives in `App`.
+
 ## Implementation plan
 
-- [ ] Land item 13 and item 17 so active-tab and rollback behavior are pinned.
+- [x] Preserve active-tab and rollback behavior with the existing controller and App tests.
 - [ ] Catalogue `App` fields/methods into bootstrap/frame/overlay, tab, and session responsibilities.
-- [ ] Extract `TabController` to own tab records, active id, create/close/activate/reorder, split-tree access, focus transitions, and viewport recomputation.
-- [ ] Give it narrow callbacks for host construction/frame requests; do not make it own window/renderer/overlays.
+- [x] Extract `TabController` to own tab records, active id, create/close/activate,
+      split-tree access, focus transitions, and viewport recomputation.
+- [x] Keep window, renderer, and overlay ownership outside `TabController`.
 - [ ] Extract a client `SessionProjectionController` for server registry
   refresh, create/switch/rename/delete requests, revision reconciliation, and
   selection. It must not write checkpoints or own shell processes.
 - [ ] Replace repeated layout-refresh rituals with one controller operation returning the state App must refresh.
 - [ ] Keep `App` responsible for top-level subsystem ownership and the main event/frame loop.
-- [ ] Land tab and session extraction as separate commits/PRs.
+- [x] Land tab extraction independently of the remaining projection work.
 
 ## Tests and acceptance
 
@@ -35,6 +43,7 @@ Session mutation and persistence belong to the server.
 
 ## Dependencies and parallelism
 
-Tab extraction depends on 13/17. The session boundary was simplified by completed item 26 and can now be extracted independently. Large, good for a dedicated App-focused sub-agent with exclusive ownership of `app/app.cpp`.
+Tab extraction is complete. The remaining projection boundary can be extracted
+independently by an App-focused owner with exclusive ownership of `app/app.cpp`.
 
 <model>GPT-5 Codex</model>

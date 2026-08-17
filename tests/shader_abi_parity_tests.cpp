@@ -1,5 +1,5 @@
 // Repository-integrity + Metal-side parity test for the grid vertex
-// push-constant ABI contract.  See kanban/pending/19 shader-abi-parity -test.md.
+// push-constant ABI contract.  See kanban/ice-box/19 shader-abi-parity -test.md.
 //
 // SINGLE SOURCE OF TRUTH: shaders/contracts/grid_push_constants.toml.
 // This test re-derives the field layout and the resource binding/slot indices

@@ -180,16 +180,15 @@ Good place for:
 Public renderer API plus Vulkan/Metal backends.
 
 Owns:
-- renderer implementation hierarchy (`IBaseRenderer` → `I3DRenderer` → `IGridRenderer`)
+- renderer implementation hierarchy (`IBaseRenderer` → `IGridRenderer`)
 - shared renderer CPU-side state
 - GPU upload/submission code
 - frame capture for render snapshots
 
 Renderer hierarchy:
 ```
-IBaseRenderer           ← swapchain, device, begin_frame, end_frame, resize
-└── I3DRenderer         ← render pass registration (register_render_pass / unregister_render_pass)
-    └── IGridRenderer   ← grid cells, atlas, cursor, overlay, font metrics
+IBaseRenderer           ← swapchain, device, frame lifecycle, resize, typed render passes
+└── IGridRenderer       ← grid cells, atlas, cursor, overlay, font metrics
 ```
 
 Good place for:

@@ -1,7 +1,7 @@
 # WI 58 — command-palette-mru
 
 **Type**: feature  
-**Priority**: 10 (natural complement to the command palette; depends on WI 25)  
+**Priority**: 10 (natural complement to the delivered command palette)
 **Source**: review-consensus.md §F2 [P]  
 **Produced by**: claude-sonnet-4-6
 
@@ -15,7 +15,7 @@ Add most-recently-used (MRU) sorting to the command palette so that recently exe
 
 ## Pre-condition
 
-**WI 25 (command-palette feature) must be merged before this item is started.**
+The command palette is implemented; this card adds ranking/history only.
 
 ---
 
@@ -48,8 +48,7 @@ The command palette (`app/command_palette_host.cpp`) currently shows all actions
 
 ## Interdependencies
 
-- **Requires WI 25** (command-palette) merged first — this extends that feature.
-- No other dependencies in the WI 48–60 batch.
+- No remaining prerequisite; keep persistence scoped to non-sensitive action identifiers.
 
 ---
 

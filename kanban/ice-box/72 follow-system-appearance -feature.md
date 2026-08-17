@@ -10,7 +10,8 @@ Optionally follow macOS/Windows light/dark appearance and switch Draxul Chrome c
 
 ## Implementation plan
 
-- [ ] Add a platform-neutral `SystemAppearance { Light, Dark, Unknown }` query/change event to `IWindow`, with owned macOS and Windows registrations cleaned up through pending item 10.
+- [ ] Add a platform-neutral `SystemAppearance { Light, Dark, Unknown }` query/change
+      event to `IWindow`, using the existing guarded callback lifetime mechanism.
 - [ ] Add `follow_system_appearance` plus named light/dark Chrome palette definitions through the declarative config schema; default off to preserve existing themes.
 - [ ] Separate semantic Chrome color roles from the currently active palette and apply a complete palette atomically on appearance change.
 - [ ] Notify Chrome, overlays, ImGui styling, and hosts that consume theme roles, then request one relayout/frame only where metrics change.
@@ -26,6 +27,8 @@ Optionally follow macOS/Windows light/dark appearance and switch Draxul Chrome c
 
 ## Dependencies and parallelism
 
-Depends on pending 10, 21 (config schema), 23 (Chrome split), and should coordinate with accessibility mode 46. Platform adapters can be separate tasks after the neutral event/palette contracts are fixed.
+The config schema and Chrome layout split are complete. Coordinate with
+`kanban/ice-box/46 accessibility-mode -feature.md`; platform adapters can be separate
+tasks after the neutral event contract is fixed.
 
 <model>GPT-5 Codex</model>

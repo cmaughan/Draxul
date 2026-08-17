@@ -1,20 +1,20 @@
 # renderer_state / grid: latent signed overflow in index computation
 
 **Severity:** MEDIUM  
-**Files:** `libs/draxul-renderer/src/renderer_state.cpp:242,259`; `libs/draxul-grid/src/grid.cpp:481`  
+**Files:** `libs/draxul-renderer/src/renderer_state.cpp` and `libs/draxul-grid/src/grid.cpp`
 **Source:** review-bugs-consensus BUG-08 (claude)
 
 ## Bug Description
 
-Two index calculations use signed arithmetic without local guards:
+Remaining index calculations use signed arithmetic or narrowing without local guards.
 
-**`renderer_state.cpp:242` and `:259`:**
+**`renderer_state.cpp` cursor index:**
 ```cpp
 int idx = cursor_row_ * grid_cols_ + cursor_col_;
 ```
 `cursor_row_` and `grid_cols_` are both `int`. The maximum product with `kMaxGridDim = 10000` is 100 M, safely within `INT_MAX`. But the multiplication is signed; if either dimension ever escapes validation, the product overflows as UB and the subsequent `gpu_cells_[(size_t)idx]` index is unpredictable.
 
-**`grid.cpp:481`:**
+**`grid.cpp` dirty/index checks:**
 ```cpp
 if (index < 0 || index >= (int)cells_.size())
 ```

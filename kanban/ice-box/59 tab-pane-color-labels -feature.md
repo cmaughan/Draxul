@@ -26,6 +26,8 @@ Assign a small color and optional short tag to tabs/panes so large mixed session
 
 ## Dependencies and parallelism
 
-Depends on the `TabController` refactor (`ice-box/22 app-tab-session-controllers -refactor.md`, currently deferred to the ice box) and pending `23 chrome-layout-render-editing -refactor.md`; coordinates with layout templates/clone/move. Good presentation-focused task after Chrome layout extraction.
+Depends on finishing the relevant ownership in
+`kanban/ice-box/22 app-tab-session-controllers -refactor.md`; Chrome layout extraction
+is complete in `kanban/done/23 chrome-layout-render-editing -refactor.md`.
 
 <model>GPT-5 Codex</model>

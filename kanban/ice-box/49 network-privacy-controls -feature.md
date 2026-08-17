@@ -6,11 +6,13 @@
 
 ## User need
 
-Give users explicit control over weather and SatView network access, refresh policy, proxy use, source disclosure, cache inspection, and clearing downloaded data.
+Give core services explicit offline/proxy policy and let the built-in weather service
+report and clear only its own downloaded data. Product network/cache policy belongs to
+the owning plugin.
 
 ## Implementation plan
 
-- [ ] Land shared transport item 00 and declarative config item 21.
+- [x] Reuse the delivered shared HTTP transport and declarative config schema.
 - [ ] Add global offline mode plus per-service enable/refresh-policy settings; defaults must preserve current behavior unless product policy changes explicitly.
 - [ ] Model proxy/system-proxy policy in the transport without logging credentials.
 - [ ] Expose source URL/name, last attempt/success, cache age/size/path, current source (bundled/live/cache), and last error.
@@ -24,10 +26,12 @@ Give users explicit control over weather and SatView network access, refresh pol
 - [ ] Fake transport tests cover global/per-service offline, refresh cadence, proxy policy, clear during request, restart, and cache fallback.
 - [ ] File tests prove clear operations cannot escape the cache root.
 - [ ] UI/config round trips show accurate state without network access.
-- [ ] Weather and SatView work fully from bundled/last-good data in offline mode.
+- [ ] Weather works from bundled/last-good data in offline mode.
 
 ## Dependencies and parallelism
 
-Depends on items 00 and 21; coordinates with items 41 and 45. A network/UI pair of sub-agents can split after service status APIs are fixed.
+Coordinates with `kanban/ice-box/41 safe-mode-startup -feature.md` and
+`kanban/ice-box/45 first-run-health-center -feature.md`. SatView-specific policy is
+tracked in `plugins/satview/kanban/ice-box/41 satview-network-privacy-controls -feature.md`.
 
 <model>GPT-5 Codex</model>

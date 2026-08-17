@@ -13,7 +13,7 @@ Add a configurable lightweight HUD (a small semi-transparent overlay in a corner
 ## Implementation Plan
 
 - [ ] Read `app/app.cpp` for the ImGui render path and existing debug panel stats collection.
-- [ ] Add `perf_hud` to the keybindings table and `dispatch_gui_action` map (item 52).
+- [ ] Add `perf_hud` through the existing keybinding and GUI-action registries.
 - [ ] Add a `PerfHud` class in `app/` with:
   - `render(ImGuiContext*, stats)` drawing a small semi-transparent `ImGui::Begin` window.
   - `toggle()` and `is_visible()`.
@@ -21,8 +21,8 @@ Add a configurable lightweight HUD (a small semi-transparent overlay in a corner
 - [ ] Collect stats in `App::run()` (frame time already tracked; atlas fill % needs a `TextService` query; RPC queue depth needs an `NvimRpc` query).
 - [ ] Add accessors to `TextService` and `NvimRpc` for the needed stats (non-blocking reads).
 - [ ] Add `config.toml` option `show_perf_hud_on_startup = false`.
-- [ ] Guard behind `DRAXUL_ENABLE_DEBUG_PANEL` (item 55) or its own flag.
-- [ ] Run `ctest` and `clang-format`.
+- [ ] Reuse the existing diagnostics/debug-panel availability policy or define one explicit flag.
+- [ ] Run focused performance/UI tests, relevant render coverage, and same-cache smoke.
 
 ## Sub-Agent Split
 

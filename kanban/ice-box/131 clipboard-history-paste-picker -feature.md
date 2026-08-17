@@ -57,5 +57,5 @@ From Gemini: "Clipboard history with a paste picker."
 
 ## Interdependencies
 
-- Reuses command-palette UI infrastructure (WI 60 / existing `command_palette_host`)
-- OSC 52 clipboard integration (WI 24 `osc52-clipboard-read -feature.md`)
+- Reuses the delivered command-palette UI infrastructure.
+- Reuses the delivered OSC 52 clipboard integration.

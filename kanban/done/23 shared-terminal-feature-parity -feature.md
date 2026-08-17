@@ -12,9 +12,8 @@
 `LocalTerminalHost` has and it lacks is a regression the day the default flips. These are the
 gaps a user notices in the first session.
 
-`kanban/pending/11 remote-terminal-parity-scrollback -feature.md` tracks scrollback and
-selection parity for the experimental path; this card is the default-mode regression list and
-should be read alongside it.
+The remote-terminal scrollback and selection work referenced by the original card was
+completed and later pruned from the tracker; Git history is authoritative for that dependency.
 
 ## Observed behaviour
 
@@ -88,7 +87,7 @@ should be read alongside it.
 
 ## Dependencies and ownership
 
-Read with `kanban/done/11 remote-terminal-parity-scrollback -feature.md`. Strongly related
-to `kanban/done/27 topology-projection-extraction -refactor.md`: these gaps exist because
+The remote-terminal parity dependency was completed and later pruned; read this with Git
+history and `kanban/done/27 topology-projection-extraction -refactor.md`: these gaps exist because
 `App` now has two mutation paths, so `27` is the structural fix that stops this class of
 regression recurring. Related ice-box: `20 searchable-scrollback -feature.md`.

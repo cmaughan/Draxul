@@ -29,7 +29,7 @@
 - [ ] For modifier-approximation paths (mouse modifier from `SDL_GetModState`), add a comment explaining the approximation and test the known-correct cases.
 - [ ] Register the new test file in the test CMakeLists.
 - [ ] Run `cmake --build build --target draxul-tests && ctest`.
-- [ ] Run `clang-format` on touched files.
+- [ ] Run focused window/input tests and same-cache smoke; formatting remains hook-owned.
 
 ---
 

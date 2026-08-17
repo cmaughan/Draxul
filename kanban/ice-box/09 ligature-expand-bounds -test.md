@@ -15,7 +15,7 @@
 
 ## Steps
 
-- [ ] Read `libs/draxul-app-support/src/grid_rendering_pipeline.cpp`. Find `expand_dirty_cells_for_ligatures`.
+- [ ] Read `libs/draxul-runtime-support/src/grid_rendering_pipeline.cpp`. Find `expand_dirty_cells_for_ligatures`.
 - [ ] Understand the expansion contract: a dirty cell at column `c` should expand to include the ligature neighbour cells. Identify the maximum expansion radius used.
 - [ ] Add test cases (new or in existing grid pipeline test file):
   1. Dirty cell at col 0 → expanded set does not include col -1 (no underflow).
@@ -24,7 +24,7 @@
   4. Two adjacent dirty cells → expansion does not double-count.
   5. Dirty cell in the middle of the grid → expansion includes the expected neighbours on both sides.
 - [ ] Run `cmake --build build --target draxul-tests && ctest`.
-- [ ] Run `clang-format` on touched files.
+- [ ] Run focused rendering-pipeline tests; formatting remains hook-owned.
 
 ---
 

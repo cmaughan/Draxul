@@ -8,7 +8,7 @@
 ## Goal
 
 Create `app/CMakeLists.txt` for the existing `draxul-app` library while keeping
-the executable, packaging, optional product integration, and assets root-owned.
+the executable, packaging, generic plugin staging, and assets root-owned.
 
 ## Boundary verification
 
@@ -29,7 +29,8 @@ the executable, packaging, optional product integration, and assets root-owned.
 
 ## Unit and build tests
 
-- [ ] Configure with `cmake --preset default`.
+- [ ] Configure through the normal `do.py` Debug workflow, then use the generated cache
+      for focused target comparisons.
 - [ ] Build `draxul-app`, `draxul-test-app`, and `draxul` in Release.
 - [ ] Run `ctest --test-dir build -C Release -L app --output-on-failure`.
 - [ ] Compare generated target sources and link closure with the pre-move inventory.
@@ -38,7 +39,8 @@ the executable, packaging, optional product integration, and assets root-owned.
 
 - [ ] Windows: verify `app/draxul.rc` remains attached to the executable.
 - [ ] macOS: verify `app/macos_menu.mm`, bundle properties, icon, and resources remain attached correctly.
-- [ ] Configure with MegaCity, SatView, and ScoreView ON and each one OFF.
+- [ ] Configure with each mounted plugin enabled, disabled, and absent; preserve generic
+      registration/staging without product-specific app links.
 - [ ] Confirm Vulkan/Metal selection remains wholly owned by renderer CMake.
 
 ## Agent documentation and tooling

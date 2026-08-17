@@ -10,7 +10,7 @@ Save the focused pane as a portable PNG without invoking printing or capturing u
 
 ## Implementation plan
 
-- [ ] Build on the request/deadline/crop controller from item 14; capture the pane rectangle and identity at action time.
+- [ ] Build on `kanban/ice-box/14 pane-print-state-machine -bug.md`; capture the pane rectangle and identity at action time.
 - [ ] Add a small image-encoding boundary in an appropriate lower library and use a pinned PNG encoder or existing SDL capability; do not add encoding to `App`.
 - [ ] Normalize captured channel order/row stride and preserve alpha or composite against the pane background through an explicit option.
 - [ ] Open a native save dialog with a suggested sanitized title/timestamp, append `.png` when absent, and replace files only after confirmation.
@@ -26,6 +26,7 @@ Save the focused pane as a portable PNG without invoking printing or capturing u
 
 ## Dependencies and parallelism
 
-Depends on pane-print state-machine item 14 but not on native printing backends. A codec/test subtask can be delegated after the capture result contract is stable.
+Depends on `kanban/ice-box/14 pane-print-state-machine -bug.md`, but not on native
+printing backends.
 
 <model>GPT-5 Codex</model>

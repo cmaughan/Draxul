@@ -27,6 +27,9 @@ Send keyboard/text input to an explicit group of terminal panes for coordinated 
 
 ## Dependencies and parallelism
 
-Depends on stable host capabilities (pending `31 foundation-dependency-cleanup -refactor.md`, plus the ice-boxed host-capability work) and tab ownership from the `TabController` refactor (`ice-box/22 app-tab-session-controllers -refactor.md`), currently deferred to the ice box. High-risk interaction feature: use one input-routing owner and do not combine with an unrelated `InputDispatcher` refactor.
+Foundation cleanup is complete in
+`kanban/done/31 foundation-dependency-cleanup -refactor.md`. Depends on finishing the
+relevant tab ownership in `kanban/ice-box/22 app-tab-session-controllers -refactor.md`.
+Use one input-routing owner.
 
 <model>GPT-5 Codex</model>

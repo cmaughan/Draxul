@@ -12,7 +12,9 @@ server mutations so restart can recover the last consistent Session revision.
 
 ## Implementation plan
 
-- [ ] Land atomic persistence item 02 and SessionController item 22.
+- [ ] Land the remaining generic writer work in
+      `kanban/ice-box/02 atomic-session-persistence -bug.md` and projection ownership in
+      `kanban/ice-box/22 app-tab-session-controllers -refactor.md`.
 - [ ] Define versioned journal records for server topology mutations and launch
   descriptors; exclude terminal contents, client-local focus, and secrets.
 - [ ] Append length/checksum-framed records and flush on a bounded debounce rather than every input event.

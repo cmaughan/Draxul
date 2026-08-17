@@ -77,7 +77,7 @@ That makes service code lock-free by construction, which is right — but it cre
 ## Dependencies and ownership
 
 Touches `draxul-terminal-process` and `draxul-server`. Shares the kernel loop with
-`kanban/pending/12 server-crash-on-invalid-utf8 -bug.md`; one owner should hold both. The
+`kanban/done/12 server-crash-on-invalid-utf8 -bug.md`; one owner held both. The
 backpressure error introduced here is the signal
 `kanban/done/15 oversized-paste-kills-remote-pane -bug.md` needs the client to handle
 gracefully.

@@ -24,7 +24,7 @@ topology, then switch the current client to the selected Session/tab/pane.
 ## Tests and acceptance
 
 - [ ] Test ranking/filtering, duplicate names, stale targets, local focus, live attach, saved restore, and failure rollback.
-- [ ] Non-ASCII names/cwds render correctly through item 08's helper.
+- [ ] Non-ASCII names/cwds render through the existing UTF-8 text helpers.
 - [ ] No result advertises an operation unavailable in the current provider/session state.
 - [ ] Update `docs/features.md`; full tests/render snapshots/smoke pass.
 

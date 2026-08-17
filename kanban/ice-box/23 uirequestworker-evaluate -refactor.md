@@ -15,7 +15,8 @@
 
 ## Steps
 
-- [ ] Read `libs/draxul-app-support/src/ui_request_worker.h` and `.cpp` in full.
+- [ ] Read `libs/draxul-runtime-support/include/draxul/ui_request_worker.h` and
+      `libs/draxul-runtime-support/src/ui_request_worker.cpp` in full.
 - [ ] Read all call sites that enqueue work via `UiRequestWorker`. List each operation and its approximate latency (check if any RPC waits, file I/O, etc. are involved).
 - [ ] For each enqueued operation, classify:
   - **A (sub-millisecond, no blocking):** Can run synchronously on the main thread. Worker not needed.
@@ -23,7 +24,7 @@
 - [ ] If all operations are class A: remove `UiRequestWorker`, inline the operations as synchronous calls, delete the thread/synchronization overhead.
 - [ ] If some operations are class B: document this clearly in the header as the reason the worker exists, and add a test that the worker does not block the main thread for more than 1 ms (use a timed test with a slow stub).
 - [ ] Run `cmake --build build --target draxul draxul-tests`.
-- [ ] Run `clang-format` on touched files.
+- [ ] Run focused runtime/App tests; formatting remains hook-owned.
 
 ---
 

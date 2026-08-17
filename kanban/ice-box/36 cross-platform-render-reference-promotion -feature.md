@@ -27,6 +27,6 @@ A developer on Windows cannot locally produce trustworthy macOS Metal references
 
 ## Dependencies and parallelism
 
-Depends on CI publishing cross-platform render-test artifacts — now satisfied (`.github/workflows/build.yml` runs automatically on push/PR and uploads both platforms' render outputs). (The earlier bare "item 03" reference is stale: that number now belongs to an unrelated ice-box card.) Good isolated tooling sub-agent task.
+Depends on CI publishing cross-platform render-test artifacts — now satisfied (`.github/workflows/build.yml` runs automatically on push/PR and uploads both platforms' render outputs). Good isolated tooling sub-agent task.
 
 <model>GPT-5 Codex</model>

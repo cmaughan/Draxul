@@ -56,7 +56,8 @@ public:
 ## Investigation Steps
 
 - [ ] Read `app/app.cpp` — enumerate every location each overlay host is touched
-- [ ] Read `app/chrome_host.h`, `app/toast_host.h`, `app/command_palette_host.h`, `app/diagnostics_host.h` to understand their init/shutdown contracts
+- [ ] Read `app/chrome_host.h`, `app/toast_host.h`, `app/command_palette_host.h`, and
+      `app/diagnostics_panel_host.h` to understand their init/shutdown contracts.
 - [ ] Design the minimal `IOverlayHost` interface that covers all four existing overlays
 - [ ] Prototype the registry with two overlays first to validate the interface
 
@@ -66,13 +67,15 @@ public:
 
 - [ ] Adding a new overlay requires only: implementing `IOverlayHost`, registering in one place
 - [ ] All four existing overlays managed through the registry with no behaviour change
-- [ ] **WI 119** (ChromeHost tests), **WI 120** (ToastHost tests), **WI 121** (render-tree ordering tests) pass throughout the refactor
+- [ ] Existing Chrome/toast tests plus
+      `kanban/ice-box/121 app-render-tree-overlay-ordering -test.md` pass throughout.
 - [ ] CI green
 
 ---
 
 ## Interdependencies
 
-- **Depends on WI 119, WI 120, WI 121** (tests must exist before this refactor lands)
-- Benefits **WI 128** (tab rename), **WI 132** (distraction-free mode) which may need new overlays
+- Chrome and toast component coverage is delivered; finish
+  `kanban/ice-box/121 app-render-tree-overlay-ordering -test.md` before landing.
+- Benefits `kanban/ice-box/132 distraction-free-focus-mode -feature.md` and future overlays.
 - Subagent recommended: this is a large, multi-file refactor well-suited to a focused subagent

@@ -27,7 +27,7 @@ CSI cursor-movement sequences (`CUP`, `CUU`, `CUD`, `CUF`, `CUB`) at grid edges 
   - `CUP` with row=0 col=0 (0-indexed as received) — verify how out-of-range VT values are handled.
 - [ ] Add these to a new or existing CSI test file.
 - [ ] Run `cmake --build build --target draxul-tests && ctest`.
-- [ ] Run `clang-format` on touched files.
+- [ ] Run focused terminal-core tests; formatting remains hook-owned.
 
 ---
 

@@ -3,7 +3,8 @@
 **Type:** refactor  
 **Priority:** P1  
 **Raised by:** Claude and Codex  
-**Depends on:** pending `09` and `10` completion/freeze
+**Prerequisites completed:** `kanban/done/09 macos-remote-terminal-channel -bug.md`
+and `kanban/done/10 server-lifecycle-sigterm-eviction -bug.md`
 
 ## Boundary verification
 
@@ -25,7 +26,7 @@
 
 - [ ] Test frame limits, malformed JSON, depth, absolute deadlines, and partial I/O without live sockets.
 - [ ] Test stale metadata, concurrent ownership, stop-pending, and listener recovery.
-- [ ] Build `draxul-control` and `draxul-test-core`; run CTest label `core`.
+- [ ] Build `draxul-control` and the owning core test target; run the focused CTest selection.
 
 ## Cross-platform validation
 

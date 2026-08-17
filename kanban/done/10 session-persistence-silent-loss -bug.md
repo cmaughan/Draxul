@@ -60,7 +60,7 @@ propose making non-shell hosts restorable (still explicitly out of scope per
    `session_id = "default"`, `new_session = false`, because "the window must
    appear". The user asked for an isolated session and silently got the shared
    one — which is also the session most likely to collide (see
-   `kanban/pending/09 multi-instance-session-endpoint-collisions -bug.md`).
+   `kanban/done/09 multi-instance-session-endpoint-collisions -bug.md`).
 
 ## Decide the policy first — decided 2026-07-27
 
@@ -121,6 +121,6 @@ propose making non-shell hosts restorable (still explicitly out of scope per
 ## Dependencies and ownership
 
 Independent of the pending 00-08 sequence. Shares the session subsystem with
-`kanban/pending/09 multi-instance-session-endpoint-collisions -bug.md`; if both
+`kanban/done/09 multi-instance-session-endpoint-collisions -bug.md`; both
 are scheduled together, one owner should hold `app/session_state.*` and the
 `App` shutdown/checkpoint paths.

@@ -10,12 +10,14 @@ C++ structs/constants, GLSL declarations, and Metal declarations manually mirror
 
 ## Implementation plan
 
-- [ ] Inventory shared contracts for grid, NanoVG, Markdown, MegaCity, and SatView; prioritize those written by CPU and consumed directly by shaders.
+- [ ] Inventory core contracts for grid, NanoVG, and Markdown; prioritize those written
+      by CPU and consumed directly by shaders.
 - [x] Define a small declarative contract source for field type/order/alignment and binding/slot constants, or a checked manifest where generation is not practical. *(checked-manifest chosen — `shaders/contracts/grid_push_constants.toml` — for the grid push-constant block.)*
 - [ ] Generate/include C++ static assertions and GLSL/MSL constants from that source without exposing backend headers publicly. *(Partial: C++ static_asserts + backend-private header done; no code generation — the checked-manifest sidesteps generation, see Status.)*
 - [ ] Add SPIR-V reflection checks for Vulkan outputs and a Metal-side compile/manifest check for matching resource indices and struct sizes. *(Metal-side resource-index + struct-size manifest check done; Vulkan SPIR-V reflection is CI-only/unimplemented here.)*
 - [x] Fail on stale generated files in a repository-integrity test. *(Adapted to checked-manifest: the integrity test fails when any one consumer — C++/MSL/GLSL — diverges from the manifest.)*
-- [ ] Migrate one small contract first, then grid, then product modules; avoid a flag-day shader rewrite. *(First small contract (grid push-constants) migrated; no flag-day rewrite. Remaining contracts listed in Status.)*
+- [ ] Extend the checked-manifest approach from grid push constants to remaining core
+      grid/NanoVG/Markdown contracts without a flag-day rewrite.
 
 ## Verification
 
@@ -31,12 +33,13 @@ C++ structs/constants, GLSL declarations, and Metal declarations manually mirror
 
 ## Dependencies and parallelism
 
-Item 06 fixes build invalidation first. This safety net should precede large renderer/module refactors and can be owned by a GPU-contract sub-agent.
+`kanban/ice-box/06 metal-shader-dependency-closure -bug.md` fixes build invalidation;
+the runtime manifest check can proceed independently while compiled-artifact reflection follows it.
 
 ## Status — 2026-07-19 (macOS/Metal worktree)
 
-**Stays in `pending/`.** The first contract is covered end-to-end on the buildable
-(C++ + Metal) half; the authoritative Vulkan half is CI-only and item 06 is still iced.
+**Stays in `ice-box/`.** The first contract is covered end-to-end on the buildable
+(C++ + Metal) half; authoritative Vulkan reflection remains open.
 
 **Contract covered:** `GridPushConstants` — the per-draw grid vertex push-constant
 block (7 tightly-packed `float`s, 28 bytes) written CPU-side once per pane and read by
@@ -70,15 +73,15 @@ type, name, or assertion — a silent-corruption risk.
   added later against the same source.
 - Vulkan shader compilation and the module-on/off matrix run were not exercised here.
 
-**Item 06 dependency (`kanban/ice-box/06 metal-shader-dependency-closure`):** the card
+**Build dependency (`kanban/ice-box/06 metal-shader-dependency-closure -bug.md`):** the card
 gates this on 06 fixing build invalidation. The checked-manifest approach **sidesteps**
 that: the manifest and shader sources are read by the test at **runtime** (no generated
 files, no shader recompile in the loop), so a stale-artifact / incremental-rebuild bug
 cannot make the parity check pass-when-it-should-fail. No dependency on 06 was introduced.
 
 **Next contracts to migrate (in order):** the 112-byte `GpuCell`/`Cell` grid SSBO
-(largest grid contract, same bg/fg pipeline), then the product modules — NanoVG, then
-Markdown / MegaCity / SatView push-constant + SSBO contracts.
+(largest grid contract, same bg/fg pipeline), then NanoVG and Markdown. Product shader
+contracts belong to their owning repositories.
 
 **Relation to `kanban/done/27 megacity-host-renderer-decomposition -refactor.md`:** this gives
 that renderer/module refactor a partial

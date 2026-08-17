@@ -27,6 +27,7 @@ Offer independent UI/chrome scaling, reduced motion, stronger focus indication, 
 
 ## Dependencies and parallelism
 
-Best after items 23 and 29 clarify UI ownership and item 21 provides schema-driven config.
+Chrome/UI ownership and schema-driven config are delivered; this can proceed as a focused
+accessibility capability.
 
 <model>GPT-5 Codex</model>

@@ -28,7 +28,7 @@ Add a dedicated ImGui panel within Draxul that displays real-time `DRAXUL_LOG` o
 - [ ] Add config: `log_buffer_size = 2000` (max entries retained).
 - [ ] Add a test: emit 10 log messages at various levels, assert the `LogBuffer` contains them in order and that level filtering works.
 - [ ] Run `cmake --build build --target draxul draxul-tests && py do.py smoke`.
-- [ ] Run `clang-format` on touched files.
+- [ ] Run focused logging/UI tests, relevant render coverage, and same-cache smoke.
 
 ---
 

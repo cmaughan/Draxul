@@ -26,7 +26,7 @@ The macOS Metal renderer has no automated tests at the GPU API level. A `MetalRe
   6. Assert no crash, no Metal validation error (enable Metal API validation in the test target's scheme).
 - [ ] Register the test target in `CMakeLists.txt` with the `APPLE` guard.
 - [ ] Run `cmake --build build --target draxul-tests && ctest -R metal`.
-- [ ] Run `clang-format` on touched files.
+- [ ] Run the platform-gated Metal test and same-cache smoke; formatting remains hook-owned.
 
 ---
 

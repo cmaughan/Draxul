@@ -27,7 +27,7 @@ Users investigating startup slowness or rendering issues currently have to take 
 
 ## Implementation Plan
 
-1. Read `app/ui_panel.cpp` (or equivalent) to understand how the diagnostics panel gathers
+1. Read `libs/draxul-ui/src/ui_panel.cpp` and `app/diagnostics_panel_host.cpp` to understand how diagnostics gather
    and displays data.
 2. Define a `DiagnosticsSnapshot` struct that captures all the relevant data fields at one
    instant.
@@ -45,7 +45,7 @@ Users investigating startup slowness or rendering issues currently have to take 
 
 ## Files Likely Touched
 
-- `app/ui_panel.cpp` (or wherever the ImGui diagnostics panel lives)
+- `libs/draxul-ui/src/ui_panel.cpp` and `app/diagnostics_panel_host.cpp`
 - `app/gui_action_handler.cpp`
 - `app/input_dispatcher.cpp` (optional keybinding)
 - Config document (optional file export path)
@@ -54,5 +54,4 @@ Users investigating startup slowness or rendering issues currently have to take 
 ## Interdependencies
 
 - Independent of other open WIs.
-- Active WI 22 (`toast-notifications`) is a nice complement — the "Copied to clipboard"
-  feedback would use the toast system.  Do WI 22 first if possible.
+- Toast notifications are delivered and can report copy/export completion.

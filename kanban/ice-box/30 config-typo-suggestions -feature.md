@@ -15,7 +15,7 @@ When `config.toml` contains an unknown key (e.g., `scrool_speed = 2.0`), Draxul 
 
 ## Implementation Plan
 
-- [ ] Read `libs/draxul-app-support/src/app_config_io.cpp`. Find where unknown-key warnings are emitted.
+- [ ] Read `libs/draxul-config/src/app_config_io.cpp` and the declarative schema's unknown-key reporting.
 - [ ] Implement a `suggest_closest_key(std::string_view unknown, std::span<std::string_view> valid_keys) -> std::optional<std::string_view>` helper using Levenshtein or Hamming distance:
   - If the closest valid key has edit-distance ≤ 3 (or ≤ 30% of key length), suggest it.
   - Otherwise, emit no suggestion (avoid confusing false suggestions).
@@ -26,7 +26,7 @@ When `config.toml` contains an unknown key (e.g., `scrool_speed = 2.0`), Draxul 
   - `enabble_ligatures` → suggests `enable_ligatures`.
   - `zzz_nonexistent` → no suggestion.
 - [ ] Run `cmake --build build --target draxul-tests && ctest`.
-- [ ] Run `clang-format` on touched files.
+- [ ] Run focused config tests and same-cache smoke.
 
 ---
 

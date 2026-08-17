@@ -30,7 +30,7 @@ Allow individual pane font size overrides — e.g., a smaller font for a monitor
   - `pane_font_reset` restores the pane to the global size.
   - Existing global font-size cascade behavior still applies to panes without an override.
 - [ ] Run `cmake --build build --target draxul draxul-tests && py do.py smoke`.
-- [ ] Run `clang-format` on touched files.
+- [ ] Run focused font/App tests, relevant render coverage, and same-cache smoke.
 
 ---
 

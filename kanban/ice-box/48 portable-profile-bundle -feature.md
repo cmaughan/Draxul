@@ -27,6 +27,8 @@ Export/import config, keybindings, theme, shell defaults, and selected session l
 
 ## Dependencies and parallelism
 
-Depends on items 02 and 21; benefits from item 40 for session data ownership. Core archive work can be delegated after the manifest is approved.
+Depends on `kanban/ice-box/02 atomic-session-persistence -bug.md` and the delivered
+declarative schema; benefits from
+`kanban/ice-box/40 crash-recovery-session-journal -feature.md` for session ownership.
 
 <model>GPT-5 Codex</model>

@@ -34,7 +34,8 @@ From Gemini: "A temporary focus mode that hides chrome, toasts, and diagnostics.
 
 - Add `bool focus_mode_active_` to `App`
 - In the render loop, skip rendering hidden overlays when focus mode is active
-- `OverlayRegistry` (WI 125) would make this trivial — each overlay has `set_visible(bool)`. Without WI 125, set individual flags on each overlay host
+- `kanban/ice-box/125 overlay-registry-refactor -refactor.md` would provide one place
+  to hide/show overlays; otherwise use each overlay host's explicit visibility API.
 - Window title can include `[Focus]` suffix as a secondary indicator
 - Focus mode state is session-local (not persisted)
 
@@ -64,5 +65,5 @@ From Gemini: "A temporary focus mode that hides chrome, toasts, and diagnostics.
 
 ## Interdependencies
 
-- **WI 125** (overlay registry) would simplify the implementation significantly — consider doing this after WI 125.
-- **WI 120** (toast lifecycle test) should verify toast suppression/replay behaviour.
+- `kanban/ice-box/125 overlay-registry-refactor -refactor.md` would simplify the implementation.
+- Toast lifecycle behavior is covered by `kanban/done/32 toasthost-full-lifecycle -test.md`.

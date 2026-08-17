@@ -3,14 +3,18 @@
 **Type:** refactor  
 **Priority:** P1  
 **Raised by:** Claude, Codex, and Grok  
-**Depends on:** card `12`; pending `09`, `10`, and `14` completion/freeze
+**Depends on:** `kanban/pending/12 control-transport-boundary -refactor.md`.
+The earlier lifecycle prerequisites are complete in
+`kanban/done/09 macos-remote-terminal-channel -bug.md`,
+`kanban/done/10 server-lifecycle-sigterm-eviction -bug.md`, and
+`kanban/done/14 server-agent-runtime-control -feature.md`.
 
 ## Boundary verification
 
 - [ ] Inventory all `Impl` state and methods by lifecycle, clients, sessions, requests, terminals/agents, and event loop.
 - [ ] Record lock, task, generation, lease, cache, and shutdown invariants.
 - [ ] Inventory public `ServerAgentService` consumers.
-- [ ] Partition the 4,928-line test suite without losing tags/cases.
+- [ ] Partition the current server-kernel test suite without losing tags/cases.
 
 ## Implementation and migration
 
@@ -25,7 +29,7 @@
 ## Unit tests
 
 - [ ] Add focused lifecycle/discovery, client/authentication, checkpoint, topology/terminal, agent, and resource suites.
-- [ ] Build `draxul-server` and `draxul-test-core`; run CTest label `core`.
+- [ ] Build `draxul-server` and the owning core test target; run the focused CTest selection.
 - [ ] Preserve the server public-header link-isolation build.
 
 ## Cross-platform validation

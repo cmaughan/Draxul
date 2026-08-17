@@ -15,10 +15,10 @@ Move `--bless-render-test` behind a compile-time feature flag (`DRAXUL_ENABLE_BL
 - [ ] Read `app/main.cpp` for `--bless-render-test` argument parsing.
 - [ ] Add a CMake option `DRAXUL_ENABLE_RENDER_BLESS` (default OFF for production, ON for CI).
 - [ ] Wrap the `--bless-render-test` branch in `#ifdef DRAXUL_ENABLE_RENDER_BLESS`.
-- [ ] In CMake CI preset (`cmake/Presets.json` or equivalent), add `-DDRAXUL_ENABLE_RENDER_BLESS=ON`.
+- [ ] Wire developer/CI configuration through root `CMakePresets.json` or the owning wrapper.
 - [ ] In release presets, ensure it is OFF.
 - [ ] Update `CLAUDE.md` to note the flag is compile-time gated.
-- [ ] Run `ctest` and `clang-format`.
+- [ ] Run focused CLI/render tests and same-cache smoke; formatting remains hook-owned.
 
 ## Sub-Agent Split
 

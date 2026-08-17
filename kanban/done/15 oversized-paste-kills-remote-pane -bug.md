@@ -80,6 +80,6 @@ Two aggravators:
 ## Dependencies and ownership
 
 Depends on `kanban/done/13 blocking-pty-io-stalls-server -bug.md` for the backpressure error code. The permanent-ghost half
-overlaps `kanban/pending/19`; if both are scheduled together, one owner should hold
-`remote_terminal_host.cpp`. Related existing card:
-`kanban/ice-box/34 large-paste-stress -test.md`.
+overlaps `kanban/done/19 client-recovery-state-machine -refactor.md`; both were completed
+with shared ownership of `remote_terminal_host.cpp`. A separate deferred Neovim write-path
+test now lives in `kanban/ice-box/34 nvim-large-paste-backpressure -test.md`.

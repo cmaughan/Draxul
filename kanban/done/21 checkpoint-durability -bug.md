@@ -34,7 +34,7 @@ snapshot but `app/app.cpp` never references `restore_warnings`; only `--server-s
 tray surface them. So the user works for weeks and every cold restart quietly restores the
 stale pre-corruption layout.
 
-This is the same silence class as `kanban/pending/10 session-persistence-silent-loss -bug.md`,
+This is the same silence class as `kanban/done/10 session-persistence-silent-loss -bug.md`,
 reintroduced one layer down in the server.
 
 ## Decide the policy first
@@ -80,8 +80,8 @@ reintroduced one layer down in the server.
 
 ## Dependencies and ownership
 
-Shares the observability goal with `kanban/pending/10
-session-persistence-silent-loss -bug.md` and the durability goal with
+Shares the observability goal with
+`kanban/done/10 session-persistence-silent-loss -bug.md` and the durability goal with
 `kanban/ice-box/02 atomic-session-persistence -bug.md` — consider pulling that ice-box card
 into this one, since `save_session_state_to_path` is now shared by both the app and the
 server. One owner should hold `libs/draxul-session-model` and the server checkpoint path.

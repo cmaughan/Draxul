@@ -12,7 +12,7 @@ Run `draxul --validate-config [path]` to check syntax, types, ranges, unknown ke
 
 - [ ] Add a CLI mode parsed before app/window/renderer initialization with an optional path and machine-readable output flag.
 - [ ] Expose config loading as a side-effect-free validation report containing severity, key path, source line/column where available, message, and suggested correction.
-- [ ] Drive validation from the declarative schema in pending 21 so runtime and CLI cannot disagree.
+- [ ] Drive validation from `kanban/done/21 declarative-config-schema -refactor.md` so runtime and CLI cannot disagree.
 - [ ] Load optional-module schema fragments according to the same build/provider registration policy as the application.
 - [ ] Return stable exit codes for valid, warnings-only, invalid, unreadable, and internal failure.
 - [ ] Print resolved config path and defaults/override context without writing or normalizing the file.
@@ -27,6 +27,7 @@ Run `draxul --validate-config [path]` to check syntax, types, ranges, unknown ke
 
 ## Dependencies and parallelism
 
-Depends on pending 07 then 21. The CLI wrapper is small; schema/report work should remain with the config owner.
+The declarative schema/result boundaries are delivered. The CLI wrapper is small;
+schema/report work should remain with the config owner.
 
 <model>GPT-5 Codex</model>

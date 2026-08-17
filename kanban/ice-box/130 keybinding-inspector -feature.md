@@ -62,4 +62,4 @@ MVP: Mode A (log in diagnostics panel) is simpler and more maintainable.
 ## Interdependencies
 
 - None blocking; can be done independently.
-- Complements **WI 27** (configurable keybindings) — inspector is the debug tool for the feature.
+- Configurable keybindings are delivered; the inspector is their discovery/debug surface.

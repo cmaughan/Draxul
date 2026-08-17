@@ -67,7 +67,7 @@ Shares `remote_terminal_host.cpp` with
 `control_plane.cpp` with `kanban/done/17 sync-ipc-on-ui-thread -bug.md` (the absolute
 per-request deadline added there is the same mechanism this card needs on teardown). Schedule
 after or alongside `17`. Related existing card:
-`kanban/ice-box/69 concurrent-host-shutdown -test.md`.
+`kanban/ice-box/69 dead-host-input-routing -test.md`.
 
 Windows validation completed with focused host/control shutdown tests, all core/app CTest
 shards, and the repository smoke test. The remaining unchecked items are multi-pane manual
