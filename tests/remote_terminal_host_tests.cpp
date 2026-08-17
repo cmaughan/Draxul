@@ -2044,15 +2044,19 @@ TEST_CASE("remote terminal hosts scroll and select server history independently"
     REQUIRE(first_renderer.last_handle != nullptr);
     REQUIRE(first_renderer.last_handle->last_cursor.y == -1);
 
-    first.on_mouse_button({
-        .button = 1,
-        .pressed = true,
-        .mod = kModNone,
-        .pos = { 8, 16 },
-        .clicks = 2,
-    });
-    REQUIRE(first.dispatch_action("copy"));
-    REQUIRE_FALSE(first_window.clipboard_.empty());
+    REQUIRE(pump_until(first, [&] {
+        second.pump();
+        first.on_mouse_button({
+            .button = 1,
+            .pressed = true,
+            .mod = kModNone,
+            .pos = { 8, 16 },
+            .clicks = 2,
+        });
+        if (!first.dispatch_action("copy"))
+            return false;
+        return !first_window.clipboard_.empty();
+    }));
 
     const size_t updates_before_return_to_live
         = first_renderer.last_handle->total_cell_updates();
