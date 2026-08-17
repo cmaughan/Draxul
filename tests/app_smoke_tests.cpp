@@ -916,7 +916,9 @@ TEST_CASE("app smoke: malformed reload keeps the previous runtime config", "[app
 
 TEST_CASE("app smoke: failed font reload is all-or-old", "[app_smoke][config][reload]")
 {
-    const std::string font = draxul::tests::bundled_font_path().string();
+    // TOML basic strings treat backslashes as escapes. Use the portable path
+    // spelling so this fixture remains valid on Windows.
+    const std::string font = draxul::tests::bundled_font_path().generic_string();
     if (!std::filesystem::exists(font))
         SKIP("bundled font not found");
 

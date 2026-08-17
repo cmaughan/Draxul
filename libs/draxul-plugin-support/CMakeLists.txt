@@ -75,11 +75,11 @@ if(NOT APPLE)
         src/vulkan/vk_resource_helpers.cpp
         src/vulkan/vma_impl.cpp)
     target_include_directories(draxul-vulkan-resources PUBLIC include)
-    # draxul-types is PUBLIC: HdrScenePipeline's headers expose nothing from it,
-    # but the helpers log through draxul/log.h and both are allowlisted plugin
-    # support targets, so this does not widen the plugin surface.
+    # PluginSDK is PUBLIC because vk_plugin_allocator.h exposes the borrowed
+    # Vulkan frame ABI. draxul-types remains PUBLIC for the shared helper/log
+    # vocabulary used by this allowlisted plugin-support target.
     target_link_libraries(draxul-vulkan-resources
-        PUBLIC draxul-types
+        PUBLIC Draxul::PluginSDK draxul-types
         PRIVATE Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)
 endif()
 
