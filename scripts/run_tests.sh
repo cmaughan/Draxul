@@ -36,6 +36,20 @@ fi
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT_DIR"
 
+BUILD_JOBS=${DRAXUL_BUILD_JOBS:-}
+if [ -z "$BUILD_JOBS" ]; then
+  BUILD_JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)
+fi
+if [ -z "$BUILD_JOBS" ]; then
+  BUILD_JOBS=8
+fi
+case "$BUILD_JOBS" in
+  *[!0-9]*|0)
+    echo "DRAXUL_BUILD_JOBS must be a positive integer (got '$BUILD_JOBS')" >&2
+    exit 2
+    ;;
+esac
+
 run() {
   echo
   echo "> $*"
@@ -114,7 +128,7 @@ run_config() {
     echo "> using existing CMake cache: build/CMakeCache.txt"
   fi
   if [ "$UNIT_ONLY" -eq 1 ]; then
-    run cmake --build build --target draxul-tests --parallel
+    run cmake --build build --target draxul-tests --parallel "$BUILD_JOBS"
     if [ "$VERBOSE" -eq 1 ]; then
       run ctest --test-dir build --label-regex unit --parallel 4 --verbose --timeout 120
     else
@@ -123,7 +137,7 @@ run_config() {
     return
   fi
 
-  run cmake --build build --parallel
+  run cmake --build build --parallel "$BUILD_JOBS"
   if [ "$VERBOSE" -eq 1 ]; then
     run ctest --test-dir build --parallel 4 --verbose --timeout 120
   else

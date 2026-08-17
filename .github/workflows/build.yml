@@ -96,6 +96,7 @@ jobs:
       - name: Build and test
         env:
           DRAXUL_RUN_SLOW_TESTS: "1"
+          DRAXUL_BUILD_JOBS: "4"
         run: bash scripts/run_tests.sh
 
       - name: Upload render test outputs
