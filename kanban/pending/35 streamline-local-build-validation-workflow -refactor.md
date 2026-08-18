@@ -20,6 +20,21 @@ canonical guidance, README, help, and Python tests. The remaining work below is
 process ownership/serialization, exact Catch/CTest selection, live-helper preflight,
 and a single final validation gate.
 
+## Test-integrity checkpoint (2026-08-18)
+
+The normal core aggregate now runs the inexpensive mpack fuzz corpus instead of
+reporting 34 opt-in skips, and the hidden 10,000-input VT fuzz case is explicitly
+excluded rather than counted as skipped coverage. Vacuous literal/`REQUIRE(true)`
+tests were removed, while startup rollback now asserts the real application error.
+
+Five meaningful server/remote-terminal regressions were changed to exercise the
+same production degradation, resync, recovery, takeover, and convergence paths with
+lower injected test budgets or observable retry counts. On the Windows Debug/Ninja
+cache, their combined focused runtime fell from about 70 seconds to 8.5 seconds; the
+core aggregate's slow shard fell from 131.2 seconds to 73.9 seconds. The complete
+nine-job core CTest gate passed in 73.9 seconds, followed by a 5.6-second same-cache
+smoke.
+
 ## Evidence from the hidden-terminal suspension run
 
 The implementation run invoked the build pipeline 11 times:

@@ -379,28 +379,6 @@ TEST_CASE("keybinding dispatch: modifier-only key events do not match any bindin
 }
 
 // -----------------------------------------------------------------------
-// Key-released events do not trigger bindings (binding dispatch checks pressed)
-// -----------------------------------------------------------------------
-
-TEST_CASE("keybinding dispatch: key-released event does not trigger binding", "[config]")
-{
-    AppConfig cfg;
-
-    // F12 released — should not trigger toggle_diagnostics.
-    KeyEvent evt = make_key_event(SDLK_F12, kModNone, /*pressed=*/false);
-    // App only calls gui_action_for_key_event when event.pressed is true.
-    // The matching function itself does not check pressed, but the App guards
-    // the call with `if (event.pressed)`.  We test the matcher alone and note
-    // that dispatch is guarded at the call site.
-    // At the matcher level, the binding would match regardless of pressed.
-    // This test documents that no panic / UB occurs for released events.
-    auto action = action_for_event(cfg, evt);
-    // Not asserting direction — just that no crash occurs.
-    INFO("no crash dispatching key-released event");
-    REQUIRE(true);
-}
-
-// -----------------------------------------------------------------------
 // Custom bindings parsed from TOML
 // -----------------------------------------------------------------------
 

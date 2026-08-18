@@ -3,6 +3,7 @@
 #include "remote_terminal_runtime.h"
 
 #include <draxul/control_plane.h>
+#include <draxul/remote_terminal_protocol.h>
 #include <draxul/session_protocol.h>
 
 #include <chrono>
@@ -27,6 +28,13 @@ struct RemoteTerminalServiceOptions
     std::chrono::milliseconds loop_latency_warning_threshold{
         std::chrono::milliseconds(100)
     };
+    // Defaults are the production wire/resource limits. Tests can lower them
+    // to exercise degradation and resync behavior without constructing
+    // maximum-size terminal frames.
+    size_t subscriber_queue_byte_limit
+        = kRemoteTerminalSubscriberQueueByteLimit;
+    size_t poll_payload_budget
+        = kControlMaxMessageBytes - 64 * 1024;
     std::function<void(uint64_t)> prepare_restart_generation;
 };
 

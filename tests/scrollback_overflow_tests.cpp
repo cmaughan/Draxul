@@ -277,21 +277,6 @@ TEST_CASE("scrollback: no crash on rapid fill and clear cycle", "[terminal]")
     REQUIRE(ts.host.cell_text(0, 0) == std::string(" "));
 }
 
-TEST_CASE("scrollback: alternate screen does not accumulate scrollback", "[terminal]")
-{
-    // Lines written in alt-screen mode must NOT go into scrollback.
-    SbSetup ts(kCols, kRows);
-    INFO("host must initialize");
-    REQUIRE(ts.ok);
-    ts.host.feed("\x1B[?1049h"); // enter alt screen
-    ts.feed_lines(10); // write 10 lines in alt screen
-    ts.host.feed("\x1B[?1049l"); // exit alt screen
-    // We cannot easily count scrollback items from outside, but the main
-    // screen should be restored and we just check for no crash.
-    INFO("no crash after alt-screen writes and exit");
-    REQUIRE(true);
-}
-
 TEST_CASE("scrollback: IND captures the row scrolled off the top", "[terminal][scrollback]")
 {
     LocalSbSetup ts(4, 3);

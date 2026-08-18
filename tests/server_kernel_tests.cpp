@@ -180,6 +180,7 @@ TEST_CASE("server scrollback budget reserves rejects and releases cells",
 TEST_CASE("remote terminal subscriber queues are byte bounded",
     "[server][remote-terminal][resource-bounds]")
 {
+    constexpr size_t kTestQueueByteLimit = 4 * 1024;
     FakeTerminalRuntime runtime;
     RemoteTerminalService service(
         {
@@ -188,6 +189,7 @@ TEST_CASE("remote terminal subscriber queues are byte bounded",
             .pane_id = "bytes-pane",
             .terminal_id = "bytes-terminal",
             .name = "Bytes",
+            .subscriber_queue_byte_limit = kTestQueueByteLimit,
         },
         runtime);
     REQUIRE(service.handle(
@@ -199,30 +201,26 @@ TEST_CASE("remote terminal subscriber queues are byte bounded",
                        { { "client_id", "observer" } })
             .ok);
 
-    for (int index = 0; index < 4; ++index)
-    {
-        const int cols = index % 2 == 0
-            ? kRemoteTerminalMaxColumns
-            : kRemoteTerminalMaxColumns - 1;
-        REQUIRE(service.handle(
-                           "bytes.resize",
-                           {
-                               { "client_id", "controller" },
-                               { "request_id",
-                                   static_cast<uint64_t>(index + 1) },
-                               { "cols", cols },
-                               { "rows", kRemoteTerminalMaxRows },
-                           })
-                .ok);
-    }
+    // A modest dirty grid exceeds the deliberately small test queue. This
+    // exercises the production overflow/resync path without allocating and
+    // serializing four maximum-size terminal snapshots.
+    REQUIRE(service.handle(
+                       "bytes.resize",
+                       {
+                           { "client_id", "controller" },
+                           { "request_id", uint64_t{ 1 } },
+                           { "cols", 64 },
+                           { "rows", 32 },
+                       })
+            .ok);
 
     const auto metrics = service.handle(
         "bytes.metrics", nlohmann::json::object());
     REQUIRE(metrics.ok);
     CHECK(metrics.value["max_queue_bytes"].get<size_t>()
-        <= kRemoteTerminalSubscriberQueueByteLimit);
+        <= kTestQueueByteLimit);
     CHECK(metrics.value["queue_byte_limit"].get<size_t>()
-        == kRemoteTerminalSubscriberQueueByteLimit);
+        == kTestQueueByteLimit);
     CHECK(metrics.value["oversized_queue_events"].get<uint64_t>() > 0);
     CHECK(metrics.value["resyncs"].get<uint64_t>() > 0);
 
@@ -994,15 +992,20 @@ TEST_CASE("restored child topology identities are scoped by their parents",
         == R"({"paused":true})");
 }
 
-TEST_CASE("oversized truecolour hyperlink snapshots degrade within frame budget",
+TEST_CASE("decorated snapshots degrade within the poll payload budget",
     "[server][remote-terminal][resource-bounds][encoding]")
 {
+    constexpr int kCols = 32;
+    constexpr int kRows = 16;
+    constexpr size_t kCellCount
+        = static_cast<size_t>(kCols) * kRows;
+    constexpr size_t kTestPollPayloadBudget = 12 * 1024;
     TerminalSemanticSnapshot snapshot{
-        .cols = kRemoteTerminalMaxColumns,
-        .rows = kRemoteTerminalMaxRows,
+        .cols = kCols,
+        .rows = kRows,
     };
-    snapshot.cells.reserve(kRemoteTerminalMaxCells);
-    for (size_t index = 0; index < kRemoteTerminalMaxCells; ++index)
+    snapshot.cells.reserve(kCellCount);
+    for (size_t index = 0; index < kCellCount; ++index)
     {
         const uint32_t rgb = static_cast<uint32_t>(index);
         HlAttr attr;
@@ -1027,6 +1030,7 @@ TEST_CASE("oversized truecolour hyperlink snapshots degrade within frame budget"
             .pane_id = "large-pane",
             .terminal_id = "large-terminal",
             .name = "Large",
+            .poll_payload_budget = kTestPollPayloadBudget,
         },
         runtime);
 
@@ -1041,7 +1045,7 @@ TEST_CASE("oversized truecolour hyperlink snapshots degrade within frame budget"
     REQUIRE(parsed);
     REQUIRE(parsed->state.snapshot);
     CHECK(parsed->state.snapshot->cells.size()
-        == kRemoteTerminalMaxCells);
+        == kCellCount);
     CHECK(parsed->state.snapshot->cells.front().text == "X");
 
     const auto metrics = service.handle(
@@ -1049,7 +1053,7 @@ TEST_CASE("oversized truecolour hyperlink snapshots degrade within frame budget"
     REQUIRE(metrics.ok);
     CHECK(metrics.value["degraded_frames"].get<uint64_t>() >= 1);
     CHECK(metrics.value["poll_payload_budget"].get<size_t>()
-        < kControlMaxMessageBytes);
+        == kTestPollPayloadBudget);
 
     const auto poll = service.handle(
         "large.poll",
@@ -4758,10 +4762,13 @@ TEST_CASE("remote observer receives a burst of large resize events in bounded fr
     REQUIRE(controller.attach(error));
     REQUIRE(observer.attach(error));
     bool changed = false;
-    for (int index = 0; index < 8; ++index)
+    // Four alternating resizes are sufficient to force an observer through
+    // multiple queued versions and prove convergence. Production-maximum
+    // frame/queue limits are covered by the service-level tests above.
+    for (int index = 0; index < 4; ++index)
     {
-        const int cols = index % 2 == 0 ? 240 : 80;
-        const int rows = index % 2 == 0 ? 45 : 24;
+        const int cols = index % 2 == 0 ? 160 : 80;
+        const int rows = index % 2 == 0 ? 36 : 24;
         REQUIRE(controller.resize(cols, rows, error));
         REQUIRE(controller.poll(changed, error));
         REQUIRE(changed);

@@ -3,7 +3,6 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -111,19 +110,6 @@ inline std::string read_file(const std::filesystem::path& path)
 }
 
 } // namespace draxul::tests
-
-// ---------------------------------------------------------------------------
-// Slow-test gate — the single opt-in switch for expensive fuzz/stress cases.
-// ---------------------------------------------------------------------------
-
-#define DRAXUL_SKIP_UNLESS_SLOW()                                               \
-    do                                                                          \
-    {                                                                           \
-        if (std::getenv("DRAXUL_RUN_SLOW_TESTS") == nullptr)                    \
-        {                                                                       \
-            SKIP("slow tests skipped (set DRAXUL_RUN_SLOW_TESTS=1 to enable)"); \
-        }                                                                       \
-    } while (false)
 
 namespace draxul::tests
 {

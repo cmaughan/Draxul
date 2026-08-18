@@ -14,7 +14,7 @@ namespace draxul
 namespace
 {
 
-constexpr size_t kPollPayloadBudget
+constexpr size_t kMaximumPollPayloadBudget
     = kControlMaxMessageBytes - 64 * 1024;
 constexpr size_t kCompletedMutationLimit = 1024;
 
@@ -111,6 +111,12 @@ RemoteTerminalService::RemoteTerminalService(
     , preferred_controller_client_id_(
           options_.preferred_controller_client_id)
 {
+    options_.subscriber_queue_byte_limit = std::clamp<size_t>(
+        options_.subscriber_queue_byte_limit, 1,
+        kRemoteTerminalSubscriberQueueByteLimit);
+    options_.poll_payload_budget = std::clamp<size_t>(
+        options_.poll_payload_budget, 1,
+        kMaximumPollPayloadBudget);
 }
 
 std::string RemoteTerminalService::subscriber_key(
@@ -380,7 +386,8 @@ RemoteTerminalService::encode_event(
     auto encoded = remote_terminal_event_to_json(event);
     size_t bytes = replace_safe_json_size(encoded);
     bool degraded = false;
-    if (degrade_to_poll_budget && bytes > kPollPayloadBudget)
+    if (degrade_to_poll_budget
+        && bytes > options_.poll_payload_budget)
     {
         degraded = strip_hyperlinks(event);
         if (degraded)
@@ -389,13 +396,15 @@ RemoteTerminalService::encode_event(
             bytes = replace_safe_json_size(encoded);
         }
     }
-    if (degrade_to_poll_budget && bytes > kPollPayloadBudget)
+    if (degrade_to_poll_budget
+        && bytes > options_.poll_payload_budget)
     {
         degraded = strip_attrs(event) || degraded;
         encoded = remote_terminal_event_to_json(event);
         bytes = replace_safe_json_size(encoded);
     }
-    if (degrade_to_poll_budget && bytes > kPollPayloadBudget)
+    if (degrade_to_poll_budget
+        && bytes > options_.poll_payload_budget)
         return {};
     if (degraded)
         ++degraded_frames_;
@@ -453,10 +462,10 @@ void RemoteTerminalService::broadcast(const RemoteTerminalEvent& event)
         (void)client_id;
         if (subscriber.suspended || subscriber.needs_resync)
             continue;
-        if (encoded->bytes > kRemoteTerminalSubscriberQueueByteLimit
+        if (encoded->bytes > options_.subscriber_queue_byte_limit
             || subscriber.events.size() >= kRemoteTerminalQueueLimit
             || subscriber.queued_bytes
-                > kRemoteTerminalSubscriberQueueByteLimit - encoded->bytes)
+                > options_.subscriber_queue_byte_limit - encoded->bytes)
         {
             ++oversized_queue_events_;
             require_resync(subscriber);
@@ -631,7 +640,7 @@ ControlMethodResult RemoteTerminalService::poll(
             "not_attached", "Attach to the terminal before polling.");
     }
     auto slice = poll_delivery(*delivery, requested,
-        kPollPayloadBudget, kPollPayloadBudget,
+        options_.poll_payload_budget, options_.poll_payload_budget,
         kRemoteTerminalMaxEventsPerPoll, false);
     if (!slice.ok())
     {
@@ -1180,8 +1189,8 @@ ControlMethodResult RemoteTerminalService::metrics() const
         { "max_queue_bytes", max_queue_bytes_ },
         { "queue_limit", kRemoteTerminalQueueLimit },
         { "queue_byte_limit",
-            kRemoteTerminalSubscriberQueueByteLimit },
-        { "poll_payload_budget", kPollPayloadBudget },
+            options_.subscriber_queue_byte_limit },
+        { "poll_payload_budget", options_.poll_payload_budget },
         { "resyncs", resyncs_ },
         { "degraded_frames", degraded_frames_ },
         { "oversized_queue_events", oversized_queue_events_ },
