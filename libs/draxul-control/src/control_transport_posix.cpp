@@ -1,6 +1,7 @@
 #include "control_transport.h"
 
 #include "control_codec.h"
+#include "control_exact_io.h"
 
 #include <draxul/control_plane.h>
 
@@ -63,44 +64,49 @@ ssize_t socket_send(int fd, const void* data, size_t size)
 #endif
 }
 
-bool server_read_exact(int fd, void* data, size_t size)
+TransportStatus server_read_exact(
+    int fd, void* data, size_t size, TransportStage stage)
 {
-    size_t offset = 0;
-    while (offset < size)
-    {
-        const ssize_t read = ::recv(
-            fd, static_cast<char*>(data) + offset, size - offset, 0);
-        if (read < 0 && errno == EINTR)
-            continue;
-        if (read <= 0)
-        {
-            if (read == 0)
-                errno = ECONNRESET;
-            return false;
-        }
-        offset += static_cast<size_t>(read);
-    }
-    return true;
+    return read_exact(
+        [fd](void* destination, size_t remaining,
+            TransportStage current_stage) {
+            const ssize_t read
+                = ::recv(fd, destination, remaining, 0);
+            if (read > 0)
+                return IoAttemptResult::progress(
+                    static_cast<size_t>(read));
+            if (read < 0 && errno == EINTR)
+                return IoAttemptResult::retry();
+            const int code = read == 0 ? ECONNRESET : errno;
+            auto error = posix_error(current_stage, code,
+                FailureClass::IoError, "Control request failed.");
+            return read == 0
+                ? IoAttemptResult::end_of_stream(std::move(error))
+                : IoAttemptResult::failure(std::move(error));
+        },
+        data, size, stage);
 }
 
-bool server_write_exact(int fd, const void* data, size_t size)
+TransportStatus server_write_exact(
+    int fd, const void* data, size_t size, TransportStage stage)
 {
-    size_t offset = 0;
-    while (offset < size)
-    {
-        const ssize_t written = socket_send(
-            fd, static_cast<const char*>(data) + offset, size - offset);
-        if (written < 0 && errno == EINTR)
-            continue;
-        if (written <= 0)
-        {
-            if (written == 0)
-                errno = EPIPE;
-            return false;
-        }
-        offset += static_cast<size_t>(written);
-    }
-    return true;
+    return write_exact(
+        [fd](const void* source, size_t remaining,
+            TransportStage current_stage) {
+            const ssize_t written = socket_send(fd, source, remaining);
+            if (written > 0)
+                return IoAttemptResult::progress(
+                    static_cast<size_t>(written));
+            if (written < 0 && errno == EINTR)
+                return IoAttemptResult::retry();
+            const int code = written == 0 ? EPIPE : errno;
+            auto error = posix_error(current_stage, code,
+                FailureClass::IoError, "Control request failed.");
+            return written == 0
+                ? IoAttemptResult::end_of_stream(std::move(error))
+                : IoAttemptResult::failure(std::move(error));
+        },
+        data, size, stage);
 }
 
 TransportStatus wait_for_socket(
@@ -142,59 +148,62 @@ TransportStatus wait_for_socket(
 TransportStatus client_read_exact(int fd, void* data, size_t size,
     ControlDeadline deadline, TransportStage stage)
 {
-    size_t offset = 0;
-    while (offset < size)
-    {
-        auto wait = wait_for_socket(fd, POLLIN, deadline, stage);
-        if (!wait.ok)
-            return wait;
-        const ssize_t read = ::recv(
-            fd, static_cast<char*>(data) + offset, size - offset, 0);
-        if (read > 0)
-        {
-            offset += static_cast<size_t>(read);
-            continue;
-        }
-        if (read < 0
-            && (errno == EINTR || errno == EAGAIN
-                || errno == EWOULDBLOCK))
-        {
-            continue;
-        }
-        const int code = read == 0 ? ECONNRESET : errno;
-        return TransportStatus::failure(posix_error(stage, code,
-            FailureClass::IoError, "Control request failed."));
-    }
-    return TransportStatus::success();
+    return read_exact(
+        [fd, deadline](void* destination, size_t remaining,
+            TransportStage current_stage) {
+            auto wait = wait_for_socket(
+                fd, POLLIN, deadline, current_stage);
+            if (!wait.ok)
+                return IoAttemptResult::failure(std::move(wait.error));
+            const ssize_t read
+                = ::recv(fd, destination, remaining, 0);
+            if (read > 0)
+                return IoAttemptResult::progress(
+                    static_cast<size_t>(read));
+            if (read < 0
+                && (errno == EINTR || errno == EAGAIN
+                    || errno == EWOULDBLOCK))
+            {
+                return IoAttemptResult::retry();
+            }
+            const int code = read == 0 ? ECONNRESET : errno;
+            auto error = posix_error(current_stage, code,
+                FailureClass::IoError, "Control request failed.");
+            return read == 0
+                ? IoAttemptResult::end_of_stream(std::move(error))
+                : IoAttemptResult::failure(std::move(error));
+        },
+        data, size, stage);
 }
 
 TransportStatus client_write_exact(int fd, const void* data, size_t size,
     ControlDeadline deadline, TransportStage stage)
 {
-    size_t offset = 0;
-    while (offset < size)
-    {
-        auto wait = wait_for_socket(fd, POLLOUT, deadline, stage);
-        if (!wait.ok)
-            return wait;
-        const ssize_t written = socket_send(
-            fd, static_cast<const char*>(data) + offset, size - offset);
-        if (written > 0)
-        {
-            offset += static_cast<size_t>(written);
-            continue;
-        }
-        if (written < 0
-            && (errno == EINTR || errno == EAGAIN
-                || errno == EWOULDBLOCK))
-        {
-            continue;
-        }
-        const int code = written == 0 ? EPIPE : errno;
-        return TransportStatus::failure(posix_error(stage, code,
-            FailureClass::IoError, "Control request failed."));
-    }
-    return TransportStatus::success();
+    return write_exact(
+        [fd, deadline](const void* source, size_t remaining,
+            TransportStage current_stage) {
+            auto wait = wait_for_socket(
+                fd, POLLOUT, deadline, current_stage);
+            if (!wait.ok)
+                return IoAttemptResult::failure(std::move(wait.error));
+            const ssize_t written = socket_send(fd, source, remaining);
+            if (written > 0)
+                return IoAttemptResult::progress(
+                    static_cast<size_t>(written));
+            if (written < 0
+                && (errno == EINTR || errno == EAGAIN
+                    || errno == EWOULDBLOCK))
+            {
+                return IoAttemptResult::retry();
+            }
+            const int code = written == 0 ? EPIPE : errno;
+            auto error = posix_error(current_stage, code,
+                FailureClass::IoError, "Control request failed.");
+            return written == 0
+                ? IoAttemptResult::end_of_stream(std::move(error))
+                : IoAttemptResult::failure(std::move(error));
+        },
+        data, size, stage);
 }
 
 class PosixServerTransport final : public ServerTransport
@@ -377,11 +386,8 @@ public:
                       const auto read_status = read_control_frame(
                           [client](void* data, size_t size,
                               TransportStage stage) {
-                              if (server_read_exact(client, data, size))
-                                  return TransportStatus::success();
-                              return TransportStatus::failure(posix_error(
-                                  stage, errno, FailureClass::IoError,
-                                  "Control request failed."));
+                              return server_read_exact(
+                                  client, data, size, stage);
                           },
                           bytes);
                       const std::optional<std::string> request
@@ -392,11 +398,8 @@ public:
                       write_control_frame(
                           [client](const void* data, size_t size,
                               TransportStage stage) {
-                              if (server_write_exact(client, data, size))
-                                  return TransportStatus::success();
-                              return TransportStatus::failure(posix_error(
-                                  stage, errno, FailureClass::IoError,
-                                  "Control request failed."));
+                              return server_write_exact(
+                                  client, data, size, stage);
                           },
                           response);
                       ::close(client);
@@ -661,7 +664,8 @@ ClientExchangeResult client_exchange(std::string_view endpoint,
     return { .ok = true, .response_bytes = std::move(response) };
 }
 
-std::unique_ptr<ServerTransport> make_server_transport()
+std::unique_ptr<ServerTransport> make_server_transport(
+    const ListenerCreateTestHooks*)
 {
     return std::make_unique<PosixServerTransport>();
 }

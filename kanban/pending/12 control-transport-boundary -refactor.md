@@ -42,11 +42,8 @@ needed before a persistent endpoint; that endpoint also waits for the server own
 
 ## Unit tests
 
-- [ ] Test frame limits, malformed JSON, depth, absolute deadlines, and partial I/O without live sockets.
-  Frame/JSON/deadline and staged-error coverage is complete; deterministic syscall-level
-  partial-read/write injection still needs a narrower byte-stream seam.
-- [ ] Test stale metadata, concurrent ownership, stop-pending, and listener recovery.
-  The first three are covered; deterministic listener failure/recovery injection remains.
+- [x] Test frame limits, malformed JSON, depth, absolute deadlines, and partial I/O without live sockets.
+- [x] Test stale metadata, concurrent ownership, stop-pending, and listener recovery.
 - [x] Build `draxul-control` and the owning core test target; run the focused CTest selection.
 
 ## Cross-platform validation
@@ -75,8 +72,10 @@ needed before a persistent endpoint; that endpoint also waits for the server own
 The common facade is now separated from the codec, deadline, metadata/cache, and
 platform transport implementations. The public header and public error mapping
 remain unchanged. Windows focused transport coverage is green, including current-user
-security and the four-listener starvation case. The extraction also fixes two
+security, the four-listener starvation case, fragmented syscall progress, and an
+injected replacement-listener failure followed by successful recovery. The extraction also fixes two
 ownership/cancellation hazards found during the inventory: a POSIX incumbent that
 abandons its endpoint can no longer unlink a successor socket during shutdown, and a
 pending Win32 `ConnectNamedPipe` is cancelled and drained before its `OVERLAPPED`
-storage is released. The card remains pending only for macOS CI and final smoke proof.
+storage is released. Debug tests and smoke plus a clean Release smoke are green on
+Windows. The card remains pending only for macOS CI proof.

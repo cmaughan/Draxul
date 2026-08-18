@@ -115,6 +115,17 @@ public:
     virtual uint32_t take_listener_error() = 0;
 };
 
-std::unique_ptr<ServerTransport> make_server_transport();
+// Private deterministic seam for platform listener recovery tests. Production
+// construction passes no hooks, so listener creation continues to call the OS
+// directly. The hook applies only to replacement/secondary listener creation;
+// the first listener still proves that startup claimed a real endpoint.
+struct ListenerCreateTestHooks
+{
+    std::function<std::optional<uint32_t>()> fail_recreation;
+    std::function<void()> recreation_succeeded;
+};
+
+std::unique_ptr<ServerTransport> make_server_transport(
+    const ListenerCreateTestHooks* test_hooks = nullptr);
 
 } // namespace draxul::control_detail

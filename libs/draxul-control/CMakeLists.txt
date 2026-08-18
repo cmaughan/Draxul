@@ -1,5 +1,6 @@
 set(DRAXUL_CONTROL_SOURCES
     src/control_codec.cpp
+    src/control_exact_io.cpp
     src/control_metadata.cpp
     src/control_plane.cpp
 )

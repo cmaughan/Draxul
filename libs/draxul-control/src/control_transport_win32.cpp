@@ -1,6 +1,7 @@
 #include "control_transport.h"
 
 #include "control_codec.h"
+#include "control_exact_io.h"
 
 #include <draxul/control_plane.h>
 
@@ -154,56 +155,88 @@ bool await_server_io(HANDLE handle, OVERLAPPED& overlapped,
     return false;
 }
 
-bool server_read_exact(HANDLE handle, void* data, size_t size)
+TransportStatus server_read_exact(
+    HANDLE handle, void* data, size_t size, TransportStage stage)
 {
-    size_t offset = 0;
-    while (offset < size)
-    {
-        OVERLAPPED overlapped{};
-        overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        if (!overlapped.hEvent)
-            return false;
-        DWORD read = 0;
-        BOOL ok = ReadFile(handle, static_cast<char*>(data) + offset,
-            static_cast<DWORD>(size - offset), &read, &overlapped);
-        if (!ok)
-            ok = await_server_io(handle, overlapped, read, GetLastError());
-        const DWORD io_error = ok ? ERROR_SUCCESS : GetLastError();
-        CloseHandle(overlapped.hEvent);
-        if (!ok || read == 0)
-        {
-            SetLastError(ok ? ERROR_BROKEN_PIPE : io_error);
-            return false;
-        }
-        offset += read;
-    }
-    return true;
+    return read_exact(
+        [handle](void* destination, size_t remaining,
+            TransportStage current_stage) {
+            OVERLAPPED overlapped{};
+            overlapped.hEvent
+                = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if (!overlapped.hEvent)
+            {
+                return IoAttemptResult::failure(win32_error(
+                    current_stage, GetLastError(), FailureClass::IoError,
+                    "Control request failed."));
+            }
+            DWORD read = 0;
+            BOOL ok = ReadFile(handle, destination,
+                static_cast<DWORD>(remaining), &read, &overlapped);
+            if (!ok)
+            {
+                ok = await_server_io(
+                    handle, overlapped, read, GetLastError());
+            }
+            const DWORD io_error = ok ? ERROR_SUCCESS : GetLastError();
+            CloseHandle(overlapped.hEvent);
+            if (!ok)
+            {
+                return IoAttemptResult::failure(win32_error(
+                    current_stage, io_error, FailureClass::IoError,
+                    "Control request failed."));
+            }
+            if (read == 0)
+            {
+                return IoAttemptResult::end_of_stream(win32_error(
+                    current_stage, ERROR_BROKEN_PIPE,
+                    FailureClass::IoError, "Control request failed."));
+            }
+            return IoAttemptResult::progress(read);
+        },
+        data, size, stage);
 }
 
-bool server_write_exact(HANDLE handle, const void* data, size_t size)
+TransportStatus server_write_exact(
+    HANDLE handle, const void* data, size_t size, TransportStage stage)
 {
-    size_t offset = 0;
-    while (offset < size)
-    {
-        OVERLAPPED overlapped{};
-        overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        if (!overlapped.hEvent)
-            return false;
-        DWORD written = 0;
-        BOOL ok = WriteFile(handle, static_cast<const char*>(data) + offset,
-            static_cast<DWORD>(size - offset), &written, &overlapped);
-        if (!ok)
-            ok = await_server_io(handle, overlapped, written, GetLastError());
-        const DWORD io_error = ok ? ERROR_SUCCESS : GetLastError();
-        CloseHandle(overlapped.hEvent);
-        if (!ok || written == 0)
-        {
-            SetLastError(ok ? ERROR_BROKEN_PIPE : io_error);
-            return false;
-        }
-        offset += written;
-    }
-    return true;
+    return write_exact(
+        [handle](const void* source, size_t remaining,
+            TransportStage current_stage) {
+            OVERLAPPED overlapped{};
+            overlapped.hEvent
+                = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if (!overlapped.hEvent)
+            {
+                return IoAttemptResult::failure(win32_error(
+                    current_stage, GetLastError(), FailureClass::IoError,
+                    "Control request failed."));
+            }
+            DWORD written = 0;
+            BOOL ok = WriteFile(handle, source,
+                static_cast<DWORD>(remaining), &written, &overlapped);
+            if (!ok)
+            {
+                ok = await_server_io(
+                    handle, overlapped, written, GetLastError());
+            }
+            const DWORD io_error = ok ? ERROR_SUCCESS : GetLastError();
+            CloseHandle(overlapped.hEvent);
+            if (!ok)
+            {
+                return IoAttemptResult::failure(win32_error(
+                    current_stage, io_error, FailureClass::IoError,
+                    "Control request failed."));
+            }
+            if (written == 0)
+            {
+                return IoAttemptResult::end_of_stream(win32_error(
+                    current_stage, ERROR_BROKEN_PIPE,
+                    FailureClass::IoError, "Control request failed."));
+            }
+            return IoAttemptResult::progress(written);
+        },
+        data, size, stage);
 }
 
 bool await_client_io(HANDLE handle, OVERLAPPED& overlapped,
@@ -245,92 +278,110 @@ bool await_client_io(HANDLE handle, OVERLAPPED& overlapped,
 bool client_read_exact(HANDLE handle, void* data, size_t size,
     ControlDeadline deadline, TransportStage stage, TransportError& error)
 {
-    size_t offset = 0;
-    while (offset < size)
-    {
-        if (remaining_time(deadline).count() == 0)
-        {
-            error = win32_error(stage, ERROR_TIMEOUT,
-                FailureClass::DeadlineExceeded,
-                "The Draxul control request exceeded its deadline.");
-            return false;
-        }
-        OVERLAPPED overlapped{};
-        overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        if (!overlapped.hEvent)
-        {
-            error = win32_error(stage, GetLastError(),
-                FailureClass::IoError, "Control request failed.");
-            return false;
-        }
-        DWORD read = 0;
-        BOOL ok = ReadFile(handle, static_cast<char*>(data) + offset,
-            static_cast<DWORD>(size - offset), &read, &overlapped);
-        if (!ok)
-        {
-            ok = await_client_io(handle, overlapped, read,
-                GetLastError(), deadline, stage, error);
-        }
-        if (ok && read == 0)
-        {
-            error = win32_error(stage, ERROR_BROKEN_PIPE,
-                FailureClass::IoError, "Control request failed.");
-            ok = false;
-        }
-        CloseHandle(overlapped.hEvent);
-        if (!ok)
-            return false;
-        offset += read;
-    }
-    return true;
+    auto status = read_exact(
+        [handle, deadline](void* destination, size_t remaining,
+            TransportStage current_stage) {
+            if (remaining_time(deadline).count() == 0)
+            {
+                return IoAttemptResult::failure(win32_error(
+                    current_stage, ERROR_TIMEOUT,
+                    FailureClass::DeadlineExceeded,
+                    "The Draxul control request exceeded its deadline."));
+            }
+            OVERLAPPED overlapped{};
+            overlapped.hEvent
+                = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if (!overlapped.hEvent)
+            {
+                return IoAttemptResult::failure(win32_error(
+                    current_stage, GetLastError(), FailureClass::IoError,
+                    "Control request failed."));
+            }
+            DWORD read = 0;
+            TransportError attempt_error;
+            BOOL ok = ReadFile(handle, destination,
+                static_cast<DWORD>(remaining), &read, &overlapped);
+            if (!ok)
+            {
+                ok = await_client_io(handle, overlapped, read,
+                    GetLastError(), deadline, current_stage,
+                    attempt_error);
+            }
+            CloseHandle(overlapped.hEvent);
+            if (!ok)
+                return IoAttemptResult::failure(std::move(attempt_error));
+            if (read == 0)
+            {
+                return IoAttemptResult::end_of_stream(win32_error(
+                    current_stage, ERROR_BROKEN_PIPE,
+                    FailureClass::IoError, "Control request failed."));
+            }
+            return IoAttemptResult::progress(read);
+        },
+        data, size, stage);
+    if (!status.ok)
+        error = status.error;
+    return status.ok;
 }
 
 bool client_write_exact(HANDLE handle, const void* data, size_t size,
     ControlDeadline deadline, TransportStage stage, TransportError& error)
 {
-    size_t offset = 0;
-    while (offset < size)
-    {
-        if (remaining_time(deadline).count() == 0)
-        {
-            error = win32_error(stage, ERROR_TIMEOUT,
-                FailureClass::DeadlineExceeded,
-                "The Draxul control request exceeded its deadline.");
-            return false;
-        }
-        OVERLAPPED overlapped{};
-        overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        if (!overlapped.hEvent)
-        {
-            error = win32_error(stage, GetLastError(),
-                FailureClass::IoError, "Control request failed.");
-            return false;
-        }
-        DWORD written = 0;
-        BOOL ok = WriteFile(handle, static_cast<const char*>(data) + offset,
-            static_cast<DWORD>(size - offset), &written, &overlapped);
-        if (!ok)
-        {
-            ok = await_client_io(handle, overlapped, written,
-                GetLastError(), deadline, stage, error);
-        }
-        if (ok && written == 0)
-        {
-            error = win32_error(stage, ERROR_BROKEN_PIPE,
-                FailureClass::IoError, "Control request failed.");
-            ok = false;
-        }
-        CloseHandle(overlapped.hEvent);
-        if (!ok)
-            return false;
-        offset += written;
-    }
-    return true;
+    auto status = write_exact(
+        [handle, deadline](const void* source, size_t remaining,
+            TransportStage current_stage) {
+            if (remaining_time(deadline).count() == 0)
+            {
+                return IoAttemptResult::failure(win32_error(
+                    current_stage, ERROR_TIMEOUT,
+                    FailureClass::DeadlineExceeded,
+                    "The Draxul control request exceeded its deadline."));
+            }
+            OVERLAPPED overlapped{};
+            overlapped.hEvent
+                = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if (!overlapped.hEvent)
+            {
+                return IoAttemptResult::failure(win32_error(
+                    current_stage, GetLastError(), FailureClass::IoError,
+                    "Control request failed."));
+            }
+            DWORD written = 0;
+            TransportError attempt_error;
+            BOOL ok = WriteFile(handle, source,
+                static_cast<DWORD>(remaining), &written, &overlapped);
+            if (!ok)
+            {
+                ok = await_client_io(handle, overlapped, written,
+                    GetLastError(), deadline, current_stage,
+                    attempt_error);
+            }
+            CloseHandle(overlapped.hEvent);
+            if (!ok)
+                return IoAttemptResult::failure(std::move(attempt_error));
+            if (written == 0)
+            {
+                return IoAttemptResult::end_of_stream(win32_error(
+                    current_stage, ERROR_BROKEN_PIPE,
+                    FailureClass::IoError, "Control request failed."));
+            }
+            return IoAttemptResult::progress(written);
+        },
+        data, size, stage);
+    if (!status.ok)
+        error = status.error;
+    return status.ok;
 }
 
 class Win32ServerTransport final : public ServerTransport
 {
 public:
+    explicit Win32ServerTransport(
+        const ListenerCreateTestHooks* test_hooks)
+        : test_hooks_(test_hooks)
+    {
+    }
+
     TransportStatus prepare(std::string_view session_id,
         const std::filesystem::path&) override
     {
@@ -389,19 +440,43 @@ public:
                   {
                       if (pipe == INVALID_HANDLE_VALUE)
                       {
-                          pipe = CreateNamedPipeW(pipe_name.c_str(),
-                              PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                              PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT
-                                  | PIPE_REJECT_REMOTE_CLIENTS,
-                              4, static_cast<DWORD>(kControlMaxMessageBytes),
-                              static_cast<DWORD>(kControlMaxMessageBytes),
-                              0, &attributes);
+                          std::optional<uint32_t> injected_error;
+                          if (test_hooks_
+                              && test_hooks_->fail_recreation)
+                          {
+                              injected_error
+                                  = test_hooks_->fail_recreation();
+                          }
+                          if (injected_error)
+                          {
+                              SetLastError(
+                                  static_cast<DWORD>(*injected_error));
+                          }
+                          else
+                          {
+                              pipe = CreateNamedPipeW(pipe_name.c_str(),
+                                  PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                                  PIPE_TYPE_BYTE | PIPE_READMODE_BYTE
+                                      | PIPE_WAIT
+                                      | PIPE_REJECT_REMOTE_CLIENTS,
+                                  4,
+                                  static_cast<DWORD>(
+                                      kControlMaxMessageBytes),
+                                  static_cast<DWORD>(
+                                      kControlMaxMessageBytes),
+                                  0, &attributes);
+                          }
                           if (pipe == INVALID_HANDLE_VALUE)
                           {
                               listener_error_ = GetLastError();
                               std::this_thread::sleep_for(
                                   std::chrono::milliseconds(25));
                               continue;
+                          }
+                          if (test_hooks_
+                              && test_hooks_->recreation_succeeded)
+                          {
+                              test_hooks_->recreation_succeeded();
                           }
                       }
 
@@ -464,12 +539,8 @@ public:
                           const auto read_status = read_control_frame(
                               [pipe](void* data, size_t size,
                                   TransportStage stage) {
-                                  if (server_read_exact(pipe, data, size))
-                                      return TransportStatus::success();
-                                  return TransportStatus::failure(win32_error(
-                                      stage, GetLastError(),
-                                      FailureClass::IoError,
-                                      "Control request failed."));
+                                  return server_read_exact(
+                                      pipe, data, size, stage);
                               },
                               bytes);
                           const std::optional<std::string> request
@@ -480,12 +551,8 @@ public:
                           write_control_frame(
                               [pipe](const void* data, size_t size,
                                   TransportStage stage) {
-                                  if (server_write_exact(pipe, data, size))
-                                      return TransportStatus::success();
-                                  return TransportStatus::failure(win32_error(
-                                      stage, GetLastError(),
-                                      FailureClass::IoError,
-                                      "Control request failed."));
+                                  return server_write_exact(
+                                      pipe, data, size, stage);
                               },
                               response);
                           FlushFileBuffers(pipe);
@@ -535,6 +602,7 @@ private:
     std::atomic<bool> endpoint_in_use_ = false;
     std::atomic<uint32_t> listener_error_ = 0;
     bool abandoned_ = false;
+    const ListenerCreateTestHooks* test_hooks_ = nullptr;
 };
 
 } // namespace
@@ -718,9 +786,10 @@ ClientExchangeResult client_exchange(std::string_view endpoint,
     return { .ok = true, .response_bytes = std::move(response) };
 }
 
-std::unique_ptr<ServerTransport> make_server_transport()
+std::unique_ptr<ServerTransport> make_server_transport(
+    const ListenerCreateTestHooks* test_hooks)
 {
-    return std::make_unique<Win32ServerTransport>();
+    return std::make_unique<Win32ServerTransport>(test_hooks);
 }
 
 } // namespace draxul::control_detail

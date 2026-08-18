@@ -4,10 +4,12 @@
 
 #include "control_codec.h"
 #include "control_deadline.h"
+#include "control_exact_io.h"
 #include "control_transport.h"
 
 #include <draxul/control_plane.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -259,6 +261,108 @@ TEST_CASE("expired control deadlines have no renewed I/O budget",
     using namespace draxul::control_detail;
     CHECK(remaining_time(std::chrono::steady_clock::time_point::min())
         == std::chrono::milliseconds::zero());
+}
+
+TEST_CASE("control exact I/O accumulates partial syscall progress and retries",
+    "[control][transport][codec][partial-io]")
+{
+    using namespace draxul::control_detail;
+
+    const std::string source = "partial-read";
+    std::string destination(source.size(), '\0');
+    size_t source_offset = 0;
+    size_t read_attempt = 0;
+    std::vector<size_t> read_remaining;
+    const auto read_status = read_exact(
+        [&](void* data, size_t remaining, TransportStage stage) {
+            CHECK(stage == TransportStage::ReadPayload);
+            read_remaining.push_back(remaining);
+            if (read_attempt++ == 0)
+                return IoAttemptResult::retry();
+            const size_t amount = std::min(
+                remaining, read_attempt == 2 ? size_t{ 1 } : size_t{ 3 });
+            std::memcpy(data, source.data() + source_offset, amount);
+            source_offset += amount;
+            return IoAttemptResult::progress(amount);
+        },
+        destination.data(), destination.size(),
+        TransportStage::ReadPayload);
+    REQUIRE(read_status.ok);
+    CHECK(destination == source);
+    CHECK(source_offset == source.size());
+    REQUIRE(read_remaining.size() >= 3);
+    CHECK(read_remaining[0] == source.size());
+    CHECK(read_remaining[1] == source.size());
+    CHECK(read_remaining[2] == source.size() - 1);
+
+    std::string written;
+    size_t write_attempt = 0;
+    std::vector<size_t> write_remaining;
+    const auto write_status = write_exact(
+        [&](const void* data, size_t remaining, TransportStage stage) {
+            CHECK(stage == TransportStage::WritePayload);
+            write_remaining.push_back(remaining);
+            if (write_attempt++ == 1)
+                return IoAttemptResult::retry();
+            const size_t amount = std::min(remaining, size_t{ 2 });
+            written.append(static_cast<const char*>(data), amount);
+            return IoAttemptResult::progress(amount);
+        },
+        source.data(), source.size(), TransportStage::WritePayload);
+    REQUIRE(write_status.ok);
+    CHECK(written == source);
+    REQUIRE(write_remaining.size() >= 3);
+    CHECK(write_remaining[0] == source.size());
+    CHECK(write_remaining[1] == source.size() - 2);
+    CHECK(write_remaining[2] == source.size() - 2);
+}
+
+TEST_CASE("control exact I/O preserves EOF and native failure stages",
+    "[control][transport][codec][partial-io][staged-error]")
+{
+    using namespace draxul::control_detail;
+
+    std::array<char, 4> bytes{};
+    int attempts = 0;
+    const auto eof = read_exact(
+        [&](void*, size_t, TransportStage) {
+            if (attempts++ == 0)
+                return IoAttemptResult::progress(2);
+            return IoAttemptResult::end_of_stream({
+                .stage = TransportStage::ReadPrefix,
+                .domain = NativeDomain::Posix,
+                .native_code = 104,
+                .classification = FailureClass::IoError,
+                .message = "peer closed",
+            });
+        },
+        bytes.data(), bytes.size(), TransportStage::ReadPayload);
+    CHECK_FALSE(eof.ok);
+    CHECK(attempts == 2);
+    CHECK(eof.error.stage == TransportStage::ReadPayload);
+    CHECK(eof.error.domain == NativeDomain::Posix);
+    CHECK(eof.error.native_code == 104);
+    CHECK(eof.error.message == "peer closed");
+
+    int zero_progress_calls = 0;
+    const auto zero_progress = write_exact(
+        [&](const void*, size_t, TransportStage) {
+            ++zero_progress_calls;
+            return IoAttemptResult::progress(0);
+        },
+        bytes.data(), bytes.size(), TransportStage::WritePrefix);
+    CHECK_FALSE(zero_progress.ok);
+    CHECK(zero_progress_calls == 1);
+    CHECK(zero_progress.error.stage == TransportStage::WritePrefix);
+    CHECK(zero_progress.error.domain == NativeDomain::None);
+
+    const auto overflow = read_exact(
+        [&](void*, size_t remaining, TransportStage) {
+            return IoAttemptResult::progress(remaining + 1);
+        },
+        bytes.data(), bytes.size(), TransportStage::ReadPrefix);
+    CHECK_FALSE(overflow.ok);
+    CHECK(overflow.error.stage == TransportStage::ReadPrefix);
 }
 
 TEST_CASE("control metadata atomically replaces a pre-existing file with current-user-only permissions",
@@ -569,6 +673,64 @@ TEST_CASE("control transport replaces invalid UTF-8 in response payloads",
 }
 
 #ifdef _WIN32
+TEST_CASE("Windows control listener reports an injected recreation failure and recovers",
+    "[control][transport][windows][recovery]")
+{
+    using namespace draxul::control_detail;
+
+    constexpr uint32_t injected_error = ERROR_NOT_ENOUGH_MEMORY;
+    std::atomic<int> recreation_attempts = 0;
+    std::atomic<int> successful_recreations = 0;
+    std::mutex recovery_mutex;
+    std::condition_variable recovery_changed;
+    ListenerCreateTestHooks hooks{
+        .fail_recreation = [&]() -> std::optional<uint32_t> {
+            if (recreation_attempts.fetch_add(1) == 0)
+                return injected_error;
+            return std::nullopt;
+        },
+        .recreation_succeeded = [&] {
+            ++successful_recreations;
+            recovery_changed.notify_all();
+        },
+    };
+
+    auto transport = make_server_transport(&hooks);
+    const auto runtime = unique_control_runtime_directory();
+    const auto prepared = transport->prepare(
+        "listener-recovery-test", runtime);
+    REQUIRE(prepared.ok);
+
+    std::promise<std::string> startup_promise;
+    auto startup = startup_promise.get_future();
+    std::atomic<bool> startup_reported = false;
+    std::jthread listener([&](std::stop_token stop_token) {
+        transport->run(stop_token,
+            [](std::optional<std::string>) { return std::string("response"); },
+            [&](std::string result) {
+                if (!startup_reported.exchange(true))
+                    startup_promise.set_value(std::move(result));
+            });
+    });
+
+    REQUIRE(startup.wait_for(std::chrono::seconds(2))
+        == std::future_status::ready);
+    CHECK(startup.get().empty());
+    {
+        std::unique_lock lock(recovery_mutex);
+        REQUIRE(recovery_changed.wait_for(lock, std::chrono::seconds(2), [&] {
+            return successful_recreations.load() > 0;
+        }));
+    }
+    CHECK(recreation_attempts.load() >= 2);
+    CHECK(transport->take_listener_error() == injected_error);
+    CHECK(transport->take_listener_error() == 0);
+
+    listener.request_stop();
+    listener.join();
+    transport->cleanup();
+}
+
 TEST_CASE("a stalled Windows control client does not starve another client",
     "[control][transport][windows]")
 {
