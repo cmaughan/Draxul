@@ -1,4 +1,4 @@
-#include <draxul/server_kernel.h>
+#include "server_kernel_impl.h"
 
 #include "fake_terminal_runtime.h"
 #include "remote_terminal_service.h"
@@ -56,14 +56,6 @@ constexpr size_t kFatalListenerFailureCount = 8;
 constexpr size_t kCompletedAgentMutationLimit = 1024;
 constexpr auto kAgentRefreshInterval
     = std::chrono::seconds(1);
-
-struct ServerLoopWakeState
-{
-    std::mutex mutex;
-    std::condition_variable condition;
-    std::atomic<bool> control_work_pending = false;
-    std::atomic<bool> terminal_output_pending = false;
-};
 
 std::string terminal_display_name(
     const ServerTerminalRuntimeOptions& options)
@@ -325,248 +317,43 @@ std::filesystem::path server_session_state_path(
         / session_state_file_name(session_id);
 }
 
-class ServerKernel::Impl
+ServerKernel::Impl::Impl(ServerKernelOptions value)
+    : options(std::move(value))
 {
-public:
-    struct ServerSession;
-    enum class ClientAccessResult
+    if (options.protocol_major < 0)
+        options.protocol_major = kServerProtocolMajor;
+    if (options.protocol_minor < 0)
+        options.protocol_minor = kServerProtocolMinor;
+    if (options.client_activity_timeout.count() <= 0)
+        options.client_activity_timeout = std::chrono::seconds(10);
+    if (options.max_terminals == 0
+        || options.max_terminals > kServerMaxTerminals)
     {
-        Accepted,
-        LimitReached,
-        InvalidToken,
-    };
-
-    struct ClientRegistration
-    {
-        std::chrono::steady_clock::time_point last_activity{};
-        std::string connection_token;
-        std::string registration_nonce;
-        bool token_required = false;
-    };
-
-    explicit Impl(ServerKernelOptions value)
-        : options(std::move(value))
-    {
-        if (options.protocol_major < 0)
-            options.protocol_major = kServerProtocolMajor;
-        if (options.protocol_minor < 0)
-            options.protocol_minor = kServerProtocolMinor;
-        if (options.client_activity_timeout.count() <= 0)
-            options.client_activity_timeout = std::chrono::seconds(10);
-        if (options.max_terminals == 0
-            || options.max_terminals > kServerMaxTerminals)
-        {
-            options.max_terminals = kServerMaxTerminals;
-        }
-        if (options.max_scrollback_cells == 0
-            || options.max_scrollback_cells
-                > kServerMaxScrollbackCells)
-        {
-            options.max_scrollback_cells
-                = kServerMaxScrollbackCells;
-        }
-        terminal_resource_budget
-            = std::make_shared<ServerTerminalResourceBudget>(
-                options.max_scrollback_cells);
-        if (options.checkpoint_shutdown_budget.count() < 0)
-            options.checkpoint_shutdown_budget = std::chrono::milliseconds(0);
-        if (!options.checkpoint_save)
-            options.checkpoint_save = save_session_state_to_path;
-        if (options.build_version.empty())
-            options.build_version = server_build_version();
-        for (const AgentDefinition& definition : options.agent_definitions)
-        {
-            agent_definitions.register_definition(
-                definition);
-        }
-        epoch_value = options.epoch_override.empty()
-            ? random_epoch()
-            : options.epoch_override;
-        pid = current_process_id();
-        process_start_identity
-            = process_start_token(pid).value_or("");
+        options.max_terminals = kServerMaxTerminals;
     }
-
-    ServerStartResult start();
-    int run_until_stopped();
-    void request_stop();
-    void stop();
-    ControlMethodResult handle_request(const ControlRequest& request);
-    ServerStatusSnapshot status_snapshot() const;
-    void publish_starting_marker();
-    bool published_identity_matches() const;
-    void publish_failure_marker(std::string_view reason);
-    void remove_failure_marker();
-    void remove_starting_marker();
-    void remove_all_starting_markers();
-    bool prepare_session_restore(std::string& error);
-    bool initialize_services(std::string& error);
-    bool initialize_session(
-        std::string_view session_id, std::string& error);
-    ServerSession* ensure_session(
-        std::string_view session_id, std::string& error);
-    enum class SessionServiceNeed
+    if (options.max_scrollback_cells == 0
+        || options.max_scrollback_cells > kServerMaxScrollbackCells)
     {
-        None,
-        Topology,
-        Agent,
-        TopologyAndAgent,
-    };
-    // Shared preamble for session-scoped control methods: reads the
-    // session id from params, ensures the session, and verifies that the
-    // required services exist. On failure returns nullptr with `failure`
-    // holding the error result; `unavailable_message` is used when the
-    // session error text is empty.
-    ServerSession* resolve_session(const nlohmann::json& params,
-        SessionServiceNeed need, std::string_view unavailable_message,
-        ControlMethodResult& failure);
-    ControlMethodResult delete_session(
-        const nlohmann::json& params);
-    ControlMethodResult delete_all_sessions(
-        const nlohmann::json& params);
-    ControlMethodResult rename_session(
-        const nlohmann::json& params);
-    void reset_services();
-    bool checkpoint_session(
-        std::string_view session_id, std::string& error);
-    void collect_checkpoint_results();
-    void wait_for_checkpoint_tasks(
-        std::chrono::steady_clock::time_point deadline);
-    bool read_session_id(const nlohmann::json& params,
-        std::string& session_id, std::string& error) const;
-    std::optional<std::string> create_server_terminal(
-        std::string_view session_id,
-        const ServerTerminalTopologyLaunch& launch,
-        std::string& error);
-    ServerTerminalRuntimeOptions server_terminal_runtime_options(
-        std::string_view session_id,
-        std::string_view space_id,
-        std::string_view tab_id,
-        std::string_view pane_id,
-        std::string_view terminal_id,
-        std::string_view working_directory) const;
-    bool create_server_terminal_with_id(std::string_view session_id,
-        std::string terminal_id,
-        std::string_view pane_id, std::string_view name,
-        std::string& error,
-        std::optional<ServerTerminalRuntimeOptions>
-            runtime_options = std::nullopt,
-        bool start_immediately = false,
-        std::string preferred_controller_client_id = {});
-    size_t server_terminal_count() const;
-    std::optional<std::string>
-    create_managed_agent_terminal(
-        std::string_view session_id,
-        std::string_view space_id,
-        std::string_view tab_id,
-        std::string_view pane_id,
-        std::string_view name,
-        const ManagedAgentTopologyLaunch& launch,
-        std::string& error);
-    std::optional<ServerTerminalRuntimeOptions>
-    managed_agent_runtime_options(
-        std::string_view session_id,
-        std::string_view space_id,
-        std::string_view tab_id,
-        std::string_view pane_id,
-        std::string_view terminal_id,
-        const ManagedAgentTopologyLaunch& launch,
-        std::string& error) const;
-    void destroy_server_terminal(std::string_view session_id,
-        std::string_view terminal_id);
-    bool restart_server_terminal(std::string_view session_id,
-        std::string_view terminal_id, std::string& error);
-    void refresh_agents(ServerSession& session,
-        std::chrono::steady_clock::time_point now);
-    ClientAccessResult register_client_hello(
-        const ServerHello& hello, bool token_capable,
-        std::string& connection_token);
-    ClientAccessResult authenticate_or_touch_client(
-        std::string_view client_id,
-        std::string_view connection_token);
-    void disconnect_client(std::string_view client_id);
-    void detach_client_from_services(std::string_view client_id);
-    void remember_client_session(
-        std::string_view client_id,
-        std::string_view session_id);
-    size_t active_clients_for_session(
-        std::string_view session_id);
-    void forget_session_clients(
-        std::string_view session_id);
-    void prune_inactive_clients(
-        std::chrono::steady_clock::time_point now);
+        options.max_scrollback_cells = kServerMaxScrollbackCells;
+    }
+    terminal_resource_budget
+        = std::make_shared<ServerTerminalResourceBudget>(
+            options.max_scrollback_cells);
+    if (options.checkpoint_shutdown_budget.count() < 0)
+        options.checkpoint_shutdown_budget = std::chrono::milliseconds(0);
+    if (!options.checkpoint_save)
+        options.checkpoint_save = save_session_state_to_path;
+    if (options.build_version.empty())
+        options.build_version = server_build_version();
+    for (const AgentDefinition& definition : options.agent_definitions)
+        agent_definitions.register_definition(definition);
+    epoch_value = options.epoch_override.empty()
+        ? random_epoch()
+        : options.epoch_override;
+    pid = current_process_id();
+    process_start_identity = process_start_token(pid).value_or("");
+}
 
-    ServerKernelOptions options;
-    std::shared_ptr<ServerTerminalResourceBudget>
-        terminal_resource_budget;
-    AgentDefinitionRegistry agent_definitions;
-    ControlServer control;
-    std::string epoch_value;
-    uint64_t pid = 0;
-    std::string process_start_identity;
-    std::chrono::steady_clock::time_point started_at{};
-    std::atomic<bool> started = false;
-    std::atomic<bool> stop_requested = false;
-    mutable std::mutex mutex;
-    std::shared_ptr<ServerLoopWakeState> loop_wake
-        = std::make_shared<ServerLoopWakeState>();
-    std::unordered_map<std::string, ClientRegistration> clients;
-    std::unordered_map<std::string,
-        std::unordered_set<std::string>>
-        client_sessions;
-    std::filesystem::path starting_marker;
-
-    std::unique_ptr<FakeTerminalRuntime> fake_terminal;
-    std::unique_ptr<RemoteTerminalService> fake_terminal_service;
-    struct ServerTerminalEndpoint
-    {
-        std::unique_ptr<ServerTerminalRuntime> runtime;
-        std::unique_ptr<RemoteTerminalService> service;
-        bool exit_cleanup_attempted = false;
-        uint64_t exit_cleanup_generation = 0;
-        uint64_t exit_cleanup_topology_revision = 0;
-    };
-    struct ServerSession
-    {
-        struct CheckpointTask
-        {
-            std::mutex mutex;
-            std::condition_variable ready;
-            bool finished = false;
-            bool success = false;
-            std::string error;
-            uint64_t revision = 0;
-            uint64_t saved_unix_ms = 0;
-        };
-        std::string session_id;
-        std::string session_name;
-        std::unique_ptr<TopologyService> topology_service;
-        std::unique_ptr<ServerAgentService> agent_service;
-        std::unique_ptr<SessionPollService> poll_service;
-        std::unordered_map<std::string, ServerTerminalEndpoint>
-            terminals;
-        uint64_t next_terminal_serial = 2;
-        uint64_t next_agent_serial = 1;
-        std::filesystem::path persistence_path;
-        std::vector<std::string> restore_warnings;
-        std::optional<TopologySnapshot> restored_topology;
-        std::string checkpoint_state = "pending";
-        std::string checkpoint_error;
-        uint64_t last_checkpoint_unix_ms = 0;
-        uint64_t last_checkpoint_revision = 0;
-        bool checkpoint_file_present = false;
-        bool corrupt_checkpoint_archive_required = false;
-        std::shared_ptr<CheckpointTask> checkpoint_task;
-        std::chrono::steady_clock::time_point next_checkpoint_at{};
-        std::chrono::steady_clock::time_point next_agent_refresh_at{};
-        std::unordered_map<std::string, ControlMethodResult>
-            completed_agent_mutations;
-        std::deque<std::string> completed_agent_mutation_order;
-    };
-    std::unordered_map<std::string, std::unique_ptr<ServerSession>>
-        sessions;
-    std::vector<std::string> unassigned_restore_warnings;
-};
 
 void ServerKernel::Impl::publish_starting_marker()
 {
@@ -3690,56 +3477,6 @@ void ServerKernel::Impl::stop()
     control.stop();
     remove_starting_marker();
     started = false;
-}
-
-ServerKernel::ServerKernel(ServerKernelOptions options)
-    : impl_(std::make_unique<Impl>(std::move(options)))
-{
-}
-
-ServerKernel::~ServerKernel()
-{
-    stop();
-}
-
-ServerStartResult ServerKernel::start()
-{
-    return impl_->start();
-}
-
-int ServerKernel::run_until_stopped()
-{
-    return impl_->run_until_stopped();
-}
-
-void ServerKernel::request_stop()
-{
-    impl_->request_stop();
-}
-
-void ServerKernel::stop()
-{
-    impl_->stop();
-}
-
-bool ServerKernel::running() const
-{
-    return impl_->started;
-}
-
-const std::string& ServerKernel::epoch() const
-{
-    return impl_->epoch_value;
-}
-
-uint64_t ServerKernel::process_id() const
-{
-    return impl_->pid;
-}
-
-ServerStatusSnapshot ServerKernel::status_snapshot() const
-{
-    return impl_->status_snapshot();
 }
 
 } // namespace draxul

@@ -15,20 +15,40 @@ decomposition. This card does not implement Session streaming.
 
 ## Boundary verification
 
-- [ ] Inventory all `Impl` state and methods by lifecycle, clients, sessions, requests, terminals/agents, and event loop.
-- [ ] Record lock, task, generation, lease, cache, and shutdown invariants.
-- [ ] Inventory public `ServerAgentService` consumers.
+- [x] Inventory all `Impl` state and methods by lifecycle, clients, sessions, requests, terminals/agents, and event loop.
+- [x] Record lock, task, generation, lease, cache, and shutdown invariants.
+- [x] Inventory public `ServerAgentService` consumers.
 - [ ] Partition the current server-kernel test suite without losing tags/cases.
 
 ## Implementation and migration
 
-- [ ] Add private `server_kernel_impl.h`.
+- [x] Add private `server_kernel_impl.h`.
 - [ ] Move member definitions mechanically into responsibility TUs.
 - [ ] Move `ServerAgentService` to `src/`.
 - [ ] Add `draxul-server-test-internals`.
 - [ ] Split tests by responsibility.
 - [ ] Introduce registry/store collaborators only after state ownership is proven.
 - [ ] Do not add service static libraries or another mutex.
+
+### Delivered checkpoint — private implementation boundary
+
+`libs/draxul-server/src/server_kernel_impl.h` now holds the complete private state
+and method inventory grouped by lifecycle, request/client leases, Session
+persistence, and terminal/agent ownership. It records the single kernel mutex
+boundary, state-thread ownership, checkpoint-task handoff, wake edges, generation
+and revision gates, bounded mutation cache, and shutdown lifetime invariants beside
+the fields they govern. The public façade definitions moved mechanically to
+`server_kernel_facade.cpp`; `server_kernel.h` and runtime behavior are unchanged.
+
+The only production consumer of `ServerAgentService` is `ServerKernel::Impl`.
+Direct construction remains in `tests/server_kernel_tests.cpp` and
+`tests/agent_protocol_tests.cpp`; those tests must gain access through the future
+`draxul-server-test-internals` target before the header can move to `src/`.
+
+The current `tests/server_kernel_tests.cpp` contains 66 cases. Preserve all titles
+and tags while splitting them into service/protocol, lifecycle/discovery,
+client/authentication, Session/checkpoint, topology/terminal, agent, and process
+integration groups; do not duplicate those registrations across old and new files.
 
 ## Unit tests
 

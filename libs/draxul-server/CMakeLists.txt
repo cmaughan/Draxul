@@ -5,6 +5,8 @@ add_library(draxul-server
     src/session_poll_service.cpp
     src/session_topology_bridge.cpp
     src/server_kernel.cpp
+    src/server_kernel_facade.cpp
+    src/server_kernel_impl.h
     src/server_terminal_runtime.cpp
     src/topology_service.cpp
 )
