@@ -102,6 +102,7 @@ public:
 
     // Request routing and authenticated client leases.
     ControlMethodResult handle_request(const ControlRequest& request);
+    static std::string random_epoch();
     ClientAccessResult register_client_hello(
         const ServerHello& hello, bool token_capable,
         std::string& connection_token);

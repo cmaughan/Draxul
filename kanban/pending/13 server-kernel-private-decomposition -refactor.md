@@ -50,6 +50,17 @@ and tags while splitting them into service/protocol, lifecycle/discovery,
 client/authentication, Session/checkpoint, topology/terminal, agent, and process
 integration groups; do not duplicate those registrations across old and new files.
 
+### Delivered checkpoint — responsibility translation units
+
+The private boundary now supports behavior-preserving compilation units for the
+public façade (`server_kernel_facade.cpp`), authenticated client leases and service
+detachment (`server_kernel_clients.cpp`), startup/publication/state-loop/shutdown
+(`server_kernel_lifecycle.cpp`), and authenticated method dispatch
+(`server_kernel_requests.cpp`). These files share the existing `Impl` state and do
+not introduce collaborators, locks, protocol changes, or new runtime ownership.
+Session persistence and terminal/agent definitions remain in `server_kernel.cpp`
+until the test-internals boundary and test partition are ready to move with them.
+
 ## Unit tests
 
 - [ ] Add focused lifecycle/discovery, client/authentication, checkpoint, topology/terminal, agent, and resource suites.
