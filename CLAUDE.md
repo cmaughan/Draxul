@@ -266,6 +266,12 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
   and schedule a follow-up (normally about 30 minutes later) to inspect the result.
   Do not keep the user-facing turn open solely waiting for remote CI unless the user
   explicitly asked you to monitor it synchronously.
+- After each completed implementation slice, give the user a brief validation cost
+  summary. Break out configure/generate, compilation, focused tests, aggregate tests,
+  smoke or render checks, and remote CI as applicable; for each, report the number of
+  targets/tests/scenarios, elapsed time, and pass/fail result. Explicitly identify
+  skipped, pending, repeated, or overlapping steps so extra validation work remains
+  visible instead of being folded into a generic "tests passed" statement.
 - Do not run `clang-format` manually in this repo. The pre-commit hook runs `clang-format` automatically on staged files, so if formatting is needed the first commit attempt may fail; re-stage the hook's edits and retry the commit.
 - Work items live in `kanban/` — `kanban/pending/` (active), `kanban/ice-box/` (deferred), `kanban/done/` (complete). See [Work Items](#work-items) below.
 - When you complete a work item or a concrete subtask from `kanban/pending/*.md`, update that markdown file in the same turn and mark the completed entries with Markdown task ticks (`- [x]`). Leave incomplete follow-ups as unchecked items so progress stays visible in the file itself.
