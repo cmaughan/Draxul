@@ -243,14 +243,18 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
   `--scoreview` only when that product or a seam it consumes changed. Use
   `--products` when shared plugin SDK/support/renderer changes can affect every
   product, and `--all` only for an explicitly requested complete unit inventory.
-- During implementation, build the narrowest affected target and run focused
-  tests. Do not repeatedly stack overlapping aggregate builds, `do.py test`,
-  broad CTest, smoke, and render suites after each small edit.
-- **Before committing, build the core test aggregate once and run smoke from that same
-  cache:** `py do.py test debug` followed by `py do.py smoke --skip-build` (or
-  `python do.py ...`). This catches broken includes, link errors, unit failures,
-  and basic startup failures without rebuilding through another generator. Add
-  the relevant product scope to the test command when product code changed.
+- During implementation, build the narrowest affected target and use focused test
+  filters only when they shorten an active edit/diagnosis loop. Do not run focused
+  coverage immediately before an aggregate run that will repeat the same cases
+  unless the focused selection is materially faster or guards an unusually risky
+  boundary.
+- **The default completed-slice handoff gate is one scope-appropriate aggregate test
+  run plus one smoke from the same cache:** `py do.py test debug` followed by
+  `py do.py smoke --skip-build` (or `python do.py ...`). This catches broken
+  includes, link errors, unit failures, and basic startup failures without a
+  redundant focused pass or another generator. Add the relevant product scope when
+  product code changed; use `--products`/`--all` only when the affected seam warrants
+  that broader inventory.
 - On Windows, run process-launch tests before starting a long-lived server from
   that build tree where practical. A server intentionally keeps
   `draxul-server.exe` open; after `draxul.exe` is relinked, helper-refresh tests
