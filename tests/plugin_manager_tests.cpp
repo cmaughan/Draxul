@@ -551,6 +551,9 @@ TEST_CASE("PluginHost translates SDK-owned input through a real module",
     CHECK(host.dispatch_action("fixture_action"));
     CHECK_FALSE(host.dispatch_action("unknown"));
     CHECK(fixture_action_count() == 1);
+    REQUIRE(host.palette_actions().size() == 1);
+    CHECK(host.palette_actions().front().id == "fixture_action");
+    CHECK(host.palette_actions().front().display_name == "Fixture Action");
     const int frames_before_metadata = callbacks.request_frame_calls;
     host.pump();
     CHECK(callbacks.request_frame_calls == frames_before_metadata + 1);

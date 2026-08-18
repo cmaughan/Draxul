@@ -16,6 +16,7 @@ struct KeyEvent;
 struct TextInputEvent;
 class GuiActionHandler;
 class HostProviderRegistry;
+class IHost;
 
 class CommandPalette
 {
@@ -26,6 +27,7 @@ public:
         const HostProviderRegistry* host_registry = nullptr;
         const std::vector<GuiKeybinding>* keybindings = nullptr;
         std::function<bool(std::string_view)> action_visible;
+        std::function<IHost*()> focused_host;
         std::function<void()> request_frame;
         std::function<void()> on_closed; // called when the palette closes itself (Escape, execute)
     };
@@ -87,6 +89,14 @@ private:
         int score = 0;
         std::vector<size_t> match_positions;
         size_t choice_index = static_cast<size_t>(-1);
+        size_t action_index = static_cast<size_t>(-1);
+    };
+
+    struct AvailableAction
+    {
+        std::string id;
+        std::string display_name;
+        bool pane_local = false;
     };
 
     std::pair<std::string_view, std::string_view> split_query() const;
@@ -108,7 +118,7 @@ private:
     std::string query_;
     int selected_index_ = 0;
     std::vector<FilteredEntry> filtered_;
-    std::vector<std::string> all_actions_;
+    std::vector<AvailableAction> all_actions_;
 
     // Cached PaletteEntry views rebuilt by view_state().
     std::vector<gui::PaletteEntry> view_entries_;

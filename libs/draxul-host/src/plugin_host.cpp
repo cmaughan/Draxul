@@ -1143,6 +1143,29 @@ bool PluginHost::dispatch_action(std::string_view action)
     return presentation_.dispatch_action(instance_, action.data(), action.size()) != 0;
 }
 
+std::vector<HostAction> PluginHost::palette_actions() const
+{
+    std::vector<HostAction> result;
+    if (!instance_ || !has_presentation_ || !presentation_.action_count
+        || !presentation_.action_at)
+        return result;
+
+    constexpr size_t kMaxPaneActions = 128;
+    const size_t count = std::min(presentation_.action_count(instance_),
+        kMaxPaneActions);
+    result.reserve(count);
+    for (size_t index = 0; index < count; ++index)
+    {
+        DraxulPluginStringViewV2 id{};
+        DraxulPluginStringViewV2 name{};
+        if (!presentation_.action_at(instance_, index, &id, &name)
+            || !id.data || id.length == 0 || !name.data || name.length == 0)
+            continue;
+        result.push_back({ copy_string(id), copy_string(name) });
+    }
+    return result;
+}
+
 std::string PluginHost::display_name() const
 {
     if (const auto state = presentation_snapshot(); state && !state->display_name.empty())

@@ -24,6 +24,7 @@ public:
         const std::vector<GuiKeybinding>* keybindings = nullptr;
         float* palette_bg_alpha = nullptr;
         std::function<bool(std::string_view)> action_visible;
+        std::function<IHost*()> focused_host;
     };
 
     explicit CommandPaletteHost(Deps deps);

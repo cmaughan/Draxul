@@ -34,6 +34,7 @@ bool CommandPaletteHost::initialize(const HostContext& context, IHostCallbacks& 
     palette_deps.gui_action_handler = deps_.gui_action_handler;
     palette_deps.keybindings = deps_.keybindings;
     palette_deps.action_visible = deps_.action_visible;
+    palette_deps.focused_host = deps_.focused_host;
     palette_deps.request_frame = [this]() {
         if (callbacks_)
             callbacks_->request_frame();

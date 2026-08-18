@@ -270,7 +270,7 @@ Good place for:
 | `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Submodule → [draxul-megacity](https://github.com/cmaughan/draxul-megacity). Self-contained MegaCity/BioView product: code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic module |
 | `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Submodule → [draxul-satview](https://github.com/cmaughan/draxul-satview). Self-contained satellite product: core, scene, services, runtime, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |
 | `plugins/scoreview/` | `DRAXUL_ENABLE_SCOREVIEW` | Submodule → [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview). Self-contained notation, learning, transport, worker, MIDI/audio/microphone, UI, NanoVG Vulkan/Metal rendering, assets, tests, and dynamic module |
-| `plugins/rezonality/` | `DRAXUL_ENABLE_REZONALITY` | Submodule → [draxul-rezonality](https://github.com/cmaughan/draxul-rezonality). Fault-tolerant live scene/shader product ported from VkLive; currently a buildable dynamic-module scaffold with its Vulkan/Metal renderer port planned in product-owned vertical slices |
+| `plugins/rezonality/` | `DRAXUL_ENABLE_REZONALITY` | Submodule → [draxul-rezonality](https://github.com/cmaughan/draxul-rezonality). Fault-tolerant live scene/shader product ported from VkLive; owns its watched project loader, compiler tools, SPIR-V candidates, Vulkan/Metal pipelines, examples, diagnostics, tests, and remaining product slices |
 
 All optional product directories own their third-party dependency
 declarations, sanitizer/coverage target lists, shader compilation, package

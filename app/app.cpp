@@ -516,6 +516,9 @@ bool App::initialize()
         palette_host_deps.gui_action_handler = &gui_action_handler_;
         palette_host_deps.keybindings = &config_.keybindings;
         palette_host_deps.palette_bg_alpha = &config_.palette_bg_alpha;
+        palette_host_deps.focused_host = [this]() {
+            return active_pane_manager().focused_host();
+        };
         palette_host_ = std::make_unique<CommandPaletteHost>(std::move(palette_host_deps));
 
         HostContext palette_ctx;

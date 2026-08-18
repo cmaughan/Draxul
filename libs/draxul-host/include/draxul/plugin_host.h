@@ -47,6 +47,7 @@ public:
     void on_mouse_wheel(const MouseWheelEvent& event) override;
     std::optional<MouseCursor> mouse_cursor_at(int px, int py) const override;
     bool dispatch_action(std::string_view action) override;
+    std::vector<HostAction> palette_actions() const override;
     void request_close() override { running_ = false; }
     std::string display_name() const override;
     std::string status_text() const override;

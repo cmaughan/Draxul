@@ -133,7 +133,8 @@ therefore not a reason to delete or recreate the pane: the UI displays a placeho
 until it restarts with a compatible plugin installed.
 
 Bundled IDs currently include `dev.draxul.spinning-triangle`,
-`dev.draxul.megacity`, `dev.draxul.satview`, and `dev.draxul.scoreview`. Create SatView headlessly like
+`dev.draxul.megacity`, `dev.draxul.satview`, `dev.draxul.scoreview`, and
+`dev.draxul.rezonality`. Create SatView headlessly like
 any other plugin:
 
 ```text
@@ -185,6 +186,24 @@ Accepted modes are `city` and `biology`. `show_ui` defaults to true and
 `continuous_refresh` defaults to false. Do not use `--host megacity` or
 `--host bioview`; the production executable deliberately has no static product
 registration.
+
+Rezonality loads a watched shader project. Use the server mutation form when
+the user needs terminal/editor panes beside it; direct `draxul --plugin` launch
+is a standalone product window and cannot create server-owned shells.
+
+```text
+draxul tab create --space <space-id> --name Rezonality \
+  --plugin dev.draxul.rezonality \
+  --plugin-config '{"project_path":"D:/art/live-project"}' --json
+draxul pane split <terminal-pane-id> --direction right \
+  --plugin dev.draxul.rezonality \
+  --plugin-config '{"project_path":"D:/art/live-project"}' --json
+```
+
+`project_path` resolves on each attached UI. `scenegraph` defaults from
+`project.toml`, `auto_reload` defaults to true, and
+`compile_debounce_ms` defaults to 150. Saving watched scene/shader files
+rebuilds automatically; compile failures keep the last valid GPU generation.
 
 ## Drive terminal processes
 

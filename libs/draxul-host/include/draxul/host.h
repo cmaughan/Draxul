@@ -95,6 +95,14 @@ struct HostReloadConfig
     int scrollback_lines = 10000;
 };
 
+// A pane-local command advertised by a host. The stable id is dispatched back
+// to the host; display_name is the user-facing command-palette label.
+struct HostAction
+{
+    std::string id;
+    std::string display_name;
+};
+
 struct HostViewport
 {
     glm::ivec2 pixel_pos{ 0 };
@@ -272,6 +280,7 @@ public:
     }
 
     virtual bool dispatch_action(std::string_view action) = 0;
+    virtual std::vector<HostAction> palette_actions() const { return {}; }
     virtual void request_close() = 0;
 
     // Capability query: returns true if this host is a Neovim host. Used by

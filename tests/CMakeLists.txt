@@ -169,7 +169,7 @@ endif()
 # later replaced one monolithic suite with seven focused sources (+6 sources)
 # while preserving its 66 registrations and tags.
 set(DRAXUL_TEST_SOURCE_BASELINE 213)
-set(DRAXUL_TEST_REGISTRATION_BASELINE 2080)
+set(DRAXUL_TEST_REGISTRATION_BASELINE 2081)
 # The Workspace -> Tab terminology migration consolidated the old [workspace]
 # tag into the existing [tab] token without removing any test registrations.
 set(DRAXUL_TEST_TAG_TOKEN_BASELINE 310)

@@ -8,6 +8,7 @@
 #include <draxul/app_config.h>
 #include <draxul/events.h>
 #include <draxul/host_kind.h>
+#include <draxul/host.h>
 #include <draxul/host_registry.h>
 #include <draxul/plugin_manager.h>
 #include <draxul/keybinding_parser.h>
@@ -86,10 +87,13 @@ void CommandPalette::open()
         if (kTabIndexActions.count(name))
         {
             for (int i = 1; i <= 9; ++i)
-                all_actions_.push_back(std::string(name) + " " + std::to_string(i));
+            {
+                const std::string compound = std::string(name) + " " + std::to_string(i);
+                all_actions_.push_back({ compound, compound, false });
+            }
             continue;
         }
-        all_actions_.emplace_back(std::string(name));
+        all_actions_.push_back({ std::string(name), std::string(name), false });
         if (kHostArgActions.count(name))
         {
             const HostLaunchContext context = name == "new_tab"
@@ -100,17 +104,28 @@ void CommandPalette::open()
                 if (provider.palette_visible && !provider.test_only
                     && supports_launch_context(provider.launch_contexts, context))
                 {
-                    all_actions_.push_back(std::string(name) + " " + provider.canonical_cli_name);
+                    const std::string compound = std::string(name) + " " + provider.canonical_cli_name;
+                    all_actions_.push_back({ compound, compound, false });
                 }
             }
             for (const auto& manifest : plugins->manifests())
             {
                 if (manifest.error.empty())
                 {
-                    all_actions_.push_back(std::string(name)
-                        + " plugin:" + manifest.id);
+                    const std::string compound = std::string(name)
+                        + " plugin:" + manifest.id;
+                    all_actions_.push_back({ compound, compound, false });
                 }
             }
+        }
+    }
+    if (IHost* host = deps_.focused_host ? deps_.focused_host() : nullptr)
+    {
+        for (auto& action : host->palette_actions())
+        {
+            if (!action.id.empty() && !action.display_name.empty())
+                all_actions_.push_back({ std::move(action.id),
+                    std::move(action.display_name), true });
         }
     }
     refilter();
@@ -335,18 +350,25 @@ void CommandPalette::refilter()
         return;
     }
 
-    for (const auto& name : all_actions_)
+    for (size_t index = 0; index < all_actions_.size(); ++index)
     {
+        const auto& action = all_actions_[index];
+        const auto& name = action.display_name;
         if (command.empty())
         {
-            filtered_.push_back({ name, shortcut_for_action(name), 0, {} });
+            filtered_.push_back({ name,
+                action.pane_local ? std::string{} : shortcut_for_action(action.id),
+                0, {}, static_cast<size_t>(-1), index });
         }
         else
         {
             // Fuzzy match against the full compound name (e.g. "split_vertical zsh").
             auto result = fuzzy_match(query_, name);
             if (result.matched)
-                filtered_.push_back({ name, shortcut_for_action(name), result.score, std::move(result.positions) });
+                filtered_.push_back({ name,
+                    action.pane_local ? std::string{} : shortcut_for_action(action.id),
+                    result.score, std::move(result.positions),
+                    static_cast<size_t>(-1), index });
         }
     }
 
@@ -370,7 +392,16 @@ void CommandPalette::execute_selected()
 {
     if (selected_index_ >= 0 && selected_index_ < static_cast<int>(filtered_.size()))
     {
-        const std::string entry(filtered_[static_cast<size_t>(selected_index_)].name);
+        const auto& filtered = filtered_[static_cast<size_t>(selected_index_)];
+        if (filtered.action_index >= all_actions_.size())
+        {
+            close();
+            return;
+        }
+        const AvailableAction selected = all_actions_[filtered.action_index];
+        IHost* focused_host = selected.pane_local && deps_.focused_host
+            ? deps_.focused_host() : nullptr;
+        const std::string entry = selected.id;
         // Split compound entry (e.g. "split_vertical zsh") into action + args.
         const auto space = entry.find(' ');
         const std::string_view action = std::string_view(entry).substr(0, space);
@@ -378,7 +409,12 @@ void CommandPalette::execute_selected()
             ? std::string_view(entry).substr(space + 1)
             : std::string_view{};
         close();
-        if (deps_.gui_action_handler)
+        if (selected.pane_local)
+        {
+            if (focused_host)
+                focused_host->dispatch_action(entry);
+        }
+        else if (deps_.gui_action_handler)
             deps_.gui_action_handler->execute(action, args);
     }
     else

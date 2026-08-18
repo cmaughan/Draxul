@@ -13,6 +13,7 @@
 #include <glm/glm.hpp>
 
 #include "support/fake_grid_pipeline_renderer.h"
+#include "support/fake_host.h"
 #include "support/fake_window.h"
 #include "support/test_host_callbacks.h"
 
@@ -151,6 +152,30 @@ TEST_CASE("CommandPalette: action visibility filters unavailable commands",
         [](const gui::PaletteEntry& entry) {
             return entry.name == "switch_space";
         }));
+}
+
+TEST_CASE("CommandPalette lists and dispatches focused host actions",
+    "[palette][host-action]")
+{
+    tests::FakeHost host;
+    host.advertised_palette_actions = {
+        { "rezonality_reload", "Reload Rezonality Project" },
+    };
+    CommandPalette palette(CommandPalette::Deps{
+        .focused_host = [&host]() -> IHost* { return &host; },
+    });
+
+    palette.open();
+    auto state = palette.view_state(120, 40);
+    REQUIRE(std::ranges::any_of(state.entries,
+        [](const gui::PaletteEntry& entry) {
+            return entry.name == "Reload Rezonality Project";
+        }));
+
+    palette.on_text_input({ "Reload Rezonality Project" });
+    palette.on_key({ 0, SDLK_RETURN, kModNone, true });
+    REQUIRE(host.dispatched_actions.size() == 1);
+    CHECK(host.dispatched_actions.front() == "rezonality_reload");
 }
 
 TEST_CASE("CommandPalette prompt: empty submit keeps prompt open with message", "[palette][prompt]")
