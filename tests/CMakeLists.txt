@@ -168,11 +168,11 @@ endif()
 # added (+1 source, +1 registration). The ServerKernel responsibility split
 # later replaced one monolithic suite with seven focused sources (+6 sources)
 # while preserving its 66 registrations and tags.
-set(DRAXUL_TEST_SOURCE_BASELINE 212)
-set(DRAXUL_TEST_REGISTRATION_BASELINE 2079)
+set(DRAXUL_TEST_SOURCE_BASELINE 213)
+set(DRAXUL_TEST_REGISTRATION_BASELINE 2080)
 # The Workspace -> Tab terminology migration consolidated the old [workspace]
 # tag into the existing [tab] token without removing any test registrations.
-set(DRAXUL_TEST_TAG_TOKEN_BASELINE 309)
+set(DRAXUL_TEST_TAG_TOKEN_BASELINE 310)
 list(LENGTH DRAXUL_SORTED_ALL_TEST_SOURCES DRAXUL_TEST_SOURCE_COUNT)
 # The baseline describes the full inventory with every product mounted. A
 # partial checkout (an uninitialized product submodule, or a product switched
@@ -492,6 +492,10 @@ if(TARGET draxul-test-scoreview AND TARGET draxul-test-scoreview-runtime)
         draxul-test-scoreview
         draxul-test-scoreview-runtime
     )
+endif()
+if(TARGET draxul-test-rezonality)
+    add_custom_target(draxul-tests-rezonality)
+    add_dependencies(draxul-tests-rezonality draxul-test-rezonality)
 endif()
 
 target_compile_definitions(draxul-test-core PRIVATE

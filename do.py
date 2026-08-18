@@ -485,7 +485,7 @@ def cmd_build(root: pathlib.Path, args: list[str]) -> int:
     return rc
 
 
-_TEST_PRODUCT_SCOPES = ("megacity", "satview", "scoreview")
+_TEST_PRODUCT_SCOPES = ("megacity", "satview", "scoreview", "rezonality")
 
 
 def _parse_test_args(args: list[str]) -> tuple[str, bool, str, bool, set[str], bool]:
@@ -502,6 +502,8 @@ def _parse_test_args(args: list[str]) -> tuple[str, bool, str, bool, set[str], b
             product_scopes.add("satview")
         elif arg == "--scoreview":
             product_scopes.add("scoreview")
+        elif arg == "--rezonality":
+            product_scopes.add("rezonality")
         elif arg == "--products":
             product_scopes.update(_TEST_PRODUCT_SCOPES)
         elif arg == "--all":
@@ -518,7 +520,7 @@ def _parse_test_args(args: list[str]) -> tuple[str, bool, str, bool, set[str], b
         raise ValueError(
             "test accepts [debug|release|relwithdebinfo] "
             "[--reconfigure] [--vs|--ninja] [--verbose] "
-            "[--megacity|--satview|--scoreview|--products|--all]"
+            "[--megacity|--satview|--scoreview|--rezonality|--products|--all]"
         )
     return mode, force_reconfigure, build_system, verbose, product_scopes, all_tests
 
@@ -1261,7 +1263,7 @@ Single-word shortcuts:
                Run the app smoke test (default: debug, ninja on Windows)
   score-shot-check  Regression guard (kanban 74): ScoreView plugin --screenshot-size + .musicxml
   test [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--verbose]
-       [--megacity|--satview|--scoreview|--products|--all]
+       [--megacity|--satview|--scoreview|--rezonality|--products|--all]
                Build and run core unit tests in parallel (default: debug, ninja)
                Product flags add their suites; --products adds all products;
                --all builds and runs the complete unit inventory
@@ -1294,6 +1296,7 @@ Examples:
   do clean
   do test                  # Core tests in the Debug development cache
   do test --satview        # Core + SatView tests
+  do test --rezonality     # Core + Rezonality tests
   do test --products       # Core + every product test suite
   do test --all            # Complete unit inventory
   do smoke --skip-build    # Reuse that already-built Debug cache
@@ -1408,6 +1411,7 @@ def main() -> int:
                 "draxul-test-satview",
                 "draxul-test-scoreview",
                 "draxul-test-scoreview-runtime",
+                "draxul-test-rezonality",
             )
             if (test_dir / name).is_file()
         ]

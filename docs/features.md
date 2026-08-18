@@ -19,6 +19,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | BioView | `--plugin dev.draxul.megacity` with `{"mode":"biology"}` | Biology mode of the same dynamic plugin: modules become tissues, classes become cells, and dependencies become blood vessels; semantic model, procedural geometry, UI, assets, and Vulkan/Metal renderer are plugin-owned |
 | ScoreView | `--plugin dev.draxul.scoreview` at launch or on pane/tab commands | Dynamically loaded music score viewer + adaptive learning runner ([docs/features/scoreview.md](features/scoreview.md)); launch JSON accepts `source`, `mode`, and `background_playback` |
 | SatView | `--plugin dev.draxul.satview` at launch or on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and plugin-owned ImGui controls. Full narrative: [docs/features/satview.md](features/satview.md) |
+| Rezonality | `--plugin dev.draxul.rezonality` at launch or on pane/tab commands | Buildable dynamic-plugin scaffold for the fault-tolerant Vulkan/Metal live scene and shader viewer being ported from VkLive; the product repository owns the research and vertical-slice implementation plan |
 
 Shell Session splits use the server's platform default shell (Zsh on macOS,
 PowerShell on Windows). Explicit self-contained product windows advertise only
@@ -150,8 +151,9 @@ with no encoder and a load/store continuation descriptor. Plugins end every pass
 or encoder they create, restore the documented continuation state, and never
 submit, present, retain, release, or destroy borrowed host objects.
 
-Bundled IDs currently include `dev.draxul.satview`, `dev.draxul.scoreview`, and
-the ABI example `dev.draxul.spinning-triangle`. Product preferences are pane-local
+Bundled IDs currently include `dev.draxul.satview`, `dev.draxul.scoreview`,
+`dev.draxul.rezonality`, and the ABI example `dev.draxul.spinning-triangle`.
+Product preferences are pane-local
 and durable; shared launch JSON remains limited to values every attached UI should
 see. SatView now owns its complete product stack under `plugins/satview`: model,
 services, simulation, UI, Vulkan/Metal HDR renderer, shaders, catalogs, textures,
@@ -927,16 +929,19 @@ and `draxul integration status` do not pass through the launch-option parser.
 | `DRAXUL_ENABLE_MEGACITY` | ON | Builds and stages `dev.draxul.megacity` with its private City/Biology implementation, tests, shaders, and assets; the production executable has no static registration |
 | `DRAXUL_ENABLE_SATVIEW` | ON | Builds and stages the `dev.draxul.satview` DLL/dylib plus its private product libraries and assets; the executable has no static SatView host fallback |
 | `DRAXUL_ENABLE_SCOREVIEW` | ON on Windows/macOS | Builds and stages `dev.draxul.scoreview`, its private runtime libraries, Verovio, fonts, and soundfonts; the executable has no static ScoreView fallback |
+| `DRAXUL_ENABLE_REZONALITY` | ON | Builds and stages the `dev.draxul.rezonality` DLL/dylib; its VkLive renderer, examples, and tests are being added in product-owned vertical slices |
 | `DRAXUL_MEGACITY_PLUGIN_DIR` | `plugins/megacity` | MegaCity/BioView submodule mount path; an enabled but absent mount is skipped |
 | `DRAXUL_SATVIEW_PLUGIN_DIR` | `plugins/satview` | SatView submodule mount path; an enabled but absent mount is skipped |
 | `DRAXUL_SCOREVIEW_PLUGIN_DIR` | `plugins/scoreview` | ScoreView submodule mount path; an enabled but absent mount is skipped |
+| `DRAXUL_REZONALITY_PLUGIN_DIR` | `plugins/rezonality` | Rezonality submodule mount path; an enabled but absent mount is skipped |
 | `DRAXUL_REQUIRE_ENABLED_PLUGINS` | OFF (ON when `CI` env var set) | Turns the enabled-but-unmounted plugin skip into a configure failure so CI cannot silently drop product coverage |
 | `BUILD_TESTING` | ON | Test targets |
 
-The three product mounts are git submodules of their own repositories:
+The product mounts are git submodules of their own repositories:
 [draxul-megacity](https://github.com/cmaughan/draxul-megacity),
 [draxul-satview](https://github.com/cmaughan/draxul-satview), and
-[draxul-scoreview](https://github.com/cmaughan/draxul-scoreview). Clone with
+[draxul-scoreview](https://github.com/cmaughan/draxul-scoreview), and
+[draxul-rezonality](https://github.com/cmaughan/draxul-rezonality). Clone with
 `--recurse-submodules` (or run `git submodule update --init`); an
 uninitialized submodule leaves a core-only build.
 

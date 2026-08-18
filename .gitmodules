@@ -7,3 +7,6 @@
 [submodule "plugins/satview"]
 	path = plugins/satview
 	url = https://github.com/cmaughan/draxul-satview.git
+[submodule "plugins/rezonality"]
+	path = plugins/rezonality
+	url = https://github.com/cmaughan/draxul-rezonality.git

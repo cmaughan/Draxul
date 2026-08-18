@@ -270,15 +270,17 @@ Good place for:
 | `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Submodule → [draxul-megacity](https://github.com/cmaughan/draxul-megacity). Self-contained MegaCity/BioView product: code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic module |
 | `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Submodule → [draxul-satview](https://github.com/cmaughan/draxul-satview). Self-contained satellite product: core, scene, services, runtime, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |
 | `plugins/scoreview/` | `DRAXUL_ENABLE_SCOREVIEW` | Submodule → [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview). Self-contained notation, learning, transport, worker, MIDI/audio/microphone, UI, NanoVG Vulkan/Metal rendering, assets, tests, and dynamic module |
+| `plugins/rezonality/` | `DRAXUL_ENABLE_REZONALITY` | Submodule → [draxul-rezonality](https://github.com/cmaughan/draxul-rezonality). Fault-tolerant live scene/shader product ported from VkLive; currently a buildable dynamic-module scaffold with its Vulkan/Metal renderer port planned in product-owned vertical slices |
 
-All three optional product directories own their third-party dependency
+All optional product directories own their third-party dependency
 declarations, sanitizer/coverage target lists, shader compilation, package
 payload, test source inventory, and focused CTest wiring. The root build contains
 only their feature switches and mount-point `add_subdirectory` calls. SatView's
 catalog and texture generators likewise live under `plugins/satview/tools/`, so
 the product can become a submodule without leaving maintenance scripts in core.
 Each mount point is a cache path (`DRAXUL_MEGACITY_PLUGIN_DIR`,
-`DRAXUL_SATVIEW_PLUGIN_DIR`, or `DRAXUL_SCOREVIEW_PLUGIN_DIR`). An enabled but
+`DRAXUL_SATVIEW_PLUGIN_DIR`, `DRAXUL_SCOREVIEW_PLUGIN_DIR`, or
+`DRAXUL_REZONALITY_PLUGIN_DIR`). An enabled but
 absent checkout is reported and skipped, making no-product and partial-submodule
 trees supported configurations rather than configure errors.
 Their registrations use strict dependency checking: SatView and MegaCity/BioView
@@ -289,7 +291,7 @@ naming. None of the product targets links `draxul-host`, the renderer
 implementation, app orchestration, or another product.
 
 Markdown and Kanban are linked directly into `draxul`. MegaCity/BioView, SatView,
-and ScoreView are staged and loaded only as native modules. Core has no product
+ScoreView, and Rezonality are staged and loaded only as native modules. Core has no product
 host kinds, provider factories, renderer bridge, or compiled-in fallback.
 
 ## Generated Views

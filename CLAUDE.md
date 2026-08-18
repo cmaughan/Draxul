@@ -93,14 +93,17 @@ Use the `--log-file` and `--log-level` CLI flags for debug logging. These are re
 - `libs/`: reusable infrastructure libraries; see the complete ownership list in
   [docs/module-map.md](docs/module-map.md#core-libraries).
 - `modules/markdown/` and `modules/kanban/`: product modules built by default.
-- `plugins/megacity/`, `plugins/satview/`, `plugins/scoreview/`: **git
+- `plugins/megacity/`, `plugins/satview/`, `plugins/scoreview/`,
+  `plugins/rezonality/`: **git
   submodules** for the product plugin repositories
   ([draxul-megacity](https://github.com/cmaughan/draxul-megacity),
   [draxul-satview](https://github.com/cmaughan/draxul-satview),
-  [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview)), gated by
+  [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview), and
+  [draxul-rezonality](https://github.com/cmaughan/draxul-rezonality)), gated by
   `DRAXUL_ENABLE_MEGACITY` / `DRAXUL_ENABLE_SATVIEW` /
-  `DRAXUL_ENABLE_SCOREVIEW`. Each product owns its sources, dependencies,
-  shaders, assets, tests, docs, plans, and kanban cards in its own repo.
+  `DRAXUL_ENABLE_SCOREVIEW` / `DRAXUL_ENABLE_REZONALITY`. Each product owns its
+  sources, dependencies, shaders, assets, tests, docs, plans, and kanban cards
+  in its own repo.
 - `plugins/spinning-triangle/`: the in-repo reference plugin and ABI test
   vehicle; `plugins/support/`: generic plugin-support code. Both stay in this
   repository.
@@ -118,7 +121,7 @@ When working under `plugins/megacity/`, also read `plugins/megacity/product/AGEN
   `git submodule update --init`. An uninitialized product submodule is a
   supported state — configure skips it with a STATUS message (CI hard-fails
   instead via `DRAXUL_REQUIRE_ENABLED_PLUGINS`).
-- A change inside `plugins/megacity|satview|scoreview` is a commit in that
+- A change inside `plugins/megacity|satview|scoreview|rezonality` is a commit in that
   product's repository, pushed there, then adopted here with a deliberate
   submodule pointer-bump commit. Never commit a pointer bump as a drive-by in
   an unrelated change; `git submodule update` snaps an unwanted local pointer
