@@ -690,7 +690,10 @@ TEST_CASE("Windows control listener reports an injected recreation failure and r
             return std::nullopt;
         },
         .recreation_succeeded = [&] {
-            ++successful_recreations;
+            {
+                std::lock_guard lock(recovery_mutex);
+                ++successful_recreations;
+            }
             recovery_changed.notify_all();
         },
     };
