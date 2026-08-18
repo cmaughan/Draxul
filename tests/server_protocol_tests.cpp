@@ -9,6 +9,88 @@
 
 using namespace draxul;
 
+TEST_CASE("Session stream protocol round-trips open and framed updates",
+    "[server][protocol][session-stream]")
+{
+    SessionPollRequest poll{
+        .request_serial = 9,
+        .server_epoch = "stream-epoch",
+        .topology_after_revision = 4,
+        .agent_after_revision = 5,
+        .terminals = {
+            {
+                .subscription_id = 3,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 2,
+                .visible = true,
+                .cursor = SessionTerminalCursor{
+                    .generation = 7,
+                    .after_sequence = 11,
+                },
+            },
+        },
+    };
+    const SessionStreamOpenRequest open{
+        .server_epoch = "stream-epoch",
+        .session_id = "default",
+        .poll = poll,
+    };
+    std::string error;
+    const auto decoded_open = session_stream_open_request_from_json(
+        session_stream_open_request_to_json(open), error);
+    REQUIRE(decoded_open);
+    CHECK(*decoded_open == open);
+
+    const SessionStreamClientFrame update{
+        .kind = SessionStreamClientFrameKind::Update,
+        .update = SessionStreamUpdate{ .poll = poll },
+    };
+    const auto decoded_update = session_stream_client_frame_from_json(
+        session_stream_client_frame_to_json(update), error);
+    REQUIRE(decoded_update);
+    CHECK(*decoded_update == update);
+
+    SessionPollResponse events{
+        .request_serial = poll.request_serial,
+        .server_epoch = poll.server_epoch,
+    };
+    const SessionStreamServerFrame frame{
+        .kind = SessionStreamServerFrameKind::Events,
+        .frame_serial = 17,
+        .server_epoch = "stream-epoch",
+        .events = events,
+    };
+    const auto decoded_frame = session_stream_server_frame_from_json(
+        session_stream_server_frame_to_json(frame), error);
+    REQUIRE(decoded_frame);
+    CHECK(*decoded_frame == frame);
+}
+
+TEST_CASE("Session stream protocol rejects unsafe negotiated limits",
+    "[server][protocol][session-stream][bounds]")
+{
+    nlohmann::json response{
+        { "server_epoch", "stream-epoch" },
+        { "endpoint", "endpoint" },
+        { "ticket", "ticket" },
+        { "heartbeat_interval_ms",
+            kSessionStreamDefaultHeartbeatIntervalMs },
+        { "max_frame_bytes", kSessionStreamMaxFrameBytes + 1 },
+        { "max_queue_bytes", kSessionStreamDefaultQueueBytes },
+    };
+    std::string error;
+    CHECK_FALSE(session_stream_open_response_from_json(response, error));
+    response["max_frame_bytes"] = kSessionStreamMaxFrameBytes;
+    response["max_queue_bytes"] = kSessionStreamMaxQueueBytes + 1;
+    CHECK_FALSE(session_stream_open_response_from_json(response, error));
+    response["max_queue_bytes"] = kSessionStreamMinQueueBytes - 1;
+    CHECK_FALSE(session_stream_open_response_from_json(response, error));
+    response["max_queue_bytes"] = kSessionStreamDefaultQueueBytes;
+    response["heartbeat_interval_ms"]
+        = kSessionStreamMinHeartbeatIntervalMs - 1;
+    CHECK_FALSE(session_stream_open_response_from_json(response, error));
+}
+
 TEST_CASE("Session poll protocol preserves subscription and visibility identity",
     "[server][protocol][session-poll]")
 {

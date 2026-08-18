@@ -316,6 +316,27 @@ ServerStartResult ServerKernel::Impl::start()
         publish_failure_marker(error);
         return { ServerStartDisposition::Failed, std::move(error) };
     }
+    session_stream = std::make_unique<SessionStreamService>(
+        SessionStreamServiceOptions{
+            .runtime_directory = options.runtime_directory,
+            .server_epoch = epoch_value,
+            .wake_state_thread = [weak_loop_wake
+                                  = std::weak_ptr(loop_wake)]() {
+                if (const auto state = weak_loop_wake.lock())
+                {
+                    state->control_work_pending = true;
+                    state->condition.notify_one();
+                }
+            },
+        });
+    if (!session_stream->start(error))
+    {
+        session_stream.reset();
+        control.stop();
+        remove_starting_marker();
+        publish_failure_marker(error);
+        return { ServerStartDisposition::Failed, std::move(error) };
+    }
 
     started_at = std::chrono::steady_clock::now();
     started = true;
@@ -525,6 +546,26 @@ int ServerKernel::Impl::run_until_stopped()
             [this](const ControlRequest& request) {
                 return handle_request(request);
             });
+        if (session_stream)
+        {
+            session_stream->pump(
+                [this](std::string_view session_id,
+                    std::string_view client_id,
+                    const SessionPollRequest& request,
+                    size_t payload_budget) {
+                    return poll_session(session_id, client_id, request,
+                        payload_budget);
+                },
+                [this](std::string_view client_id) {
+                    std::lock_guard guard(mutex);
+                    const auto client = clients.find(std::string(client_id));
+                    if (client != clients.end())
+                    {
+                        client->second.last_activity
+                            = std::chrono::steady_clock::now();
+                    }
+                });
+        }
         const auto now = std::chrono::steady_clock::now();
         prune_inactive_clients(now);
         for (auto& [session_id, session] : sessions)
@@ -663,6 +704,11 @@ void ServerKernel::Impl::request_stop()
 void ServerKernel::Impl::stop()
 {
     request_stop();
+    if (session_stream)
+    {
+        session_stream->stop();
+        session_stream.reset();
+    }
     control.stop();
     remove_starting_marker();
     started = false;

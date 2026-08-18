@@ -2,6 +2,10 @@
 
 #include "support/server_kernel_test_support.h"
 
+#include <draxul/async_frame_stream.h>
+
+#include <tuple>
+
 using namespace draxul;
 using draxul::tests::TempDir;
 using namespace draxul::tests::server_kernel;
@@ -205,6 +209,9 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
                 "session-delete-v1")
         != probe.welcome->capabilities.end());
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
+                "session-stream-v1")
+        != probe.welcome->capabilities.end());
+    REQUIRE(std::ranges::find(probe.welcome->capabilities,
                 kServerClientTokenCapability)
         != probe.welcome->capabilities.end());
     REQUIRE_FALSE(probe.welcome->connection_token.empty());
@@ -355,6 +362,130 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     run_guard.join();
     REQUIRE_FALSE(server.running());
     REQUIRE_FALSE(std::filesystem::exists(server_metadata_path(temp.path)));
+}
+
+TEST_CASE("server kernel keeps an authenticated Session stream alive past the idle lease",
+    "[server][kernel][session-stream]")
+{
+    TempDir temp("draxul-server-stream-lifecycle");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .client_activity_timeout = std::chrono::milliseconds(300),
+        .idle_wait_interval = std::chrono::milliseconds(20),
+        .build_version = "unit-test",
+        .epoch_override = "stream-lifecycle-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+    const std::string control_id
+        = namespaced_control_id(kServerControlId, temp.path);
+
+    const auto hello = ControlClient::request(control_id,
+        temp.path, "server.hello",
+        server_hello_to_json({
+            .client_id = "stream-lifecycle-client",
+            .registration_nonce = "stream-lifecycle-registration",
+            .capabilities = {
+                std::string(kServerClientTokenCapability),
+                "session-stream-v1",
+            },
+        }));
+    REQUIRE(hello.ok);
+    std::string parse_error;
+    const auto welcome
+        = server_welcome_from_json(hello.result, parse_error);
+    INFO(parse_error);
+    REQUIRE(welcome);
+    REQUIRE(std::ranges::find(welcome->capabilities,
+                "session-stream-v1")
+        != welcome->capabilities.end());
+    REQUIRE_FALSE(welcome->connection_token.empty());
+
+    SessionStreamOpenRequest open_request{
+        .server_epoch = welcome->server_epoch,
+        .session_id = "default",
+        .poll = {
+            .request_serial = 1,
+            .server_epoch = welcome->server_epoch,
+        },
+    };
+    nlohmann::json open_params
+        = session_stream_open_request_to_json(open_request);
+    open_params["client_id"] = "stream-lifecycle-client";
+    open_params["connection_token"]
+        = welcome->connection_token;
+    const auto opened = ControlClient::request(control_id,
+        temp.path, "session.stream.open", std::move(open_params));
+    REQUIRE(opened.ok);
+    const auto stream_open = session_stream_open_response_from_json(
+        opened.result, parse_error);
+    INFO(parse_error);
+    REQUIRE(stream_open);
+    REQUIRE(stream_open->server_epoch == welcome->server_epoch);
+
+    AsyncFrameStreamError stream_error;
+    auto stream = AsyncFrameStreamClient::connect(
+        stream_open->endpoint, std::chrono::seconds(2), stream_error);
+    INFO(stream_error.code << ": " << stream_error.message);
+    REQUIRE(stream);
+    const SessionStreamClientFrame connect{
+        .kind = SessionStreamClientFrameKind::Connect,
+        .connect = SessionStreamConnectRequest{
+            .server_epoch = welcome->server_epoch,
+            .ticket = stream_open->ticket,
+        },
+    };
+    REQUIRE(stream->write_frame(
+        session_stream_client_frame_to_json(connect).dump(), {},
+        stream_error));
+
+    const auto read_frame = [&] {
+        auto future = std::async(std::launch::async, [&] {
+            std::string bytes;
+            AsyncFrameStreamError error;
+            const bool ok = stream->read_frame(bytes, {}, error);
+            return std::tuple{
+                ok, std::move(bytes),
+                error.code + ": " + error.message,
+            };
+        });
+        if (future.wait_for(std::chrono::seconds(2))
+            != std::future_status::ready)
+        {
+            stream->close();
+        }
+        REQUIRE(future.wait_for(std::chrono::seconds(1))
+            == std::future_status::ready);
+        auto [ok, bytes, error] = future.get();
+        INFO(error);
+        REQUIRE(ok);
+        auto frame = session_stream_server_frame_from_json(
+            nlohmann::json::parse(bytes, nullptr, false), parse_error);
+        INFO(parse_error);
+        REQUIRE(frame);
+        return *frame;
+    };
+    const auto initial = read_frame();
+    REQUIRE(initial.kind == SessionStreamServerFrameKind::Events);
+    REQUIRE(initial.events);
+    CHECK(initial.events->request_serial == 1);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(700));
+    const auto idle_status = ServerClient::status(temp.path);
+    REQUIRE(idle_status.ok);
+    CHECK(idle_status.status->connected_clients == 1);
+    CHECK(stream->connected());
+
+    stream->close();
+    std::string disconnect_error;
+    REQUIRE(ServerClient::disconnect(temp.path,
+        "stream-lifecycle-client", disconnect_error,
+        welcome->connection_token));
+    std::string shutdown_error;
+    REQUIRE(ServerClient::shutdown(temp.path,
+        { .confirm_live_terminals = true }, shutdown_error));
+    run_guard.join();
 }
 
 TEST_CASE("server client classifies absent starting stale and crashed runtimes", "[server][discovery]")

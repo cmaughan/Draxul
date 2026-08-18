@@ -41,6 +41,7 @@ const std::vector<std::string>& server_capabilities()
         "session-delete-v1",
         "session-persistence-v1",
         "session-poll-v1",
+        "session-stream-v1",
         "session-rename-v1",
         "status",
         "terminal-metrics-v1",
@@ -69,6 +70,47 @@ std::vector<std::string> negotiate_capabilities(
 }
 
 } // namespace
+
+ControlMethodResult ServerKernel::Impl::poll_session(
+    std::string_view session_id, std::string_view client_id,
+    const SessionPollRequest& request, size_t payload_budget)
+{
+    {
+        std::lock_guard guard(mutex);
+        const auto client = clients.find(std::string(client_id));
+        if (client == clients.end())
+        {
+            return ControlMethodResult::error(
+                "invalid_client",
+                "The Session stream client is no longer registered.");
+        }
+        client->second.last_activity = std::chrono::steady_clock::now();
+    }
+    const auto found = sessions.find(std::string(session_id));
+    if (found == sessions.end() || !found->second->topology_service
+        || !found->second->agent_service || !found->second->poll_service)
+    {
+        return ControlMethodResult::error(
+            "session_unavailable",
+            "Server Session projections are unavailable.");
+    }
+    ServerSession& session = *found->second;
+    std::vector<SessionPollTerminalView> terminals;
+    terminals.reserve(session.terminals.size());
+    for (auto& [terminal_id, endpoint] : session.terminals)
+    {
+        terminals.push_back({
+            .terminal_id = terminal_id,
+            .service = endpoint.service.get(),
+        });
+    }
+    nlohmann::json params = session_poll_request_to_json(request);
+    params["session_id"] = session.session_id;
+    return session.poll_service->handle(params, client_id,
+        session.topology_service->snapshot(),
+        session.agent_service->snapshot(), terminals,
+        payload_budget);
+}
 
 ControlMethodResult ServerKernel::Impl::handle_request(
     const ControlRequest& request)
@@ -234,6 +276,28 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         return terminal->second.service->handle(
             request.method, request.params);
     }
+    if (request.method == "session.stream.open")
+    {
+        if (request_client_id.empty())
+        {
+            return ControlMethodResult::error(
+                "invalid_client",
+                "Session streaming requires an authenticated client identity.");
+        }
+        ControlMethodResult failure;
+        ServerSession* session = resolve_session(request.params,
+            SessionServiceNeed::TopologyAndAgent,
+            "Server Session projections are unavailable.", failure);
+        if (!session)
+            return failure;
+        if (!session_stream)
+        {
+            return ControlMethodResult::error(
+                "session_unavailable",
+                "Server Session streaming is unavailable.");
+        }
+        return session_stream->open(request.params, request_client_id);
+    }
     if (request.method == "session.poll")
     {
         if (request_client_id.empty())
@@ -254,19 +318,13 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                 "session_unavailable",
                 "Server Session polling is unavailable.");
         }
-        std::vector<SessionPollTerminalView> terminals;
-        terminals.reserve(session->terminals.size());
-        for (auto& [terminal_id, endpoint] : session->terminals)
-        {
-            terminals.push_back({
-                .terminal_id = terminal_id,
-                .service = endpoint.service.get(),
-            });
-        }
-        return session->poll_service->handle(request.params,
-            request_client_id,
-            session->topology_service->snapshot(),
-            session->agent_service->snapshot(), terminals);
+        std::string parse_error;
+        auto poll = session_poll_request_from_json(
+            request.params, parse_error);
+        if (!poll)
+            return ControlMethodResult::error("invalid_params", parse_error);
+        return poll_session(
+            session->session_id, request_client_id, *poll);
     }
     if (request.method == "topology.snapshot"
         || request.method == "topology.poll"

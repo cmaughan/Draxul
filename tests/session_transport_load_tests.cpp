@@ -3,9 +3,11 @@
 #include "../libs/draxul-server/src/fake_terminal_runtime.h"
 #include "../libs/draxul-server/src/remote_terminal_service.h"
 #include "../libs/draxul-server/src/session_poll_service.h"
+#include "../libs/draxul-server/src/session_stream_service.h"
 #include "../libs/draxul-server/src/topology_service.h"
 #include "support/temp_dir.h"
 
+#include <draxul/async_frame_stream.h>
 #include <draxul/control_plane.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/server_protocol.h>
@@ -522,11 +524,12 @@ nlohmann::json run_load_scenario(const LoadScenario scenario)
 
 SessionPollRequest make_session_poll_request(
     BatchedUiState& ui,
-    const std::vector<PaneFixture>& panes)
+    const std::vector<PaneFixture>& panes,
+    std::string_view server_epoch = "load-epoch")
 {
     SessionPollRequest request{
         .request_serial = ui.next_request_serial++,
-        .server_epoch = "load-epoch",
+        .server_epoch = std::string(server_epoch),
         .topology_after_revision = ui.topology_revision,
         .agent_after_revision = ui.agent_revision,
     };
@@ -556,9 +559,10 @@ SessionPollRequest make_session_poll_request(
 
 bool apply_session_poll_response(
     BatchedUiState& ui, std::vector<PaneFixture>& panes,
-    const SessionPollResponse& response, std::string& error)
+    const SessionPollResponse& response, std::string& error,
+    std::string_view server_epoch = "load-epoch")
 {
-    if (response.server_epoch != "load-epoch")
+    if (response.server_epoch != server_epoch)
     {
         error = "Batched load response used the wrong server epoch.";
         return false;
@@ -612,6 +616,210 @@ bool apply_session_poll_response(
     }
     error.clear();
     return true;
+}
+
+struct RawSessionStream
+{
+    BatchedUiState ui;
+    std::unique_ptr<AsyncFrameStreamConnection> connection;
+    uint64_t last_frame_serial = 0;
+    size_t max_queue_bytes = 0;
+};
+
+std::optional<SessionStreamOpenResponse> open_stream_over_control(
+    ControlServer& control, const ControlServer::Handler& handler,
+    std::string_view control_id,
+    const std::filesystem::path& runtime_directory,
+    std::string_view client_id,
+    SessionPollRequest initial_poll,
+    std::string& error)
+{
+    SessionStreamOpenRequest open_request{
+        .server_epoch = "stream-epoch",
+        .session_id = "default",
+        .poll = std::move(initial_poll),
+    };
+    nlohmann::json params
+        = session_stream_open_request_to_json(open_request);
+    params["client_id"] = client_id;
+    std::vector<std::future<ControlClientResult>> request;
+    request.push_back(std::async(std::launch::async,
+        [control_id = std::string(control_id), runtime_directory,
+            params = std::move(params)]() mutable {
+            return ControlClient::request(control_id,
+                runtime_directory, "session.stream.open",
+                std::move(params));
+        }));
+    if (!pump_until_ready(
+            control, handler, request, std::chrono::seconds(5)))
+    {
+        error = "Timed out opening the Session event stream.";
+        return std::nullopt;
+    }
+    ControlClientResult result = request.front().get();
+    if (!result.ok)
+    {
+        error = result.error_code + ": " + result.error_message;
+        return std::nullopt;
+    }
+    auto response = session_stream_open_response_from_json(
+        result.result, error);
+    if (!response)
+        return std::nullopt;
+    if (response->server_epoch != "stream-epoch")
+    {
+        error = "Session stream open returned the wrong server epoch.";
+        return std::nullopt;
+    }
+    return response;
+}
+
+bool connect_raw_stream(RawSessionStream& stream,
+    SessionStreamOpenResponse response, std::string& error)
+{
+    AsyncFrameStreamError transport_error;
+    stream.connection = AsyncFrameStreamClient::connect(
+        response.endpoint, std::chrono::seconds(2), transport_error);
+    if (!stream.connection)
+    {
+        error = transport_error.code + ": " + transport_error.message;
+        return false;
+    }
+    stream.max_queue_bytes = response.max_queue_bytes;
+    const std::string connect_frame
+        = session_stream_client_frame_to_json({
+              .kind = SessionStreamClientFrameKind::Connect,
+              .connect = SessionStreamConnectRequest{
+                  .server_epoch = response.server_epoch,
+                  .ticket = std::move(response.ticket),
+              },
+          }).dump();
+    if (!stream.connection->write_frame(
+            connect_frame, {}, transport_error))
+    {
+        error = transport_error.code + ": " + transport_error.message;
+        stream.connection.reset();
+        return false;
+    }
+    return true;
+}
+
+bool write_stream_update(RawSessionStream& stream,
+    SessionPollRequest request, std::string& error)
+{
+    AsyncFrameStreamError transport_error;
+    const std::string bytes = session_stream_client_frame_to_json({
+        .kind = SessionStreamClientFrameKind::Update,
+        .update = SessionStreamUpdate{
+            .poll = std::move(request),
+        },
+    }).dump();
+    if (!stream.connection
+        || !stream.connection->write_frame(
+            bytes, {}, transport_error))
+    {
+        error = transport_error.code + ": " + transport_error.message;
+        return false;
+    }
+    return true;
+}
+
+bool read_stream_frame(RawSessionStream& stream,
+    SessionStreamService& service,
+    const SessionStreamService::Poll& poll,
+    SessionStreamServerFrame& frame,
+    std::chrono::milliseconds timeout,
+    std::string& error)
+{
+    struct ReadResult
+    {
+        bool ok = false;
+        std::string bytes;
+        AsyncFrameStreamError error;
+    };
+    auto pending = std::async(std::launch::async,
+        [connection = stream.connection.get()] {
+            ReadResult result;
+            result.ok = connection->read_frame(
+                result.bytes, {}, result.error);
+            return result;
+        });
+    const auto deadline
+        = std::chrono::steady_clock::now() + timeout;
+    while (pending.wait_for(std::chrono::milliseconds::zero())
+            != std::future_status::ready
+        && std::chrono::steady_clock::now() < deadline)
+    {
+        service.pump(poll);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (pending.wait_for(std::chrono::milliseconds::zero())
+        != std::future_status::ready)
+    {
+        if (stream.connection)
+            stream.connection->close();
+        pending.wait();
+        error = "Timed out waiting for a Session event stream frame.";
+        return false;
+    }
+    ReadResult result = pending.get();
+    if (!result.ok)
+    {
+        error = result.error.code + ": " + result.error.message;
+        return false;
+    }
+    const auto encoded
+        = nlohmann::json::parse(result.bytes, nullptr, false);
+    auto parsed = encoded.is_discarded()
+        ? std::nullopt
+        : session_stream_server_frame_from_json(encoded, error);
+    if (!parsed)
+    {
+        if (error.empty())
+            error = "Session stream server frame was not valid JSON.";
+        return false;
+    }
+    if (parsed->server_epoch != "stream-epoch"
+        || parsed->frame_serial != stream.last_frame_serial + 1)
+    {
+        error = "Session stream frame identity or ordering changed.";
+        return false;
+    }
+    stream.last_frame_serial = parsed->frame_serial;
+    frame = std::move(*parsed);
+    return true;
+}
+
+bool read_stream_events(RawSessionStream& stream,
+    SessionStreamService& service,
+    const SessionStreamService::Poll& poll,
+    SessionStreamServerFrame& frame,
+    std::chrono::milliseconds timeout,
+    std::string& error)
+{
+    const auto deadline
+        = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        const auto remaining
+            = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now());
+        if (!read_stream_frame(stream, service, poll, frame,
+                std::max(remaining, std::chrono::milliseconds(1)),
+                error))
+        {
+            return false;
+        }
+        if (frame.kind == SessionStreamServerFrameKind::Events)
+            return true;
+        if (frame.kind == SessionStreamServerFrameKind::Error)
+        {
+            error = frame.error_code + ": " + frame.error_message;
+            return false;
+        }
+    }
+    error = "Timed out waiting for Session stream Events.";
+    return false;
 }
 
 nlohmann::json run_batched_load_scenario(
@@ -894,7 +1102,622 @@ nlohmann::json run_batched_load_scenario(
     return result;
 }
 
+nlohmann::json run_stream_load_scenario(
+    const LoadScenario scenario, bool exercise_stalled_reader)
+{
+    INFO("stream panes=" << scenario.panes
+                          << " attached_uis="
+                          << scenario.attached_uis);
+    REQUIRE(scenario.panes > 0);
+    REQUIRE(scenario.attached_uis > 0);
+
+    TempDir temp("draxul-session-stream-load");
+    const std::string control_id
+        = namespaced_control_id(kServerControlId, temp.path);
+    ControlServer control;
+    std::string error;
+    REQUIRE(control.start(control_id, temp.path, [] {}, &error));
+    constexpr size_t kTestStreamQueueBytes = 1024 * 1024;
+    SessionStreamService stream_service({
+        .runtime_directory = temp.path,
+        .server_epoch = "stream-epoch",
+        .heartbeat_interval = std::chrono::milliseconds(100),
+        .max_queue_bytes = kTestStreamQueueBytes,
+    });
+    REQUIRE(stream_service.start(error));
+
+    std::vector<PaneFixture> panes;
+    panes.reserve(scenario.panes);
+    for (size_t index = 0; index < scenario.panes; ++index)
+    {
+        const std::string suffix = std::to_string(index);
+        const size_t ui_index = index % scenario.attached_uis;
+        const std::string client_id
+            = "stream-load-ui-" + std::to_string(ui_index);
+        auto runtime = std::make_unique<FakeTerminalRuntime>();
+        auto service = std::make_unique<RemoteTerminalService>(
+            RemoteTerminalServiceOptions{
+                .method_prefix = "stream-load-" + suffix,
+                .server_epoch = "stream-epoch",
+                .pane_id = "stream-load-pane-" + suffix,
+                .terminal_id = "stream-load-terminal-" + suffix,
+                .name = "Stream load pane " + suffix,
+            },
+            *runtime);
+        auto client = std::make_unique<RemoteTerminalClient>(
+            RemoteTerminalClientOptions{
+                .runtime_directory = temp.path,
+                .client_id = client_id,
+                .expected_server_epoch = "stream-epoch",
+                .method_prefix = "stream-load-" + suffix,
+                .terminal_id = "stream-load-terminal-" + suffix,
+            });
+        panes.push_back({
+            .method_prefix = "stream-load-" + suffix,
+            .terminal_id = "stream-load-terminal-" + suffix,
+            .client_id = client_id,
+            .ui_index = ui_index,
+            .subscription_id = index + 1,
+            .runtime = std::move(runtime),
+            .service = std::move(service),
+            .client = std::move(client),
+        });
+    }
+    std::vector<SessionPollTerminalView> terminal_views;
+    terminal_views.reserve(panes.size());
+    for (auto& pane : panes)
+    {
+        terminal_views.push_back({
+            .terminal_id = pane.terminal_id,
+            .service = pane.service.get(),
+        });
+    }
+
+    TopologyService topology_service("default");
+    TopologySnapshot topology = topology_service.snapshot();
+    ServerAgentSnapshot agents{
+        .revision = 1,
+        .session_id = "default",
+    };
+    SessionPollService poll_service("stream-epoch");
+    size_t stream_poll_calls = 0;
+    const SessionStreamService::Poll stream_poll
+        = [&](std::string_view session_id,
+              std::string_view client_id,
+              const SessionPollRequest& request,
+              size_t payload_budget) {
+              ++stream_poll_calls;
+              if (session_id != "default")
+              {
+                  return ControlMethodResult::error(
+                      "invalid_session", "Unexpected stream Session.");
+              }
+              return poll_service.handle(
+                  session_poll_request_to_json(request), client_id,
+                  topology, agents, terminal_views, payload_budget);
+          };
+    std::map<std::string, size_t> handled_methods;
+    const ControlServer::Handler control_handler
+        = [&](const ControlRequest& request) {
+              ++handled_methods[request.method];
+              if (request.method == "session.stream.open")
+              {
+                  return stream_service.open(request.params,
+                      request.params.value(
+                          "client_id", std::string{}));
+              }
+              if (request.method == "server.status")
+              {
+                  return ControlMethodResult::success({
+                      { "state", "ready" },
+                      { "stream_connections",
+                          stream_service.connection_count() },
+                  });
+              }
+              return ControlMethodResult::error(
+                  "unknown_method", "Unexpected stream load method.");
+          };
+
+    std::vector<RawSessionStream> streams;
+    streams.reserve(scenario.attached_uis);
+    for (size_t index = 0;
+         index < scenario.attached_uis; ++index)
+    {
+        RawSessionStream stream{
+            .ui = {
+                .client_id = "stream-load-ui-"
+                    + std::to_string(index),
+            },
+        };
+        auto opened = open_stream_over_control(control,
+            control_handler, control_id, temp.path,
+            stream.ui.client_id,
+            make_session_poll_request(
+                stream.ui, panes, "stream-epoch"), error);
+        INFO(error);
+        REQUIRE(opened);
+        REQUIRE(connect_raw_stream(
+            stream, std::move(*opened), error));
+        REQUIRE(stream.max_queue_bytes == kTestStreamQueueBytes);
+        streams.push_back(std::move(stream));
+    }
+
+    size_t max_frame_bytes = 0;
+    for (auto& stream : streams)
+    {
+        bool attached = false;
+        for (size_t attempt = 0;
+             attempt < kSessionPollMaxSubscriptions
+             && !attached; ++attempt)
+        {
+            SessionStreamServerFrame frame;
+            REQUIRE(read_stream_events(stream, stream_service,
+                stream_poll, frame, std::chrono::seconds(4), error));
+            REQUIRE(frame.kind
+                == SessionStreamServerFrameKind::Events);
+            REQUIRE(frame.events);
+            max_frame_bytes = std::max(max_frame_bytes,
+                session_stream_server_frame_to_json(frame).dump().size());
+            REQUIRE(apply_session_poll_response(
+                stream.ui, panes, *frame.events, error,
+                "stream-epoch"));
+            attached = !frame.events->more
+                && std::ranges::all_of(panes,
+                    [&](const PaneFixture& pane) {
+                        return pane.client_id
+                                != stream.ui.client_id
+                            || pane.client->projection().attached();
+                    });
+            if (!attached)
+            {
+                REQUIRE(write_stream_update(stream,
+                    make_session_poll_request(
+                        stream.ui, panes, "stream-epoch"), error));
+            }
+        }
+        REQUIRE(attached);
+    }
+    REQUIRE(stream_service.connection_count()
+        == scenario.attached_uis);
+    const size_t steady_stream_connections
+        = stream_service.connection_count();
+
+    constexpr int kStreamLoadRounds = 4;
+    std::vector<uint64_t> expected_sequences;
+    expected_sequences.reserve(panes.size());
+    for (const auto& pane : panes)
+    {
+        expected_sequences.push_back(
+            pane.client->projection().version().sequence
+            + kStreamLoadRounds);
+    }
+    for (int round = 1; round <= kStreamLoadRounds; ++round)
+    {
+        for (auto& pane : panes)
+        {
+            REQUIRE(pane.service->handle(
+                pane.method_prefix + ".input",
+                {
+                    { "client_id", pane.client_id },
+                    { "request_id", static_cast<uint64_t>(round) },
+                    { "text", "x" },
+                }).ok);
+        }
+        ++topology.revision;
+        ++agents.revision;
+        for (auto& stream : streams)
+        {
+            REQUIRE(write_stream_update(stream,
+                make_session_poll_request(
+                    stream.ui, panes, "stream-epoch"), error));
+        }
+        for (auto& stream : streams)
+        {
+            SessionStreamServerFrame frame;
+            REQUIRE(read_stream_events(stream, stream_service,
+                stream_poll, frame, std::chrono::seconds(4), error));
+            REQUIRE(frame.kind
+                == SessionStreamServerFrameKind::Events);
+            REQUIRE(frame.events);
+            max_frame_bytes = std::max(max_frame_bytes,
+                session_stream_server_frame_to_json(frame).dump().size());
+            REQUIRE(apply_session_poll_response(
+                stream.ui, panes, *frame.events, error,
+                "stream-epoch"));
+        }
+    }
+    for (size_t index = 0; index < panes.size(); ++index)
+    {
+        REQUIRE(panes[index].client->projection()
+                    .version()
+                    .sequence
+            == expected_sequences[index]);
+    }
+    for (const auto& stream : streams)
+    {
+        REQUIRE(stream.ui.topology_revision == topology.revision);
+        REQUIRE(stream.ui.agent_revision == agents.revision);
+    }
+
+    bool stalled_reader_disconnected = false;
+    size_t backpressure_rounds = 0;
+    if (exercise_stalled_reader)
+    {
+        REQUIRE(streams.size() == 2);
+        RawSessionStream& healthy = streams.front();
+        RawSessionStream& stalled = streams.back();
+        bool healthy_frame_pending = false;
+        for (; backpressure_rounds < 512
+             && stream_service.connection_count() == 2;)
+        {
+            for (auto& pane : panes)
+            {
+                REQUIRE(pane.service->handle(
+                    pane.method_prefix + ".input",
+                    {
+                        { "client_id", pane.client_id },
+                        { "request_id",
+                            static_cast<uint64_t>(
+                                kStreamLoadRounds
+                                + backpressure_rounds + 1) },
+                        { "text", "bounded-stream-output" },
+                    }).ok);
+            }
+            ++topology.revision;
+            ++agents.revision;
+            ++backpressure_rounds;
+            REQUIRE(write_stream_update(healthy,
+                make_session_poll_request(
+                    healthy.ui, panes, "stream-epoch"), error));
+            healthy_frame_pending = true;
+            if (!write_stream_update(stalled,
+                    make_session_poll_request(
+                        stalled.ui, panes, "stream-epoch"), error))
+            {
+                break;
+            }
+            SessionStreamServerFrame frame;
+            REQUIRE(read_stream_events(healthy, stream_service,
+                stream_poll, frame, std::chrono::seconds(4), error));
+            REQUIRE(frame.kind
+                == SessionStreamServerFrameKind::Events);
+            REQUIRE(frame.events);
+            REQUIRE(apply_session_poll_response(
+                healthy.ui, panes, *frame.events, error,
+                "stream-epoch"));
+            healthy_frame_pending = false;
+            stream_service.pump(stream_poll);
+        }
+        const auto disconnect_deadline
+            = std::chrono::steady_clock::now()
+            + std::chrono::seconds(3);
+        while (stream_service.connection_count() > 1
+            && std::chrono::steady_clock::now()
+                < disconnect_deadline)
+        {
+            stream_service.pump(stream_poll);
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(1));
+        }
+        stalled_reader_disconnected
+            = stream_service.connection_count() == 1;
+        REQUIRE(stalled_reader_disconnected);
+        REQUIRE(healthy.connection->connected());
+        if (healthy_frame_pending)
+        {
+            SessionStreamServerFrame frame;
+            REQUIRE(read_stream_events(healthy, stream_service,
+                stream_poll, frame, std::chrono::seconds(4), error));
+            REQUIRE(frame.kind
+                == SessionStreamServerFrameKind::Events);
+            REQUIRE(frame.events);
+            REQUIRE(apply_session_poll_response(
+                healthy.ui, panes, *frame.events, error,
+                "stream-epoch"));
+        }
+        for (size_t index = 0; index < panes.size(); ++index)
+        {
+            if (panes[index].client_id != healthy.ui.client_id)
+                continue;
+            REQUIRE(panes[index].client->projection()
+                        .version()
+                        .sequence
+                == expected_sequences[index]
+                    + backpressure_rounds);
+        }
+        REQUIRE(healthy.ui.topology_revision == topology.revision);
+        REQUIRE(healthy.ui.agent_revision == agents.revision);
+    }
+
+    const auto status_started_at
+        = std::chrono::steady_clock::now();
+    auto status = std::async(std::launch::async, [&] {
+        return ControlClient::request(
+            control_id, temp.path, "server.status");
+    });
+    const auto status_deadline
+        = status_started_at + std::chrono::seconds(2);
+    while (status.wait_for(std::chrono::milliseconds::zero())
+            != std::future_status::ready
+        && std::chrono::steady_clock::now() < status_deadline)
+    {
+        control.process_pending(control_handler);
+        stream_service.pump(stream_poll);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE(status.wait_for(std::chrono::milliseconds::zero())
+        == std::future_status::ready);
+    REQUIRE(status.get().ok);
+    const uint64_t status_latency_us = elapsed_us(
+        status_started_at, std::chrono::steady_clock::now());
+    CHECK(status_latency_us < 250'000);
+
+    REQUIRE(handled_methods["session.stream.open"]
+        == scenario.attached_uis);
+    REQUIRE(handled_methods["server.status"] == 1);
+    REQUIRE(handled_methods["session.poll"] == 0);
+    REQUIRE(handled_methods["topology.poll"] == 0);
+    REQUIRE(handled_methods["agent.poll"] == 0);
+    for (const auto& pane : panes)
+        REQUIRE(handled_methods[pane.method_prefix + ".poll"] == 0);
+    const auto control_metrics = control.metrics_snapshot();
+    REQUIRE(control_metrics.accepted_connections
+        == scenario.attached_uis + 1);
+
+    nlohmann::json result{
+        { "panes", scenario.panes },
+        { "attached_uis", scenario.attached_uis },
+        { "rounds", kStreamLoadRounds },
+        { "capability", "session-stream-v1" },
+        { "stream_open_requests",
+            handled_methods["session.stream.open"] },
+        { "steady_stream_connections",
+            steady_stream_connections },
+        { "final_stream_connections",
+            stream_service.connection_count() },
+        { "control_accepted_connections",
+            control_metrics.accepted_connections },
+        { "recurring_session_poll_requests", 0 },
+        { "legacy_terminal_poll_requests", 0 },
+        { "legacy_topology_poll_requests", 0 },
+        { "legacy_agent_poll_requests", 0 },
+        { "stream_poll_batches", stream_poll_calls },
+        { "max_stream_frame_bytes", max_frame_bytes },
+        { "stream_queue_budget_bytes", kTestStreamQueueBytes },
+        { "status_latency_us", status_latency_us },
+        { "stalled_reader_exercised", exercise_stalled_reader },
+        { "stalled_reader_disconnected",
+            stalled_reader_disconnected },
+        { "backpressure_rounds", backpressure_rounds },
+        { "final_projection_convergence", true },
+    };
+    for (auto& stream : streams)
+    {
+        if (stream.connection)
+            stream.connection->close();
+    }
+    stream_service.stop();
+    control.stop();
+    return result;
+}
+
 } // namespace
+
+TEST_CASE("Session event stream multiplexes terminals topology and agents without polling",
+    "[session-stream][control][remote-terminal]")
+{
+    TempDir temp("draxul-session-stream-integration");
+    const std::string control_id
+        = namespaced_control_id(kServerControlId, temp.path);
+    ControlServer control;
+    std::string error;
+    REQUIRE(control.start(control_id, temp.path, [] {}, &error));
+    SessionStreamService stream_service({
+        .runtime_directory = temp.path,
+        .server_epoch = "stream-epoch",
+        .heartbeat_interval = std::chrono::milliseconds(100),
+        .max_queue_bytes = 1024 * 1024,
+    });
+    REQUIRE(stream_service.start(error));
+
+    std::vector<PaneFixture> panes;
+    std::vector<SessionPollTerminalView> terminal_views;
+    for (size_t index = 0; index < 2; ++index)
+    {
+        const std::string suffix = std::to_string(index);
+        auto runtime = std::make_unique<FakeTerminalRuntime>();
+        auto service = std::make_unique<RemoteTerminalService>(
+            RemoteTerminalServiceOptions{
+                .method_prefix = "stream-" + suffix,
+                .server_epoch = "stream-epoch",
+                .pane_id = "stream-pane-" + suffix,
+                .terminal_id = "stream-terminal-" + suffix,
+                .name = "Stream pane " + suffix,
+            },
+            *runtime);
+        auto client = std::make_unique<RemoteTerminalClient>(
+            RemoteTerminalClientOptions{
+                .runtime_directory = temp.path,
+                .client_id = "stream-ui",
+                .expected_server_epoch = "stream-epoch",
+                .method_prefix = "stream-" + suffix,
+                .terminal_id = "stream-terminal-" + suffix,
+            });
+        panes.push_back({
+            .method_prefix = "stream-" + suffix,
+            .terminal_id = "stream-terminal-" + suffix,
+            .client_id = "stream-ui",
+            .ui_index = 0,
+            .subscription_id = index + 1,
+            .runtime = std::move(runtime),
+            .service = std::move(service),
+            .client = std::move(client),
+        });
+    }
+    for (auto& pane : panes)
+    {
+        terminal_views.push_back({
+            .terminal_id = pane.terminal_id,
+            .service = pane.service.get(),
+        });
+    }
+
+    TopologyService topology_service("default");
+    TopologySnapshot topology = topology_service.snapshot();
+    ServerAgentSnapshot agents{
+        .revision = 1,
+        .session_id = "default",
+    };
+    SessionPollService poll_service("stream-epoch");
+    size_t stream_poll_calls = 0;
+    const SessionStreamService::Poll stream_poll
+        = [&](std::string_view session_id,
+              std::string_view client_id,
+              const SessionPollRequest& request,
+              size_t payload_budget) {
+              ++stream_poll_calls;
+              if (session_id != "default"
+                  || client_id != "stream-ui")
+              {
+                  return ControlMethodResult::error(
+                      "invalid_binding",
+                      "The Session stream binding changed.");
+              }
+              return poll_service.handle(
+                  session_poll_request_to_json(request), client_id,
+                  topology, agents, terminal_views, payload_budget);
+          };
+
+    std::map<std::string, size_t> control_requests;
+    const ControlServer::Handler control_handler
+        = [&](const ControlRequest& request) {
+              ++control_requests[request.method];
+              if (request.method == "session.stream.open")
+              {
+                  return stream_service.open(request.params,
+                      request.params.value(
+                          "client_id", std::string{}));
+              }
+              if (request.method == "server.status")
+              {
+                  return ControlMethodResult::success({
+                      { "state", "ready" },
+                      { "stream_connections",
+                          stream_service.connection_count() },
+                  });
+              }
+              return ControlMethodResult::error(
+                  "unknown_method", "Unexpected stream integration method.");
+          };
+
+    RawSessionStream stream{
+        .ui = {
+            .client_id = "stream-ui",
+        },
+    };
+    auto opened = open_stream_over_control(control,
+        control_handler, control_id, temp.path,
+        stream.ui.client_id,
+        make_session_poll_request(
+            stream.ui, panes, "stream-epoch"), error);
+    INFO(error);
+    REQUIRE(opened);
+    REQUIRE(connect_raw_stream(stream, std::move(*opened), error));
+
+    SessionStreamServerFrame frame;
+    REQUIRE(read_stream_events(stream, stream_service,
+        stream_poll, frame, std::chrono::seconds(3), error));
+    INFO(error);
+    REQUIRE(frame.kind == SessionStreamServerFrameKind::Events);
+    REQUIRE(frame.events);
+    REQUIRE(apply_session_poll_response(
+        stream.ui, panes, *frame.events, error,
+        "stream-epoch"));
+    REQUIRE(std::ranges::all_of(panes,
+        [](const PaneFixture& pane) {
+            return pane.client->projection().attached();
+        }));
+    REQUIRE(stream.ui.topology_revision == topology.revision);
+    REQUIRE(stream.ui.agent_revision == agents.revision);
+
+    std::vector<uint64_t> expected_sequences;
+    for (auto& pane : panes)
+    {
+        expected_sequences.push_back(
+            pane.client->projection().version().sequence + 1);
+        REQUIRE(pane.service->handle(
+            pane.method_prefix + ".input",
+            {
+                { "client_id", stream.ui.client_id },
+                { "request_id", expected_sequences.size() },
+                { "text", "stream-" + pane.terminal_id },
+            }).ok);
+    }
+    ++topology.revision;
+    ++agents.revision;
+    REQUIRE(write_stream_update(stream,
+        make_session_poll_request(
+            stream.ui, panes, "stream-epoch"), error));
+    REQUIRE(read_stream_events(stream, stream_service,
+        stream_poll, frame, std::chrono::seconds(3), error));
+    INFO(error);
+    REQUIRE(frame.kind == SessionStreamServerFrameKind::Events);
+    REQUIRE(frame.events);
+    REQUIRE(apply_session_poll_response(
+        stream.ui, panes, *frame.events, error,
+        "stream-epoch"));
+    for (size_t index = 0; index < panes.size(); ++index)
+    {
+        REQUIRE(panes[index].client->projection()
+                    .version()
+                    .sequence
+            == expected_sequences[index]);
+    }
+    REQUIRE(stream.ui.topology_revision == topology.revision);
+    REQUIRE(stream.ui.agent_revision == agents.revision);
+
+    const auto status_started_at
+        = std::chrono::steady_clock::now();
+    auto status = std::async(std::launch::async, [&] {
+        return ControlClient::request(
+            control_id, temp.path, "server.status");
+    });
+    const auto status_deadline
+        = status_started_at + std::chrono::seconds(2);
+    while (status.wait_for(std::chrono::milliseconds::zero())
+            != std::future_status::ready
+        && std::chrono::steady_clock::now() < status_deadline)
+    {
+        control.process_pending(control_handler);
+        stream_service.pump(stream_poll);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE(status.wait_for(std::chrono::milliseconds::zero())
+        == std::future_status::ready);
+    REQUIRE(status.get().ok);
+    CHECK(std::chrono::steady_clock::now() - status_started_at
+        < std::chrono::milliseconds(250));
+
+    REQUIRE(write_stream_update(stream,
+        make_session_poll_request(
+            stream.ui, panes, "stream-epoch"), error));
+    REQUIRE(read_stream_frame(stream, stream_service,
+        stream_poll, frame, std::chrono::seconds(1), error));
+    INFO(error);
+    REQUIRE(frame.kind == SessionStreamServerFrameKind::Heartbeat);
+    CHECK(stream_service.connection_count() == 1);
+    CHECK(stream.max_queue_bytes == 1024 * 1024);
+    CHECK(stream_poll_calls >= 3);
+    CHECK(control_requests["session.stream.open"] == 1);
+    CHECK(control_requests["server.status"] == 1);
+    CHECK(control_requests["session.poll"] == 0);
+    CHECK(control_requests["topology.poll"] == 0);
+    CHECK(control_requests["agent.poll"] == 0);
+
+    stream.connection->close();
+    stream_service.stop();
+    control.stop();
+}
 
 TEST_CASE("legacy Session control transport load baseline",
     "[.session-load][control][remote-terminal]")
@@ -923,6 +1746,38 @@ TEST_CASE("legacy Session control transport load baseline",
         path && *path != '\0')
     {
         std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        REQUIRE(output.good());
+        output << encoded << '\n';
+        REQUIRE(output.good());
+    }
+}
+
+TEST_CASE("persistent Session stream load and stalled-reader isolation",
+    "[.session-stream-load][session-stream][control][remote-terminal]")
+{
+    nlohmann::json report = {
+        { "fixture", "session-stream-v1" },
+        { "scenarios", nlohmann::json::array() },
+    };
+    for (const LoadScenario scenario : {
+             LoadScenario{ 1, 1 },
+             LoadScenario{ 10, 1 },
+             LoadScenario{ 50, 2 },
+         })
+    {
+        report["scenarios"].push_back(
+            run_stream_load_scenario(
+                scenario, scenario.panes == 50));
+    }
+    const std::string encoded = report.dump(2);
+    std::cout << "DRAXUL_SESSION_STREAM_LOAD "
+              << encoded << '\n';
+    if (const char* path
+        = std::getenv("DRAXUL_SESSION_STREAM_LOAD_REPORT");
+        path && *path != '\0')
+    {
+        std::ofstream output(
+            path, std::ios::binary | std::ios::trunc);
         REQUIRE(output.good());
         output << encoded << '\n';
         REQUIRE(output.good());

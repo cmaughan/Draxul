@@ -3,6 +3,7 @@ add_library(draxul-server
     src/remote_terminal_service.cpp
     src/server_agent_service.cpp
     src/session_poll_service.cpp
+    src/session_stream_service.cpp
     src/session_topology_bridge.cpp
     src/server_kernel.cpp
     src/server_kernel_clients.cpp

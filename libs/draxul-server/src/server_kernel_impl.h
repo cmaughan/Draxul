@@ -4,6 +4,7 @@
 #include "remote_terminal_service.h"
 #include "server_terminal_runtime.h"
 #include "session_poll_service.h"
+#include "session_stream_service.h"
 #include "topology_service.h"
 
 #include <draxul/control_plane.h>
@@ -102,6 +103,9 @@ public:
 
     // Request routing and authenticated client leases.
     ControlMethodResult handle_request(const ControlRequest& request);
+    ControlMethodResult poll_session(std::string_view session_id,
+        std::string_view client_id, const SessionPollRequest& request,
+        size_t payload_budget = kSessionPollPayloadBudget);
     static std::string random_epoch();
     ClientAccessResult register_client_hello(
         const ServerHello& hello, bool token_capable,
@@ -193,6 +197,7 @@ public:
         terminal_resource_budget;
     AgentDefinitionRegistry agent_definitions;
     ControlServer control;
+    std::unique_ptr<SessionStreamService> session_stream;
     std::string epoch_value;
     uint64_t pid = 0;
     std::string process_start_identity;

@@ -400,4 +400,271 @@ std::optional<SessionPollResponse> session_poll_response_from_json(
     return result;
 }
 
+nlohmann::json session_stream_open_request_to_json(
+    const SessionStreamOpenRequest& request)
+{
+    return {
+        { "server_epoch", request.server_epoch },
+        { "session_id", request.session_id },
+        { "poll", session_poll_request_to_json(request.poll) },
+    };
+}
+
+std::optional<SessionStreamOpenRequest> session_stream_open_request_from_json(
+    const nlohmann::json& value, std::string& error)
+{
+    if (!value.is_object() || !value.contains("server_epoch")
+        || !value["server_epoch"].is_string()
+        || !value.contains("session_id")
+        || !value["session_id"].is_string()
+        || !value.contains("poll"))
+    {
+        error = "Session stream open request is invalid.";
+        return std::nullopt;
+    }
+    SessionStreamOpenRequest result{
+        .server_epoch = value["server_epoch"].get<std::string>(),
+        .session_id = value["session_id"].get<std::string>(),
+    };
+    if (result.server_epoch.empty() || result.session_id.empty()
+        || result.session_id.size() > kSessionStreamMaxSessionIdBytes)
+    {
+        error = "Session stream open identity is invalid.";
+        return std::nullopt;
+    }
+    auto poll = session_poll_request_from_json(value["poll"], error);
+    if (!poll)
+        return std::nullopt;
+    result.poll = std::move(*poll);
+    if (result.poll.server_epoch != result.server_epoch)
+    {
+        error = "Session stream poll epoch does not match the open request.";
+        return std::nullopt;
+    }
+    error.clear();
+    return result;
+}
+
+nlohmann::json session_stream_open_response_to_json(
+    const SessionStreamOpenResponse& response)
+{
+    return {
+        { "server_epoch", response.server_epoch },
+        { "endpoint", response.endpoint },
+        { "ticket", response.ticket },
+        { "heartbeat_interval_ms", response.heartbeat_interval_ms },
+        { "max_frame_bytes", response.max_frame_bytes },
+        { "max_queue_bytes", response.max_queue_bytes },
+    };
+}
+
+std::optional<SessionStreamOpenResponse> session_stream_open_response_from_json(
+    const nlohmann::json& value, std::string& error)
+{
+    if (!value.is_object() || !value.contains("server_epoch")
+        || !value["server_epoch"].is_string()
+        || !value.contains("endpoint") || !value["endpoint"].is_string()
+        || !value.contains("ticket") || !value["ticket"].is_string()
+        || !value.contains("heartbeat_interval_ms")
+        || !value["heartbeat_interval_ms"].is_number_unsigned()
+        || !value.contains("max_frame_bytes")
+        || !value["max_frame_bytes"].is_number_unsigned()
+        || !value.contains("max_queue_bytes")
+        || !value["max_queue_bytes"].is_number_unsigned())
+    {
+        error = "Session stream open response is invalid.";
+        return std::nullopt;
+    }
+    const uint64_t heartbeat = value["heartbeat_interval_ms"].get<uint64_t>();
+    const uint64_t max_frame = value["max_frame_bytes"].get<uint64_t>();
+    const uint64_t max_queue = value["max_queue_bytes"].get<uint64_t>();
+    if (heartbeat < kSessionStreamMinHeartbeatIntervalMs
+        || heartbeat > kSessionStreamMaxHeartbeatIntervalMs
+        || max_frame == 0 || max_frame > kSessionStreamMaxFrameBytes
+        || max_queue < kSessionStreamMinQueueBytes
+        || max_queue > kSessionStreamMaxQueueBytes)
+    {
+        error = "Session stream negotiated limits are out of range.";
+        return std::nullopt;
+    }
+    SessionStreamOpenResponse result{
+        .server_epoch = value["server_epoch"].get<std::string>(),
+        .endpoint = value["endpoint"].get<std::string>(),
+        .ticket = value["ticket"].get<std::string>(),
+        .heartbeat_interval_ms
+        = static_cast<uint32_t>(heartbeat),
+        .max_frame_bytes = static_cast<size_t>(max_frame),
+        .max_queue_bytes = static_cast<size_t>(max_queue),
+    };
+    if (result.server_epoch.empty() || result.endpoint.empty()
+        || result.endpoint.size() > kSessionStreamMaxEndpointBytes
+        || result.ticket.empty()
+        || result.ticket.size() > kSessionStreamMaxTicketBytes
+        || result.heartbeat_interval_ms == 0)
+    {
+        error = "Session stream open response values are out of range.";
+        return std::nullopt;
+    }
+    error.clear();
+    return result;
+}
+
+nlohmann::json session_stream_client_frame_to_json(
+    const SessionStreamClientFrame& frame)
+{
+    switch (frame.kind)
+    {
+    case SessionStreamClientFrameKind::Connect:
+        return {
+            { "kind", "connect" },
+            { "server_epoch", frame.connect ? frame.connect->server_epoch : "" },
+            { "ticket", frame.connect ? frame.connect->ticket : "" },
+        };
+    case SessionStreamClientFrameKind::Update:
+        return {
+            { "kind", "update" },
+            { "poll", frame.update
+                    ? session_poll_request_to_json(frame.update->poll)
+                    : nlohmann::json(nullptr) },
+        };
+    case SessionStreamClientFrameKind::Close:
+        return { { "kind", "close" } };
+    }
+    return { { "kind", "close" } };
+}
+
+std::optional<SessionStreamClientFrame> session_stream_client_frame_from_json(
+    const nlohmann::json& value, std::string& error)
+{
+    if (!value.is_object() || !value.contains("kind")
+        || !value["kind"].is_string())
+    {
+        error = "Session stream client frame is invalid.";
+        return std::nullopt;
+    }
+    const std::string kind = value["kind"].get<std::string>();
+    if (kind == "close")
+    {
+        error.clear();
+        return SessionStreamClientFrame{
+            .kind = SessionStreamClientFrameKind::Close,
+        };
+    }
+    if (kind == "connect")
+    {
+        if (!value.contains("server_epoch")
+            || !value["server_epoch"].is_string()
+            || !value.contains("ticket") || !value["ticket"].is_string())
+        {
+            error = "Session stream connect frame is invalid.";
+            return std::nullopt;
+        }
+        SessionStreamConnectRequest connect{
+            .server_epoch = value["server_epoch"].get<std::string>(),
+            .ticket = value["ticket"].get<std::string>(),
+        };
+        if (connect.server_epoch.empty() || connect.ticket.empty()
+            || connect.ticket.size() > kSessionStreamMaxTicketBytes)
+        {
+            error = "Session stream connect identity is invalid.";
+            return std::nullopt;
+        }
+        error.clear();
+        return SessionStreamClientFrame{
+            .kind = SessionStreamClientFrameKind::Connect,
+            .connect = std::move(connect),
+        };
+    }
+    if (kind == "update" && value.contains("poll"))
+    {
+        auto poll = session_poll_request_from_json(value["poll"], error);
+        if (!poll)
+            return std::nullopt;
+        error.clear();
+        return SessionStreamClientFrame{
+            .kind = SessionStreamClientFrameKind::Update,
+            .update = SessionStreamUpdate{ .poll = std::move(*poll) },
+        };
+    }
+    error = "Session stream client frame kind is invalid.";
+    return std::nullopt;
+}
+
+nlohmann::json session_stream_server_frame_to_json(
+    const SessionStreamServerFrame& frame)
+{
+    nlohmann::json result{
+        { "frame_serial", frame.frame_serial },
+        { "server_epoch", frame.server_epoch },
+    };
+    switch (frame.kind)
+    {
+    case SessionStreamServerFrameKind::Events:
+        result["kind"] = "events";
+        result["events"] = frame.events
+            ? session_poll_response_to_json(*frame.events)
+            : nlohmann::json(nullptr);
+        break;
+    case SessionStreamServerFrameKind::Heartbeat:
+        result["kind"] = "heartbeat";
+        break;
+    case SessionStreamServerFrameKind::Error:
+        result["kind"] = "error";
+        result["error"] = channel_error(
+            frame.error_code, frame.error_message);
+        break;
+    }
+    return result;
+}
+
+std::optional<SessionStreamServerFrame> session_stream_server_frame_from_json(
+    const nlohmann::json& value, std::string& error)
+{
+    if (!value.is_object() || !value.contains("kind")
+        || !value["kind"].is_string()
+        || !value.contains("frame_serial")
+        || !value["frame_serial"].is_number_unsigned()
+        || !value.contains("server_epoch")
+        || !value["server_epoch"].is_string())
+    {
+        error = "Session stream server frame is invalid.";
+        return std::nullopt;
+    }
+    SessionStreamServerFrame result{
+        .frame_serial = value["frame_serial"].get<uint64_t>(),
+        .server_epoch = value["server_epoch"].get<std::string>(),
+    };
+    if (result.frame_serial == 0 || result.server_epoch.empty())
+    {
+        error = "Session stream server frame identity is invalid.";
+        return std::nullopt;
+    }
+    const std::string kind = value["kind"].get<std::string>();
+    if (kind == "heartbeat")
+    {
+        result.kind = SessionStreamServerFrameKind::Heartbeat;
+    }
+    else if (kind == "events" && value.contains("events"))
+    {
+        auto events = session_poll_response_from_json(value["events"], error);
+        if (!events)
+            return std::nullopt;
+        result.kind = SessionStreamServerFrameKind::Events;
+        result.events = std::move(*events);
+    }
+    else if (kind == "error"
+        && read_channel_error(value, result.error_code, result.error_message)
+        && !result.error_code.empty())
+    {
+        result.kind = SessionStreamServerFrameKind::Error;
+    }
+    else
+    {
+        error = "Session stream server frame kind is invalid.";
+        return std::nullopt;
+    }
+    error.clear();
+    return result;
+}
+
 } // namespace draxul

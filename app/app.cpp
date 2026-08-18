@@ -3109,6 +3109,12 @@ bool App::initialize_remote_topology()
                options_.server_connection->capabilities,
                "session-poll-v1")
             != options_.server_connection->capabilities.end();
+    const bool session_stream_supported
+        = !options_.host_factory && options_.server_connection
+        && std::ranges::find(
+               options_.server_connection->capabilities,
+               "session-stream-v1")
+            != options_.server_connection->capabilities.end();
     remote_session_client_
         = std::make_unique<RemoteSessionClient>(
             RemoteSessionClientOptions{
@@ -3117,7 +3123,8 @@ bool App::initialize_remote_topology()
                 .session_id = options_.session_id,
                 .wake_consumer = [this] { wake_window(); },
                 .recovery = options_.client_recovery,
-                .externally_fed = session_poll_supported,
+                .externally_fed
+                = session_stream_supported || session_poll_supported,
             });
     if (!remote_session_client_->start())
     {
@@ -3148,6 +3155,8 @@ bool App::initialize_remote_topology()
                     .recovery = options_.client_recovery,
                     .presentation_suspend_supported
                     = suspend_supported,
+                    .session_stream_supported
+                    = session_stream_supported,
                     .session_poll_supported
                     = session_poll_supported,
                     .session_client

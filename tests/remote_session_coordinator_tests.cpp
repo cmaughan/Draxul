@@ -2,6 +2,7 @@
 
 #include "support/temp_dir.h"
 
+#include <draxul/async_frame_stream.h>
 #include <draxul/control_plane.h>
 #include <draxul/remote_session_coordinator.h>
 #include <draxul/remote_session_client.h>
@@ -9,6 +10,7 @@
 #include <draxul/server_protocol.h>
 #include <draxul/session_protocol.h>
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <thread>
@@ -500,6 +502,386 @@ TEST_CASE("remote Session coordinator multiplexes registrations through one Sess
     CHECK(resumed->visibility_generation == visible_generation);
     CHECK(legacy_polls == 0);
     CHECK(session_polls > 0);
+
+    coordinator.stop();
+    dispatcher.request_stop();
+    dispatcher.join();
+    server.stop();
+}
+
+TEST_CASE("remote Session coordinator prefers one event stream and keeps projection ownership on its worker",
+    "[client][remote-session-coordinator][session-stream]")
+{
+    TempDir temp("draxul-session-coordinator-stream");
+    ControlServer control;
+    std::string start_error;
+    REQUIRE(control.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &start_error));
+
+    AsyncFrameStreamListener stream;
+    AsyncFrameStreamError stream_error;
+    REQUIRE(stream.start(
+        namespaced_control_id("coordinator-stream", temp.path),
+        temp.path, stream_error));
+
+    auto recovery
+        = std::make_shared<ClientRecoveryState>("coordinator-ui");
+    REQUIRE(recovery->set_server_epoch("coordinator-epoch"));
+    RemoteSessionClient session_client({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .recovery = recovery,
+        .externally_fed = true,
+    });
+
+    std::atomic<int> stream_opens = 0;
+    std::atomic<int> session_polls = 0;
+    std::atomic<int> legacy_polls = 0;
+    std::atomic<int> input_calls = 0;
+    std::mutex observations_mutex;
+    std::optional<SessionPollRequest> opened_poll;
+    std::vector<SessionPollRequest> updates;
+    std::jthread dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            control.process_pending([&](const ControlRequest& request) {
+                if (request.method == "session.stream.open")
+                {
+                    ++stream_opens;
+                    std::string error;
+                    auto opened = session_stream_open_request_from_json(
+                        request.params, error);
+                    if (!opened)
+                    {
+                        return ControlMethodResult::error(
+                            "invalid_session_stream", error);
+                    }
+                    {
+                        std::lock_guard guard(observations_mutex);
+                        opened_poll = opened->poll;
+                    }
+                    return ControlMethodResult::success(
+                        session_stream_open_response_to_json({
+                            .server_epoch = "coordinator-epoch",
+                            .endpoint = stream.endpoint(),
+                            .ticket = "coordinator-ticket",
+                            .heartbeat_interval_ms = 1000,
+                            .max_frame_bytes = kControlMaxMessageBytes,
+                            .max_queue_bytes
+                            = kSessionStreamDefaultQueueBytes,
+                        }));
+                }
+                if (request.method == "session.poll")
+                {
+                    ++session_polls;
+                    return ControlMethodResult::error(
+                        "unexpected_poll", "Stream should remain active.");
+                }
+                if (request.method == "fake.attach"
+                    || request.method == "fake.poll")
+                {
+                    ++legacy_polls;
+                }
+                if (request.method == "fake.input")
+                {
+                    ++input_calls;
+                    return ControlMethodResult::success(
+                        nlohmann::json::object());
+                }
+                return ControlMethodResult::error(
+                    "unknown_method", "Unexpected stream test method.");
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    std::atomic<bool> stream_connected = false;
+    std::atomic<bool> event_sent = false;
+    std::jthread stream_peer([&](std::stop_token stop) {
+        AsyncFrameStreamError error;
+        auto connection = stream.accept(stop, error);
+        if (!connection)
+            return;
+        std::string bytes;
+        if (!connection->read_frame(bytes, stop, error))
+            return;
+        auto value = nlohmann::json::parse(bytes, nullptr, false);
+        std::string parse_error;
+        auto connect = value.is_discarded()
+            ? std::nullopt
+            : session_stream_client_frame_from_json(value, parse_error);
+        if (!connect
+            || connect->kind != SessionStreamClientFrameKind::Connect
+            || !connect->connect
+            || connect->connect->ticket != "coordinator-ticket")
+        {
+            return;
+        }
+        stream_connected = true;
+
+        const auto send_events
+            = [&](const SessionPollRequest& poll) {
+                  SessionPollResponse response{
+                      .request_serial = poll.request_serial,
+                      .server_epoch = "coordinator-epoch",
+                      .topology = {
+                          .revision = 7,
+                          .snapshot = TopologySnapshot{
+                              .revision = 7,
+                              .session_id = "default",
+                              .spaces = {
+                                  {
+                                      .space_id = "space-1",
+                                      .name = "Work",
+                                      .tabs = {
+                                          {
+                                              .tab_id = "tab-1",
+                                              .name = "Tab",
+                                              .root_node_id = "node-1",
+                                              .nodes = {
+                                                  {
+                                                      .node_id = "node-1",
+                                                      .is_leaf = true,
+                                                      .pane_id = "pane-shared",
+                                                  },
+                                              },
+                                              .panes = {
+                                                  {
+                                                      .pane_id = "pane-shared",
+                                                      .name = "Shared terminal",
+                                                      .domain = TopologyPaneDomain::ServerTerminal,
+                                                      .terminal_id = "terminal-shared",
+                                                  },
+                                              },
+                                          },
+                                      },
+                                  },
+                              },
+                          },
+                      },
+                      .agents = {
+                          .revision = 3,
+                          .snapshot = ServerAgentSnapshot{
+                              .revision = 3,
+                              .session_id = "default",
+                          },
+                      },
+                  };
+                  for (const auto& subscription : poll.terminals)
+                  {
+                      response.terminals.push_back({
+                          .subscription_id = subscription.subscription_id,
+                          .terminal_id = subscription.terminal_id,
+                          .visibility_generation
+                          = subscription.visibility_generation,
+                          .attach = terminal_attach(0),
+                      });
+                  }
+                  const std::string event_bytes
+                      = session_stream_server_frame_to_json({
+                            .kind = SessionStreamServerFrameKind::Events,
+                            .frame_serial = 1,
+                            .server_epoch = "coordinator-epoch",
+                            .events = std::move(response),
+                        })
+                            .dump();
+                  if (!connection->write_frame(
+                          event_bytes, stop, error))
+                  {
+                      return false;
+                  }
+                  event_sent = true;
+                  return true;
+              };
+        {
+            std::lock_guard guard(observations_mutex);
+            if (opened_poll && opened_poll->terminals.size() == 2
+                && !send_events(*opened_poll))
+            {
+                return;
+            }
+        }
+
+        while (!stop.stop_requested())
+        {
+            bytes.clear();
+            if (!connection->read_frame(bytes, stop, error))
+                return;
+            value = nlohmann::json::parse(bytes, nullptr, false);
+            auto frame = value.is_discarded()
+                ? std::nullopt
+                : session_stream_client_frame_from_json(
+                    value, parse_error);
+            if (!frame
+                || frame->kind != SessionStreamClientFrameKind::Update
+                || !frame->update)
+            {
+                continue;
+            }
+            const SessionPollRequest poll = frame->update->poll;
+            {
+                std::lock_guard guard(observations_mutex);
+                updates.push_back(poll);
+            }
+            if (event_sent || poll.terminals.size() != 2)
+                continue;
+            if (!send_events(poll))
+                return;
+        }
+    });
+
+    RemoteSessionCoordinator coordinator({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .expected_server_epoch = "coordinator-epoch",
+        .method_prefix = "fake",
+        .recovery = recovery,
+        .session_stream_supported = true,
+        .session_poll_supported = true,
+        .session_client = &session_client,
+    });
+    REQUIRE(coordinator.start());
+    auto first = coordinator.register_terminal("terminal-shared");
+    auto second = coordinator.register_terminal("terminal-shared");
+    REQUIRE(first);
+    REQUIRE(second);
+    REQUIRE(wait_for_condition([&] { return stream_connected.load(); }));
+    const auto first_state = wait_for_state(first);
+    INFO("event sent: " << event_sent.load());
+    INFO("stream opens: " << stream_opens.load());
+    INFO("Session polls: " << session_polls.load());
+    INFO("legacy polls: " << legacy_polls.load());
+    INFO("first error: " << first.last_error_code());
+    INFO("second error: " << second.last_error_code());
+    REQUIRE(first_state);
+    REQUIRE(wait_for_state(second));
+
+    REQUIRE(wait_for_condition([&] {
+        const auto revisions = session_client.session_poll_revisions();
+        return revisions.topology == 7 && revisions.agents == 3;
+    }));
+    CHECK(stream_opens == 1);
+    CHECK(session_polls == 0);
+    CHECK(legacy_polls == 0);
+
+    REQUIRE(first.enqueue_input("stream-input"));
+    REQUIRE(wait_for_condition([&] { return input_calls.load() == 1; }));
+    const uint64_t hidden_generation
+        = first.set_presentation_visible(false);
+    REQUIRE(wait_for_condition([&] {
+        std::lock_guard guard(observations_mutex);
+        return std::ranges::any_of(updates,
+            [&](const SessionPollRequest& update) {
+                return std::ranges::any_of(update.terminals,
+                    [&](const SessionTerminalSubscription& subscription) {
+                        return subscription.subscription_id == first.id()
+                            && !subscription.visible
+                            && subscription.visibility_generation
+                                == hidden_generation;
+                    });
+            });
+    }));
+
+    const auto stopped_at = std::chrono::steady_clock::now();
+    coordinator.stop();
+    CHECK(std::chrono::steady_clock::now() - stopped_at
+        < std::chrono::seconds(1));
+    stream.stop();
+    stream_peer.request_stop();
+    stream_peer.join();
+    dispatcher.request_stop();
+    dispatcher.join();
+    control.stop();
+}
+
+TEST_CASE("remote Session coordinator falls from stream negotiation to Session poll",
+    "[client][remote-session-coordinator][session-stream][fallback]")
+{
+    TempDir temp("draxul-session-stream-poll-fallback");
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &start_error));
+    auto recovery
+        = std::make_shared<ClientRecoveryState>("coordinator-ui");
+    REQUIRE(recovery->set_server_epoch("coordinator-epoch"));
+    RemoteSessionClient session_client({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .recovery = recovery,
+        .externally_fed = true,
+    });
+    std::atomic<int> stream_opens = 0;
+    std::atomic<int> session_polls = 0;
+    std::atomic<int> legacy_attaches = 0;
+    std::jthread dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            server.process_pending([&](const ControlRequest& request) {
+                if (request.method == "session.stream.open")
+                {
+                    ++stream_opens;
+                    return ControlMethodResult::error(
+                        "stream_unavailable", "Diagnostic rejection.");
+                }
+                if (request.method == "session.poll")
+                {
+                    ++session_polls;
+                    std::string error;
+                    auto poll = session_poll_request_from_json(
+                        request.params, error);
+                    if (!poll)
+                    {
+                        return ControlMethodResult::error(
+                            "invalid_request", error);
+                    }
+                    SessionPollResponse response{
+                        .request_serial = poll->request_serial,
+                        .server_epoch = "coordinator-epoch",
+                    };
+                    for (const auto& subscription : poll->terminals)
+                    {
+                        response.terminals.push_back({
+                            .subscription_id
+                            = subscription.subscription_id,
+                            .terminal_id = subscription.terminal_id,
+                            .visibility_generation
+                            = subscription.visibility_generation,
+                            .attach = terminal_attach(0),
+                        });
+                    }
+                    return ControlMethodResult::success(
+                        session_poll_response_to_json(response));
+                }
+                if (request.method == "fake.attach")
+                    ++legacy_attaches;
+                return ControlMethodResult::error(
+                    "unknown_method", "Unexpected fallback method.");
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    RemoteSessionCoordinator coordinator({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .expected_server_epoch = "coordinator-epoch",
+        .method_prefix = "fake",
+        .recovery = recovery,
+        .session_stream_supported = true,
+        .session_poll_supported = true,
+        .session_client = &session_client,
+    });
+    REQUIRE(coordinator.start());
+    auto registration
+        = coordinator.register_terminal("terminal-shared");
+    REQUIRE(registration);
+    REQUIRE(wait_for_state(registration));
+    CHECK(stream_opens == 1);
+    CHECK(session_polls > 0);
+    CHECK(legacy_attaches == 0);
 
     coordinator.stop();
     dispatcher.request_stop();

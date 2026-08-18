@@ -45,7 +45,8 @@ ControlMethodResult SessionPollService::handle(
     std::string_view authenticated_client_id,
     const TopologySnapshot& topology,
     const ServerAgentSnapshot& agents,
-    std::span<const SessionPollTerminalView> terminals)
+    std::span<const SessionPollTerminalView> terminals,
+    size_t payload_budget)
 {
     if (authenticated_client_id.empty())
     {
@@ -80,7 +81,9 @@ ControlMethodResult SessionPollService::handle(
             = request->agent_after_revision > agents.revision,
         },
     };
-    size_t remaining = kSessionPollPayloadBudget;
+    const size_t total_budget = std::clamp<size_t>(
+        payload_budget, 1, kSessionPollPayloadBudget);
+    size_t remaining = total_budget;
     auto& schedule = schedules_[std::string(authenticated_client_id)];
 
     const auto process_topology = [&] {
@@ -88,7 +91,7 @@ ControlMethodResult SessionPollService::handle(
             return;
         const auto encoded = topology_snapshot_to_json(topology);
         const size_t bytes = encoded_size(encoded);
-        if (bytes > kSessionPollPayloadBudget)
+        if (bytes > total_budget)
         {
             response.topology.error_code = "frame_too_large";
             response.topology.error_message
@@ -110,7 +113,7 @@ ControlMethodResult SessionPollService::handle(
             return;
         const auto encoded = server_agent_snapshot_to_json(agents);
         const size_t bytes = encoded_size(encoded);
-        if (bytes > kSessionPollPayloadBudget)
+        if (bytes > total_budget)
         {
             response.agents.error_code = "frame_too_large";
             response.agents.error_message

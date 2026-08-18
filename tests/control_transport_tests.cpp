@@ -8,6 +8,7 @@
 #include "control_transport.h"
 
 #include <draxul/control_plane.h>
+#include <draxul/async_frame_stream.h>
 
 #include <algorithm>
 #include <atomic>
@@ -33,6 +34,55 @@
 
 using namespace draxul;
 using namespace draxul::tests;
+
+TEST_CASE("async framed stream exchanges frames and close interrupts a reader",
+    "[control][transport][session-stream]")
+{
+    const auto runtime = unique_control_runtime_directory();
+    AsyncFrameStreamListener listener;
+    AsyncFrameStreamError error;
+    REQUIRE(listener.start("framed-stream-test", runtime, error));
+    std::stop_source accept_stop;
+    auto accepted = std::async(std::launch::async, [&] {
+        AsyncFrameStreamError accept_error;
+        return listener.accept(accept_stop.get_token(), accept_error);
+    });
+    auto client = AsyncFrameStreamClient::connect(
+        listener.endpoint(), std::chrono::seconds(2), error);
+    REQUIRE(client);
+    REQUIRE(accepted.wait_for(std::chrono::seconds(2))
+        == std::future_status::ready);
+    auto server = accepted.get();
+    REQUIRE(server);
+
+    REQUIRE(client->write_frame("client-frame", {}, error));
+    std::string bytes;
+    REQUIRE(server->read_frame(bytes, {}, error));
+    CHECK(bytes == "client-frame");
+    REQUIRE(server->write_frame("server-frame", {}, error));
+    REQUIRE(client->read_frame(bytes, {}, error));
+    CHECK(bytes == "server-frame");
+
+    auto blocked_reader = std::async(std::launch::async, [&] {
+        std::string ignored;
+        AsyncFrameStreamError read_error;
+        const bool read = client->read_frame(ignored, {}, read_error);
+        return std::pair(read, read_error);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    client->close();
+    REQUIRE(blocked_reader.wait_for(std::chrono::seconds(1))
+        == std::future_status::ready);
+    const auto [read, read_error] = blocked_reader.get();
+    CHECK_FALSE(read);
+    CHECK((read_error.code == "cancelled"
+        || read_error.code == "closed"));
+
+    server->close();
+    listener.stop();
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
 
 namespace
 {

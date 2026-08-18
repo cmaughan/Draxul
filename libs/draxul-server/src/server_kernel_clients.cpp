@@ -178,6 +178,8 @@ void ServerKernel::Impl::forget_session_clients(
 void ServerKernel::Impl::disconnect_client(
     std::string_view client_id)
 {
+    if (session_stream)
+        session_stream->disconnect_client(client_id);
     {
         std::lock_guard guard(mutex);
         clients.erase(std::string(client_id));
@@ -208,7 +210,11 @@ void ServerKernel::Impl::prune_inactive_clients(
         }
     }
     for (const auto& client_id : expired)
+    {
+        if (session_stream)
+            session_stream->disconnect_client(client_id);
         detach_client_from_services(client_id);
+    }
 }
 
 } // namespace draxul

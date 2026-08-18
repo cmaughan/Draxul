@@ -195,11 +195,17 @@ filename drift and dynamic-loader or ABI failures are caught on both platforms.
   Explicit hosts such as `--host nvim`, Markdown, and Kanban remain client-owned
   and do not start the server. MegaCity/BioView, SatView, and ScoreView are
   client-local plugin panes created in shared server topology.
-- New clients negotiate `session-poll-v1` and use one bounded recurring poll per
-  attached UI for topology, agents, and every visible terminal projection. Terminal
-  channels remain independently ordered and recover from overflow or cursor gaps with
-  a channel-local snapshot; the scheduler rotates fairly within a hard payload budget.
-  Older servers automatically retain the compatible per-channel polling path.
+- New clients prefer the negotiated `session-stream-v1` path: one authenticated,
+  epoch-bound local event connection per attached UI carries bounded topology, agent,
+  and terminal batches plus idle heartbeats. The server state thread only enqueues
+  work to a bounded writer and never waits for platform I/O; a stalled UI is isolated
+  and disconnected without blocking healthy clients or CLI status requests.
+  Registration/cursor updates travel on the stream while mutations remain ordinary
+  short control requests. Stream negotiation or transport failure falls back to one
+  recurring `session.poll` per UI, and older servers without either capability retain
+  the compatible per-channel polling path. Terminal channels remain independently
+  ordered and recover from overflow or cursor gaps with a channel-local snapshot; the
+  shared scheduler rotates fairly within the stream's negotiated payload budget.
 - The server owns a Windows notification-area or macOS menu-bar status item. Its menu
   reports connected clients, Sessions, Spaces, terminals, live terminals, and agents,
   and provides Open Draxul, refresh, open-log, and one guarded Stop Server action.

@@ -187,7 +187,7 @@ first release-worthy fix.
 
 ### Phase 3: Persistent server-to-UI event stream
 
-- Add a dedicated asynchronous Session event endpoint rather than holding a worker in
+- **Delivered.** Add a dedicated asynchronous Session event endpoint rather than holding a worker in
   the existing synchronous control listener pool.
 - Keep one persistent authenticated stream per UI.
 - Push an event batch when terminal output, topology, agents, or heartbeat state
@@ -195,6 +195,13 @@ first release-worthy fix.
 - Reuse the Phase 1 coordinator and Phase 2 batching, fairness, cursor, and snapshot
   logic.
 - Retain `session.poll` as fallback for older servers or failed stream negotiation.
+
+The delivered `session-stream-v1` handshake uses the short control endpoint only to
+open an epoch-qualified stream and issue a one-use authenticated ticket. Registration
+and cursor Updates plus Events/Heartbeat/Error frames use the persistent framed local
+connection. The server derives the Phase 2 scheduler payload budget from the
+negotiated writer queue, so one initial multi-pane snapshot cannot overflow its own
+stream. Commands remain on short control methods until Phase 4.
 
 ### Phase 4: Bidirectional multiplexing
 

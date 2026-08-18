@@ -143,30 +143,33 @@ public:
     }
 
     void accept_session_poll_topology(
-        std::string server_epoch, TopologySnapshot snapshot)
+        std::string server_epoch, TopologySnapshot snapshot,
+        std::string_view recovery_channel)
     {
-        accept_session_poll_epoch(server_epoch);
+        accept_session_poll_epoch(server_epoch, recovery_channel);
         {
             std::lock_guard guard(mutex_);
             topology_poll_revision_ = snapshot.revision;
         }
         publish_topology(snapshot);
-        options_.recovery->note_connected("session.poll");
+        options_.recovery->note_connected(recovery_channel);
     }
 
     void accept_session_poll_agents(
-        std::string server_epoch, ServerAgentSnapshot snapshot)
+        std::string server_epoch, ServerAgentSnapshot snapshot,
+        std::string_view recovery_channel)
     {
-        accept_session_poll_epoch(server_epoch);
+        accept_session_poll_epoch(server_epoch, recovery_channel);
         {
             std::lock_guard guard(mutex_);
             agent_poll_revision_ = snapshot.revision;
         }
         publish_agents(snapshot);
-        options_.recovery->note_connected("session.poll");
+        options_.recovery->note_connected(recovery_channel);
     }
 
-    void accept_session_poll_epoch(std::string server_epoch)
+    void accept_session_poll_epoch(std::string server_epoch,
+        std::string_view recovery_channel)
     {
         {
             std::lock_guard guard(mutex_);
@@ -176,10 +179,12 @@ public:
                 return;
             }
         }
-        invalidate_session_poll_cursors(std::move(server_epoch));
+        invalidate_session_poll_cursors(
+            std::move(server_epoch), recovery_channel);
     }
 
-    void invalidate_session_poll_cursors(std::string server_epoch)
+    void invalidate_session_poll_cursors(std::string server_epoch,
+        std::string_view recovery_channel)
     {
         if (!server_epoch.empty()
             && server_epoch != options_.recovery->server_epoch())
@@ -207,16 +212,17 @@ public:
                 && !server_epoch.empty()
                 && previous != server_epoch;
             state.recovery
-                = options_.recovery->snapshot("session.poll");
+                = options_.recovery->snapshot(recovery_channel);
         });
     }
 
     void accept_session_poll_error(
-        std::string channel, std::string error)
+        std::string channel, std::string error,
+        std::string_view recovery_channel)
     {
         const bool topology = channel == "topology";
         const auto recovery
-            = options_.recovery->snapshot("session.poll");
+            = options_.recovery->snapshot(recovery_channel);
         publish([&, error = std::move(error)](
                     RemoteSessionPublishedState& state) mutable {
             state.recovery = recovery;
@@ -851,37 +857,45 @@ RemoteSessionClient::session_poll_revisions() const
 }
 
 void RemoteSessionClient::accept_session_poll_topology(
-    std::string server_epoch, TopologySnapshot snapshot)
+    std::string server_epoch, TopologySnapshot snapshot,
+    std::string_view recovery_channel)
 {
     impl_->accept_session_poll_topology(
-        std::move(server_epoch), std::move(snapshot));
+        std::move(server_epoch), std::move(snapshot),
+        recovery_channel);
 }
 
 void RemoteSessionClient::accept_session_poll_agents(
-    std::string server_epoch, ServerAgentSnapshot snapshot)
+    std::string server_epoch, ServerAgentSnapshot snapshot,
+    std::string_view recovery_channel)
 {
     impl_->accept_session_poll_agents(
-        std::move(server_epoch), std::move(snapshot));
+        std::move(server_epoch), std::move(snapshot),
+        recovery_channel);
 }
 
 void RemoteSessionClient::accept_session_poll_epoch(
-    std::string server_epoch)
+    std::string server_epoch,
+    std::string_view recovery_channel)
 {
-    impl_->accept_session_poll_epoch(std::move(server_epoch));
+    impl_->accept_session_poll_epoch(
+        std::move(server_epoch), recovery_channel);
 }
 
 void RemoteSessionClient::invalidate_session_poll_cursors(
-    std::string server_epoch)
+    std::string server_epoch,
+    std::string_view recovery_channel)
 {
     impl_->invalidate_session_poll_cursors(
-        std::move(server_epoch));
+        std::move(server_epoch), recovery_channel);
 }
 
 void RemoteSessionClient::accept_session_poll_error(
-    std::string channel, std::string error)
+    std::string channel, std::string error,
+    std::string_view recovery_channel)
 {
     impl_->accept_session_poll_error(
-        std::move(channel), std::move(error));
+        std::move(channel), std::move(error), recovery_channel);
 }
 
 void RemoteSessionClient::enable_legacy_polling()

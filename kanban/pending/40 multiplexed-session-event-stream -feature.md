@@ -137,15 +137,41 @@ issues zero recurring `terminal.poll`, `topology.poll`, or `agent.poll` requests
 
 ## Phase 3 — persistent server-to-UI events
 
-- [ ] Add a dedicated asynchronous Session event endpoint; do not hold a synchronous
+- [x] Add a dedicated asynchronous Session event endpoint; do not hold a synchronous
       control listener worker for the lifetime of the UI.
-- [ ] Keep one authenticated stream per UI, bound to client ID, Session ID, server
+- [x] Keep one authenticated stream per UI, bound to client ID, Session ID, server
       epoch, negotiated budgets, subscriptions, and cursors.
-- [ ] Push fair bounded batches for terminal output, topology, agents, and heartbeat
+- [x] Push fair bounded batches for terminal output, topology, agents, and heartbeat
       state; the server state thread never waits for platform I/O.
-- [ ] Resume from cursors where possible and snapshot only channels that cannot
+- [x] Resume from cursors where possible and snapshot only channels that cannot
       resume after a gap, generation change, overflow, or epoch replacement.
-- [ ] Negotiate `session-stream-v1` and retain `session.poll` as fallback.
+- [x] Negotiate `session-stream-v1` and retain `session.poll` as fallback.
+
+### Delivered checkpoint — persistent Session events
+
+The server now owns one epoch-qualified, current-user-only asynchronous stream
+listener, separate from the four synchronous control workers. An authenticated
+`session.stream.open` request issues a one-use ticket bound to client, Session,
+epoch, subscriptions, and cursors. Each attached UI has independent reader/writer
+workers, a bounded negotiated queue, a five-second write deadline, heartbeat lease
+refresh, and off-state-thread connection reaping. The state thread reuses the Phase 2
+fair batch scheduler with a payload budget derived from the negotiated writer queue;
+it never waits for stream I/O or advances a cursor before the client acknowledges the
+Events frame with an Update.
+
+`RemoteSessionCoordinator` now selects Stream → `session.poll` → legacy. Its
+reader only fills a bounded inbox; the existing coordinator worker remains the sole
+owner of terminal projections and cursors, routes topology/agent snapshots, validates
+epoch/frame/request ordering, coalesces subscription updates, and acknowledges every
+flow-controlled Events frame. Terminal and topology mutations deliberately remain
+short control requests for Phase 4.
+
+The Windows Debug stream load converges 1, 10, and 50 panes with exactly one stream
+per UI and zero recurring `session.poll`, terminal, topology, or agent poll requests.
+At 50 panes/two UIs the largest frame was 917,942 bytes under a 1 MiB writer budget;
+a deliberately stalled UI was disconnected after eight update rounds while the
+healthy UI converged and `server.status` completed in 3.4 ms. macOS transport and
+cancellation evidence remains pending remote CI.
 
 ## Phase 4 — bidirectional multiplexing
 

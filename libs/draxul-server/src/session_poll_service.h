@@ -38,7 +38,8 @@ public:
         std::string_view authenticated_client_id,
         const TopologySnapshot& topology,
         const ServerAgentSnapshot& agents,
-        std::span<const SessionPollTerminalView> terminals);
+        std::span<const SessionPollTerminalView> terminals,
+        size_t payload_budget = kSessionPollPayloadBudget);
     void disconnect_client(std::string_view client_id);
 
 private:

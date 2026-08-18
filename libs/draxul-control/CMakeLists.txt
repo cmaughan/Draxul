@@ -6,9 +6,13 @@ set(DRAXUL_CONTROL_SOURCES
 )
 
 if(WIN32)
-    list(APPEND DRAXUL_CONTROL_SOURCES src/control_transport_win32.cpp)
+    list(APPEND DRAXUL_CONTROL_SOURCES
+        src/async_frame_stream_win32.cpp
+        src/control_transport_win32.cpp)
 else()
-    list(APPEND DRAXUL_CONTROL_SOURCES src/control_transport_posix.cpp)
+    list(APPEND DRAXUL_CONTROL_SOURCES
+        src/async_frame_stream_posix.cpp
+        src/control_transport_posix.cpp)
 endif()
 
 add_library(draxul-control STATIC ${DRAXUL_CONTROL_SOURCES})

@@ -16,6 +16,17 @@ namespace draxul
 
 inline constexpr size_t kSessionPollMaxSubscriptions = 256;
 inline constexpr size_t kSessionPollMaxTerminalIdBytes = 512;
+inline constexpr size_t kSessionStreamMaxEndpointBytes = 1024;
+inline constexpr size_t kSessionStreamMaxTicketBytes = 256;
+inline constexpr size_t kSessionStreamMaxSessionIdBytes = 512;
+inline constexpr size_t kSessionStreamMaxFrameBytes = 8 * 1024 * 1024;
+inline constexpr size_t kSessionStreamMinQueueBytes = 256 * 1024;
+inline constexpr uint32_t kSessionStreamMinHeartbeatIntervalMs = 100;
+inline constexpr uint32_t kSessionStreamMaxHeartbeatIntervalMs = 60'000;
+inline constexpr uint32_t kSessionStreamDefaultHeartbeatIntervalMs = 1000;
+inline constexpr size_t kSessionStreamDefaultQueueBytes = 16 * 1024 * 1024;
+inline constexpr size_t kSessionStreamMaxQueueBytes
+    = kSessionStreamDefaultQueueBytes;
 
 struct SessionTerminalCursor
 {
@@ -99,6 +110,77 @@ struct SessionPollResponse
     bool operator==(const SessionPollResponse&) const = default;
 };
 
+struct SessionStreamOpenRequest
+{
+    std::string server_epoch;
+    std::string session_id;
+    SessionPollRequest poll;
+
+    bool operator==(const SessionStreamOpenRequest&) const = default;
+};
+
+struct SessionStreamOpenResponse
+{
+    std::string server_epoch;
+    std::string endpoint;
+    std::string ticket;
+    uint32_t heartbeat_interval_ms = kSessionStreamDefaultHeartbeatIntervalMs;
+    size_t max_frame_bytes = 0;
+    size_t max_queue_bytes = kSessionStreamDefaultQueueBytes;
+
+    bool operator==(const SessionStreamOpenResponse&) const = default;
+};
+
+struct SessionStreamConnectRequest
+{
+    std::string server_epoch;
+    std::string ticket;
+
+    bool operator==(const SessionStreamConnectRequest&) const = default;
+};
+
+struct SessionStreamUpdate
+{
+    SessionPollRequest poll;
+
+    bool operator==(const SessionStreamUpdate&) const = default;
+};
+
+enum class SessionStreamClientFrameKind
+{
+    Connect,
+    Update,
+    Close,
+};
+
+struct SessionStreamClientFrame
+{
+    SessionStreamClientFrameKind kind = SessionStreamClientFrameKind::Connect;
+    std::optional<SessionStreamConnectRequest> connect;
+    std::optional<SessionStreamUpdate> update;
+
+    bool operator==(const SessionStreamClientFrame&) const = default;
+};
+
+enum class SessionStreamServerFrameKind
+{
+    Events,
+    Heartbeat,
+    Error,
+};
+
+struct SessionStreamServerFrame
+{
+    SessionStreamServerFrameKind kind = SessionStreamServerFrameKind::Heartbeat;
+    uint64_t frame_serial = 0;
+    std::string server_epoch;
+    std::optional<SessionPollResponse> events;
+    std::string error_code;
+    std::string error_message;
+
+    bool operator==(const SessionStreamServerFrame&) const = default;
+};
+
 nlohmann::json session_poll_request_to_json(
     const SessionPollRequest& request);
 std::optional<SessionPollRequest> session_poll_request_from_json(
@@ -106,6 +188,22 @@ std::optional<SessionPollRequest> session_poll_request_from_json(
 nlohmann::json session_poll_response_to_json(
     const SessionPollResponse& response);
 std::optional<SessionPollResponse> session_poll_response_from_json(
+    const nlohmann::json& value, std::string& error);
+nlohmann::json session_stream_open_request_to_json(
+    const SessionStreamOpenRequest& request);
+std::optional<SessionStreamOpenRequest> session_stream_open_request_from_json(
+    const nlohmann::json& value, std::string& error);
+nlohmann::json session_stream_open_response_to_json(
+    const SessionStreamOpenResponse& response);
+std::optional<SessionStreamOpenResponse> session_stream_open_response_from_json(
+    const nlohmann::json& value, std::string& error);
+nlohmann::json session_stream_client_frame_to_json(
+    const SessionStreamClientFrame& frame);
+std::optional<SessionStreamClientFrame> session_stream_client_frame_from_json(
+    const nlohmann::json& value, std::string& error);
+nlohmann::json session_stream_server_frame_to_json(
+    const SessionStreamServerFrame& frame);
+std::optional<SessionStreamServerFrame> session_stream_server_frame_from_json(
     const nlohmann::json& value, std::string& error);
 
 } // namespace draxul

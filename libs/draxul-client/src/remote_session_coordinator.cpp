@@ -1,5 +1,6 @@
 #include <draxul/remote_session_coordinator.h>
 
+#include <draxul/async_frame_stream.h>
 #include <draxul/remote_session_client.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/server_client.h>
@@ -12,6 +13,7 @@
 #include <deque>
 #include <limits>
 #include <mutex>
+#include <nlohmann/json.hpp>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -30,8 +32,18 @@ constexpr auto kPollInterval = std::chrono::milliseconds(25);
 constexpr auto kIntermediatePollInterval = std::chrono::milliseconds(50);
 constexpr auto kIdlePollInterval = std::chrono::milliseconds(100);
 constexpr auto kSessionPollRequestBudget = std::chrono::milliseconds(100);
+constexpr auto kSessionStreamConnectBudget = std::chrono::milliseconds(250);
 constexpr auto kShutdownJoinBudget = std::chrono::milliseconds(250);
+constexpr size_t kSessionStreamInboxFrameLimit = 64;
 std::atomic<uint64_t> g_next_request_id{ 1 };
+
+enum class SessionTransportMode
+{
+    StreamOpening,
+    StreamActive,
+    SessionPoll,
+    Legacy,
+};
 
 uint64_t next_request_id()
 {
@@ -1262,8 +1274,14 @@ public:
 
     explicit Impl(RemoteSessionCoordinatorOptions options)
         : options_(std::move(options))
-        , batch_mode_(options_.session_poll_supported
+        , session_poll_supported_(options_.session_poll_supported
               && options_.session_client != nullptr)
+        , transport_mode_(options_.session_stream_supported
+                  && options_.session_client != nullptr
+              ? SessionTransportMode::StreamOpening
+              : session_poll_supported_
+              ? SessionTransportMode::SessionPoll
+              : SessionTransportMode::Legacy)
     {
         if (!options_.recovery)
         {
@@ -1286,8 +1304,13 @@ public:
         if (!running_.compare_exchange_strong(expected, true))
             return false;
         stopping_ = false;
-        if (batch_mode_)
-            batch_worker_ = std::jthread([this] { batch_worker_main(); });
+        if (transport_mode_ != SessionTransportMode::Legacy)
+        {
+            session_worker_ = std::jthread(
+                [this](std::stop_token stop_token) {
+                    session_worker_main(stop_token);
+                });
+        }
         return true;
     }
 
@@ -1296,9 +1319,14 @@ public:
         if (!running_.exchange(false) && stopping_)
             return;
         stopping_ = true;
-        worker_wake_.notify_all();
-        if (batch_worker_.joinable())
-            batch_worker_.join();
+        close_stream_connection();
+        wake_worker();
+        if (session_worker_.joinable())
+        {
+            session_worker_.request_stop();
+            session_worker_.join();
+        }
+        finish_stream_after_worker();
         std::vector<std::shared_ptr<Entry>> entries;
         {
             std::lock_guard guard(mutex_);
@@ -1334,14 +1362,15 @@ public:
             entry = std::make_shared<Entry>(weak_from_this(), id,
                 options_, std::move(terminal_id));
             entries_.emplace(id, entry);
+            if (!entry->start(
+                    transport_mode_ == SessionTransportMode::Legacy))
+            {
+                entries_.erase(id);
+                return 0;
+            }
         }
-        if (entry->start(!batch_mode_))
-        {
-            wake_worker();
-            return id;
-        }
-        unregister_terminal(id);
-        return 0;
+        wake_worker();
+        return id;
     }
 
     void unregister_terminal(uint64_t id)
@@ -1408,6 +1437,10 @@ public:
 
     void wake_worker()
     {
+        {
+            std::lock_guard guard(worker_mutex_);
+            worker_pending_ = true;
+        }
         worker_wake_.notify_one();
     }
 
@@ -1429,10 +1462,16 @@ private:
 
     void fall_back_to_legacy()
     {
-        batch_mode_ = false;
+        std::vector<std::shared_ptr<Entry>> entries;
+        {
+            std::lock_guard guard(mutex_);
+            transport_mode_ = SessionTransportMode::Legacy;
+            entries.reserve(entries_.size());
+            for (const auto& [id, entry] : entries_)
+                entries.push_back(entry);
+        }
         if (options_.session_client)
             options_.session_client->enable_legacy_polling();
-        const auto entries = entries_snapshot();
         for (const auto& entry : entries)
         {
             entry->invalidate_batch_cursor();
@@ -1459,7 +1498,545 @@ private:
                 probe.welcome->connection_token);
     }
 
-    void batch_worker_main()
+    bool accept_session_response(SessionPollResponse& response,
+        const std::vector<std::shared_ptr<Entry>>& entries,
+        std::chrono::microseconds latency,
+        std::string_view recovery_channel,
+        bool commands_processed)
+    {
+        options_.recovery->note_connected(recovery_channel);
+        bool changed = response.more || commands_processed;
+        if (options_.session_client)
+        {
+            options_.session_client->accept_session_poll_epoch(
+                response.server_epoch, recovery_channel);
+            if (response.topology.snapshot)
+            {
+                options_.session_client->accept_session_poll_topology(
+                    response.server_epoch,
+                    std::move(*response.topology.snapshot),
+                    recovery_channel);
+                changed = true;
+            }
+            if (!response.topology.error_code.empty())
+            {
+                options_.session_client->accept_session_poll_error(
+                    "topology", response.topology.error_message,
+                    recovery_channel);
+            }
+            if (response.agents.snapshot)
+            {
+                options_.session_client->accept_session_poll_agents(
+                    response.server_epoch,
+                    std::move(*response.agents.snapshot),
+                    recovery_channel);
+                changed = true;
+            }
+            if (!response.agents.error_code.empty())
+            {
+                options_.session_client->accept_session_poll_error(
+                    "agents", response.agents.error_message,
+                    recovery_channel);
+            }
+        }
+        for (const auto& batch : response.terminals)
+        {
+            const auto found = std::ranges::find(entries,
+                batch.subscription_id,
+                [](const auto& entry) {
+                    return entry->batch_subscription()
+                        .subscription_id;
+                });
+            if (found != entries.end())
+                changed = (*found)->accept_batch(batch, latency)
+                    || changed;
+        }
+        return changed;
+    }
+
+    SessionPollRequest make_session_request(
+        const std::vector<std::shared_ptr<Entry>>& entries,
+        uint64_t request_serial) const
+    {
+        const auto revisions = options_.session_client
+            ? options_.session_client->session_poll_revisions()
+            : RemoteSessionPollRevisions{};
+        SessionPollRequest request{
+            .request_serial = request_serial,
+            .server_epoch = options_.recovery->server_epoch(),
+            .topology_after_revision = revisions.topology,
+            .agent_after_revision = revisions.agents,
+        };
+        request.terminals.reserve(entries.size());
+        for (const auto& entry : entries)
+        {
+            if (entry->batch_active())
+                request.terminals.push_back(entry->batch_subscription());
+        }
+        return request;
+    }
+
+    static bool same_session_state(
+        const SessionPollRequest& lhs,
+        const SessionPollRequest& rhs)
+    {
+        return lhs.server_epoch == rhs.server_epoch
+            && lhs.topology_after_revision
+                == rhs.topology_after_revision
+            && lhs.agent_after_revision == rhs.agent_after_revision
+            && lhs.terminals == rhs.terminals;
+    }
+
+    uint64_t next_session_request_serial()
+    {
+        const uint64_t result = stream_request_serial_;
+        if (++stream_request_serial_ == 0)
+            stream_request_serial_ = 1;
+        return result;
+    }
+
+    void close_stream_connection()
+    {
+        std::lock_guard guard(stream_connection_mutex_);
+        if (stream_connection_)
+            stream_connection_->close();
+    }
+
+    void finish_stream_after_worker()
+    {
+        close_stream_connection();
+        if (stream_reader_.joinable())
+        {
+            stream_reader_.request_stop();
+            stream_reader_.join();
+        }
+        {
+            std::lock_guard guard(stream_connection_mutex_);
+            stream_connection_.reset();
+        }
+        std::lock_guard guard(worker_mutex_);
+        stream_inbox_.clear();
+        stream_inbox_bytes_ = 0;
+        stream_reader_done_ = false;
+        stream_reader_error_ = {};
+    }
+
+    bool write_stream_frame(const SessionStreamClientFrame& frame,
+        std::stop_token stop_token, std::string& error)
+    {
+        const std::string bytes
+            = session_stream_client_frame_to_json(frame).dump();
+        if (bytes.size() > stream_max_frame_bytes_)
+        {
+            error = "The Session event stream client frame exceeds its negotiated budget.";
+            return false;
+        }
+        AsyncFrameStreamConnection* connection = nullptr;
+        {
+            std::lock_guard guard(stream_connection_mutex_);
+            connection = stream_connection_.get();
+        }
+        if (!connection)
+        {
+            error = "The Session event stream is not connected.";
+            return false;
+        }
+        AsyncFrameStreamError transport_error;
+        if (!connection->write_frame(bytes, stop_token, transport_error))
+        {
+            error = transport_error.message.empty()
+                ? "The Session event stream write failed."
+                : std::move(transport_error.message);
+            return false;
+        }
+        return true;
+    }
+
+    void stream_reader_main(std::stop_token stop_token)
+    {
+        AsyncFrameStreamConnection* connection = nullptr;
+        {
+            std::lock_guard guard(stream_connection_mutex_);
+            connection = stream_connection_.get();
+        }
+        AsyncFrameStreamError terminal_error;
+        while (connection && !stop_token.stop_requested()
+            && !stopping_)
+        {
+            std::string bytes;
+            AsyncFrameStreamError read_error;
+            if (!connection->read_frame(bytes, stop_token, read_error))
+            {
+                terminal_error = std::move(read_error);
+                break;
+            }
+            bool accepted = false;
+            {
+                std::lock_guard guard(worker_mutex_);
+                if (bytes.size() <= stream_max_frame_bytes_
+                    && stream_inbox_.size()
+                        < kSessionStreamInboxFrameLimit
+                    && bytes.size()
+                        <= stream_max_queue_bytes_
+                            - std::min(stream_inbox_bytes_,
+                                stream_max_queue_bytes_))
+                {
+                    stream_inbox_bytes_ += bytes.size();
+                    stream_inbox_.push_back(std::move(bytes));
+                    worker_pending_ = true;
+                    accepted = true;
+                }
+                else
+                {
+                    terminal_error = {
+                        .code = "backpressure",
+                        .message = "The Session event stream client inbox exceeded its negotiated budget.",
+                    };
+                }
+            }
+            worker_wake_.notify_one();
+            if (!accepted)
+            {
+                connection->close();
+                break;
+            }
+        }
+        {
+            std::lock_guard guard(worker_mutex_);
+            stream_reader_done_ = true;
+            stream_reader_error_ = std::move(terminal_error);
+            worker_pending_ = true;
+        }
+        worker_wake_.notify_one();
+    }
+
+    bool begin_stream(std::stop_token stop_token)
+    {
+        const auto entries = entries_snapshot();
+        SessionPollRequest initial = make_session_request(
+            entries, next_session_request_serial());
+        ServerControlChannel channel({
+            .runtime_directory = options_.runtime_directory,
+            .client_id = options_.client_id,
+            .session_id = options_.session_id,
+            .recovery = options_.recovery,
+        });
+        const auto opened = channel.request("session.stream.open",
+            session_stream_open_request_to_json({
+                .server_epoch = initial.server_epoch,
+                .session_id = options_.session_id,
+                .poll = initial,
+            }),
+            kSessionStreamConnectBudget);
+        if (!opened.ok)
+        {
+            stream_failure_code_ = opened.error_code;
+            stream_failure_message_ = opened.error_message;
+            return false;
+        }
+        std::string parse_error;
+        auto response = session_stream_open_response_from_json(
+            opened.result, parse_error);
+        if (!response)
+        {
+            stream_failure_code_ = "invalid_session_stream";
+            stream_failure_message_ = std::move(parse_error);
+            return false;
+        }
+        if (response->server_epoch != initial.server_epoch)
+        {
+            stream_failure_code_ = "stale_epoch";
+            stream_failure_message_
+                = "The Session stream opened for a different server epoch.";
+            return false;
+        }
+        AsyncFrameStreamError connect_error;
+        auto connection = AsyncFrameStreamClient::connect(
+            response->endpoint, kSessionStreamConnectBudget,
+            connect_error);
+        if (!connection)
+        {
+            stream_failure_code_ = connect_error.code;
+            stream_failure_message_ = connect_error.message;
+            return false;
+        }
+        {
+            std::lock_guard guard(stream_connection_mutex_);
+            if (stopping_ || stop_token.stop_requested())
+                return false;
+            stream_connection_ = std::move(connection);
+        }
+        stream_max_frame_bytes_ = std::min(
+            response->max_frame_bytes, kControlMaxMessageBytes);
+        stream_max_queue_bytes_ = response->max_queue_bytes;
+        stream_heartbeat_timeout_ = std::chrono::milliseconds(
+            std::clamp<uint64_t>(
+                static_cast<uint64_t>(response->heartbeat_interval_ms)
+                    * 3,
+                250, 60'000));
+        std::string write_error;
+        if (!write_stream_frame({
+                .kind = SessionStreamClientFrameKind::Connect,
+                .connect = SessionStreamConnectRequest{
+                    .server_epoch = response->server_epoch,
+                    .ticket = std::move(response->ticket),
+                },
+            },
+                stop_token, write_error))
+        {
+            stream_failure_code_ = "io_error";
+            stream_failure_message_ = std::move(write_error);
+            finish_stream_after_worker();
+            return false;
+        }
+        last_stream_poll_ = std::move(initial);
+        stream_update_required_ = false;
+        last_stream_frame_serial_ = 0;
+        last_stream_event_request_serial_ = 0;
+        stream_last_frame_at_ = std::chrono::steady_clock::now();
+        {
+            std::lock_guard guard(worker_mutex_);
+            stream_reader_done_ = false;
+            stream_reader_error_ = {};
+        }
+        stream_reader_ = std::jthread(
+            [this](std::stop_token reader_stop) {
+                stream_reader_main(reader_stop);
+            });
+        transport_mode_ = SessionTransportMode::StreamActive;
+        return true;
+    }
+
+    void invalidate_stream_cursors_after_epoch_change()
+    {
+        refresh_epoch_bounded();
+        const auto entries = entries_snapshot();
+        for (const auto& entry : entries)
+            entry->invalidate_batch_cursor();
+        if (options_.session_client)
+        {
+            options_.session_client->invalidate_session_poll_cursors(
+                options_.recovery->server_epoch(), "session.stream");
+        }
+    }
+
+    bool fall_back_from_stream()
+    {
+        if (stopping_)
+            return false;
+        options_.recovery->note_failure("session.stream");
+        if (needs_identity_refresh(stream_failure_code_))
+            invalidate_stream_cursors_after_epoch_change();
+        finish_stream_after_worker();
+        last_stream_poll_.reset();
+        if (session_poll_supported_)
+        {
+            transport_mode_ = SessionTransportMode::SessionPoll;
+            return true;
+        }
+        fall_back_to_legacy();
+        return false;
+    }
+
+    bool accept_stream_frames(
+        const std::vector<std::shared_ptr<Entry>>& entries)
+    {
+        std::deque<std::string> frames;
+        bool reader_done = false;
+        AsyncFrameStreamError reader_error;
+        {
+            std::lock_guard guard(worker_mutex_);
+            frames.swap(stream_inbox_);
+            stream_inbox_bytes_ = 0;
+            reader_done = stream_reader_done_;
+            reader_error = stream_reader_error_;
+        }
+        for (auto& bytes : frames)
+        {
+            auto encoded = nlohmann::json::parse(
+                bytes, nullptr, false);
+            std::string parse_error;
+            auto frame = encoded.is_discarded()
+                ? std::nullopt
+                : session_stream_server_frame_from_json(
+                    encoded, parse_error);
+            if (!frame)
+            {
+                stream_failure_code_ = "invalid_session_stream";
+                stream_failure_message_ = parse_error.empty()
+                    ? "The Session event stream frame is not valid JSON."
+                    : std::move(parse_error);
+                return false;
+            }
+            if (frame->server_epoch
+                    != options_.recovery->server_epoch()
+                || frame->frame_serial
+                    != last_stream_frame_serial_ + 1)
+            {
+                stream_failure_code_ = frame->server_epoch
+                        != options_.recovery->server_epoch()
+                    ? "stale_epoch"
+                    : "invalid_session_stream";
+                stream_failure_message_
+                    = "The Session event stream identity or ordering changed.";
+                return false;
+            }
+            last_stream_frame_serial_ = frame->frame_serial;
+            stream_last_frame_at_ = std::chrono::steady_clock::now();
+            if (frame->kind == SessionStreamServerFrameKind::Error)
+            {
+                stream_failure_code_ = frame->error_code;
+                stream_failure_message_ = frame->error_message;
+                return false;
+            }
+            if (frame->kind == SessionStreamServerFrameKind::Events)
+            {
+                if (!frame->events || !last_stream_poll_
+                    || frame->events->server_epoch
+                        != frame->server_epoch
+                    || frame->events->request_serial
+                        > last_stream_poll_->request_serial
+                    || frame->events->request_serial
+                        <= last_stream_event_request_serial_)
+                {
+                    stream_failure_code_ = "invalid_session_stream";
+                    stream_failure_message_
+                        = "The Session event batch does not match the active stream state.";
+                    return false;
+                }
+                accept_session_response(*frame->events, entries,
+                    std::chrono::microseconds::zero(),
+                    "session.stream", false);
+                last_stream_event_request_serial_
+                    = frame->events->request_serial;
+                // Every Events frame is flow-controlled by the server, even
+                // if it contains only a deferred/error channel and advances
+                // no cursor. A fresh Update is therefore also its ack.
+                stream_update_required_ = true;
+            }
+            else
+            {
+                options_.recovery->note_connected("session.stream");
+            }
+        }
+        if (reader_done)
+        {
+            stream_failure_code_ = reader_error.code.empty()
+                ? "closed"
+                : std::move(reader_error.code);
+            stream_failure_message_ = reader_error.message.empty()
+                ? "The Session event stream closed."
+                : std::move(reader_error.message);
+            return false;
+        }
+        return true;
+    }
+
+    bool update_stream(std::stop_token stop_token)
+    {
+        const auto entries = entries_snapshot();
+        SessionPollRequest current = make_session_request(
+            entries, stream_request_serial_);
+        if (!stream_update_required_ && last_stream_poll_
+            && same_session_state(current, *last_stream_poll_))
+        {
+            return true;
+        }
+        current.request_serial = next_session_request_serial();
+        std::string error;
+        if (!write_stream_frame({
+                .kind = SessionStreamClientFrameKind::Update,
+                .update = SessionStreamUpdate{ .poll = current },
+            },
+                stop_token, error))
+        {
+            stream_failure_code_ = "io_error";
+            stream_failure_message_ = std::move(error);
+            return false;
+        }
+        last_stream_poll_ = std::move(current);
+        stream_update_required_ = false;
+        return true;
+    }
+
+    void wait_for_worker(std::optional<std::chrono::milliseconds> timeout)
+    {
+        std::unique_lock lock(worker_mutex_);
+        if (!worker_pending_ && !stopping_)
+        {
+            if (timeout)
+            {
+                worker_wake_.wait_for(lock, *timeout, [this] {
+                    return worker_pending_ || stopping_.load();
+                });
+            }
+            else
+            {
+                worker_wake_.wait(lock, [this] {
+                    return worker_pending_ || stopping_.load();
+                });
+            }
+        }
+        worker_pending_ = false;
+    }
+
+    void stream_worker_main(std::stop_token stop_token)
+    {
+        while (!stopping_ && !stop_token.stop_requested()
+            && transport_mode_ == SessionTransportMode::StreamActive)
+        {
+            const auto entries = entries_snapshot();
+            bool commands_processed = false;
+            for (const auto& entry : entries)
+            {
+                commands_processed
+                    = entry->process_batch_commands()
+                    || commands_processed;
+            }
+            if (!accept_stream_frames(entries)
+                || !update_stream(stop_token))
+            {
+                fall_back_from_stream();
+                return;
+            }
+            const auto elapsed = std::chrono::steady_clock::now()
+                - stream_last_frame_at_;
+            if (elapsed >= stream_heartbeat_timeout_)
+            {
+                stream_failure_code_ = "deadline_exceeded";
+                stream_failure_message_
+                    = "The Session event stream heartbeat timed out.";
+                fall_back_from_stream();
+                return;
+            }
+            auto wait = std::chrono::duration_cast<std::chrono::milliseconds>(
+                stream_heartbeat_timeout_ - elapsed);
+            if (commands_processed)
+                wait = std::min(wait, kPollInterval);
+            wait_for_worker(wait);
+        }
+    }
+
+    void session_worker_main(std::stop_token stop_token)
+    {
+        if (transport_mode_ == SessionTransportMode::StreamOpening)
+        {
+            if (!begin_stream(stop_token))
+            {
+                if (!stopping_ && !stop_token.stop_requested())
+                    fall_back_from_stream();
+            }
+        }
+        if (transport_mode_ == SessionTransportMode::StreamActive)
+            stream_worker_main(stop_token);
+        if (transport_mode_ == SessionTransportMode::SessionPoll
+            && !stopping_ && !stop_token.stop_requested())
+        {
+            poll_worker_main(stop_token);
+        }
+    }
+
+    void poll_worker_main(std::stop_token stop_token)
     {
         ServerControlChannel channel({
             .runtime_directory = options_.runtime_directory,
@@ -1470,7 +2047,9 @@ private:
         auto interval = kPollInterval;
         size_t idle_polls = 0;
         uint64_t request_serial = 1;
-        while (!stopping_ && batch_mode_)
+        while (!stopping_
+            && !stop_token.stop_requested()
+            && transport_mode_ == SessionTransportMode::SessionPoll)
         {
             const auto entries = entries_snapshot();
             bool commands_processed = false;
@@ -1564,53 +2143,12 @@ private:
             }
             else
             {
-                options_.recovery->note_connected("session.poll");
-                bool changed = response->more || commands_processed;
-                if (options_.session_client)
-                {
-                    options_.session_client->accept_session_poll_epoch(
-                        response->server_epoch);
-                    if (response->topology.snapshot)
-                    {
-                        options_.session_client->accept_session_poll_topology(
-                            response->server_epoch,
-                            std::move(*response->topology.snapshot));
-                        changed = true;
-                    }
-                    if (!response->topology.error_code.empty())
-                    {
-                        options_.session_client->accept_session_poll_error(
-                            "topology",
-                            response->topology.error_message);
-                    }
-                    if (response->agents.snapshot)
-                    {
-                        options_.session_client->accept_session_poll_agents(
-                            response->server_epoch,
-                            std::move(*response->agents.snapshot));
-                        changed = true;
-                    }
-                    if (!response->agents.error_code.empty())
-                    {
-                        options_.session_client->accept_session_poll_error(
-                            "agents", response->agents.error_message);
-                    }
-                }
                 const auto latency
                     = std::chrono::duration_cast<std::chrono::microseconds>(
                         std::chrono::steady_clock::now() - started_at);
-                for (const auto& batch : response->terminals)
-                {
-                    const auto found = std::ranges::find(entries,
-                        batch.subscription_id,
-                        [](const auto& entry) {
-                            return entry->batch_subscription()
-                                .subscription_id;
-                        });
-                    if (found != entries.end())
-                        changed = (*found)->accept_batch(batch, latency)
-                            || changed;
-                }
+                const bool changed = accept_session_response(
+                    *response, entries, latency,
+                    "session.poll", commands_processed);
                 if (changed)
                 {
                     idle_polls = 0;
@@ -1633,6 +2171,7 @@ private:
     }
 
     RemoteSessionCoordinatorOptions options_;
+    const bool session_poll_supported_ = false;
     std::atomic<bool> running_ = false;
     std::atomic<bool> stopping_ = true;
     mutable std::mutex mutex_;
@@ -1640,10 +2179,32 @@ private:
     std::unordered_map<uint64_t, uint64_t> ready_;
     uint64_t next_registration_id_ = 1;
     bool wake_pending_ = false;
-    std::atomic<bool> batch_mode_ = false;
-    std::jthread batch_worker_;
+    std::atomic<SessionTransportMode> transport_mode_
+        = SessionTransportMode::Legacy;
+    std::jthread session_worker_;
     std::mutex worker_mutex_;
     std::condition_variable worker_wake_;
+    bool worker_pending_ = false;
+    std::mutex stream_connection_mutex_;
+    std::unique_ptr<AsyncFrameStreamConnection> stream_connection_;
+    std::jthread stream_reader_;
+    std::deque<std::string> stream_inbox_;
+    size_t stream_inbox_bytes_ = 0;
+    size_t stream_max_frame_bytes_ = kControlMaxMessageBytes;
+    size_t stream_max_queue_bytes_ = kSessionStreamDefaultQueueBytes;
+    bool stream_reader_done_ = false;
+    AsyncFrameStreamError stream_reader_error_;
+    uint64_t stream_request_serial_ = 1;
+    uint64_t last_stream_frame_serial_ = 0;
+    uint64_t last_stream_event_request_serial_ = 0;
+    std::optional<SessionPollRequest> last_stream_poll_;
+    bool stream_update_required_ = false;
+    std::chrono::milliseconds stream_heartbeat_timeout_{
+        kSessionStreamDefaultHeartbeatIntervalMs * 3
+    };
+    std::chrono::steady_clock::time_point stream_last_frame_at_{};
+    std::string stream_failure_code_;
+    std::string stream_failure_message_;
 };
 
 class RemoteSessionCoordinator::Registration::State
