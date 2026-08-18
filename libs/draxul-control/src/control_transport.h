@@ -23,6 +23,8 @@ enum class TransportStage
     MetadataFlush,
     MetadataReplace,
     MetadataDirectoryFlush,
+    MetadataRead,
+    MetadataParse,
     EndpointPrepare,
     EndpointClaim,
     EndpointConfigure,
@@ -92,9 +94,26 @@ TransportStatus write_current_user_metadata(
 ClientExchangeResult client_exchange(std::string_view endpoint,
     std::string_view request_bytes, ControlDeadline deadline);
 
+struct ServerFrameResponse
+{
+    std::string bytes;
+    std::string method;
+    bool failed = false;
+    std::chrono::steady_clock::time_point started_at{};
+};
+
 using ServerFrameHandler
-    = std::function<std::string(std::optional<std::string>)>;
+    = std::function<ServerFrameResponse(std::optional<std::string>)>;
 using StartupReporter = std::function<void(std::string)>;
+
+struct ServerTransportObserver
+{
+    std::function<void()> connection_opened;
+    std::function<void()> connection_closed;
+    std::function<void(const TransportError&)> transport_failed;
+    std::function<void(std::string_view, bool, uint64_t)>
+        response_completed;
+};
 
 class ServerTransport
 {
@@ -106,7 +125,8 @@ public:
         = 0;
     virtual void run(std::stop_token stop_token,
         const ServerFrameHandler& handle_frame,
-        const StartupReporter& report_startup)
+        const StartupReporter& report_startup,
+        const ServerTransportObserver& observer)
         = 0;
     virtual const std::string& endpoint() const = 0;
     virtual bool endpoint_in_use() const = 0;

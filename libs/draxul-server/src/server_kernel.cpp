@@ -1316,6 +1316,54 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
             session.restore_warnings.end());
     }
 
+    const auto control_metrics = control.metrics_snapshot();
+    ServerControlMetricsSnapshot control_status{
+        .listener_capacity = control_metrics.listener_capacity,
+        .accepted_connections = control_metrics.accepted_connections,
+        .active_connections = control_metrics.active_connections,
+        .peak_connections = control_metrics.peak_connections,
+        .requests = control_metrics.requests,
+        .failed_requests = control_metrics.failed_requests,
+        .invalid_frames = control_metrics.invalid_frames,
+    };
+    control_status.methods.reserve(control_metrics.methods.size());
+    for (const auto& method : control_metrics.methods)
+    {
+        control_status.methods.push_back({
+            .method = method.method,
+            .requests = method.requests,
+            .failures = method.failures,
+            .queue_time = {
+                method.queue_time.samples,
+                method.queue_time.total_us,
+                method.queue_time.max_us,
+            },
+            .dispatch_time = {
+                method.dispatch_time.samples,
+                method.dispatch_time.total_us,
+                method.dispatch_time.max_us,
+            },
+            .response_time = {
+                method.response_time.samples,
+                method.response_time.total_us,
+                method.response_time.max_us,
+            },
+        });
+    }
+    control_status.transport_failures.reserve(
+        control_metrics.transport_failures.size());
+    for (const auto& failure : control_metrics.transport_failures)
+    {
+        control_status.transport_failures.push_back({
+            .operation = failure.operation,
+            .stage = failure.stage,
+            .native_domain = failure.native_domain,
+            .classification = failure.classification,
+            .native_code = failure.native_code,
+            .count = failure.count,
+        });
+    }
+
     return {
         .state = stop_requested ? "stopping" : (started ? "ready" : "stopped"),
         .protocol_major = options.protocol_major,
@@ -1346,6 +1394,7 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
         .checkpoint_error = std::move(checkpoint_error),
         .restore_warnings = std::move(restore_warnings),
         .session_statuses = std::move(session_statuses),
+        .control_transport = std::move(control_status),
     };
 }
 

@@ -8,11 +8,33 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <unordered_map>
+#include <utility>
 
 namespace draxul::control_detail
 {
 
-bool read_metadata(const std::filesystem::path& path,
+namespace
+{
+
+TransportError metadata_error(TransportStage stage, uint32_t native_code,
+    std::string message)
+{
+    return {
+        .stage = stage,
+#ifdef _WIN32
+        .domain = native_code == 0 ? NativeDomain::None : NativeDomain::Win32,
+#else
+        .domain = native_code == 0 ? NativeDomain::None : NativeDomain::Posix,
+#endif
+        .native_code = native_code,
+        .classification = FailureClass::EndpointUnavailable,
+        .message = std::move(message),
+    };
+}
+
+} // namespace
+
+TransportStatus read_metadata(const std::filesystem::path& path,
     std::string& endpoint, std::string& token, std::string& error)
 {
     std::error_code size_error;
@@ -20,9 +42,18 @@ bool read_metadata(const std::filesystem::path& path,
     if (size_error || size == 0 || size > 16 * 1024)
     {
         error = "No usable control endpoint metadata for this Session.";
-        return false;
+        return TransportStatus::failure(metadata_error(
+            TransportStage::MetadataRead,
+            size_error ? static_cast<uint32_t>(size_error.value()) : 0,
+            error));
     }
     std::ifstream input(path, std::ios::binary);
+    if (!input)
+    {
+        error = "Unable to read control endpoint metadata.";
+        return TransportStatus::failure(metadata_error(
+            TransportStage::MetadataRead, 0, error));
+    }
     std::string bytes((std::istreambuf_iterator<char>(input)),
         std::istreambuf_iterator<char>());
     const auto metadata = nlohmann::json::parse(bytes, nullptr, false);
@@ -32,16 +63,18 @@ bool read_metadata(const std::filesystem::path& path,
         || !metadata.contains("token") || !metadata["token"].is_string())
     {
         error = "Control endpoint metadata is invalid.";
-        return false;
+        return TransportStatus::failure(metadata_error(
+            TransportStage::MetadataParse, 0, error));
     }
     endpoint = metadata["endpoint"].get<std::string>();
     token = metadata["token"].get<std::string>();
     if (endpoint.empty() || token.size() != 64)
     {
         error = "Control endpoint metadata is invalid.";
-        return false;
+        return TransportStatus::failure(metadata_error(
+            TransportStage::MetadataParse, 0, error));
     }
-    return true;
+    return TransportStatus::success();
 }
 
 namespace
@@ -68,7 +101,7 @@ std::unordered_map<std::string, CachedMetadata>& metadata_cache()
 
 } // namespace
 
-bool read_cached_metadata(const std::filesystem::path& path,
+TransportStatus read_cached_metadata(const std::filesystem::path& path,
     std::string& endpoint, std::string& token, std::string& error)
 {
     const std::string key = path.lexically_normal().generic_string();
@@ -81,11 +114,12 @@ bool read_cached_metadata(const std::filesystem::path& path,
         {
             endpoint = found->second.endpoint;
             token = found->second.token;
-            return true;
+            return TransportStatus::success();
         }
     }
-    if (!read_metadata(path, endpoint, token, error))
-        return false;
+    auto status = read_metadata(path, endpoint, token, error);
+    if (!status.ok)
+        return status;
     {
         std::lock_guard guard(metadata_cache_mutex());
         metadata_cache()[key] = {
@@ -94,7 +128,7 @@ bool read_cached_metadata(const std::filesystem::path& path,
             .expires_at = now + std::chrono::seconds(1),
         };
     }
-    return true;
+    return TransportStatus::success();
 }
 
 void invalidate_cached_metadata(const std::filesystem::path& path)

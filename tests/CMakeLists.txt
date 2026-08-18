@@ -165,8 +165,10 @@ endif()
 # numbers to the then-current inventory: startup_config_tests.cpp merged into
 # config_lifecycle_tests.cpp (-1 source; its three near-clone TEST_CASEs were
 # kept once, -3 registrations) while terminal_surface_parity_tests.cpp was
-# added (+1 source, +1 registration).
-set(DRAXUL_TEST_SOURCE_BASELINE 206)
+# added (+1 source, +1 registration). The ServerKernel responsibility split
+# later replaced one monolithic suite with seven focused sources (+6 sources)
+# while preserving its 66 registrations and tags.
+set(DRAXUL_TEST_SOURCE_BASELINE 212)
 set(DRAXUL_TEST_REGISTRATION_BASELINE 2079)
 # The Workspace -> Tab terminology migration consolidated the old [workspace]
 # tag into the existing [tab] token without removing any test registrations.

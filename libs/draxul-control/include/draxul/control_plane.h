@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace draxul
 {
@@ -59,6 +60,69 @@ struct ControlRequestOptions
     bool refresh_metadata = false;
 };
 
+struct ControlTimingMetrics
+{
+    uint64_t samples = 0;
+    uint64_t total_us = 0;
+    uint64_t max_us = 0;
+
+    bool operator==(const ControlTimingMetrics&) const = default;
+};
+
+struct ControlTransportFailureMetrics
+{
+    std::string operation;
+    std::string stage;
+    std::string native_domain;
+    std::string classification;
+    uint32_t native_code = 0;
+    uint64_t count = 0;
+
+    bool operator==(const ControlTransportFailureMetrics&) const = default;
+};
+
+struct ControlMethodMetrics
+{
+    std::string method;
+    uint64_t requests = 0;
+    uint64_t failures = 0;
+    ControlTimingMetrics queue_time;
+    ControlTimingMetrics dispatch_time;
+    ControlTimingMetrics response_time;
+
+    bool operator==(const ControlMethodMetrics&) const = default;
+};
+
+// Process-local client transport diagnostics. Counts are monotonic for the
+// process lifetime and intentionally do not alter ControlClientResult.
+struct ControlClientMetricsSnapshot
+{
+    uint64_t requests = 0;
+    uint64_t connection_attempts = 0;
+    uint64_t successful_exchanges = 0;
+    uint64_t metadata_refreshes = 0;
+    std::vector<ControlTransportFailureMetrics> failures;
+
+    bool operator==(const ControlClientMetricsSnapshot&) const = default;
+};
+
+// Per-ControlServer diagnostics. Connection occupancy includes clients that
+// are still reading or writing a frame, not only requests queued for dispatch.
+struct ControlServerMetricsSnapshot
+{
+    uint64_t listener_capacity = 4;
+    uint64_t accepted_connections = 0;
+    uint64_t active_connections = 0;
+    uint64_t peak_connections = 0;
+    uint64_t requests = 0;
+    uint64_t failed_requests = 0;
+    uint64_t invalid_frames = 0;
+    std::vector<ControlMethodMetrics> methods;
+    std::vector<ControlTransportFailureMetrics> transport_failures;
+
+    bool operator==(const ControlServerMetricsSnapshot&) const = default;
+};
+
 std::filesystem::path control_runtime_directory(
     const std::filesystem::path& config_directory);
 std::filesystem::path control_metadata_path(
@@ -95,6 +159,7 @@ public:
     // callers surface transient platform failures without coupling the
     // transport library to logging.
     uint32_t take_listener_error();
+    ControlServerMetricsSnapshot metrics_snapshot() const;
     void process_pending(const Handler& handler);
 
     const std::string& endpoint() const;
@@ -118,6 +183,7 @@ public:
         std::string_view method,
         nlohmann::json params = nlohmann::json::object(),
         ControlRequestOptions options = {});
+    static ControlClientMetricsSnapshot metrics_snapshot();
 };
 
 } // namespace draxul

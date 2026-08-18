@@ -18,7 +18,7 @@ decomposition. This card does not implement Session streaming.
 - [x] Inventory all `Impl` state and methods by lifecycle, clients, sessions, requests, terminals/agents, and event loop.
 - [x] Record lock, task, generation, lease, cache, and shutdown invariants.
 - [x] Inventory public `ServerAgentService` consumers.
-- [ ] Partition the current server-kernel test suite without losing tags/cases.
+- [x] Partition the current server-kernel test suite without losing tags/cases.
 
 ## Implementation and migration
 
@@ -26,7 +26,7 @@ decomposition. This card does not implement Session streaming.
 - [ ] Move member definitions mechanically into responsibility TUs.
 - [x] Move `ServerAgentService` to `src/`.
 - [x] Add `draxul-server-test-internals`.
-- [ ] Split tests by responsibility.
+- [x] Split tests by responsibility.
 - [ ] Introduce registry/store collaborators only after state ownership is proven.
 - [ ] Do not add service static libraries or another mutex.
 
@@ -40,20 +40,17 @@ and revision gates, bounded mutation cache, and shutdown lifetime invariants bes
 the fields they govern. The public façade definitions moved mechanically to
 `server_kernel_facade.cpp`; `server_kernel.h` and runtime behavior are unchanged.
 
-The only production consumer of `ServerAgentService` is `ServerKernel::Impl`.
-Direct construction remains in `tests/server_kernel_tests.cpp` and
-`tests/agent_protocol_tests.cpp`; those tests must gain access through the future
-`draxul-server-test-internals` target before the header can move to `src/`.
-
-The current `tests/server_kernel_tests.cpp` contains 66 cases. Preserve all titles
-and tags while splitting them into service/protocol, lifecycle/discovery,
-client/authentication, Session/checkpoint, topology/terminal, agent, and process
-integration groups; do not duplicate those registrations across old and new files.
-
 `ServerAgentService` is now a private collaborator under `src/`, and the two
 white-box suites that construct it opt into the explicit
 `draxul-server-test-internals` include/link boundary. The installed/public include
 surface no longer exposes the service.
+
+The former 66-case `tests/server_kernel_tests.cpp` suite is now partitioned into
+service/protocol, lifecycle/discovery, client/authentication, Session/checkpoint,
+topology/terminal, agent-runtime, and process-integration suites sharing only
+`tests/support/server_kernel_test_support.h`. A static inventory comparison preserves
+every original case title and tag while making responsibility drift visible in the
+source layout.
 
 ### Delivered checkpoint — responsibility translation units
 
@@ -63,12 +60,13 @@ detachment (`server_kernel_clients.cpp`), startup/publication/state-loop/shutdow
 (`server_kernel_lifecycle.cpp`), and authenticated method dispatch
 (`server_kernel_requests.cpp`). These files share the existing `Impl` state and do
 not introduce collaborators, locks, protocol changes, or new runtime ownership.
-Session persistence and terminal/agent definitions remain in `server_kernel.cpp`
-until the test-internals boundary and test partition are ready to move with them.
+Session persistence and terminal/agent definitions remain in `server_kernel.cpp`;
+the test boundary and partition are now ready for their mechanical TU moves.
 
 ## Unit tests
 
-- [ ] Add focused lifecycle/discovery, client/authentication, checkpoint, topology/terminal, agent, and resource suites.
+- [x] Add focused lifecycle/discovery, client/authentication, checkpoint,
+      topology/terminal, agent-runtime, service/protocol, and process-integration suites.
 - [x] Build `draxul-server` and the owning core test target; run the aggregate CTest selection.
 - [x] Preserve the server public-header link-isolation build.
 

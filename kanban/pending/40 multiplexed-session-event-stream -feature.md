@@ -36,9 +36,9 @@ status, diagnostics, CLI access, and compatibility.
 
 ## Phase 0 — diagnostics and baseline
 
-- [ ] Preserve operation, transport stage, and native platform errors instead of
+- [x] Preserve operation, transport stage, and native platform errors instead of
       collapsing every failure into `io_error`.
-- [ ] Record connection attempts, listener occupancy, request counts by method,
+- [x] Record connection attempts, listener occupancy, request counts by method,
       queue/dispatch/response time, and failures by transport stage.
 - [x] Add deterministic 1-, 10-, and 50-pane continuously-updating scenarios with
       one and multiple attached UIs.
@@ -60,6 +60,22 @@ The initial Windows Debug baseline on 2026-08-17 completed all 1,536 assertions:
 p95 increased from 9.8 ms at one pane to 129.2 ms at ten panes and 970.1 ms at
 fifty panes; topology p95 reached 635.9 ms at fifty panes. These measurements are
 diagnostic evidence for the coordinator/multiplex work, not timing gates for CI.
+
+### Delivered checkpoint — bounded control diagnostics
+
+The extracted control transport now retains typed operation, stage, native error
+domain/code, and public compatibility classification at the point of failure on
+both client and server paths. Additive bounded snapshots record client attempts,
+metadata refreshes, listener capacity/current/peak occupancy, accepted connections,
+requests and failures, per-method queue/dispatch/response timing, and transport
+failure buckets. `ControlClientResult` keeps its compatibility mapping; hidden
+failures from a successful fresh-metadata retry remain observable in diagnostics.
+
+`server.status` exposes a transport-neutral copy under optional
+`control_transport`; older producers remain valid when the field is absent. The
+load fixture includes the same snapshot in its JSON report, so later phases can
+compare connection pressure and failure stages rather than infer them only from
+request outcomes.
 
 ## Phase 1 — one UI Session coordinator
 

@@ -141,6 +141,48 @@ nlohmann::json latency_summary(std::vector<uint64_t> samples)
     };
 }
 
+nlohmann::json control_metrics_json(
+    const ControlServerMetricsSnapshot& metrics)
+{
+    nlohmann::json methods = nlohmann::json::object();
+    for (const auto& method : metrics.methods)
+    {
+        methods[method.method] = {
+            { "requests", method.requests },
+            { "failures", method.failures },
+            { "queue_total_us", method.queue_time.total_us },
+            { "queue_max_us", method.queue_time.max_us },
+            { "dispatch_total_us", method.dispatch_time.total_us },
+            { "dispatch_max_us", method.dispatch_time.max_us },
+            { "response_total_us", method.response_time.total_us },
+            { "response_max_us", method.response_time.max_us },
+        };
+    }
+    nlohmann::json failures = nlohmann::json::array();
+    for (const auto& failure : metrics.transport_failures)
+    {
+        failures.push_back({
+            { "operation", failure.operation },
+            { "stage", failure.stage },
+            { "native_domain", failure.native_domain },
+            { "classification", failure.classification },
+            { "native_code", failure.native_code },
+            { "count", failure.count },
+        });
+    }
+    return {
+        { "listener_capacity", metrics.listener_capacity },
+        { "accepted_connections", metrics.accepted_connections },
+        { "active_connections", metrics.active_connections },
+        { "peak_connections", metrics.peak_connections },
+        { "requests", metrics.requests },
+        { "failed_requests", metrics.failed_requests },
+        { "invalid_frames", metrics.invalid_frames },
+        { "methods", std::move(methods) },
+        { "transport_failures", std::move(failures) },
+    };
+}
+
 nlohmann::json run_load_scenario(const LoadScenario scenario)
 {
     INFO("panes=" << scenario.panes
@@ -470,6 +512,8 @@ nlohmann::json run_load_scenario(const LoadScenario scenario)
             handled_methods_before_recovery },
         { "request_latency_us", std::move(request_latency_json) },
         { "delivery_latency_us", std::move(delivery_latency_json) },
+        { "control_transport",
+            control_metrics_json(server.metrics_snapshot()) },
         { "final_projection_convergence", true },
     };
     server.stop();
@@ -842,6 +886,8 @@ nlohmann::json run_batched_load_scenario(
         { "legacy_agent_poll_requests", 0 },
         { "final_topology_revision", topology.revision },
         { "final_agent_revision", agents.revision },
+        { "control_transport",
+            control_metrics_json(server.metrics_snapshot()) },
         { "final_projection_convergence", true },
     };
     server.stop();

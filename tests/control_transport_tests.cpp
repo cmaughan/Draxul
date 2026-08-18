@@ -509,6 +509,103 @@ TEST_CASE("control transport authenticates and dispatches on the caller thread",
     std::filesystem::remove_all(runtime, ignored);
 }
 
+TEST_CASE("control diagnostics record occupancy method timing and failures",
+    "[control][transport][diagnostics]")
+{
+    const auto runtime = unique_control_runtime_directory();
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(
+        "diagnostics-test", runtime, [] {}, &start_error));
+
+    const auto request = [&](bool succeed) {
+        auto client = std::async(std::launch::async, [&] {
+            return ControlClient::request("diagnostics-test", runtime,
+                "test.measured", { { "succeed", succeed } });
+        });
+        const auto deadline = std::chrono::steady_clock::now()
+            + std::chrono::seconds(3);
+        while (client.wait_for(std::chrono::milliseconds(1))
+                != std::future_status::ready
+            && std::chrono::steady_clock::now() < deadline)
+        {
+            server.process_pending([](const ControlRequest& pending) {
+                return pending.params.value("succeed", false)
+                    ? ControlMethodResult::success(true)
+                    : ControlMethodResult::error(
+                          "expected_failure", "Expected failure.");
+            });
+        }
+        REQUIRE(client.wait_for(std::chrono::milliseconds(0))
+            == std::future_status::ready);
+        return client.get();
+    };
+
+    CHECK(request(true).ok);
+    CHECK_FALSE(request(false).ok);
+    const auto completion_deadline = std::chrono::steady_clock::now()
+        + std::chrono::seconds(1);
+    ControlServerMetricsSnapshot metrics;
+    do
+    {
+        metrics = server.metrics_snapshot();
+        if (metrics.requests == 2 && metrics.active_connections == 0)
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } while (std::chrono::steady_clock::now() < completion_deadline);
+
+    CHECK(metrics.accepted_connections == 2);
+    CHECK(metrics.active_connections == 0);
+    CHECK(metrics.peak_connections >= 1);
+    CHECK(metrics.requests == 2);
+    CHECK(metrics.failed_requests == 1);
+    const auto method = std::ranges::find(
+        metrics.methods, "test.measured", &ControlMethodMetrics::method);
+    REQUIRE(method != metrics.methods.end());
+    CHECK(method->requests == 2);
+    CHECK(method->failures == 1);
+    CHECK(method->queue_time.samples == 2);
+    CHECK(method->dispatch_time.samples == 2);
+    CHECK(method->response_time.samples == 2);
+
+    server.stop();
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
+TEST_CASE("control client diagnostics retain metadata operation stage and native code",
+    "[control][transport][diagnostics][metadata]")
+{
+    const auto before = ControlClient::metrics_snapshot();
+    const auto runtime = unique_control_runtime_directory();
+    const auto result = ControlClient::request(
+        "missing-diagnostics-session", runtime, "test.missing");
+    REQUIRE_FALSE(result.ok);
+    REQUIRE(result.error_code == "endpoint_unavailable");
+
+    const auto after = ControlClient::metrics_snapshot();
+    CHECK(after.requests == before.requests + 1);
+    CHECK(after.connection_attempts == before.connection_attempts);
+    const auto count_for = [](const auto& snapshot,
+                               std::string_view stage) {
+        uint64_t count = 0;
+        for (const auto& failure : snapshot.failures)
+        {
+            if (failure.stage == stage)
+            {
+                CHECK(failure.operation == "metadata");
+                count += failure.count;
+            }
+        }
+        return count;
+    };
+    CHECK(count_for(after, "metadata_read")
+        == count_for(before, "metadata_read") + 1);
+
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
 TEST_CASE("control requests obey one absolute deadline",
     "[control][transport][deadline]")
 {
@@ -709,11 +806,15 @@ TEST_CASE("Windows control listener reports an injected recreation failure and r
     std::atomic<bool> startup_reported = false;
     std::jthread listener([&](std::stop_token stop_token) {
         transport->run(stop_token,
-            [](std::optional<std::string>) { return std::string("response"); },
+            [](std::optional<std::string>) {
+                return ServerFrameResponse{
+                    .bytes = "response",
+                };
+            },
             [&](std::string result) {
                 if (!startup_reported.exchange(true))
                     startup_promise.set_value(std::move(result));
-            });
+            }, {});
     });
 
     REQUIRE(startup.wait_for(std::chrono::seconds(2))

@@ -178,10 +178,39 @@ TEST_CASE("server protocol round-trips hello welcome and status", "[server][prot
                 .last_checkpoint_unix_ms = 456,
             },
         },
+        .control_transport = {
+            .listener_capacity = 4,
+            .accepted_connections = 8,
+            .active_connections = 1,
+            .peak_connections = 3,
+            .requests = 7,
+            .failed_requests = 1,
+            .invalid_frames = 2,
+            .methods = {
+                {
+                    .method = "session.poll",
+                    .requests = 7,
+                    .failures = 1,
+                    .queue_time = { 7, 70, 20 },
+                    .dispatch_time = { 7, 140, 40 },
+                    .response_time = { 7, 210, 60 },
+                },
+            },
+            .transport_failures = {
+                { "read", "read_prefix", "win32", "io_error", 109, 2 },
+            },
+        },
     };
     const auto decoded_status = server_status_from_json(
         server_status_to_json(status), error);
     REQUIRE(decoded_status == status);
+
+    auto legacy_status = server_status_to_json(status);
+    legacy_status.erase("control_transport");
+    auto expected_legacy_status = status;
+    expected_legacy_status.control_transport = {};
+    REQUIRE(server_status_from_json(legacy_status, error)
+        == expected_legacy_status);
 }
 
 TEST_CASE("server protocol rejects malformed identity and capabilities", "[server][protocol]")
@@ -273,6 +302,30 @@ TEST_CASE("server protocol rejects narrowing overflow and hostile status values"
             { "spaces", 0 },
             { "terminals", 0 },
             { "live_terminals", 0 },
+        });
+    }
+    CHECK_FALSE(server_status_from_json(encoded, error));
+
+    encoded = server_status_to_json(status);
+    encoded["control_transport"]["active_connections"] = 2;
+    encoded["control_transport"]["peak_connections"] = 1;
+    CHECK_FALSE(server_status_from_json(encoded, error));
+
+    encoded = server_status_to_json(status);
+    encoded["control_transport"]["methods"]
+        = nlohmann::json::array();
+    for (size_t index = 0; index < 65; ++index)
+    {
+        encoded["control_transport"]["methods"].push_back({
+            { "method", "method-" + std::to_string(index) },
+            { "requests", 1 },
+            { "failures", 0 },
+            { "queue_time", {
+                  { "samples", 1 }, { "total_us", 1 }, { "max_us", 1 } } },
+            { "dispatch_time", {
+                  { "samples", 1 }, { "total_us", 1 }, { "max_us", 1 } } },
+            { "response_time", {
+                  { "samples", 1 }, { "total_us", 1 }, { "max_us", 1 } } },
         });
     }
     CHECK_FALSE(server_status_from_json(encoded, error));

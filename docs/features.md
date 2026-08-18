@@ -183,6 +183,12 @@ filename drift and dynamic-loader or ABI failures are caught on both platforms.
 - `draxul --server` runs the renderer-free per-user server, while
   `--server-status` and `--shutdown-server --yes` inspect or stop it.
   `--server-runtime-dir <path>` isolates an endpoint for testing.
+- `--server-status --json` includes bounded control-transport diagnostics:
+  accepted/current/peak listener occupancy, request and failure counts, per-method
+  queue/dispatch/response timing, and failures grouped by operation, transport
+  stage, native error domain/code, and compatibility classification. These are
+  physical connection/request measurements and are separate from the logical
+  client leases reported by `connected_clients`.
 - An ordinary `draxul` launch discovers or starts the singleton, opens the default
   shared shell Session, and reconnects to the same server-owned Spaces, panes,
   terminals, and agents after the UI closes. Shells have no client-owned fallback.

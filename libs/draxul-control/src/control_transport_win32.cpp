@@ -394,7 +394,8 @@ public:
 
     void run(std::stop_token stop_token,
         const ServerFrameHandler& handle_frame,
-        const StartupReporter& report_startup) override
+        const StartupReporter& report_startup,
+        const ServerTransportObserver& observer) override
     {
         PSECURITY_DESCRIPTOR descriptor = nullptr;
         std::string descriptor_error;
@@ -432,7 +433,7 @@ public:
         report_startup({});
 
         auto serve_connections
-            = [this, &attributes, &pipe_name, &handle_frame](
+            = [this, &attributes, &pipe_name, &handle_frame, &observer](
                   std::stop_token shared_stop, HANDLE first_pipe,
                   bool keep_first_instance) {
                   HANDLE pipe = first_pipe;
@@ -535,6 +536,8 @@ public:
                       CloseHandle(connect.hEvent);
                       if (connected && !shared_stop.stop_requested())
                       {
+                          if (observer.connection_opened)
+                              observer.connection_opened();
                           std::string bytes;
                           const auto read_status = read_control_frame(
                               [pipe](void* data, size_t size,
@@ -543,20 +546,38 @@ public:
                                       pipe, data, size, stage);
                               },
                               bytes);
+                          if (!read_status.ok && observer.transport_failed)
+                              observer.transport_failed(read_status.error);
                           const std::optional<std::string> request
                               = read_status.ok
                               ? std::optional<std::string>(std::move(bytes))
                               : std::nullopt;
-                          const std::string response = handle_frame(request);
-                          write_control_frame(
+                          const auto response = handle_frame(request);
+                          const auto write_status = write_control_frame(
                               [pipe](const void* data, size_t size,
                                   TransportStage stage) {
                                   return server_write_exact(
                                       pipe, data, size, stage);
                               },
-                              response);
+                              response.bytes);
+                          if (!write_status.ok && observer.transport_failed)
+                              observer.transport_failed(write_status.error);
                           FlushFileBuffers(pipe);
+                          if (!response.method.empty()
+                              && observer.response_completed)
+                          {
+                              observer.response_completed(response.method,
+                                  response.failed,
+                                  static_cast<uint64_t>(std::max<int64_t>(0,
+                                      std::chrono::duration_cast<
+                                          std::chrono::microseconds>(
+                                          std::chrono::steady_clock::now()
+                                          - response.started_at)
+                                          .count())));
+                          }
                           DisconnectNamedPipe(pipe);
+                          if (observer.connection_closed)
+                              observer.connection_closed();
                       }
                       CancelIoEx(pipe, nullptr);
                       if (!keep_first_instance)

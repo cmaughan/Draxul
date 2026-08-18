@@ -288,7 +288,8 @@ public:
 
     void run(std::stop_token stop_token,
         const ServerFrameHandler& handle_frame,
-        const StartupReporter& report_startup) override
+        const StartupReporter& report_startup,
+        const ServerTransportObserver& observer) override
     {
         const int server = ::socket(AF_UNIX, SOCK_STREAM, 0);
         if (server < 0)
@@ -355,16 +356,41 @@ public:
         ::fcntl(server, F_SETFL, flags | O_NONBLOCK);
 
         auto serve_connections
-            = [this, server, &handle_frame](std::stop_token shared_stop) {
+            = [this, server, &handle_frame, &observer](
+                  std::stop_token shared_stop) {
                   while (!shared_stop.stop_requested())
                   {
                       pollfd descriptor{ server, POLLIN, 0 };
                       const int ready = ::poll(&descriptor, 1, 100);
-                      if (ready <= 0)
+                      if (ready < 0)
+                      {
+                          if (errno != EINTR && observer.transport_failed)
+                          {
+                              observer.transport_failed(posix_error(
+                                  TransportStage::ListenerWait, errno,
+                                  FailureClass::IoError,
+                                  "Control listener wait failed."));
+                          }
+                          continue;
+                      }
+                      if (ready == 0)
                           continue;
                       const int client = ::accept(server, nullptr, nullptr);
                       if (client < 0)
+                      {
+                          if (errno != EAGAIN && errno != EWOULDBLOCK
+                              && errno != EINTR
+                              && observer.transport_failed)
+                          {
+                              observer.transport_failed(posix_error(
+                                  TransportStage::Accept, errno,
+                                  FailureClass::IoError,
+                                  "Control listener accept failed."));
+                          }
                           continue;
+                      }
+                      if (observer.connection_opened)
+                          observer.connection_opened();
                       set_close_on_exec(client);
                       suppress_sigpipe(client);
                       const int client_flags = ::fcntl(client, F_GETFL, 0);
@@ -390,19 +416,37 @@ public:
                                   client, data, size, stage);
                           },
                           bytes);
+                      if (!read_status.ok && observer.transport_failed)
+                          observer.transport_failed(read_status.error);
                       const std::optional<std::string> request
                           = read_status.ok
                           ? std::optional<std::string>(std::move(bytes))
                           : std::nullopt;
-                      const std::string response = handle_frame(request);
-                      write_control_frame(
+                      const auto response = handle_frame(request);
+                      const auto write_status = write_control_frame(
                           [client](const void* data, size_t size,
                               TransportStage stage) {
                               return server_write_exact(
                                   client, data, size, stage);
                           },
-                          response);
+                          response.bytes);
+                      if (!write_status.ok && observer.transport_failed)
+                          observer.transport_failed(write_status.error);
+                      if (!response.method.empty()
+                          && observer.response_completed)
+                      {
+                          observer.response_completed(response.method,
+                              response.failed,
+                              static_cast<uint64_t>(std::max<int64_t>(0,
+                                  std::chrono::duration_cast<
+                                      std::chrono::microseconds>(
+                                      std::chrono::steady_clock::now()
+                                      - response.started_at)
+                                      .count())));
+                      }
                       ::close(client);
+                      if (observer.connection_closed)
+                          observer.connection_closed();
                   }
               };
 
