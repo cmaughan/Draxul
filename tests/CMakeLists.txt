@@ -260,6 +260,7 @@ target_link_libraries(draxul-test-core PRIVATE
     draxul-render-test
     draxul-host
     draxul-nanovg
+    draxul-control-test-internals
     draxul-renderer-test-internals
     Draxul::PluginSupport::CameraInput
 )

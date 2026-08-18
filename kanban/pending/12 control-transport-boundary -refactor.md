@@ -24,45 +24,59 @@ needed before a persistent endpoint; that endpoint also waits for the server own
 
 ## Boundary verification
 
-- [ ] Inventory every Win32/POSIX helper, deadline, metadata/cache, framing, listener, and client responsibility.
-- [ ] Record behavioral differences between the two server run loops before moving code.
-- [ ] Pin public `control_plane.h` API and security/shutdown invariants.
-- [ ] Split CLI/App cases from transport cases in the test inventory.
+- [x] Inventory every Win32/POSIX helper, deadline, metadata/cache, framing, listener, and client responsibility.
+- [x] Record behavioral differences between the two server run loops before moving code.
+- [x] Pin public `control_plane.h` API and security/shutdown invariants.
+- [x] Split CLI/App cases from transport cases in the test inventory.
 
 ## Implementation and migration
 
-- [ ] Extract common codec/deadline helpers without behavior change.
-- [ ] Preserve the failing transport stage and native platform error in an internal
+- [x] Extract common codec/deadline helpers without behavior change.
+- [x] Preserve the failing transport stage and native platform error in an internal
       typed result; keep the current public result mapping unchanged in this card.
-- [ ] Extract metadata/cache helpers.
-- [ ] Add private platform-selected Win32 and POSIX transport sources.
-- [ ] Move client exchange branches, then listener loops.
-- [ ] Consolidate common loops only where recorded behavior is identical.
-- [ ] Add `draxul-control-test-internals`.
+- [x] Extract metadata/cache helpers.
+- [x] Add private platform-selected Win32 and POSIX transport sources.
+- [x] Move client exchange branches, then listener loops.
+- [x] Consolidate common loops only where recorded behavior is identical.
+- [x] Add `draxul-control-test-internals`.
 
 ## Unit tests
 
 - [ ] Test frame limits, malformed JSON, depth, absolute deadlines, and partial I/O without live sockets.
+  Frame/JSON/deadline and staged-error coverage is complete; deterministic syscall-level
+  partial-read/write injection still needs a narrower byte-stream seam.
 - [ ] Test stale metadata, concurrent ownership, stop-pending, and listener recovery.
-- [ ] Build `draxul-control` and the owning core test target; run the focused CTest selection.
+  The first three are covered; deterministic listener failure/recovery injection remains.
+- [x] Build `draxul-control` and the owning core test target; run the focused CTest selection.
 
 ## Cross-platform validation
 
-- [ ] Windows: ACLs, named-pipe ownership, overlapped cancellation, and abandonment.
+- [x] Windows: ACLs, named-pipe ownership, overlapped cancellation, and abandonment.
 - [ ] macOS: locks, socket ownership, accepted-fd blocking mode, `EINTR`, and shutdown.
-- [ ] Compare timeout/error/reconnect behavior across platforms.
+- [x] Compare timeout/error/reconnect behavior across platforms in the extracted implementation; confirm the POSIX suite on macOS CI.
 
 ## Agent documentation/tooling
 
-- [ ] Add a local dependency/transport contract comment.
-- [ ] Update `docs/module-map.md` without exposing backend types.
+- [x] Add a local dependency/transport contract comment.
+- [x] Update `docs/module-map.md` without exposing backend types.
 
 ## Acceptance criteria
 
-- [ ] Public API and callers are unchanged.
-- [ ] Platform code is absent from common transport sources.
-- [ ] Common framing, deadline, cancellation, and error contracts can be reused by
+- [x] Public API and callers are unchanged.
+- [x] Platform code is absent from common transport sources.
+- [x] Common framing, deadline, cancellation, and error contracts can be reused by
       card 40 without exposing platform backend types publicly.
-- [ ] No long-lived request consumes a synchronous control listener worker.
-- [ ] Focused transport tests no longer require `draxul-app`.
+- [x] No long-lived request consumes a synchronous control listener worker.
+- [x] Focused transport tests no longer require `draxul-app`.
 - [ ] Both platform suites and smoke remain green.
+
+## Implementation status — 2026-08-17
+
+The common facade is now separated from the codec, deadline, metadata/cache, and
+platform transport implementations. The public header and public error mapping
+remain unchanged. Windows focused transport coverage is green, including current-user
+security and the four-listener starvation case. The extraction also fixes two
+ownership/cancellation hazards found during the inventory: a POSIX incumbent that
+abandons its endpoint can no longer unlink a successor socket during shutdown, and a
+pending Win32 `ConnectNamedPipe` is cancelled and drained before its `OVERLAPPED`
+storage is released. The card remains pending only for macOS CI and final smoke proof.
