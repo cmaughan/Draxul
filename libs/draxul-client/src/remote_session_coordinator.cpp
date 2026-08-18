@@ -82,6 +82,7 @@ struct CoordinatorCommand
         TakeControl,
         Scroll,
         ScrollToLive,
+        RefreshScrollback,
     };
 
     Kind kind = Kind::Input;
@@ -89,9 +90,12 @@ struct CoordinatorCommand
     int cols = 0;
     int rows = 0;
     int scroll_rows = 0;
+    uint64_t scroll_offset = 0;
+    bool scroll_refresh = false;
     uint64_t request_id = 0;
     bool attempted = false;
     bool mergeable = true;
+    bool short_control_only = false;
 };
 
 } // namespace
@@ -449,14 +453,288 @@ public:
             return running_ && !stopping_;
         }
 
-        bool process_batch_commands()
+        struct PreparedStreamCommand
+        {
+            CoordinatorCommand command;
+            std::string method;
+            nlohmann::json params;
+        };
+
+        std::optional<PreparedStreamCommand>
+        take_stream_command()
+        {
+            for (;;)
+            {
+                CoordinatorCommand command;
+                {
+                    std::lock_guard guard(mutex_);
+                    if (stream_command_in_flight_
+                        || commands_.empty()
+                        || commands_.front().short_control_only)
+                        return std::nullopt;
+                    command = std::move(commands_.front());
+                    commands_.pop_front();
+                    stream_command_in_flight_ = true;
+                }
+                command.attempted = true;
+                if (command.kind
+                    == CoordinatorCommand::Kind::ScrollToLive)
+                {
+                    scroll_offset_ = 0;
+                    scrollback_page_.reset();
+                    {
+                        std::lock_guard guard(mutex_);
+                        stream_command_in_flight_ = false;
+                    }
+                    publish_projection();
+                    continue;
+                }
+
+                nlohmann::json params{
+                    { "terminal_id", terminal_id_ },
+                };
+                std::string operation;
+                switch (command.kind)
+                {
+                case CoordinatorCommand::Kind::Input:
+                    operation = "input";
+                    params["text"] = command.text;
+                    params["request_id"] = command.request_id;
+                    break;
+                case CoordinatorCommand::Kind::Resize:
+                    operation = "resize";
+                    params["cols"] = command.cols;
+                    params["rows"] = command.rows;
+                    params["request_id"] = command.request_id;
+                    break;
+                case CoordinatorCommand::Kind::TakeControl:
+                    operation = "take_control";
+                    params["request_id"] = command.request_id;
+                    break;
+                case CoordinatorCommand::Kind::Scroll:
+                {
+                    if (command.scroll_rows == 0)
+                    {
+                        std::lock_guard guard(mutex_);
+                        stream_command_in_flight_ = false;
+                        continue;
+                    }
+                    const int64_t requested = std::max<int64_t>(0,
+                        static_cast<int64_t>(scroll_offset_)
+                            + command.scroll_rows);
+                    if (requested == 0)
+                    {
+                        scroll_offset_ = 0;
+                        scrollback_page_.reset();
+                        {
+                            std::lock_guard guard(mutex_);
+                            stream_command_in_flight_ = false;
+                        }
+                        publish_projection();
+                        continue;
+                    }
+                    command.scroll_offset
+                        = static_cast<uint64_t>(requested);
+                    operation = "scrollback";
+                    const auto& version
+                        = client_->projection().version();
+                    const auto& snapshot
+                        = client_->projection().snapshot();
+                    params["server_epoch"] = version.server_epoch;
+                    params["generation"] = version.generation;
+                    params["after_sequence"] = version.sequence;
+                    params["offset_from_live"]
+                        = command.scroll_offset;
+                    params["max_rows"] = std::min<size_t>(
+                        static_cast<size_t>(std::max(1, snapshot.rows)),
+                        kRemoteTerminalMaxScrollbackPageRows);
+                    break;
+                }
+                case CoordinatorCommand::Kind::RefreshScrollback:
+                    operation = "scrollback";
+                    command.scroll_offset = scroll_offset_;
+                    command.scroll_refresh = true;
+                    {
+                        const auto& version
+                            = client_->projection().version();
+                        const auto& snapshot
+                            = client_->projection().snapshot();
+                        params["server_epoch"] = version.server_epoch;
+                        params["generation"] = version.generation;
+                        params["after_sequence"] = version.sequence;
+                        params["offset_from_live"]
+                            = command.scroll_offset;
+                        params["max_rows"] = std::min<size_t>(
+                            static_cast<size_t>(
+                                std::max(1, snapshot.rows)),
+                            kRemoteTerminalMaxScrollbackPageRows);
+                    }
+                    break;
+                case CoordinatorCommand::Kind::ScrollToLive:
+                    continue;
+                }
+                return PreparedStreamCommand{
+                    .command = std::move(command),
+                    .method = options_.method_prefix + "." + operation,
+                    .params = std::move(params),
+                };
+            }
+        }
+
+        void requeue_stream_command(CoordinatorCommand command)
+        {
+            {
+                std::lock_guard guard(mutex_);
+                stream_command_in_flight_ = false;
+                commands_.push_front(std::move(command));
+            }
+            command_wake_.notify_one();
+            wake_coordinator();
+        }
+
+        void enqueue_scrollback_refresh()
+        {
+            std::lock_guard guard(mutex_);
+            if (scroll_offset_ == 0 || scroll_refresh_pending_)
+                return;
+            scroll_refresh_pending_ = true;
+            commands_.push_back({
+                .kind = CoordinatorCommand::Kind::RefreshScrollback,
+                .request_id = next_request_id(),
+            });
+            command_wake_.notify_one();
+            wake_coordinator();
+        }
+
+        void accept_stream_command_result(
+            CoordinatorCommand command,
+            const SessionStreamCommandResult& response)
+        {
+            {
+                std::lock_guard guard(mutex_);
+                stream_command_in_flight_ = false;
+            }
+            if (!response.ok)
+            {
+                remember_error_code(response.error_code);
+                if (command.kind
+                    == CoordinatorCommand::Kind::RefreshScrollback)
+                {
+                    std::lock_guard guard(mutex_);
+                    scroll_refresh_pending_ = false;
+                }
+                if (response.error_code == "not_attached"
+                    || is_resynchronizing_client_error(
+                        response.error_code))
+                {
+                    {
+                        std::lock_guard guard(mutex_);
+                        batch_needs_attach_ = true;
+                    }
+                    requeue_stream_command(std::move(command));
+                    return;
+                }
+                if (is_removed_terminal(response.error_code))
+                {
+                    stopping_ = true;
+                    running_ = false;
+                }
+                publish_error_once(response.error_code,
+                    response.error_message);
+                return;
+            }
+
+            if (command.kind == CoordinatorCommand::Kind::Scroll
+                || command.kind
+                    == CoordinatorCommand::Kind::RefreshScrollback)
+            {
+                std::string error;
+                auto page = remote_terminal_scrollback_page_from_json(
+                    response.result, error);
+                const auto& version = client_->projection().version();
+                if (!page
+                    || page->version.server_epoch
+                        != version.server_epoch
+                    || page->version.terminal_id
+                        != version.terminal_id
+                    || page->version.generation != version.generation)
+                {
+                    remember_error_code("invalid_scrollback");
+                    publish_error_once("invalid_scrollback",
+                        error.empty()
+                            ? "Streamed terminal scrollback identity is stale."
+                            : error);
+                    std::lock_guard guard(mutex_);
+                    scroll_refresh_pending_ = false;
+                    return;
+                }
+                uint64_t applied_offset = std::min<uint64_t>(
+                    command.scroll_offset, page->total_rows);
+                if (command.scroll_refresh)
+                {
+                    const uint64_t appended_rows
+                        = page->total_rows > scrollback_total_
+                        ? page->total_rows - scrollback_total_
+                        : 0;
+                    const uint64_t anchored_offset
+                        = std::min<uint64_t>(page->total_rows,
+                            scroll_offset_ + appended_rows);
+                    if (anchored_offset != command.scroll_offset)
+                    {
+                        command.kind = CoordinatorCommand::Kind::Scroll;
+                        command.scroll_rows = 0;
+                        command.scroll_offset = anchored_offset;
+                        command.scroll_refresh = false;
+                        {
+                            std::lock_guard guard(mutex_);
+                            scroll_refresh_pending_ = false;
+                        }
+                        // Fetch the anchored page as a new absolute request.
+                        const int64_t delta = static_cast<int64_t>(
+                                                  anchored_offset)
+                            - static_cast<int64_t>(scroll_offset_);
+                        command.scroll_rows = static_cast<int>(std::clamp(
+                            delta,
+                            static_cast<int64_t>(
+                                std::numeric_limits<int>::min()),
+                            static_cast<int64_t>(
+                                std::numeric_limits<int>::max())));
+                        requeue_stream_command(std::move(command));
+                        return;
+                    }
+                }
+                scrollback_total_ = page->total_rows;
+                scroll_offset_ = applied_offset;
+                scrollback_page_ = std::move(*page);
+                {
+                    std::lock_guard guard(mutex_);
+                    scroll_refresh_pending_ = false;
+                }
+                publish_projection();
+            }
+            note_connected(recovery_channel());
+        }
+
+        bool process_batch_commands(
+            bool short_control_only = false)
         {
             std::deque<CoordinatorCommand> commands;
             {
                 std::lock_guard guard(mutex_);
+                if (short_control_only
+                    && (commands_.empty()
+                        || !commands_.front().short_control_only))
+                {
+                    return false;
+                }
                 for (size_t count = 0;
                     count < 1 && !commands_.empty(); ++count)
                 {
+                    if (short_control_only
+                        && !commands_.front().short_control_only)
+                    {
+                        break;
+                    }
                     commands.push_back(std::move(commands_.front()));
                     commands_.pop_front();
                 }
@@ -497,7 +775,8 @@ public:
         }
 
         bool accept_batch(const SessionTerminalPollBatch& batch,
-            std::chrono::microseconds latency)
+            std::chrono::microseconds latency,
+            bool stream_commands = false)
         {
             if (batch.subscription_id != registration_id_)
                 return false;
@@ -560,6 +839,11 @@ public:
             if (batch.attach || changed)
             {
                 if (changed && scroll_offset_ > 0
+                    && stream_commands)
+                {
+                    enqueue_scrollback_refresh();
+                }
+                else if (changed && scroll_offset_ > 0
                     && !refresh_scrollback_after_output(error))
                 {
                     publish_error_once(client_error_code(), error);
@@ -657,6 +941,14 @@ public:
                 scrollback_page_.reset();
                 publish_projection();
                 return true;
+            case CoordinatorCommand::Kind::RefreshScrollback:
+            {
+                const bool refreshed
+                    = refresh_scrollback_after_output(error);
+                std::lock_guard guard(mutex_);
+                scroll_refresh_pending_ = false;
+                return refreshed;
+            }
             }
             return false;
         }
@@ -1265,11 +1557,42 @@ public:
         std::optional<RemoteTerminalScrollbackPage> scrollback_page_;
         uint64_t scroll_offset_ = 0;
         uint64_t scrollback_total_ = 0;
+        bool scroll_refresh_pending_ = false;
+        bool stream_command_in_flight_ = false;
         std::string pending_error_;
         std::string last_error_code_;
         std::unordered_set<std::string> published_error_keys_;
         uint64_t publication_serial_ = 0;
         bool batch_needs_attach_ = true;
+    };
+
+    struct StreamCommandWaiter
+    {
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool done = false;
+        std::optional<ControlClientResult> result;
+    };
+
+    enum class StreamCommandOwner
+    {
+        Generic,
+        Terminal,
+        Topology,
+    };
+
+    struct QueuedStreamCommand
+    {
+        uint64_t request_id = 0;
+        std::string method;
+        nlohmann::json params = nlohmann::json::object();
+        StreamCommandOwner owner = StreamCommandOwner::Generic;
+        std::weak_ptr<Entry> entry;
+        CoordinatorCommand terminal;
+        std::optional<TopologyCommand> topology;
+        std::shared_ptr<StreamCommandWaiter> waiter;
+        int retry_count = 0;
+        uint64_t send_order = 0;
     };
 
     explicit Impl(RemoteSessionCoordinatorOptions options)
@@ -1314,11 +1637,46 @@ public:
         return true;
     }
 
+    std::optional<ControlClientResult> request_stream_command(
+        std::string method, nlohmann::json params,
+        std::chrono::milliseconds timeout)
+    {
+        if (!stream_commands_active_
+            || transport_mode_ != SessionTransportMode::StreamActive
+            || method.empty()
+            || method.size() > kSessionStreamMaxMethodBytes
+            || !params.is_object()
+            || (!params.contains("request_id")
+                && !params.contains("command_id")))
+        {
+            return std::nullopt;
+        }
+        auto waiter = std::make_shared<StreamCommandWaiter>();
+        QueuedStreamCommand command{
+            .method = std::move(method),
+            .params = std::move(params),
+            .owner = StreamCommandOwner::Generic,
+            .waiter = waiter,
+        };
+        if (!enqueue_stream_command(std::move(command)))
+            return std::nullopt;
+
+        std::unique_lock lock(waiter->mutex);
+        if (!waiter->changed.wait_for(lock, timeout,
+                [&] { return waiter->done; }))
+        {
+            return std::nullopt;
+        }
+        return std::move(waiter->result);
+    }
+
     void stop()
     {
         if (!running_.exchange(false) && stopping_)
             return;
         stopping_ = true;
+        stream_commands_active_ = false;
+        set_topology_stream_dispatcher(false);
         close_stream_connection();
         wake_worker();
         if (session_worker_.joinable())
@@ -1327,6 +1685,7 @@ public:
             session_worker_.join();
         }
         finish_stream_after_worker();
+        abandon_stream_commands(false);
         std::vector<std::shared_ptr<Entry>> entries;
         {
             std::lock_guard guard(mutex_);
@@ -1445,6 +1804,181 @@ public:
     }
 
 private:
+    uint64_t next_stream_command_request_id()
+    {
+        // Shared process-wide allocation prevents a recreated coordinator
+        // from colliding with the server's completed-command replay cache.
+        return next_request_id();
+    }
+
+    bool reserve_stream_command_slot()
+    {
+        size_t count = stream_command_count_.load();
+        while (count < kSessionStreamMaxPendingCommands)
+        {
+            if (stream_command_count_.compare_exchange_weak(
+                    count, count + 1))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void release_stream_command_slot()
+    {
+        size_t count = stream_command_count_.load();
+        while (count != 0
+            && !stream_command_count_.compare_exchange_weak(
+                count, count - 1))
+        {
+        }
+    }
+
+    bool enqueue_stream_command(QueuedStreamCommand command)
+    {
+        if (!stream_commands_active_
+            || transport_mode_ != SessionTransportMode::StreamActive
+            || !reserve_stream_command_slot())
+        {
+            return false;
+        }
+        command.request_id = next_stream_command_request_id();
+        {
+            std::lock_guard guard(worker_mutex_);
+            if (!stream_commands_active_
+                || transport_mode_
+                    != SessionTransportMode::StreamActive)
+            {
+                release_stream_command_slot();
+                return false;
+            }
+            outgoing_stream_commands_.push_back(
+                std::move(command));
+            worker_pending_ = true;
+        }
+        worker_wake_.notify_one();
+        return true;
+    }
+
+    bool enqueue_topology_stream_command(
+        TopologyCommand command)
+    {
+        if (command.client_id.empty())
+            command.client_id = options_.client_id;
+        if (options_.session_client)
+        {
+            command.expected_revision = options_.session_client
+                                            ->session_poll_revisions()
+                                            .topology;
+        }
+        return enqueue_stream_command({
+            .method = "topology.command",
+            .params = topology_command_to_json(command),
+            .owner = StreamCommandOwner::Topology,
+            .topology = std::move(command),
+        });
+    }
+
+    void set_topology_stream_dispatcher(bool enabled)
+    {
+        if (!options_.session_client)
+            return;
+        if (!enabled)
+        {
+            options_.session_client
+                ->set_topology_command_dispatcher({});
+            return;
+        }
+        options_.session_client->set_topology_command_dispatcher(
+            [weak = weak_from_this()](TopologyCommand command) {
+                if (auto owner = weak.lock())
+                {
+                    return owner->enqueue_topology_stream_command(
+                        std::move(command));
+                }
+                return false;
+            });
+    }
+
+    static void complete_stream_waiter(
+        const std::shared_ptr<StreamCommandWaiter>& waiter,
+        std::optional<ControlClientResult> result)
+    {
+        if (!waiter)
+            return;
+        {
+            std::lock_guard guard(waiter->mutex);
+            if (waiter->done)
+                return;
+            waiter->done = true;
+            waiter->result = std::move(result);
+        }
+        waiter->changed.notify_all();
+    }
+
+    void abandon_stream_commands(bool retry_on_short_control)
+    {
+        std::deque<QueuedStreamCommand> commands;
+        std::vector<QueuedStreamCommand> sent;
+        sent.reserve(pending_stream_commands_.size()
+            + deferred_topology_commands_.size());
+        for (uint64_t request_id : pending_stream_command_order_)
+        {
+            const auto found
+                = pending_stream_commands_.find(request_id);
+            if (found != pending_stream_commands_.end())
+                sent.push_back(std::move(found->second));
+        }
+        for (auto& command : deferred_topology_commands_)
+            sent.push_back(std::move(command));
+        std::ranges::sort(sent, {},
+            &QueuedStreamCommand::send_order);
+        for (auto& command : sent)
+            commands.push_back(std::move(command));
+        pending_stream_commands_.clear();
+        pending_stream_command_order_.clear();
+        deferred_topology_commands_.clear();
+        {
+            std::lock_guard guard(worker_mutex_);
+            while (!outgoing_stream_commands_.empty())
+            {
+                commands.push_back(std::move(
+                    outgoing_stream_commands_.front()));
+                outgoing_stream_commands_.pop_front();
+            }
+        }
+        stream_command_count_ = 0;
+        for (auto& command : commands)
+        {
+            if (retry_on_short_control
+                && command.owner == StreamCommandOwner::Topology
+                && command.topology && options_.session_client)
+            {
+                options_.session_client->enqueue_control_fallback(
+                    std::move(*command.topology));
+            }
+            else if (command.owner == StreamCommandOwner::Generic)
+            {
+                complete_stream_waiter(command.waiter, std::nullopt);
+            }
+        }
+        if (retry_on_short_control)
+        {
+            for (auto it = commands.rbegin();
+                it != commands.rend(); ++it)
+            {
+                if (it->owner != StreamCommandOwner::Terminal)
+                    continue;
+                if (auto entry = it->entry.lock())
+                {
+                    entry->requeue_stream_command(
+                        std::move(it->terminal));
+                }
+            }
+        }
+    }
+
     std::vector<std::shared_ptr<Entry>> entries_snapshot() const
     {
         std::vector<std::shared_ptr<Entry>> result;
@@ -1502,7 +2036,8 @@ private:
         const std::vector<std::shared_ptr<Entry>>& entries,
         std::chrono::microseconds latency,
         std::string_view recovery_channel,
-        bool commands_processed)
+        bool commands_processed,
+        bool stream_commands = false)
     {
         options_.recovery->note_connected(recovery_channel);
         bool changed = response.more || commands_processed;
@@ -1548,7 +2083,8 @@ private:
                         .subscription_id;
                 });
             if (found != entries.end())
-                changed = (*found)->accept_batch(batch, latency)
+                changed = (*found)->accept_batch(
+                    batch, latency, stream_commands)
                     || changed;
         }
         return changed;
@@ -1804,6 +2340,9 @@ private:
                 stream_reader_main(reader_stop);
             });
         transport_mode_ = SessionTransportMode::StreamActive;
+        stream_commands_active_
+            = options_.session_stream_commands_supported;
+        set_topology_stream_dispatcher(stream_commands_active_);
         return true;
     }
 
@@ -1824,6 +2363,9 @@ private:
     {
         if (stopping_)
             return false;
+        stream_commands_active_ = false;
+        set_topology_stream_dispatcher(false);
+        abandon_stream_commands(true);
         options_.recovery->note_failure("session.stream");
         if (needs_identity_refresh(stream_failure_code_))
             invalidate_stream_cursors_after_epoch_change();
@@ -1889,7 +2431,20 @@ private:
                 stream_failure_message_ = frame->error_message;
                 return false;
             }
-            if (frame->kind == SessionStreamServerFrameKind::Events)
+            if (frame->kind
+                == SessionStreamServerFrameKind::CommandResult)
+            {
+                if (!frame->command_result
+                    || !accept_stream_command_result(
+                        std::move(*frame->command_result)))
+                {
+                    stream_failure_code_ = "invalid_session_stream";
+                    stream_failure_message_
+                        = "The Session stream command response does not match an outstanding request.";
+                    return false;
+                }
+            }
+            else if (frame->kind == SessionStreamServerFrameKind::Events)
             {
                 if (!frame->events || !last_stream_poll_
                     || frame->events->server_epoch
@@ -1906,7 +2461,8 @@ private:
                 }
                 accept_session_response(*frame->events, entries,
                     std::chrono::microseconds::zero(),
-                    "session.stream", false);
+                    "session.stream", false,
+                    stream_commands_active_);
                 last_stream_event_request_serial_
                     = frame->events->request_serial;
                 // Every Events frame is flow-controlled by the server, even
@@ -1929,6 +2485,245 @@ private:
                 : std::move(reader_error.message);
             return false;
         }
+        return true;
+    }
+
+    bool accept_stream_command_result(
+        SessionStreamCommandResult response)
+    {
+        const auto found
+            = pending_stream_commands_.find(response.request_id);
+        if (found == pending_stream_commands_.end())
+            return false;
+        QueuedStreamCommand command = std::move(found->second);
+        pending_stream_commands_.erase(found);
+        std::erase(pending_stream_command_order_, response.request_id);
+        release_stream_command_slot();
+        const bool retry_on_short_control
+            = !response.ok
+            && (response.error_code == "command_result_too_large"
+                || response.error_code
+                    == "unsupported_stream_command"
+                || response.error_code == "command_unavailable");
+        if (retry_on_short_control)
+        {
+            if (command.owner == StreamCommandOwner::Terminal)
+            {
+                command.terminal.short_control_only = true;
+                if (auto entry = command.entry.lock())
+                {
+                    entry->requeue_stream_command(
+                        std::move(command.terminal));
+                }
+            }
+            else if (command.owner == StreamCommandOwner::Topology
+                && command.topology && options_.session_client)
+            {
+                options_.session_client->enqueue_control_fallback(
+                    std::move(*command.topology));
+            }
+            else if (command.owner == StreamCommandOwner::Generic)
+            {
+                complete_stream_waiter(command.waiter, std::nullopt);
+            }
+            return true;
+        }
+        if (command.owner == StreamCommandOwner::Topology
+            && command.topology && !response.ok
+            && response.error_code == "revision_conflict"
+            && command.retry_count == 0)
+        {
+            ++command.retry_count;
+            deferred_topology_commands_.push_back(
+                std::move(command));
+            return true;
+        }
+        ControlClientResult result{
+            .ok = response.ok,
+            .result = std::move(response.result),
+            .error_code = std::move(response.error_code),
+            .error_message = std::move(response.error_message),
+        };
+        switch (command.owner)
+        {
+        case StreamCommandOwner::Generic:
+            complete_stream_waiter(command.waiter, std::move(result));
+            break;
+        case StreamCommandOwner::Terminal:
+            if (auto entry = command.entry.lock())
+            {
+                SessionStreamCommandResult terminal_result{
+                    .request_id = response.request_id,
+                    .ok = result.ok,
+                    .replayed = response.replayed,
+                    .result = std::move(result.result),
+                    .error_code = std::move(result.error_code),
+                    .error_message = std::move(result.error_message),
+                };
+                entry->accept_stream_command_result(
+                    std::move(command.terminal), terminal_result);
+            }
+            break;
+        case StreamCommandOwner::Topology:
+            if (command.topology && options_.session_client)
+            {
+                options_.session_client
+                    ->accept_stream_topology_command_result(
+                        std::move(*command.topology),
+                        std::move(result));
+            }
+            break;
+        }
+        return true;
+    }
+
+    bool write_queued_stream_command(
+        QueuedStreamCommand command,
+        std::stop_token stop_token)
+    {
+        const uint64_t request_id = command.request_id;
+        command.send_order = next_stream_send_order_++;
+        if (next_stream_send_order_ == 0)
+            next_stream_send_order_ = 1;
+        auto [found, inserted]
+            = pending_stream_commands_.emplace(
+                request_id, std::move(command));
+        if (!inserted)
+            return false;
+        pending_stream_command_order_.push_back(request_id);
+        std::string error;
+        if (!write_stream_frame({
+                .kind = SessionStreamClientFrameKind::Command,
+                .command = SessionStreamCommand{
+                    .request_id = request_id,
+                    .server_epoch
+                    = options_.recovery->server_epoch(),
+                    .method = found->second.method,
+                    .params = found->second.params,
+                },
+            },
+                stop_token, error))
+        {
+            stream_failure_code_ = "io_error";
+            stream_failure_message_ = std::move(error);
+            return false;
+        }
+        return true;
+    }
+
+    bool send_stream_commands(
+        const std::vector<std::shared_ptr<Entry>>& entries,
+        std::stop_token stop_token)
+    {
+        size_t sent = 0;
+        if (!deferred_topology_commands_.empty()
+            && options_.session_client)
+        {
+            const uint64_t revision = options_.session_client
+                                          ->session_poll_revisions()
+                                          .topology;
+            auto& deferred = deferred_topology_commands_.front();
+            if (deferred.topology
+                && revision > deferred.topology->expected_revision
+                && reserve_stream_command_slot())
+            {
+                QueuedStreamCommand command = std::move(deferred);
+                deferred_topology_commands_.pop_front();
+                command.topology->expected_revision = revision;
+                command.params
+                    = topology_command_to_json(*command.topology);
+                command.request_id
+                    = next_stream_command_request_id();
+                if (!write_queued_stream_command(
+                        std::move(command), stop_token))
+                {
+                    return false;
+                }
+                ++sent;
+            }
+        }
+
+        // Reserve half of each write turn for shared-Session commands while
+        // leaving the other half for latency-sensitive terminal input.
+        std::deque<QueuedStreamCommand> external;
+        {
+            std::lock_guard guard(worker_mutex_);
+            external.swap(outgoing_stream_commands_);
+        }
+        const size_t external_budget
+            = std::max<size_t>(1, kCommandsPerPoll / 2);
+        while (!external.empty() && sent < external_budget)
+        {
+            QueuedStreamCommand command
+                = std::move(external.front());
+            external.pop_front();
+            if (!write_queued_stream_command(
+                    std::move(command), stop_token))
+            {
+                std::lock_guard guard(worker_mutex_);
+                while (!external.empty())
+                {
+                    outgoing_stream_commands_.push_front(
+                        std::move(external.back()));
+                    external.pop_back();
+                }
+                return false;
+            }
+            ++sent;
+        }
+        if (!external.empty())
+        {
+            std::lock_guard guard(worker_mutex_);
+            while (!external.empty())
+            {
+                outgoing_stream_commands_.push_front(
+                    std::move(external.back()));
+                external.pop_back();
+            }
+        }
+
+        const size_t entry_count = entries.size();
+        const size_t start = entry_count == 0
+            ? 0
+            : stream_command_rotation_ % entry_count;
+        size_t visited = 0;
+        while (visited < entry_count
+            && sent < kCommandsPerPoll)
+        {
+            const auto& entry
+                = entries[(start + visited) % entry_count];
+            ++visited;
+            auto prepared = entry->take_stream_command();
+            if (!prepared)
+                continue;
+            if (!reserve_stream_command_slot())
+            {
+                entry->requeue_stream_command(
+                    std::move(prepared->command));
+                break;
+            }
+            QueuedStreamCommand command{
+                .request_id = next_stream_command_request_id(),
+                .method = std::move(prepared->method),
+                .params = std::move(prepared->params),
+                .owner = StreamCommandOwner::Terminal,
+                .entry = entry,
+                .terminal = std::move(prepared->command),
+            };
+            if (!write_queued_stream_command(
+                    std::move(command), stop_token))
+            {
+                return false;
+            }
+            ++sent;
+        }
+        if (entry_count != 0)
+        {
+            stream_command_rotation_
+                = (start + std::max<size_t>(1, visited))
+                % entry_count;
+        }
+
         return true;
     }
 
@@ -1990,10 +2785,13 @@ private:
             for (const auto& entry : entries)
             {
                 commands_processed
-                    = entry->process_batch_commands()
+                    = entry->process_batch_commands(
+                        stream_commands_active_)
                     || commands_processed;
             }
             if (!accept_stream_frames(entries)
+                || (stream_commands_active_
+                    && !send_stream_commands(entries, stop_token))
                 || !update_stream(stop_token))
             {
                 fall_back_from_stream();
@@ -2205,6 +3003,15 @@ private:
     std::chrono::steady_clock::time_point stream_last_frame_at_{};
     std::string stream_failure_code_;
     std::string stream_failure_message_;
+    std::atomic<bool> stream_commands_active_ = false;
+    std::atomic<size_t> stream_command_count_ = 0;
+    std::deque<QueuedStreamCommand> outgoing_stream_commands_;
+    std::deque<QueuedStreamCommand> deferred_topology_commands_;
+    std::unordered_map<uint64_t, QueuedStreamCommand>
+        pending_stream_commands_;
+    std::deque<uint64_t> pending_stream_command_order_;
+    size_t stream_command_rotation_ = 0;
+    uint64_t next_stream_send_order_ = 1;
 };
 
 class RemoteSessionCoordinator::Registration::State
@@ -2404,6 +3211,15 @@ RemoteSessionCoordinator::register_terminal(std::string terminal_id)
         return {};
     return Registration(std::make_unique<Registration::State>(
         impl_, id));
+}
+
+std::optional<ControlClientResult>
+RemoteSessionCoordinator::request_stream_command(
+    std::string method, nlohmann::json params,
+    std::chrono::milliseconds timeout)
+{
+    return impl_->request_stream_command(
+        std::move(method), std::move(params), timeout);
 }
 
 void RemoteSessionCoordinator::acknowledge_wake()

@@ -6,7 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <nlohmann/json_fwd.hpp>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 #include <vector>
@@ -19,8 +19,15 @@ inline constexpr size_t kSessionPollMaxTerminalIdBytes = 512;
 inline constexpr size_t kSessionStreamMaxEndpointBytes = 1024;
 inline constexpr size_t kSessionStreamMaxTicketBytes = 256;
 inline constexpr size_t kSessionStreamMaxSessionIdBytes = 512;
+inline constexpr size_t kSessionStreamMaxMethodBytes = 128;
 inline constexpr size_t kSessionStreamMaxFrameBytes = 8 * 1024 * 1024;
 inline constexpr size_t kSessionStreamMinQueueBytes = 256 * 1024;
+inline constexpr size_t kSessionStreamMaxPendingCommands = 256;
+inline constexpr size_t kSessionStreamMaxCompletedCommands = 1024;
+inline constexpr size_t kSessionStreamMaxCompletedCommandBytes
+    = 16 * 1024 * 1024;
+inline constexpr size_t kSessionStreamMinControlReserveBytes = 64 * 1024;
+inline constexpr size_t kSessionStreamMaxControlReserveBytes = 1024 * 1024;
 inline constexpr uint32_t kSessionStreamMinHeartbeatIntervalMs = 100;
 inline constexpr uint32_t kSessionStreamMaxHeartbeatIntervalMs = 60'000;
 inline constexpr uint32_t kSessionStreamDefaultHeartbeatIntervalMs = 1000;
@@ -146,10 +153,36 @@ struct SessionStreamUpdate
     bool operator==(const SessionStreamUpdate&) const = default;
 };
 
+// request_id belongs to the stream envelope and is independent of any
+// method-specific request_id or command_id inside params. It provides
+// correlation and epoch-scoped replay protection across stream reconnects.
+struct SessionStreamCommand
+{
+    uint64_t request_id = 0;
+    std::string server_epoch;
+    std::string method;
+    nlohmann::json params = nlohmann::json::object();
+
+    bool operator==(const SessionStreamCommand&) const = default;
+};
+
+struct SessionStreamCommandResult
+{
+    uint64_t request_id = 0;
+    bool ok = false;
+    bool replayed = false;
+    nlohmann::json result;
+    std::string error_code;
+    std::string error_message;
+
+    bool operator==(const SessionStreamCommandResult&) const = default;
+};
+
 enum class SessionStreamClientFrameKind
 {
     Connect,
     Update,
+    Command,
     Close,
 };
 
@@ -158,6 +191,7 @@ struct SessionStreamClientFrame
     SessionStreamClientFrameKind kind = SessionStreamClientFrameKind::Connect;
     std::optional<SessionStreamConnectRequest> connect;
     std::optional<SessionStreamUpdate> update;
+    std::optional<SessionStreamCommand> command;
 
     bool operator==(const SessionStreamClientFrame&) const = default;
 };
@@ -166,6 +200,7 @@ enum class SessionStreamServerFrameKind
 {
     Events,
     Heartbeat,
+    CommandResult,
     Error,
 };
 
@@ -175,6 +210,7 @@ struct SessionStreamServerFrame
     uint64_t frame_serial = 0;
     std::string server_epoch;
     std::optional<SessionPollResponse> events;
+    std::optional<SessionStreamCommandResult> command_result;
     std::string error_code;
     std::string error_message;
 
@@ -196,6 +232,15 @@ std::optional<SessionStreamOpenRequest> session_stream_open_request_from_json(
 nlohmann::json session_stream_open_response_to_json(
     const SessionStreamOpenResponse& response);
 std::optional<SessionStreamOpenResponse> session_stream_open_response_from_json(
+    const nlohmann::json& value, std::string& error);
+nlohmann::json session_stream_command_to_json(
+    const SessionStreamCommand& command);
+std::optional<SessionStreamCommand> session_stream_command_from_json(
+    const nlohmann::json& value, std::string& error);
+nlohmann::json session_stream_command_result_to_json(
+    const SessionStreamCommandResult& result);
+std::optional<SessionStreamCommandResult>
+session_stream_command_result_from_json(
     const nlohmann::json& value, std::string& error);
 nlohmann::json session_stream_client_frame_to_json(
     const SessionStreamClientFrame& frame);

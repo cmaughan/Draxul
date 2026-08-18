@@ -724,12 +724,31 @@ bool write_stream_update(RawSessionStream& stream,
     return true;
 }
 
+bool write_stream_command(RawSessionStream& stream,
+    SessionStreamCommand command, std::string& error)
+{
+    AsyncFrameStreamError transport_error;
+    const std::string bytes = session_stream_client_frame_to_json({
+        .kind = SessionStreamClientFrameKind::Command,
+        .command = std::move(command),
+    }).dump();
+    if (!stream.connection
+        || !stream.connection->write_frame(
+            bytes, {}, transport_error))
+    {
+        error = transport_error.code + ": " + transport_error.message;
+        return false;
+    }
+    return true;
+}
+
 bool read_stream_frame(RawSessionStream& stream,
     SessionStreamService& service,
     const SessionStreamService::Poll& poll,
     SessionStreamServerFrame& frame,
     std::chrono::milliseconds timeout,
-    std::string& error)
+    std::string& error,
+    const SessionStreamService::Dispatch& dispatch = {})
 {
     struct ReadResult
     {
@@ -750,7 +769,7 @@ bool read_stream_frame(RawSessionStream& stream,
             != std::future_status::ready
         && std::chrono::steady_clock::now() < deadline)
     {
-        service.pump(poll);
+        service.pump(poll, {}, dispatch);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     if (pending.wait_for(std::chrono::milliseconds::zero())
@@ -795,7 +814,8 @@ bool read_stream_events(RawSessionStream& stream,
     const SessionStreamService::Poll& poll,
     SessionStreamServerFrame& frame,
     std::chrono::milliseconds timeout,
-    std::string& error)
+    std::string& error,
+    const SessionStreamService::Dispatch& dispatch = {})
 {
     const auto deadline
         = std::chrono::steady_clock::now() + timeout;
@@ -806,7 +826,7 @@ bool read_stream_events(RawSessionStream& stream,
                 deadline - std::chrono::steady_clock::now());
         if (!read_stream_frame(stream, service, poll, frame,
                 std::max(remaining, std::chrono::milliseconds(1)),
-                error))
+                error, dispatch))
         {
             return false;
         }
@@ -819,6 +839,48 @@ bool read_stream_events(RawSessionStream& stream,
         }
     }
     error = "Timed out waiting for Session stream Events.";
+    return false;
+}
+
+bool read_stream_command_result(RawSessionStream& stream,
+    SessionStreamService& service,
+    const SessionStreamService::Poll& poll,
+    const SessionStreamService::Dispatch& dispatch,
+    SessionStreamCommandResult& result,
+    std::chrono::milliseconds timeout,
+    std::string& error)
+{
+    const auto deadline
+        = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        SessionStreamServerFrame frame;
+        const auto remaining
+            = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now());
+        if (!read_stream_frame(stream, service, poll, frame,
+                std::max(remaining, std::chrono::milliseconds(1)),
+                error, dispatch))
+        {
+            return false;
+        }
+        if (frame.kind == SessionStreamServerFrameKind::CommandResult)
+        {
+            if (!frame.command_result)
+            {
+                error = "Session stream command result was missing.";
+                return false;
+            }
+            result = std::move(*frame.command_result);
+            return true;
+        }
+        if (frame.kind == SessionStreamServerFrameKind::Error)
+        {
+            error = frame.error_code + ": " + frame.error_message;
+            return false;
+        }
+    }
+    error = "Timed out waiting for a Session stream command result.";
     return false;
 }
 
@@ -1196,6 +1258,24 @@ nlohmann::json run_stream_load_scenario(
                   session_poll_request_to_json(request), client_id,
                   topology, agents, terminal_views, payload_budget);
           };
+    size_t stream_command_dispatches = 0;
+    const SessionStreamService::Dispatch stream_dispatch
+        = [&](std::string_view session_id,
+              std::string_view client_id,
+              const SessionStreamCommand& command) {
+              ++stream_command_dispatches;
+              if (session_id != "default"
+                  || client_id.empty()
+                  || command.method != "test.priority")
+              {
+                  return ControlMethodResult::error(
+                      "invalid_command",
+                      "Unexpected stream load command.");
+              }
+              return ControlMethodResult::success({
+                  { "accepted_request_id", command.request_id },
+              });
+          };
     std::map<std::string, size_t> handled_methods;
     const ControlServer::Handler control_handler
         = [&](const ControlRequest& request) {
@@ -1340,6 +1420,8 @@ nlohmann::json run_stream_load_scenario(
     }
 
     bool stalled_reader_disconnected = false;
+    bool command_priority_verified = false;
+    bool control_reserve_observed = false;
     size_t backpressure_rounds = 0;
     if (exercise_stalled_reader)
     {
@@ -1386,7 +1468,88 @@ nlohmann::json run_stream_load_scenario(
                 healthy.ui, panes, *frame.events, error,
                 "stream-epoch"));
             healthy_frame_pending = false;
-            stream_service.pump(stream_poll);
+            stream_service.pump(
+                stream_poll, {}, stream_dispatch);
+            if (!command_priority_verified
+                && stream_service.stats().queued_event_bytes > 0)
+            {
+                const SessionStreamCommand priority_command{
+                    .request_id = 9001,
+                    .server_epoch = "stream-epoch",
+                    .method = "test.priority",
+                    .params = {
+                        { "source", "stalled-reader" },
+                    },
+                };
+                REQUIRE(write_stream_command(
+                    stalled, priority_command, error));
+                const auto control_deadline
+                    = std::chrono::steady_clock::now()
+                    + std::chrono::seconds(2);
+                while (stream_service.stats().queued_control_bytes == 0
+                    && std::chrono::steady_clock::now()
+                        < control_deadline)
+                {
+                    stream_service.pump(
+                        stream_poll, {}, stream_dispatch);
+                    std::this_thread::sleep_for(
+                        std::chrono::milliseconds(1));
+                }
+                const auto reserved = stream_service.stats();
+                control_reserve_observed
+                    = reserved.queued_control_bytes > 0
+                    && reserved.queued_event_bytes > 0
+                    && reserved.control_reserve_bytes
+                        >= kSessionStreamMinControlReserveBytes;
+                REQUIRE(control_reserve_observed);
+
+                SessionStreamServerFrame queued;
+                bool saw_blocking_event = false;
+                bool saw_command_result = false;
+                // The OS pipe may already contain every Events frame written
+                // before the server-side writer became blocked. Drain that
+                // bounded pre-existing backlog; priority applies to frames
+                // still queued at the writer, not bytes already handed to the
+                // platform transport.
+                const size_t drain_limit = backpressure_rounds + 8;
+                for (size_t attempt = 0; attempt < drain_limit; ++attempt)
+                {
+                    REQUIRE(read_stream_frame(stalled,
+                        stream_service, stream_poll, queued,
+                        std::chrono::seconds(4), error,
+                        stream_dispatch));
+                    if (queued.kind
+                        == SessionStreamServerFrameKind::Events)
+                    {
+                        saw_blocking_event = true;
+                        continue;
+                    }
+                    if (queued.kind
+                        == SessionStreamServerFrameKind::Heartbeat)
+                    {
+                        continue;
+                    }
+                    if (queued.kind
+                        == SessionStreamServerFrameKind::CommandResult)
+                    {
+                        saw_command_result = true;
+                        break;
+                    }
+                    FAIL("Unexpected frame while draining the stalled stream.");
+                }
+                REQUIRE(saw_blocking_event);
+                REQUIRE(saw_command_result);
+                REQUIRE(queued.command_result);
+                REQUIRE(queued.command_result->request_id == 9001);
+                REQUIRE(queued.command_result->ok);
+                // The near-1 MiB Events frame is already in flight when the
+                // response enters the reserved control budget; one physical
+                // write cannot be preempted. Receiving the result without a
+                // disconnect proves that bulk occupancy did not consume the
+                // reserved command capacity. The smaller visible fixture
+                // above separately pins control-before-queued-Events order.
+                command_priority_verified = true;
+            }
         }
         const auto disconnect_deadline
             = std::chrono::steady_clock::now()
@@ -1402,6 +1565,9 @@ nlohmann::json run_stream_load_scenario(
         stalled_reader_disconnected
             = stream_service.connection_count() == 1;
         REQUIRE(stalled_reader_disconnected);
+        REQUIRE(command_priority_verified);
+        REQUIRE(control_reserve_observed);
+        REQUIRE(stream_command_dispatches == 1);
         REQUIRE(healthy.connection->connected());
         if (healthy_frame_pending)
         {
@@ -1468,7 +1634,7 @@ nlohmann::json run_stream_load_scenario(
         { "panes", scenario.panes },
         { "attached_uis", scenario.attached_uis },
         { "rounds", kStreamLoadRounds },
-        { "capability", "session-stream-v1" },
+        { "capability", "session-stream-commands-v1" },
         { "stream_open_requests",
             handled_methods["session.stream.open"] },
         { "steady_stream_connections",
@@ -1488,6 +1654,8 @@ nlohmann::json run_stream_load_scenario(
         { "stalled_reader_exercised", exercise_stalled_reader },
         { "stalled_reader_disconnected",
             stalled_reader_disconnected },
+        { "command_priority_verified", command_priority_verified },
+        { "control_reserve_observed", control_reserve_observed },
         { "backpressure_rounds", backpressure_rounds },
         { "final_projection_convergence", true },
     };
@@ -1588,6 +1756,45 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
                   topology, agents, terminal_views, payload_budget);
           };
 
+    size_t dispatched_commands = 0;
+    const SessionStreamService::Dispatch stream_dispatch
+        = [&](std::string_view session_id,
+              std::string_view client_id,
+              const SessionStreamCommand& command) {
+              if (session_id != "default"
+                  || client_id != "stream-ui")
+              {
+                  return ControlMethodResult::error(
+                      "invalid_binding",
+                      "The Session command binding changed.");
+              }
+              ++dispatched_commands;
+              if (command.method == "topology.command")
+              {
+                  ++topology.revision;
+                  ++agents.revision;
+                  return ControlMethodResult::success({
+                      { "topology_revision", topology.revision },
+                      { "agent_revision", agents.revision },
+                  });
+              }
+              const auto pane = std::ranges::find_if(panes,
+                  [&](const PaneFixture& candidate) {
+                      return command.method
+                          == candidate.method_prefix + ".input";
+                  });
+              if (pane == panes.end())
+              {
+                  return ControlMethodResult::error(
+                      "unknown_method",
+                      "Unexpected Session stream command.");
+              }
+              nlohmann::json params = command.params;
+              params["client_id"] = client_id;
+              return pane->service->handle(
+                  command.method, params);
+          };
+
     std::map<std::string, size_t> control_requests;
     const ControlServer::Handler control_handler
         = [&](const ControlRequest& request) {
@@ -1641,6 +1848,120 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
     REQUIRE(stream.ui.agent_revision == agents.revision);
 
     std::vector<uint64_t> expected_sequences;
+    expected_sequences.reserve(panes.size());
+    for (const auto& pane : panes)
+    {
+        expected_sequences.push_back(
+            pane.client->projection().version().sequence + 1);
+    }
+    const auto terminal_command
+        = [](uint64_t request_id, const PaneFixture& pane,
+              std::string text) {
+              return SessionStreamCommand{
+                  .request_id = request_id,
+                  .server_epoch = "stream-epoch",
+                  .method = pane.method_prefix + ".input",
+                  .params = {
+                      { "request_id", request_id + 10'000 },
+                      { "text", std::move(text) },
+                  },
+              };
+          };
+    const SessionStreamCommand first_command = terminal_command(
+        101, panes[0], "command-terminal-zero");
+    const SessionStreamCommand second_command = terminal_command(
+        102, panes[1], "command-terminal-one");
+    REQUIRE(write_stream_command(stream, first_command, error));
+    REQUIRE(write_stream_command(stream, second_command, error));
+    std::map<uint64_t, SessionStreamCommandResult> command_results;
+    for (int index = 0; index < 2; ++index)
+    {
+        SessionStreamCommandResult result;
+        REQUIRE(read_stream_command_result(stream, stream_service,
+            stream_poll, stream_dispatch, result,
+            std::chrono::seconds(3), error));
+        command_results.emplace(result.request_id, std::move(result));
+    }
+    REQUIRE(command_results.size() == 2);
+    REQUIRE(command_results.at(101).ok);
+    REQUIRE(command_results.at(102).ok);
+    CHECK_FALSE(command_results.at(101).replayed);
+    CHECK_FALSE(command_results.at(102).replayed);
+
+    REQUIRE(write_stream_command(stream, first_command, error));
+    SessionStreamCommandResult replay;
+    REQUIRE(read_stream_command_result(stream, stream_service,
+        stream_poll, stream_dispatch, replay,
+        std::chrono::seconds(3), error));
+    REQUIRE(replay.request_id == 101);
+    REQUIRE(replay.ok);
+    REQUIRE(replay.replayed);
+    CHECK(dispatched_commands == 2);
+
+    SessionStreamCommand conflict = first_command;
+    conflict.params["text"] = "conflicting-payload";
+    REQUIRE(write_stream_command(stream, conflict, error));
+    SessionStreamCommandResult rejected;
+    REQUIRE(read_stream_command_result(stream, stream_service,
+        stream_poll, stream_dispatch, rejected,
+        std::chrono::seconds(3), error));
+    REQUIRE(rejected.request_id == 101);
+    CHECK_FALSE(rejected.ok);
+    CHECK_FALSE(rejected.replayed);
+    CHECK(rejected.error_code == "request_id_conflict");
+    CHECK(dispatched_commands == 2);
+
+    const SessionStreamCommand topology_command{
+        .request_id = 103,
+        .server_epoch = "stream-epoch",
+        .method = "topology.command",
+        .params = {
+            { "command_id", "stream-topology-command" },
+        },
+    };
+    REQUIRE(write_stream_command(stream, topology_command, error));
+    REQUIRE(write_stream_update(stream,
+        make_session_poll_request(
+            stream.ui, panes, "stream-epoch"), error));
+    SessionStreamServerFrame command_frame;
+    REQUIRE(read_stream_frame(stream, stream_service,
+        stream_poll, command_frame, std::chrono::seconds(3), error,
+        stream_dispatch));
+    REQUIRE(command_frame.kind
+        == SessionStreamServerFrameKind::CommandResult);
+    REQUIRE(command_frame.command_result);
+    const SessionStreamCommandResult& topology_result
+        = *command_frame.command_result;
+    REQUIRE(topology_result.request_id == 103);
+    REQUIRE(topology_result.ok);
+    CHECK(topology_result.result.value(
+              "topology_revision", uint64_t{ 0 })
+        == topology.revision);
+    REQUIRE(read_stream_events(stream, stream_service,
+        stream_poll, frame, std::chrono::seconds(3), error,
+        stream_dispatch));
+    REQUIRE(frame.events);
+    REQUIRE(apply_session_poll_response(
+        stream.ui, panes, *frame.events, error,
+        "stream-epoch"));
+    REQUIRE(panes[0].client->projection().version().sequence
+        == expected_sequences[0]);
+    REQUIRE(panes[1].client->projection().version().sequence
+        == expected_sequences[1]);
+    REQUIRE(stream.ui.topology_revision == topology.revision);
+    REQUIRE(stream.ui.agent_revision == agents.revision);
+
+    const auto command_stats = stream_service.stats();
+    CHECK(command_stats.control_reserve_bytes
+        >= kSessionStreamMinControlReserveBytes);
+    CHECK(command_stats.peak_control_bytes > 0);
+    CHECK(command_stats.peak_event_bytes > 0);
+    CHECK(command_stats.completed_command_count == 3);
+    CHECK(command_stats.commands_dispatched == 3);
+    CHECK(command_stats.command_replays == 1);
+    CHECK(command_stats.command_conflicts == 1);
+
+    expected_sequences.clear();
     for (auto& pane : panes)
     {
         expected_sequences.push_back(
@@ -1689,7 +2010,7 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
         && std::chrono::steady_clock::now() < status_deadline)
     {
         control.process_pending(control_handler);
-        stream_service.pump(stream_poll);
+        stream_service.pump(stream_poll, {}, stream_dispatch);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     REQUIRE(status.wait_for(std::chrono::milliseconds::zero())
@@ -1708,13 +2029,58 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
     CHECK(stream_service.connection_count() == 1);
     CHECK(stream.max_queue_bytes == 1024 * 1024);
     CHECK(stream_poll_calls >= 3);
-    CHECK(control_requests["session.stream.open"] == 1);
+
+    const SessionStreamCommand lost_in_flight = terminal_command(
+        104, panes[0], "command-result-lost-during-reconnect");
+    REQUIRE(write_stream_command(stream, lost_in_flight, error));
+    const auto dispatch_deadline
+        = std::chrono::steady_clock::now()
+        + std::chrono::seconds(2);
+    while (stream_service.stats().completed_command_count < 4
+        && std::chrono::steady_clock::now() < dispatch_deadline)
+    {
+        stream_service.pump(
+            stream_poll, {}, stream_dispatch);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE(stream_service.stats().completed_command_count == 4);
+    REQUIRE(dispatched_commands == 4);
+
+    RawSessionStream reconnected{
+        .ui = stream.ui,
+    };
+    stream.connection->close();
+    auto reopened = open_stream_over_control(control,
+        control_handler, control_id, temp.path,
+        reconnected.ui.client_id,
+        make_session_poll_request(
+            reconnected.ui, panes, "stream-epoch"), error);
+    INFO(error);
+    REQUIRE(reopened);
+    REQUIRE(connect_raw_stream(
+        reconnected, std::move(*reopened), error));
+    REQUIRE(write_stream_command(
+        reconnected, lost_in_flight, error));
+    SessionStreamCommandResult reconnect_replay;
+    REQUIRE(read_stream_command_result(reconnected,
+        stream_service, stream_poll, stream_dispatch,
+        reconnect_replay, std::chrono::seconds(3), error));
+    REQUIRE(reconnect_replay.request_id == 104);
+    REQUIRE(reconnect_replay.ok);
+    REQUIRE(reconnect_replay.replayed);
+    CHECK(dispatched_commands == 4);
+    CHECK(stream_service.stats().command_replays == 2);
+
+    CHECK(control_requests["session.stream.open"] == 2);
     CHECK(control_requests["server.status"] == 1);
     CHECK(control_requests["session.poll"] == 0);
     CHECK(control_requests["topology.poll"] == 0);
     CHECK(control_requests["agent.poll"] == 0);
+    CHECK(control_requests["topology.command"] == 0);
+    for (const auto& pane : panes)
+        CHECK(control_requests[pane.method_prefix + ".input"] == 0);
 
-    stream.connection->close();
+    reconnected.connection->close();
     stream_service.stop();
     control.stop();
 }
@@ -1756,7 +2122,7 @@ TEST_CASE("persistent Session stream load and stalled-reader isolation",
     "[.session-stream-load][session-stream][control][remote-terminal]")
 {
     nlohmann::json report = {
-        { "fixture", "session-stream-v1" },
+        { "fixture", "session-stream-commands-v1" },
         { "scenarios", nlohmann::json::array() },
     };
     for (const LoadScenario scenario : {

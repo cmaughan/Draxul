@@ -3115,6 +3115,12 @@ bool App::initialize_remote_topology()
                options_.server_connection->capabilities,
                "session-stream-v1")
             != options_.server_connection->capabilities.end();
+    const bool session_stream_commands_supported
+        = session_stream_supported && options_.server_connection
+        && std::ranges::find(
+               options_.server_connection->capabilities,
+               "session-stream-commands-v1")
+            != options_.server_connection->capabilities.end();
     remote_session_client_
         = std::make_unique<RemoteSessionClient>(
             RemoteSessionClientOptions{
@@ -3157,6 +3163,8 @@ bool App::initialize_remote_topology()
                     = suspend_supported,
                     .session_stream_supported
                     = session_stream_supported,
+                    .session_stream_commands_supported
+                    = session_stream_commands_supported,
                     .session_poll_supported
                     = session_poll_supported,
                     .session_client
@@ -4421,6 +4429,22 @@ ServerControlChannel App::server_control_channel() const
     });
 }
 
+ControlClientResult App::attached_ui_command(
+    std::string_view method, nlohmann::json params) const
+{
+    if (remote_session_coordinator_)
+    {
+        if (auto streamed
+            = remote_session_coordinator_->request_stream_command(
+                std::string(method), params))
+        {
+            return std::move(*streamed);
+        }
+    }
+    return server_control_channel().request_with_recovery(
+        method, std::move(params));
+}
+
 Result<SpaceId, Error> App::create_space(
     std::string_view raw_name, std::filesystem::path root_directory)
 {
@@ -4617,9 +4641,8 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
             if (!cwd.empty())
                 params["cwd"] = cwd;
         }
-        const auto started
-            = server_control_channel().request_with_recovery(
-                "agent.start", std::move(params));
+        const auto started = attached_ui_command(
+            "agent.start", std::move(params));
         if (!started.ok)
         {
             return Result<std::string, Error>::err(
@@ -4731,9 +4754,8 @@ Result<void, Error> App::restart_agent_runtime(
             { "instance_id",
                 agent.identity.instance_id },
         };
-        const auto restarted
-            = server_control_channel().request_with_recovery(
-                "agent.restart", std::move(params));
+        const auto restarted = attached_ui_command(
+            "agent.restart", std::move(params));
         if (!restarted.ok)
         {
             return Result<void, Error>::err(

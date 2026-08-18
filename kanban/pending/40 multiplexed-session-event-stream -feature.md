@@ -175,15 +175,45 @@ cancellation evidence remains pending remote CI.
 
 ## Phase 4 — bidirectional multiplexing
 
-- [ ] Carry commands on the persistent connection with request IDs, idempotency, and
+- [x] Carry commands on the persistent connection with request IDs, idempotency, and
       correlated responses.
-- [ ] Prioritize input, resize, topology commands, acknowledgements, responses, and
+- [x] Prioritize input, resize, topology commands, acknowledgements, responses, and
       heartbeats over bulk presentation traffic.
-- [ ] Bound bytes globally per UI and per logical channel; reserve control capacity
+- [x] Bound bytes globally per UI and per logical channel; reserve control capacity
       and rotate fairly between busy terminals.
-- [ ] Negotiate `session-stream-commands-v1`; keep the short-lived endpoint for
+- [x] Negotiate `session-stream-commands-v1`; keep the short-lived endpoint for
       bootstrap, CLI, diagnostics, and compatibility.
-- [ ] Remove legacy per-pane polling only after fallback and recovery are proven.
+- [x] Remove legacy per-pane polling from the negotiated Session path only after
+      fallback and recovery are proven; retain it solely for old-server compatibility.
+
+### Delivered checkpoint — bidirectional Session commands
+
+The persistent Session connection now carries bounded terminal input, resize,
+controller and scrollback requests, topology mutations, and attached-UI agent
+start/restart operations. Every command has a stream correlation ID in addition to
+its existing method-specific mutation ID. The server dispatches only an explicit
+authenticated Session allowlist, caches completed results by client/Session/request,
+replays identical retries after stream replacement, and rejects conflicting reuse
+without redispatching.
+
+Each UI has separate bounded command ingress and control/event writer queues. Reserved
+control bytes and writer-time frame numbering allow command responses and heartbeats
+to pass queued presentation while preserving contiguous wire order; bulk terminal
+payloads still use the Phase 2 rotated scheduler. A command-capable client sends all
+normal attached-UI mutations on the stream, requeues safe terminal/topology work onto
+short control after stream failure, and retains `session.poll` before legacy fallback.
+Bootstrap, CLI, status, diagnostics, and old-client/server compatibility remain on the
+short control endpoint.
+
+The Windows Debug command-stream fixture covers two terminal mutations, topology and
+agent convergence, exact replay, conflicting-ID rejection, a lost response replayed
+after stream replacement without redispatch, and real `ServerKernel` authentication
+and Session binding. The hidden 50-pane/two-UI load completed 1,024 assertions: the
+stalled UI was isolated after eight pressure rounds, reserved control capacity still
+admitted its command response beside an approximately 831 KiB presentation frame, the
+healthy UI converged, and no recurring terminal, topology, agent, or `session.poll`
+request used the short control endpoint. macOS command-stream evidence remains pending
+remote CI.
 
 ## Phase 5 — interruption UX and diagnostics
 

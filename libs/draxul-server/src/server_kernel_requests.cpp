@@ -22,6 +22,22 @@ bool is_session_scoped_method(std::string_view method)
         || method.starts_with("pane.");
 }
 
+bool is_session_stream_command(std::string_view method)
+{
+    return method == "terminal.input"
+        || method == "terminal.resize"
+        || method == "terminal.take_control"
+        || method == "terminal.restart"
+        || method == "terminal.suspend"
+        || method == "terminal.resume"
+        || method == "terminal.disconnect"
+        || method == "terminal.scrollback"
+        || method == "topology.command"
+        || method == "topology.layout_apply"
+        || method == "agent.start"
+        || method == "agent.restart";
+}
+
 const std::vector<std::string>& server_capabilities()
 {
     static const std::vector<std::string> capabilities{
@@ -42,6 +58,7 @@ const std::vector<std::string>& server_capabilities()
         "session-persistence-v1",
         "session-poll-v1",
         "session-stream-v1",
+        "session-stream-commands-v1",
         "session-rename-v1",
         "status",
         "terminal-metrics-v1",
@@ -110,6 +127,45 @@ ControlMethodResult ServerKernel::Impl::poll_session(
         session.topology_service->snapshot(),
         session.agent_service->snapshot(), terminals,
         payload_budget);
+}
+
+ControlMethodResult ServerKernel::Impl::dispatch_stream_command(
+    std::string_view session_id, std::string_view client_id,
+    const SessionStreamCommand& command)
+{
+    if (command.server_epoch != epoch_value)
+    {
+        return ControlMethodResult::error(
+            "stale_epoch", "The Session stream command targets an old server epoch.");
+    }
+    if (!is_session_stream_command(command.method))
+    {
+        return ControlMethodResult::error("unsupported_stream_command",
+            "This method is not available on the persistent Session stream.");
+    }
+
+    nlohmann::json params = command.params;
+    params["client_id"] = client_id;
+    params["session_id"] = session_id;
+    params["server_epoch"] = epoch_value;
+    {
+        std::lock_guard guard(mutex);
+        const auto client = clients.find(std::string(client_id));
+        if (client == clients.end())
+        {
+            return ControlMethodResult::error(
+                "invalid_client", "The Session stream client is no longer registered.");
+        }
+        if (client->second.token_required)
+            params["connection_token"] = client->second.connection_token;
+        else
+            params.erase("connection_token");
+    }
+    return handle_request({
+        .id = "stream-" + std::to_string(command.request_id),
+        .method = command.method,
+        .params = std::move(params),
+    });
 }
 
 ControlMethodResult ServerKernel::Impl::handle_request(

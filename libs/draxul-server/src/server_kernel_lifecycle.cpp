@@ -564,6 +564,12 @@ int ServerKernel::Impl::run_until_stopped()
                         client->second.last_activity
                             = std::chrono::steady_clock::now();
                     }
+                },
+                [this](std::string_view session_id,
+                    std::string_view client_id,
+                    const SessionStreamCommand& command) {
+                    return dispatch_stream_command(
+                        session_id, client_id, command);
                 });
         }
         const auto now = std::chrono::steady_clock::now();

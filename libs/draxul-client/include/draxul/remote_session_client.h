@@ -2,6 +2,7 @@
 
 #include <draxul/agent_protocol.h>
 #include <draxul/client_recovery.h>
+#include <draxul/control_plane.h>
 #include <draxul/server_client.h>
 #include <draxul/topology_protocol.h>
 
@@ -82,6 +83,9 @@ public:
     bool start();
     void stop();
     bool enqueue(TopologyCommand command);
+    bool enqueue_control_fallback(TopologyCommand command);
+    void set_topology_command_dispatcher(
+        std::function<bool(TopologyCommand)> dispatcher);
     std::optional<uint64_t> request_status();
     std::optional<RemoteSessionPublishedState> take_published_state();
     void acknowledge_topology(
@@ -104,6 +108,8 @@ public:
     void accept_session_poll_error(
         std::string channel, std::string error,
         std::string_view recovery_channel = "session.poll");
+    void accept_stream_topology_command_result(
+        TopologyCommand command, ControlClientResult result);
     void enable_legacy_polling();
 
 private:

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <draxul/client_recovery.h>
+#include <draxul/control_plane.h>
 #include <draxul/remote_terminal_protocol.h>
 
 #include <chrono>
@@ -27,6 +28,7 @@ struct RemoteSessionCoordinatorOptions
     std::shared_ptr<ClientRecoveryState> recovery;
     bool presentation_suspend_supported = false;
     bool session_stream_supported = false;
+    bool session_stream_commands_supported = false;
     bool session_poll_supported = false;
     // Required when either multiplexed Session transport is enabled. App owns
     // this client for longer than the coordinator and stops the coordinator
@@ -113,6 +115,12 @@ public:
     bool start();
     void stop();
     Registration register_terminal(std::string terminal_id);
+
+    // Uses the attached UI's correlated command stream when it is active.
+    // A missing result means the caller should use its short-control fallback.
+    std::optional<ControlClientResult> request_stream_command(
+        std::string method, nlohmann::json params,
+        std::chrono::milliseconds timeout = std::chrono::milliseconds(600));
 
     // The UI calls this after draining all ready registrations. Publications
     // racing with the acknowledgement retain their ready marker and schedule

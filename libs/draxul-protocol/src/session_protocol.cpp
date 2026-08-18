@@ -509,6 +509,108 @@ std::optional<SessionStreamOpenResponse> session_stream_open_response_from_json(
     return result;
 }
 
+nlohmann::json session_stream_command_to_json(
+    const SessionStreamCommand& command)
+{
+    return {
+        { "request_id", command.request_id },
+        { "server_epoch", command.server_epoch },
+        { "method", command.method },
+        { "params", command.params },
+    };
+}
+
+std::optional<SessionStreamCommand> session_stream_command_from_json(
+    const nlohmann::json& value, std::string& error)
+{
+    if (!value.is_object() || !value.contains("request_id")
+        || !value["request_id"].is_number_unsigned()
+        || !value.contains("server_epoch")
+        || !value["server_epoch"].is_string()
+        || !value.contains("method") || !value["method"].is_string()
+        || !value.contains("params") || !value["params"].is_object())
+    {
+        error = "Session stream command is invalid.";
+        return std::nullopt;
+    }
+    SessionStreamCommand result{
+        .request_id = value["request_id"].get<uint64_t>(),
+        .server_epoch = value["server_epoch"].get<std::string>(),
+        .method = value["method"].get<std::string>(),
+        .params = value["params"],
+    };
+    if (result.request_id == 0 || result.server_epoch.empty()
+        || result.method.empty()
+        || result.method.size() > kSessionStreamMaxMethodBytes)
+    {
+        error = "Session stream command identity is invalid.";
+        return std::nullopt;
+    }
+    error.clear();
+    return result;
+}
+
+nlohmann::json session_stream_command_result_to_json(
+    const SessionStreamCommandResult& result)
+{
+    nlohmann::json encoded{
+        { "request_id", result.request_id },
+        { "ok", result.ok },
+        { "replayed", result.replayed },
+    };
+    if (result.ok)
+        encoded["result"] = result.result;
+    else
+    {
+        encoded["error"] = channel_error(
+            result.error_code, result.error_message);
+    }
+    return encoded;
+}
+
+std::optional<SessionStreamCommandResult>
+session_stream_command_result_from_json(
+    const nlohmann::json& value, std::string& error)
+{
+    if (!value.is_object() || !value.contains("request_id")
+        || !value["request_id"].is_number_unsigned()
+        || !value.contains("ok") || !value["ok"].is_boolean()
+        || !value.contains("replayed")
+        || !value["replayed"].is_boolean())
+    {
+        error = "Session stream command result is invalid.";
+        return std::nullopt;
+    }
+    SessionStreamCommandResult result{
+        .request_id = value["request_id"].get<uint64_t>(),
+        .ok = value["ok"].get<bool>(),
+        .replayed = value["replayed"].get<bool>(),
+    };
+    if (result.request_id == 0)
+    {
+        error = "Session stream command result identity is invalid.";
+        return std::nullopt;
+    }
+    if (result.ok)
+    {
+        if (!value.contains("result"))
+        {
+            error = "Successful Session stream command result is missing its payload.";
+            return std::nullopt;
+        }
+        result.result = value["result"];
+    }
+    else if (!read_channel_error(
+                 value, result.error_code, result.error_message)
+        || result.error_code.empty())
+    {
+        error = "Failed Session stream command result is missing its error.";
+        return std::nullopt;
+    }
+    error.clear();
+    return result;
+}
+
 nlohmann::json session_stream_client_frame_to_json(
     const SessionStreamClientFrame& frame)
 {
@@ -525,6 +627,13 @@ nlohmann::json session_stream_client_frame_to_json(
             { "kind", "update" },
             { "poll", frame.update
                     ? session_poll_request_to_json(frame.update->poll)
+                    : nlohmann::json(nullptr) },
+        };
+    case SessionStreamClientFrameKind::Command:
+        return {
+            { "kind", "command" },
+            { "command", frame.command
+                    ? session_stream_command_to_json(*frame.command)
                     : nlohmann::json(nullptr) },
         };
     case SessionStreamClientFrameKind::Close:
@@ -586,6 +695,18 @@ std::optional<SessionStreamClientFrame> session_stream_client_frame_from_json(
             .update = SessionStreamUpdate{ .poll = std::move(*poll) },
         };
     }
+    if (kind == "command" && value.contains("command"))
+    {
+        auto command = session_stream_command_from_json(
+            value["command"], error);
+        if (!command)
+            return std::nullopt;
+        error.clear();
+        return SessionStreamClientFrame{
+            .kind = SessionStreamClientFrameKind::Command,
+            .command = std::move(*command),
+        };
+    }
     error = "Session stream client frame kind is invalid.";
     return std::nullopt;
 }
@@ -607,6 +728,12 @@ nlohmann::json session_stream_server_frame_to_json(
         break;
     case SessionStreamServerFrameKind::Heartbeat:
         result["kind"] = "heartbeat";
+        break;
+    case SessionStreamServerFrameKind::CommandResult:
+        result["kind"] = "command_result";
+        result["command_result"] = frame.command_result
+            ? session_stream_command_result_to_json(*frame.command_result)
+            : nlohmann::json(nullptr);
         break;
     case SessionStreamServerFrameKind::Error:
         result["kind"] = "error";
@@ -651,6 +778,16 @@ std::optional<SessionStreamServerFrame> session_stream_server_frame_from_json(
             return std::nullopt;
         result.kind = SessionStreamServerFrameKind::Events;
         result.events = std::move(*events);
+    }
+    else if (kind == "command_result"
+        && value.contains("command_result"))
+    {
+        auto command_result = session_stream_command_result_from_json(
+            value["command_result"], error);
+        if (!command_result)
+            return std::nullopt;
+        result.kind = SessionStreamServerFrameKind::CommandResult;
+        result.command_result = std::move(*command_result);
     }
     else if (kind == "error"
         && read_channel_error(value, result.error_code, result.error_message)

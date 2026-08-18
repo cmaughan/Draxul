@@ -205,14 +205,27 @@ stream. Commands remain on short control methods until Phase 4.
 
 ### Phase 4: Bidirectional multiplexing
 
-- Carry commands over the persistent connection with request IDs and correlated
-  responses.
-- Prioritize input, resize, topology commands, acknowledgements, and heartbeats over
-  bulk presentation output.
+- **Delivered.** Carry attached-UI terminal, topology, and selected agent commands
+  over the persistent connection with outer correlation IDs while retaining the
+  existing method-specific idempotency IDs.
+- Prioritize command responses and heartbeats ahead of bulk presentation output,
+  reserve bounded control capacity, and retain the Phase 2 terminal scheduler's fair
+  rotation.
+- Replay an identical completed command after reconnect without redispatching it, and
+  reject reuse of an outer ID with different method parameters.
 - Retain the short-lived control endpoint for bootstrap, status, diagnostics, CLI
-  access, and compatibility rather than normal attached-UI traffic.
-- Remove legacy per-pane UI polling only after cross-version fallback and recovery are
-  proven.
+  access, transport fallback, and compatibility rather than normal attached-UI
+  traffic.
+
+The negotiated `session-stream-commands-v1` extension adds command and correlated
+command-result frames to the Phase 3 connection. The server reader only admits
+bounded commands; the state thread authenticates and dispatches an allowlisted command
+through the existing Session handlers; and the writer assigns frame serials after
+selecting the priority queue so control traffic can overtake queued presentation
+without breaking wire ordering. A bounded per-client/Session completion cache makes a
+lost response replayable across stream replacement. Clients without the extension
+retain Phase 3 events plus short control mutations, while a stream failure requeues
+terminal/topology work onto the existing `session.poll` fallback.
 
 ### Phase 5: Interruption UX
 

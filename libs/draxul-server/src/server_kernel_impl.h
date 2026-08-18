@@ -106,6 +106,9 @@ public:
     ControlMethodResult poll_session(std::string_view session_id,
         std::string_view client_id, const SessionPollRequest& request,
         size_t payload_budget = kSessionPollPayloadBudget);
+    ControlMethodResult dispatch_stream_command(std::string_view session_id,
+        std::string_view client_id,
+        const SessionStreamCommand& command);
     static std::string random_epoch();
     ClientAccessResult register_client_hello(
         const ServerHello& hello, bool token_capable,

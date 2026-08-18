@@ -539,6 +539,10 @@ TEST_CASE("remote Session coordinator prefers one event stream and keeps project
     std::atomic<int> session_polls = 0;
     std::atomic<int> legacy_polls = 0;
     std::atomic<int> input_calls = 0;
+    std::atomic<int> stream_input_commands = 0;
+    std::atomic<int> stream_topology_commands = 0;
+    std::atomic<int> stream_agent_commands = 0;
+    std::atomic<int> stream_scrollback_commands = 0;
     std::mutex observations_mutex;
     std::optional<SessionPollRequest> opened_poll;
     std::vector<SessionPollRequest> updates;
@@ -619,6 +623,7 @@ TEST_CASE("remote Session coordinator prefers one event stream and keeps project
             return;
         }
         stream_connected = true;
+        uint64_t next_server_frame_serial = 1;
 
         const auto send_events
             = [&](const SessionPollRequest& poll) {
@@ -681,7 +686,7 @@ TEST_CASE("remote Session coordinator prefers one event stream and keeps project
                   const std::string event_bytes
                       = session_stream_server_frame_to_json({
                             .kind = SessionStreamServerFrameKind::Events,
-                            .frame_serial = 1,
+                            .frame_serial = next_server_frame_serial++,
                             .server_epoch = "coordinator-epoch",
                             .events = std::move(response),
                         })
@@ -713,8 +718,113 @@ TEST_CASE("remote Session coordinator prefers one event stream and keeps project
                 ? std::nullopt
                 : session_stream_client_frame_from_json(
                     value, parse_error);
-            if (!frame
-                || frame->kind != SessionStreamClientFrameKind::Update
+            if (!frame)
+            {
+                continue;
+            }
+            if (frame->kind
+                    == SessionStreamClientFrameKind::Command
+                && frame->command)
+            {
+                nlohmann::json result = nlohmann::json::object();
+                bool command_ok = true;
+                std::string command_error_code;
+                std::string command_error_message;
+                if (frame->command->method == "fake.input")
+                {
+                    ++stream_input_commands;
+                    if (frame->command->params.value(
+                            "text", std::string{})
+                        == "short-fallback-input")
+                    {
+                        command_ok = false;
+                        command_error_code
+                            = "command_result_too_large";
+                        command_error_message
+                            = "Retry this command over short control.";
+                    }
+                }
+                else if (frame->command->method
+                    == "topology.command")
+                {
+                    ++stream_topology_commands;
+                    auto topology = TopologySnapshot{
+                        .revision = 8,
+                        .session_id = "default",
+                        .spaces = {
+                            {
+                                .space_id = "space-1",
+                                .name = "Work",
+                                .tabs = {
+                                    {
+                                        .tab_id = "tab-1",
+                                        .name = "Renamed",
+                                        .root_node_id = "node-1",
+                                        .nodes = { {
+                                            .node_id = "node-1",
+                                            .is_leaf = true,
+                                            .pane_id = "pane-shared",
+                                        } },
+                                        .panes = { {
+                                            .pane_id = "pane-shared",
+                                            .name = "Shared terminal",
+                                            .domain = TopologyPaneDomain::ServerTerminal,
+                                            .terminal_id = "terminal-shared",
+                                        } },
+                                    },
+                                },
+                            },
+                        },
+                    };
+                    result = topology_command_result_to_json({
+                        .applied = true,
+                        .snapshot = std::move(topology),
+                    });
+                }
+                else if (frame->command->method == "agent.restart")
+                {
+                    ++stream_agent_commands;
+                    result["runtime_generation"] = 4;
+                }
+                else if (frame->command->method == "fake.scrollback")
+                {
+                    ++stream_scrollback_commands;
+                    result = remote_terminal_scrollback_page_to_json({
+                        .version = terminal_attach(0).state.version,
+                        .total_rows = 5,
+                        .offset_from_live = 1,
+                        .cols = 4,
+                        .snapshot = terminal_snapshot("Scrollback"),
+                    });
+                }
+                else
+                {
+                    return;
+                }
+                const std::string response_bytes
+                    = session_stream_server_frame_to_json({
+                          .kind = SessionStreamServerFrameKind::CommandResult,
+                          .frame_serial = next_server_frame_serial++,
+                          .server_epoch = "coordinator-epoch",
+                          .command_result = SessionStreamCommandResult{
+                              .request_id = frame->command->request_id,
+                              .ok = command_ok,
+                              .result = std::move(result),
+                              .error_code
+                              = std::move(command_error_code),
+                              .error_message
+                              = std::move(command_error_message),
+                          },
+                      })
+                          .dump();
+                if (!connection->write_frame(
+                        response_bytes, stop, error))
+                {
+                    return;
+                }
+                continue;
+            }
+            if (frame->kind != SessionStreamClientFrameKind::Update
                 || !frame->update)
             {
                 continue;
@@ -738,6 +848,7 @@ TEST_CASE("remote Session coordinator prefers one event stream and keeps project
         .method_prefix = "fake",
         .recovery = recovery,
         .session_stream_supported = true,
+        .session_stream_commands_supported = true,
         .session_poll_supported = true,
         .session_client = &session_client,
     });
@@ -766,7 +877,55 @@ TEST_CASE("remote Session coordinator prefers one event stream and keeps project
     CHECK(legacy_polls == 0);
 
     REQUIRE(first.enqueue_input("stream-input"));
-    REQUIRE(wait_for_condition([&] { return input_calls.load() == 1; }));
+    REQUIRE(wait_for_condition(
+        [&] { return stream_input_commands.load() == 1; }));
+    CHECK(input_calls == 0);
+    REQUIRE(first.enqueue_input("short-fallback-input"));
+    REQUIRE(wait_for_condition([&] {
+        return stream_input_commands.load() == 2
+            && input_calls.load() == 1;
+    }));
+
+    REQUIRE(session_client.enqueue({
+        .command_id = "stream-topology-1",
+        .kind = TopologyCommandKind::RenameTab,
+        .tab_id = "tab-1",
+        .name = "Renamed",
+    }));
+    bool topology_completed = false;
+    REQUIRE(wait_for_condition([&] {
+        auto state = session_client.take_published_state();
+        if (!state)
+            return false;
+        topology_completed = std::ranges::any_of(
+            state->commands, [](const auto& completion) {
+                return completion.ok
+                    && completion.command.command_id
+                        == "stream-topology-1";
+            });
+        return topology_completed;
+    }));
+    CHECK(stream_topology_commands == 1);
+
+    const auto agent_result = coordinator.request_stream_command(
+        "agent.restart", {
+            { "request_id", "coordinator-ui:agent-1" },
+            { "instance_id", "agent-1" },
+        });
+    REQUIRE(agent_result);
+    REQUIRE(agent_result->ok);
+    CHECK(agent_result->result.value(
+              "runtime_generation", 0ull)
+        == 4);
+    CHECK(stream_agent_commands == 1);
+
+    REQUIRE(first.enqueue_scroll(1));
+    const auto scrolled = wait_for_state(first);
+    REQUIRE(scrolled);
+    REQUIRE(scrolled->scrollback_page);
+    CHECK(scrolled->scroll_offset == 1);
+    CHECK(stream_scrollback_commands == 1);
+
     const uint64_t hidden_generation
         = first.set_presentation_visible(false);
     REQUIRE(wait_for_condition([&] {
@@ -816,6 +975,7 @@ TEST_CASE("remote Session coordinator falls from stream negotiation to Session p
     std::atomic<int> stream_opens = 0;
     std::atomic<int> session_polls = 0;
     std::atomic<int> legacy_attaches = 0;
+    std::atomic<int> short_inputs = 0;
     std::jthread dispatcher([&](std::stop_token stop) {
         while (!stop.stop_requested())
         {
@@ -857,6 +1017,12 @@ TEST_CASE("remote Session coordinator falls from stream negotiation to Session p
                 }
                 if (request.method == "fake.attach")
                     ++legacy_attaches;
+                if (request.method == "fake.input")
+                {
+                    ++short_inputs;
+                    return ControlMethodResult::success(
+                        nlohmann::json::object());
+                }
                 return ControlMethodResult::error(
                     "unknown_method", "Unexpected fallback method.");
             });
@@ -871,6 +1037,7 @@ TEST_CASE("remote Session coordinator falls from stream negotiation to Session p
         .method_prefix = "fake",
         .recovery = recovery,
         .session_stream_supported = true,
+        .session_stream_commands_supported = true,
         .session_poll_supported = true,
         .session_client = &session_client,
     });
@@ -882,6 +1049,9 @@ TEST_CASE("remote Session coordinator falls from stream negotiation to Session p
     CHECK(stream_opens == 1);
     CHECK(session_polls > 0);
     CHECK(legacy_attaches == 0);
+    REQUIRE(registration.enqueue_input("poll-fallback-input"));
+    REQUIRE(wait_for_condition(
+        [&] { return short_inputs.load() == 1; }));
 
     coordinator.stop();
     dispatcher.request_stop();

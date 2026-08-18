@@ -23,6 +23,14 @@ namespace
 constexpr auto kTicketLifetime = std::chrono::seconds(10);
 constexpr auto kConnectFrameTimeout = std::chrono::seconds(5);
 constexpr size_t kFrameEnvelopeReserve = 128 * 1024;
+constexpr size_t kFrameSerialReserve = 32;
+constexpr size_t kCommandsPerPump = 8;
+
+enum class OutboundPriority
+{
+    Control,
+    Events,
+};
 
 std::string random_ticket()
 {
@@ -66,6 +74,19 @@ public:
 
     struct ConnectionCore
     {
+        struct PendingCommand
+        {
+            SessionStreamCommand command;
+            size_t bytes = 0;
+        };
+
+        struct QueuedFrame
+        {
+            std::string encoded;
+            size_t bytes = 0;
+            OutboundPriority priority = OutboundPriority::Events;
+        };
+
         explicit ConnectionCore(
             std::unique_ptr<AsyncFrameStreamConnection> value,
             uint64_t id_value)
@@ -78,8 +99,15 @@ public:
         uint64_t id = 0;
         std::mutex mutex;
         std::condition_variable outbound_ready;
-        std::deque<std::string> outbound;
+        std::deque<QueuedFrame> control_outbound;
+        std::deque<QueuedFrame> event_outbound;
+        std::deque<PendingCommand> commands;
         size_t queued_bytes = 0;
+        size_t queued_control_bytes = 0;
+        size_t queued_event_bytes = 0;
+        size_t peak_control_bytes = 0;
+        size_t peak_event_bytes = 0;
+        size_t command_bytes = 0;
         bool authenticated = false;
         bool awaiting_update = false;
         bool closed = false;
@@ -101,6 +129,13 @@ public:
         std::jthread writer;
     };
 
+    struct CompletedCommand
+    {
+        std::string fingerprint;
+        SessionStreamCommandResult result;
+        size_t bytes = 0;
+    };
+
     explicit Impl(SessionStreamServiceOptions value)
         : options(std::move(value))
     {
@@ -120,6 +155,14 @@ public:
             options.wake_state_thread();
     }
 
+    size_t control_reserve_bytes() const
+    {
+        return std::clamp<size_t>(options.max_queue_bytes / 16,
+            kSessionStreamMinControlReserveBytes,
+            std::min(options.max_queue_bytes,
+                kSessionStreamMaxControlReserveBytes));
+    }
+
     void close_core(const std::shared_ptr<ConnectionCore>& core)
     {
         {
@@ -133,22 +176,58 @@ public:
     }
 
     bool enqueue(const std::shared_ptr<ConnectionCore>& core,
-        std::string frame)
+        SessionStreamServerFrame frame, OutboundPriority priority)
     {
+        // frame_serial is assigned only when the writer selects the next
+        // priority queue entry. Reserving its maximum encoded width keeps
+        // byte accounting conservative without numbering frames before a
+        // high-priority result can overtake queued presentation output.
+        std::string encoded = encode_frame(frame);
+        const size_t frame_bytes = encoded.size() + kFrameSerialReserve;
         std::lock_guard guard(core->mutex);
         if (core->closed)
             return false;
-        if (frame.size() > options.max_queue_bytes
+        const size_t byte_limit = std::min(
+            priority == OutboundPriority::Events
+                ? options.max_queue_bytes - control_reserve_bytes()
+                : options.max_queue_bytes,
+            kSessionStreamMaxFrameBytes);
+        const bool control_cardinality_full
+            = priority == OutboundPriority::Control
+            && core->control_outbound.size()
+                >= kSessionStreamMaxPendingCommands;
+        if (control_cardinality_full || frame_bytes > byte_limit
             || core->queued_bytes
-                    > options.max_queue_bytes - frame.size())
+                    > byte_limit - frame_bytes)
         {
             core->closed = true;
             core->outbound_ready.notify_all();
             core->stream->close();
             return false;
         }
-        core->queued_bytes += frame.size();
-        core->outbound.push_back(std::move(frame));
+        core->queued_bytes += frame_bytes;
+        if (priority == OutboundPriority::Control)
+        {
+            core->queued_control_bytes += frame_bytes;
+            core->peak_control_bytes = std::max(
+                core->peak_control_bytes, core->queued_control_bytes);
+            core->control_outbound.push_back({
+                .encoded = std::move(encoded),
+                .bytes = frame_bytes,
+                .priority = priority,
+            });
+        }
+        else
+        {
+            core->queued_event_bytes += frame_bytes;
+            core->peak_event_bytes = std::max(
+                core->peak_event_bytes, core->queued_event_bytes);
+            core->event_outbound.push_back({
+                .encoded = std::move(encoded),
+                .bytes = frame_bytes,
+                .priority = priority,
+            });
+        }
         core->last_enqueued_at = std::chrono::steady_clock::now();
         core->outbound_ready.notify_one();
         return true;
@@ -167,6 +246,117 @@ public:
             || binding.expires_at < std::chrono::steady_clock::now())
             return std::nullopt;
         return binding;
+    }
+
+    static std::string command_key(std::string_view client_id,
+        std::string_view session_id, uint64_t request_id)
+    {
+        return std::string(client_id) + '\n' + std::string(session_id)
+            + '\n' + std::to_string(request_id);
+    }
+
+    static std::string command_fingerprint(
+        const SessionStreamCommand& command)
+    {
+        return command.method + '\n'
+            + command.params.dump(-1, ' ', false,
+                nlohmann::detail::error_handler_t::replace);
+    }
+
+    SessionStreamCommandResult execute_command(
+        std::string_view session_id, std::string_view client_id,
+        const SessionStreamCommand& command,
+        const SessionStreamService::Dispatch& dispatch)
+    {
+        const std::string key = command_key(
+            client_id, session_id, command.request_id);
+        const std::string fingerprint = command_fingerprint(command);
+        if (const auto found = completed_commands.find(key);
+            found != completed_commands.end())
+        {
+            if (found->second.fingerprint != fingerprint)
+            {
+                ++command_conflicts;
+                ++command_rejections;
+                return {
+                    .request_id = command.request_id,
+                    .error_code = "request_id_conflict",
+                    .error_message = "The Session stream request ID was reused with a different command.",
+                };
+            }
+            ++command_replays;
+            SessionStreamCommandResult replay = found->second.result;
+            replay.replayed = true;
+            return replay;
+        }
+
+        SessionStreamCommandResult result{
+            .request_id = command.request_id,
+        };
+        if (!dispatch)
+        {
+            result.error_code = "command_unavailable";
+            result.error_message
+                = "Session stream commands are unavailable.";
+        }
+        else
+        {
+            ++commands_dispatched;
+            ControlMethodResult dispatched = dispatch(
+                session_id, client_id, command);
+            result.ok = dispatched.ok;
+            if (dispatched.ok)
+                result.result = std::move(dispatched.value);
+            else
+            {
+                result.error_code = std::move(dispatched.error_code);
+                result.error_message = std::move(dispatched.error_message);
+            }
+        }
+
+        const size_t reserve = control_reserve_bytes();
+        const size_t encoded_size = session_stream_command_result_to_json(
+            result).dump(-1, ' ', false,
+                nlohmann::detail::error_handler_t::replace).size();
+        if (encoded_size > reserve - std::min<size_t>(reserve, 1024))
+        {
+            result = {
+                .request_id = command.request_id,
+                .error_code = "command_result_too_large",
+                .error_message = "The command result exceeds the reserved stream control capacity; retry it on the short control endpoint.",
+            };
+        }
+        if (!result.ok)
+            ++command_rejections;
+
+        const size_t cached_bytes = key.size() + fingerprint.size()
+            + session_stream_command_result_to_json(result)
+                  .dump(-1, ' ', false,
+                      nlohmann::detail::error_handler_t::replace)
+                  .size();
+        completed_command_order.push_back(key);
+        completed_commands.emplace(key, CompletedCommand{
+            .fingerprint = fingerprint,
+            .result = result,
+            .bytes = cached_bytes,
+        });
+        completed_command_bytes += cached_bytes;
+        while (completed_command_order.size()
+                > kSessionStreamMaxCompletedCommands
+            || completed_command_bytes
+                > kSessionStreamMaxCompletedCommandBytes)
+        {
+            const auto oldest = completed_commands.find(
+                completed_command_order.front());
+            if (oldest != completed_commands.end())
+            {
+                completed_command_bytes -= std::min(
+                    completed_command_bytes, oldest->second.bytes);
+                completed_commands.erase(oldest);
+            }
+            completed_command_order.pop_front();
+        }
+        return result;
     }
 
     void reader_loop(const std::shared_ptr<ConnectionCore>& core,
@@ -209,6 +399,37 @@ public:
             }
             if (frame->kind == SessionStreamClientFrameKind::Close)
                 break;
+            if (frame->kind == SessionStreamClientFrameKind::Command
+                && frame->command)
+            {
+                if (frame->command->server_epoch != options.server_epoch)
+                    break;
+                bool full = false;
+                {
+                    std::lock_guard guard(core->mutex);
+                    const size_t command_limit = std::min<size_t>(
+                        options.max_queue_bytes / 2,
+                        kSessionStreamMaxControlReserveBytes);
+                    full = core->closed
+                        || core->commands.size()
+                            >= kSessionStreamMaxPendingCommands
+                        || bytes.size() > command_limit
+                        || core->command_bytes
+                            > command_limit - bytes.size();
+                    if (!full)
+                    {
+                        core->command_bytes += bytes.size();
+                        core->commands.push_back({
+                            .command = std::move(*frame->command),
+                            .bytes = bytes.size(),
+                        });
+                    }
+                }
+                if (full)
+                    break;
+                wake();
+                continue;
+            }
             if (frame->kind != SessionStreamClientFrameKind::Update
                 || !frame->update
                 || frame->update->poll.server_epoch != options.server_epoch)
@@ -242,26 +463,56 @@ public:
     {
         while (!stop_token.stop_requested())
         {
-            std::string frame;
+            ConnectionCore::QueuedFrame queued;
+            uint64_t frame_serial = 0;
             {
                 std::unique_lock lock(core->mutex);
                 core->outbound_ready.wait(lock, [&] {
-                    return core->closed || !core->outbound.empty()
+                    return core->closed
+                        || !core->control_outbound.empty()
+                        || !core->event_outbound.empty()
                         || stop_token.stop_requested();
                 });
-                if ((core->closed && core->outbound.empty())
+                if ((core->closed && core->control_outbound.empty()
+                        && core->event_outbound.empty())
                     || stop_token.stop_requested())
                     break;
-                frame = std::move(core->outbound.front());
-                core->outbound.pop_front();
+                if (!core->control_outbound.empty())
+                {
+                    queued = std::move(core->control_outbound.front());
+                    core->control_outbound.pop_front();
+                }
+                else
+                {
+                    queued = std::move(core->event_outbound.front());
+                    core->event_outbound.pop_front();
+                }
+                frame_serial = core->next_frame_serial++;
             }
+            auto encoded = nlohmann::json::parse(
+                queued.encoded, nullptr, false);
+            if (encoded.is_discarded())
+                break;
+            encoded["frame_serial"] = frame_serial;
+            queued.encoded = encoded.dump(-1, ' ', false,
+                nlohmann::detail::error_handler_t::replace);
             AsyncFrameStreamError error;
             const bool written = core->stream->write_frame(
-                frame, stop_token, error);
+                queued.encoded, stop_token, error);
             {
                 std::lock_guard guard(core->mutex);
                 core->queued_bytes -= std::min(
-                    core->queued_bytes, frame.size());
+                    core->queued_bytes, queued.bytes);
+                if (queued.priority == OutboundPriority::Control)
+                {
+                    core->queued_control_bytes -= std::min(
+                        core->queued_control_bytes, queued.bytes);
+                }
+                else
+                {
+                    core->queued_event_bytes -= std::min(
+                        core->queued_event_bytes, queued.bytes);
+                }
             }
             if (!written)
                 break;
@@ -269,7 +520,8 @@ public:
             {
                 std::lock_guard guard(core->mutex);
                 close_after_flush = core->close_after_flush
-                    && core->outbound.empty();
+                    && core->control_outbound.empty()
+                    && core->event_outbound.empty();
             }
             if (close_after_flush)
                 break;
@@ -346,12 +598,19 @@ public:
     mutable std::mutex mutex;
     std::deque<std::unique_ptr<AsyncFrameStreamConnection>> accepted;
     std::unordered_map<std::string, Ticket> tickets;
+    std::unordered_map<std::string, CompletedCommand> completed_commands;
+    std::deque<std::string> completed_command_order;
+    size_t completed_command_bytes = 0;
     std::vector<std::unique_ptr<Connection>> connections;
     std::jthread reaper;
     std::mutex reaper_mutex;
     std::condition_variable reaper_ready;
     std::deque<std::unique_ptr<Connection>> retired;
     std::atomic<size_t> raw_connection_count = 0;
+    uint64_t commands_dispatched = 0;
+    uint64_t command_replays = 0;
+    uint64_t command_conflicts = 0;
+    uint64_t command_rejections = 0;
     uint64_t next_connection_id = 1;
 };
 
@@ -546,7 +805,8 @@ ControlMethodResult SessionStreamService::open(
         }));
 }
 
-void SessionStreamService::pump(const Poll& poll, const Touch& touch)
+void SessionStreamService::pump(const Poll& poll, const Touch& touch,
+    const Dispatch& dispatch)
 {
     impl_->adopt_connections();
     const auto now = std::chrono::steady_clock::now();
@@ -560,6 +820,7 @@ void SessionStreamService::pump(const Poll& poll, const Touch& touch)
         bool authenticated = false;
         bool closed = false;
         size_t queued_bytes = 0;
+        std::vector<Impl::ConnectionCore::PendingCommand> commands;
         std::chrono::steady_clock::time_point last_enqueued;
         {
             std::lock_guard guard(core->mutex);
@@ -571,20 +832,51 @@ void SessionStreamService::pump(const Poll& poll, const Touch& touch)
             request = core->poll;
             last_enqueued = core->last_enqueued_at;
             queued_bytes = core->queued_bytes;
+            while (!core->commands.empty()
+                && commands.size() < kCommandsPerPump)
+            {
+                core->command_bytes -= std::min(core->command_bytes,
+                    core->commands.front().bytes);
+                commands.push_back(std::move(core->commands.front()));
+                core->commands.pop_front();
+            }
         }
         if (closed || !authenticated)
             continue;
         if (touch)
             touch(client_id);
 
+        for (const auto& pending : commands)
+        {
+            SessionStreamServerFrame frame{
+                .kind = SessionStreamServerFrameKind::CommandResult,
+                .server_epoch = impl_->options.server_epoch,
+                .command_result = impl_->execute_command(
+                    session_id, client_id, pending.command, dispatch),
+            };
+            if (!impl_->enqueue(core, std::move(frame),
+                    OutboundPriority::Control))
+                break;
+        }
+        {
+            std::lock_guard guard(core->mutex);
+            if (core->closed)
+                continue;
+            queued_bytes = core->queued_bytes;
+        }
+
         // A successful enqueue is not an acknowledgement. Do not ask the
         // poll scheduler to consume or rebuild from the same cursor until the
         // client sends an Update with its applied cursors.
         if (!awaiting_update)
         {
+            const size_t frame_budget = std::min(
+                impl_->options.max_queue_bytes
+                    - impl_->control_reserve_bytes(),
+                kSessionStreamMaxFrameBytes);
             const size_t payload_budget
-                = impl_->options.max_queue_bytes > kFrameEnvelopeReserve
-                ? impl_->options.max_queue_bytes - kFrameEnvelopeReserve
+                = frame_budget > kFrameEnvelopeReserve
+                ? frame_budget - kFrameEnvelopeReserve
                 : 1;
             const auto result = poll(
                 session_id, client_id, request, payload_budget);
@@ -598,10 +890,10 @@ void SessionStreamService::pump(const Poll& poll, const Touch& touch)
                 };
                 {
                     std::lock_guard guard(core->mutex);
-                    frame.frame_serial = core->next_frame_serial++;
                     core->close_after_flush = true;
                 }
-                impl_->enqueue(core, encode_frame(frame));
+                impl_->enqueue(core, std::move(frame),
+                    OutboundPriority::Control);
                 continue;
             }
             std::string parse_error;
@@ -621,10 +913,10 @@ void SessionStreamService::pump(const Poll& poll, const Touch& touch)
                 };
                 {
                     std::lock_guard guard(core->mutex);
-                    frame.frame_serial = core->next_frame_serial++;
                     core->awaiting_update = true;
                 }
-                impl_->enqueue(core, encode_frame(frame));
+                impl_->enqueue(core, std::move(frame),
+                    OutboundPriority::Events);
                 continue;
             }
         }
@@ -635,11 +927,8 @@ void SessionStreamService::pump(const Poll& poll, const Touch& touch)
                 .kind = SessionStreamServerFrameKind::Heartbeat,
                 .server_epoch = impl_->options.server_epoch,
             };
-            {
-                std::lock_guard guard(core->mutex);
-                frame.frame_serial = core->next_frame_serial++;
-            }
-            impl_->enqueue(core, encode_frame(frame));
+            impl_->enqueue(core, std::move(frame),
+                OutboundPriority::Control);
         }
     }
     impl_->retire_connections();
@@ -675,6 +964,19 @@ void SessionStreamService::disconnect_client(std::string_view client_id)
         else
             ++it;
     }
+    const std::string prefix = std::string(client_id) + '\n';
+    for (const auto& [key, command] : impl_->completed_commands)
+    {
+        if (key.starts_with(prefix))
+        {
+            impl_->completed_command_bytes -= std::min(
+                impl_->completed_command_bytes, command.bytes);
+        }
+    }
+    std::erase_if(impl_->completed_commands,
+        [&](const auto& entry) { return entry.first.starts_with(prefix); });
+    std::erase_if(impl_->completed_command_order,
+        [&](const std::string& key) { return key.starts_with(prefix); });
 }
 
 const std::string& SessionStreamService::endpoint() const
@@ -692,6 +994,33 @@ size_t SessionStreamService::connection_count() const
             && !connection->core->closed;
     }
     return count;
+}
+
+SessionStreamServiceStats SessionStreamService::stats() const
+{
+    SessionStreamServiceStats result{
+        .control_reserve_bytes = impl_->control_reserve_bytes(),
+        .completed_command_count = impl_->completed_commands.size(),
+        .completed_command_bytes = impl_->completed_command_bytes,
+        .commands_dispatched = impl_->commands_dispatched,
+        .command_replays = impl_->command_replays,
+        .command_conflicts = impl_->command_conflicts,
+        .command_rejections = impl_->command_rejections,
+    };
+    for (const auto& connection : impl_->connections)
+    {
+        std::lock_guard guard(connection->core->mutex);
+        result.pending_command_count += connection->core->commands.size();
+        result.pending_command_bytes += connection->core->command_bytes;
+        result.queued_control_bytes
+            += connection->core->queued_control_bytes;
+        result.queued_event_bytes += connection->core->queued_event_bytes;
+        result.peak_control_bytes = std::max(result.peak_control_bytes,
+            connection->core->peak_control_bytes);
+        result.peak_event_bytes = std::max(result.peak_event_bytes,
+            connection->core->peak_event_bytes);
+    }
+    return result;
 }
 
 } // namespace draxul

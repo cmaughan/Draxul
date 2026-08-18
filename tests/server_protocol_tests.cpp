@@ -91,6 +91,58 @@ TEST_CASE("Session stream protocol rejects unsafe negotiated limits",
     CHECK_FALSE(session_stream_open_response_from_json(response, error));
 }
 
+TEST_CASE("Session stream commands preserve correlation and reject malformed envelopes",
+    "[server][protocol][session-stream][commands]")
+{
+    const SessionStreamClientFrame command{
+        .kind = SessionStreamClientFrameKind::Command,
+        .command = SessionStreamCommand{
+            .request_id = 42,
+            .server_epoch = "stream-epoch",
+            .method = "terminal.input",
+            .params = {
+                { "terminal_id", "terminal-a" },
+                { "request_id", 9001 },
+                { "text", "echo hello" },
+            },
+        },
+    };
+    std::string error;
+    const auto decoded_command = session_stream_client_frame_from_json(
+        session_stream_client_frame_to_json(command), error);
+    INFO(error);
+    REQUIRE(decoded_command);
+    CHECK(*decoded_command == command);
+
+    const SessionStreamServerFrame response{
+        .kind = SessionStreamServerFrameKind::CommandResult,
+        .frame_serial = 7,
+        .server_epoch = "stream-epoch",
+        .command_result = SessionStreamCommandResult{
+            .request_id = 42,
+            .ok = true,
+            .replayed = true,
+            .result = { { "accepted", true } },
+        },
+    };
+    const auto decoded_response = session_stream_server_frame_from_json(
+        session_stream_server_frame_to_json(response), error);
+    INFO(error);
+    REQUIRE(decoded_response);
+    CHECK(*decoded_response == response);
+
+    auto malformed = session_stream_client_frame_to_json(command);
+    malformed["command"]["request_id"] = 0;
+    CHECK_FALSE(session_stream_client_frame_from_json(malformed, error));
+    malformed = session_stream_client_frame_to_json(command);
+    malformed["command"]["params"] = nlohmann::json::array();
+    CHECK_FALSE(session_stream_client_frame_from_json(malformed, error));
+    malformed = session_stream_client_frame_to_json(command);
+    malformed["command"]["method"]
+        = std::string(kSessionStreamMaxMethodBytes + 1, 'x');
+    CHECK_FALSE(session_stream_client_frame_from_json(malformed, error));
+}
+
 TEST_CASE("Session poll protocol preserves subscription and visibility identity",
     "[server][protocol][session-poll]")
 {

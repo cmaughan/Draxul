@@ -212,6 +212,9 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
                 "session-stream-v1")
         != probe.welcome->capabilities.end());
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
+                "session-stream-commands-v1")
+        != probe.welcome->capabilities.end());
+    REQUIRE(std::ranges::find(probe.welcome->capabilities,
                 kServerClientTokenCapability)
         != probe.welcome->capabilities.end());
     REQUIRE_FALSE(probe.welcome->connection_token.empty());
@@ -389,6 +392,7 @@ TEST_CASE("server kernel keeps an authenticated Session stream alive past the id
             .capabilities = {
                 std::string(kServerClientTokenCapability),
                 "session-stream-v1",
+                "session-stream-commands-v1",
             },
         }));
     REQUIRE(hello.ok);
@@ -399,6 +403,9 @@ TEST_CASE("server kernel keeps an authenticated Session stream alive past the id
     REQUIRE(welcome);
     REQUIRE(std::ranges::find(welcome->capabilities,
                 "session-stream-v1")
+        != welcome->capabilities.end());
+    REQUIRE(std::ranges::find(welcome->capabilities,
+                "session-stream-commands-v1")
         != welcome->capabilities.end());
     REQUIRE_FALSE(welcome->connection_token.empty());
 
@@ -470,6 +477,77 @@ TEST_CASE("server kernel keeps an authenticated Session stream alive past the id
     REQUIRE(initial.kind == SessionStreamServerFrameKind::Events);
     REQUIRE(initial.events);
     CHECK(initial.events->request_serial == 1);
+
+    REQUIRE(initial.events->topology.snapshot);
+    TopologyCommand create_space{
+        .client_id = "spoofed-client",
+        .command_id = "stream-kernel-create-space",
+        .expected_revision
+            = initial.events->topology.snapshot->revision,
+        .kind = TopologyCommandKind::CreateSpace,
+        .name = "Stream-created Space",
+    };
+    nlohmann::json topology_params
+        = topology_command_to_json(create_space);
+    topology_params["session_id"] = "spoofed-session";
+    const auto send_topology_command
+        = [&](uint64_t request_id) {
+              const SessionStreamClientFrame command_frame{
+                  .kind = SessionStreamClientFrameKind::Command,
+                  .command = SessionStreamCommand{
+                      .request_id = request_id,
+                      .server_epoch = welcome->server_epoch,
+                      .method = "topology.command",
+                      .params = topology_params,
+                  },
+              };
+              return stream->write_frame(
+                  session_stream_client_frame_to_json(
+                      command_frame).dump(), {}, stream_error);
+          };
+    const auto read_command_result
+        = [&](uint64_t request_id) {
+              SessionStreamServerFrame response;
+              for (int attempt = 0; attempt < 4; ++attempt)
+              {
+                  response = read_frame();
+                  if (response.kind
+                      == SessionStreamServerFrameKind::CommandResult)
+                  {
+                      break;
+                  }
+              }
+              REQUIRE(response.kind
+                  == SessionStreamServerFrameKind::CommandResult);
+              REQUIRE(response.command_result);
+              REQUIRE(response.command_result->request_id
+                  == request_id);
+              REQUIRE(response.command_result->ok);
+              return *response.command_result;
+          };
+    REQUIRE(send_topology_command(77));
+    const auto created_envelope = read_command_result(77);
+    const auto created = topology_command_result_from_json(
+        created_envelope.result, parse_error);
+    INFO(parse_error);
+    REQUIRE(created);
+    REQUIRE(created->applied);
+    CHECK_FALSE(created->duplicate);
+    REQUIRE(created->snapshot.session_id == "default");
+    REQUIRE(created->snapshot.spaces.size() == 2);
+
+    // A distinct outer request reaches the kernel again. The repeated inner
+    // command is duplicate only if the kernel replaced the spoofed identity
+    // and Session with the authenticated stream binding both times.
+    REQUIRE(send_topology_command(78));
+    const auto duplicate_envelope = read_command_result(78);
+    const auto duplicate = topology_command_result_from_json(
+        duplicate_envelope.result, parse_error);
+    INFO(parse_error);
+    REQUIRE(duplicate);
+    REQUIRE(duplicate->applied);
+    REQUIRE(duplicate->duplicate);
+    REQUIRE(duplicate->snapshot == created->snapshot);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(700));
     const auto idle_status = ServerClient::status(temp.path);

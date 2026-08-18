@@ -200,12 +200,19 @@ filename drift and dynamic-loader or ABI failures are caught on both platforms.
   and terminal batches plus idle heartbeats. The server state thread only enqueues
   work to a bounded writer and never waits for platform I/O; a stalled UI is isolated
   and disconnected without blocking healthy clients or CLI status requests.
-  Registration/cursor updates travel on the stream while mutations remain ordinary
-  short control requests. Stream negotiation or transport failure falls back to one
-  recurring `session.poll` per UI, and older servers without either capability retain
-  the compatible per-channel polling path. Terminal channels remain independently
-  ordered and recover from overflow or cursor gaps with a channel-local snapshot; the
-  shared scheduler rotates fairly within the stream's negotiated payload budget.
+  Registration/cursor updates travel on the stream. When
+  `session-stream-commands-v1` is also negotiated, attached-UI terminal input,
+  resize, controller and scrollback operations, topology mutations, and GUI agent
+  start/restart requests use correlated stream commands. Existing mutation IDs make
+  retries idempotent, command responses have reserved priority capacity ahead of bulk
+  presentation, and lost responses can be replayed after reconnect without applying
+  the mutation twice. Bootstrap, status, diagnostics, CLI access, and compatibility
+  continue to use short control requests. Stream negotiation or transport failure
+  falls back to one recurring `session.poll` per UI, and older servers without either
+  capability retain the compatible per-channel polling path. Terminal channels remain
+  independently ordered and recover from overflow or cursor gaps with a channel-local
+  snapshot; the shared scheduler rotates fairly within the stream's negotiated payload
+  budget.
 - The server owns a Windows notification-area or macOS menu-bar status item. Its menu
   reports connected clients, Sessions, Spaces, terminals, live terminals, and agents,
   and provides Open Draxul, refresh, open-log, and one guarded Stop Server action.

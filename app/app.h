@@ -245,6 +245,8 @@ private:
     std::optional<std::string> remote_tab_id(
         SpaceId local_space_id, int local_tab_id) const;
     ServerControlChannel server_control_channel() const;
+    ControlClientResult attached_ui_command(
+        std::string_view method, nlohmann::json params) const;
 
     // --- Tab orchestration (collection ownership lives in TabController) ---
     TabController& active_tab_controller();

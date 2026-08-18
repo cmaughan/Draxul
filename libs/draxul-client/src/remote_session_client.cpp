@@ -65,12 +65,33 @@ public:
 
     bool enqueue(TopologyCommand command)
     {
+        std::function<bool(TopologyCommand)> dispatcher;
+        {
+            std::lock_guard guard(mutex_);
+            if (stopping_)
+                return false;
+            dispatcher = topology_command_dispatcher_;
+        }
+        if (dispatcher && dispatcher(command))
+            return true;
+        return enqueue_control_fallback(std::move(command));
+    }
+
+    bool enqueue_control_fallback(TopologyCommand command)
+    {
         std::lock_guard guard(mutex_);
         if (stopping_ || commands_.size() >= kCommandQueueLimit)
             return false;
         commands_.push_back(std::move(command));
         wake_.notify_one();
         return true;
+    }
+
+    void set_topology_command_dispatcher(
+        std::function<bool(TopologyCommand)> dispatcher)
+    {
+        std::lock_guard guard(mutex_);
+        topology_command_dispatcher_ = std::move(dispatcher);
     }
 
     std::optional<uint64_t> request_status()
@@ -438,6 +459,80 @@ private:
         }
     }
 
+    void publish_command_completion(
+        RemoteTopologyCommandCompletion completion)
+    {
+        if (completion.ok)
+            options_.recovery->note_connected("topology.command");
+        if (completion.snapshot)
+        {
+            const std::string epoch
+                = options_.recovery->server_epoch();
+            {
+                std::lock_guard guard(mutex_);
+                pending_topology_
+                    = PendingSnapshot<TopologySnapshot>{
+                        .server_epoch = epoch,
+                        .snapshot = *completion.snapshot,
+                    };
+                topology_poll_revision_ = std::max(
+                    topology_poll_revision_,
+                    completion.snapshot->revision);
+                if (!published_)
+                    published_.emplace();
+                published_->topology
+                    = *completion.snapshot;
+                published_->topology_server_epoch = epoch;
+                published_->topology_error.reset();
+                published_->commands.push_back(
+                    std::move(completion));
+            }
+            if (options_.wake_consumer)
+                options_.wake_consumer();
+        }
+        else
+        {
+            publish([&](RemoteSessionPublishedState& state) {
+                state.commands.push_back(
+                    std::move(completion));
+            });
+        }
+    }
+
+public:
+    void accept_stream_topology_command_result(
+        TopologyCommand command, ControlClientResult response)
+    {
+        RemoteTopologyCommandCompletion completion{
+            .command = std::move(command),
+        };
+        if (!response.ok)
+        {
+            completion.error_code = std::move(response.error_code);
+            completion.error_message = std::move(response.error_message);
+            publish_command_completion(std::move(completion));
+            return;
+        }
+        std::string parse_error;
+        auto result = topology_command_result_from_json(
+            response.result, parse_error);
+        if (!result || !result->applied)
+        {
+            completion.error_code = "invalid_command_result";
+            completion.error_message = parse_error.empty()
+                ? "The streamed topology command result was not applied."
+                : std::move(parse_error);
+        }
+        else
+        {
+            completion.ok = true;
+            completion.created_id = std::move(result->created_id);
+            completion.snapshot = std::move(result->snapshot);
+        }
+        publish_command_completion(std::move(completion));
+    }
+
+private:
     bool execute_command(
         TopologyClient& topology, TopologyCommand command)
     {
@@ -477,38 +572,7 @@ private:
         }
         if (!completion.ok)
             completion.error_message = std::move(error);
-        else
-            options_.recovery->note_connected("topology.command");
-        if (completion.snapshot)
-        {
-            const std::string epoch
-                = options_.recovery->server_epoch();
-            {
-                std::lock_guard guard(mutex_);
-                pending_topology_
-                    = PendingSnapshot<TopologySnapshot>{
-                        .server_epoch = epoch,
-                        .snapshot = *completion.snapshot,
-                    };
-                if (!published_)
-                    published_.emplace();
-                published_->topology
-                    = *completion.snapshot;
-                published_->topology_server_epoch = epoch;
-                published_->topology_error.reset();
-                published_->commands.push_back(
-                    std::move(completion));
-            }
-            if (options_.wake_consumer)
-                options_.wake_consumer();
-        }
-        else
-        {
-            publish([&](RemoteSessionPublishedState& state) {
-                state.commands.push_back(
-                    std::move(completion));
-            });
-        }
+        publish_command_completion(std::move(completion));
         return true;
     }
 
@@ -785,6 +849,8 @@ private:
     mutable std::mutex mutex_;
     std::condition_variable wake_;
     std::deque<TopologyCommand> commands_;
+    std::function<bool(TopologyCommand)>
+        topology_command_dispatcher_;
     std::deque<uint64_t> statuses_;
     uint64_t next_status_id_ = 1;
     std::optional<RemoteSessionPublishedState> published_;
@@ -825,6 +891,19 @@ void RemoteSessionClient::stop()
 bool RemoteSessionClient::enqueue(TopologyCommand command)
 {
     return impl_->enqueue(std::move(command));
+}
+
+bool RemoteSessionClient::enqueue_control_fallback(
+    TopologyCommand command)
+{
+    return impl_->enqueue_control_fallback(std::move(command));
+}
+
+void RemoteSessionClient::set_topology_command_dispatcher(
+    std::function<bool(TopologyCommand)> dispatcher)
+{
+    impl_->set_topology_command_dispatcher(
+        std::move(dispatcher));
 }
 
 std::optional<uint64_t> RemoteSessionClient::request_status()
@@ -896,6 +975,13 @@ void RemoteSessionClient::accept_session_poll_error(
 {
     impl_->accept_session_poll_error(
         std::move(channel), std::move(error), recovery_channel);
+}
+
+void RemoteSessionClient::accept_stream_topology_command_result(
+    TopologyCommand command, ControlClientResult result)
+{
+    impl_->accept_stream_topology_command_result(
+        std::move(command), std::move(result));
 }
 
 void RemoteSessionClient::enable_legacy_polling()
