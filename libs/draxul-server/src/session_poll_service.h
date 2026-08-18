@@ -8,6 +8,7 @@
 #include <draxul/topology_protocol.h>
 
 #include <span>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -26,6 +27,15 @@ struct SessionPollTerminalView
     RemoteTerminalService* service = nullptr;
 };
 
+struct SessionPollBuildResult
+{
+    std::optional<SessionPollResponse> response;
+    std::string error_code;
+    std::string error_message;
+
+    bool ok() const noexcept { return response.has_value(); }
+};
+
 // Immediate bounded aggregation over existing Session projections and terminal
 // subscriber queues. This service never waits for changes and owns no terminal
 // event history; it retains only per-client fairness cursors.
@@ -33,6 +43,13 @@ class SessionPollService
 {
 public:
     explicit SessionPollService(std::string server_epoch);
+
+    SessionPollBuildResult build(const SessionPollRequest& request,
+        std::string_view authenticated_client_id,
+        const TopologySnapshot& topology,
+        const ServerAgentSnapshot& agents,
+        std::span<const SessionPollTerminalView> terminals,
+        size_t payload_budget = kSessionPollPayloadBudget);
 
     ControlMethodResult handle(const nlohmann::json& params,
         std::string_view authenticated_client_id,

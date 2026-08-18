@@ -92,14 +92,41 @@ ControlMethodResult ServerKernel::Impl::poll_session(
     std::string_view session_id, std::string_view client_id,
     const SessionPollRequest& request, size_t payload_budget)
 {
+    auto built = build_session_poll(
+        session_id, client_id, request, payload_budget);
+    if (!built.ok())
+    {
+        return ControlMethodResult::error(
+            std::move(built.error_code),
+            std::move(built.error_message));
+    }
+    auto encoded = session_poll_response_to_json(*built.response);
+    if (encoded.dump(-1, ' ', false,
+            nlohmann::detail::error_handler_t::replace)
+            .size()
+        > kControlMaxMessageBytes)
+    {
+        return ControlMethodResult::error(
+            "frame_too_large",
+            "The Session poll response exceeds the control frame budget.");
+    }
+    return ControlMethodResult::success(std::move(encoded));
+}
+
+SessionPollBuildResult ServerKernel::Impl::build_session_poll(
+    std::string_view session_id, std::string_view client_id,
+    const SessionPollRequest& request, size_t payload_budget)
+{
     {
         std::lock_guard guard(mutex);
         const auto client = clients.find(std::string(client_id));
         if (client == clients.end())
         {
-            return ControlMethodResult::error(
-                "invalid_client",
-                "The Session stream client is no longer registered.");
+            return {
+                .error_code = "invalid_client",
+                .error_message
+                = "The Session stream client is no longer registered.",
+            };
         }
         client->second.last_activity = std::chrono::steady_clock::now();
     }
@@ -107,9 +134,11 @@ ControlMethodResult ServerKernel::Impl::poll_session(
     if (found == sessions.end() || !found->second->topology_service
         || !found->second->agent_service || !found->second->poll_service)
     {
-        return ControlMethodResult::error(
-            "session_unavailable",
-            "Server Session projections are unavailable.");
+        return {
+            .error_code = "session_unavailable",
+            .error_message
+            = "Server Session projections are unavailable.",
+        };
     }
     ServerSession& session = *found->second;
     std::vector<SessionPollTerminalView> terminals;
@@ -121,9 +150,7 @@ ControlMethodResult ServerKernel::Impl::poll_session(
             .service = endpoint.service.get(),
         });
     }
-    nlohmann::json params = session_poll_request_to_json(request);
-    params["session_id"] = session.session_id;
-    return session.poll_service->handle(params, client_id,
+    return session.poll_service->build(request, client_id,
         session.topology_service->snapshot(),
         session.agent_service->snapshot(), terminals,
         payload_budget);

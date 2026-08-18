@@ -1,5 +1,7 @@
 #pragma once
 
+#include "session_poll_service.h"
+
 #include <draxul/control_plane.h>
 #include <draxul/session_protocol.h>
 
@@ -49,7 +51,7 @@ struct SessionStreamServiceStats
 class SessionStreamService
 {
 public:
-    using Poll = std::function<ControlMethodResult(std::string_view session_id,
+    using Poll = std::function<SessionPollBuildResult(std::string_view session_id,
         std::string_view client_id, const SessionPollRequest& request,
         size_t payload_budget)>;
     using Touch = std::function<void(std::string_view client_id)>;

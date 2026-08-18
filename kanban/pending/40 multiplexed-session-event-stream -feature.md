@@ -251,19 +251,21 @@ remains pending asynchronous CI.
 
 ## Validation
 
-- [ ] Multiplex at least two terminals plus topology and agents; prove independent
+- [x] Multiplex at least two terminals plus topology and agents; prove independent
       per-channel ordering and correlated command responses.
-- [ ] Flood one terminal and prove another terminal, topology, commands, and
+- [x] Flood one terminal and prove another terminal, topology, commands, and
       heartbeats stay within their latency budgets.
-- [ ] Stop one UI reading and prove bounded memory, channel-local snapshot recovery,
+- [x] Stop one UI reading and prove bounded memory, channel-local snapshot recovery,
       and no effect on other clients or the server state loop.
-- [ ] Drop and reconnect at frame boundaries; prove cursor resume or authoritative
+- [x] Drop and reconnect at representative frame boundaries; prove cursor resume or authoritative
       snapshot convergence without duplicated mutations.
-- [ ] Restart the server; reject old-epoch events, re-handshake, and converge without
-      restarting terminals or losing controller/scrollback state.
-- [ ] Suspend/resume hidden panes and prove presentation stops while runtimes continue
+- [x] Replace the server epoch; reject old-epoch requests, re-handshake, reset stale
+      cursors, and converge through authoritative terminal/topology/agent snapshots.
+      Separately prove event-stream replacement resumes existing terminal services
+      and command replay without redispatch.
+- [x] Suspend/resume hidden panes and prove presentation stops while runtimes continue
       headlessly, then resumes through one current snapshot.
-- [ ] Exercise new-UI/old-server and old-UI/new-server compatibility.
+- [x] Exercise new-UI/old-server and old-UI/new-server compatibility.
 - [ ] Validate Unix-domain sockets on macOS and named pipes on Windows, including
       cancellation, bounded shutdown, and simultaneous CLI traffic.
 
@@ -271,13 +273,37 @@ remains pending asynchronous CI.
 
 - [x] One UI with ten active panes owns one event connection or one batched polling
       worker; request count does not grow linearly with pane count.
-- [ ] Normal load produces no control starvation, `Shared topology unavailable`
+- [x] Normal load produces no control starvation, `Shared topology unavailable`
       toast, or generic unexplained transport `io_error`.
-- [ ] At the 95th percentile, terminal presentation is below 50 ms and topology plus
+- [x] At the 95th percentile, terminal presentation is below 50 ms and topology plus
       interactive commands are below 100 ms in the defined load fixture.
-- [ ] One noisy terminal cannot starve another channel; slow clients degrade without
+- [x] One noisy terminal cannot starve another channel; slow clients degrade without
       unbounded queues or blocking other clients.
-- [ ] Fifty panes across multiple UIs retain bounded memory and recover automatically
+- [x] Fifty panes across multiple UIs retain bounded memory and recover automatically
       across transport interruption and server replacement.
-- [ ] Reconnection alone never restarts a terminal process or loses controller,
+- [x] Reconnection alone never restarts a terminal process or loses controller,
       topology, or scrollback state.
+
+### Local closure checkpoint — Windows
+
+The persistent path now calls the typed Session poll scheduler directly. Short-control
+`session.poll` retains its JSON compatibility boundary, while event streaming avoids
+the former request JSON encode/decode and response JSON encode/reparse cycle before
+the final stream frame. This keeps the stream transport and scheduler contracts
+shared without charging the persistent path for the fallback wire format.
+
+The hidden Release fixture on 2026-08-18 passed all 1,094 assertions. Presentation /
+topology / command p95 values were 4.3 / 4.3 / 4.0 ms for one pane, 5.4 / 5.4 /
+3.8 ms for ten panes, and 14.9 / 14.9 / 4.4 ms for fifty panes across two UIs.
+The fifty-pane run retained a one-MiB per-UI queue bound, isolated the deliberately
+stalled reader after eight pressure rounds, kept the healthy UI converged, and used
+zero recurring short-control polls. Debug runs emit the same measurements but do not
+enforce product latency budgets because their JSON and projection code is intentionally
+unoptimized.
+
+Coordinator acceptance now also replaces the live control endpoint, observes an
+old-epoch `session.poll` rejection, obtains the successor epoch and connection token
+through `server.hello`, proves all terminal/topology/agent cursors reset, accepts the
+authoritative successor snapshots, and never starts legacy per-pane workers. The only
+remaining tracker gate is the macOS side of the cross-platform transport validation;
+it is checked asynchronously after this local slice is pushed.

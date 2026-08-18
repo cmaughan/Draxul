@@ -553,7 +553,7 @@ int ServerKernel::Impl::run_until_stopped()
                     std::string_view client_id,
                     const SessionPollRequest& request,
                     size_t payload_budget) {
-                    return poll_session(session_id, client_id, request,
+                    return build_session_poll(session_id, client_id, request,
                         payload_budget);
                 },
                 [this](std::string_view client_id) {

@@ -212,7 +212,10 @@ filename drift and dynamic-loader or ABI failures are caught on both platforms.
   capability retain the compatible per-channel polling path. Terminal channels remain
   independently ordered and recover from overflow or cursor gaps with a channel-local
   snapshot; the shared scheduler rotates fairly within the stream's negotiated payload
-  budget. A transient transport failure leaves the last coherent topology, agent, and
+  budget. The persistent path feeds that scheduler with typed requests and responses,
+  so it serializes only the final stream frame; the JSON `session.poll` boundary is
+  retained only for fallback and compatibility clients. A transient transport failure
+  leaves the last coherent topology, agent, and
   terminal projections visible and does not produce an immediate toast. If the whole
   Session remains unavailable for two seconds, the UI emits one background-reconnect
   warning; recovery clears that outage state without a success toast. The diagnostics

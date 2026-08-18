@@ -48,12 +48,6 @@ ControlMethodResult SessionPollService::handle(
     std::span<const SessionPollTerminalView> terminals,
     size_t payload_budget)
 {
-    if (authenticated_client_id.empty())
-    {
-        return ControlMethodResult::error(
-            "invalid_client",
-            "Session polling requires an authenticated client identity.");
-    }
     std::string parse_error;
     auto request = session_poll_request_from_json(params, parse_error);
     if (!request)
@@ -61,24 +55,60 @@ ControlMethodResult SessionPollService::handle(
         return ControlMethodResult::error(
             "invalid_session_poll", std::move(parse_error));
     }
-    if (request->server_epoch != server_epoch_)
+    auto built = build(*request, authenticated_client_id,
+        topology, agents, terminals, payload_budget);
+    if (!built.ok())
     {
         return ControlMethodResult::error(
-            "stale_epoch", "The Session server epoch has changed.");
+            std::move(built.error_code),
+            std::move(built.error_message));
+    }
+    auto encoded = session_poll_response_to_json(*built.response);
+    if (encoded_size(encoded) > kControlMaxMessageBytes)
+    {
+        return ControlMethodResult::error(
+            "frame_too_large",
+            "The Session poll response exceeds the control frame budget.");
+    }
+    return ControlMethodResult::success(std::move(encoded));
+}
+
+SessionPollBuildResult SessionPollService::build(
+    const SessionPollRequest& request,
+    std::string_view authenticated_client_id,
+    const TopologySnapshot& topology,
+    const ServerAgentSnapshot& agents,
+    std::span<const SessionPollTerminalView> terminals,
+    size_t payload_budget)
+{
+    if (authenticated_client_id.empty())
+    {
+        return {
+            .error_code = "invalid_client",
+            .error_message
+            = "Session polling requires an authenticated client identity.",
+        };
+    }
+    if (request.server_epoch != server_epoch_)
+    {
+        return {
+            .error_code = "stale_epoch",
+            .error_message = "The Session server epoch has changed.",
+        };
     }
 
     SessionPollResponse response{
-        .request_serial = request->request_serial,
+        .request_serial = request.request_serial,
         .server_epoch = server_epoch_,
         .topology = {
             .revision = topology.revision,
             .resync
-            = request->topology_after_revision > topology.revision,
+            = request.topology_after_revision > topology.revision,
         },
         .agents = {
             .revision = agents.revision,
             .resync
-            = request->agent_after_revision > agents.revision,
+            = request.agent_after_revision > agents.revision,
         },
     };
     const size_t total_budget = std::clamp<size_t>(
@@ -87,7 +117,7 @@ ControlMethodResult SessionPollService::handle(
     auto& schedule = schedules_[std::string(authenticated_client_id)];
 
     const auto process_topology = [&] {
-        if (request->topology_after_revision == topology.revision)
+        if (request.topology_after_revision == topology.revision)
             return;
         const auto encoded = topology_snapshot_to_json(topology);
         const size_t bytes = encoded_size(encoded);
@@ -109,7 +139,7 @@ ControlMethodResult SessionPollService::handle(
     };
 
     const auto process_agents = [&] {
-        if (request->agent_after_revision == agents.revision)
+        if (request.agent_after_revision == agents.revision)
             return;
         const auto encoded = server_agent_snapshot_to_json(agents);
         const size_t bytes = encoded_size(encoded);
@@ -131,11 +161,11 @@ ControlMethodResult SessionPollService::handle(
     };
 
     const auto process_terminals = [&] {
-        if (request->terminals.empty())
+        if (request.terminals.empty())
             return;
         std::vector<const SessionTerminalSubscription*> ordered;
-        ordered.reserve(request->terminals.size());
-        for (const auto& subscription : request->terminals)
+        ordered.reserve(request.terminals.size());
+        for (const auto& subscription : request.terminals)
             ordered.push_back(&subscription);
         std::ranges::sort(ordered, {},
             &SessionTerminalSubscription::subscription_id);
@@ -236,14 +266,7 @@ ControlMethodResult SessionPollService::handle(
         }
     }
 
-    auto encoded = session_poll_response_to_json(response);
-    if (encoded_size(encoded) > kControlMaxMessageBytes)
-    {
-        return ControlMethodResult::error(
-            "frame_too_large",
-            "The Session poll response exceeds the control frame budget.");
-    }
-    return ControlMethodResult::success(std::move(encoded));
+    return { .response = std::move(response) };
 }
 
 void SessionPollService::disconnect_client(std::string_view client_id)

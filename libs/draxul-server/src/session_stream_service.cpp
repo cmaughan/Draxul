@@ -880,7 +880,7 @@ void SessionStreamService::pump(const Poll& poll, const Touch& touch,
                 : 1;
             const auto result = poll(
                 session_id, client_id, request, payload_budget);
-            if (!result.ok)
+            if (!result.ok())
             {
                 SessionStreamServerFrame frame{
                     .kind = SessionStreamServerFrameKind::Error,
@@ -896,14 +896,7 @@ void SessionStreamService::pump(const Poll& poll, const Touch& touch,
                     OutboundPriority::Control);
                 continue;
             }
-            std::string parse_error;
-            auto response = session_poll_response_from_json(
-                result.value, parse_error);
-            if (!response)
-            {
-                impl_->close_core(core);
-                continue;
-            }
+            auto response = std::move(result.response);
             if (has_events(*response))
             {
                 SessionStreamServerFrame frame{

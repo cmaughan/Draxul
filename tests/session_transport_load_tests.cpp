@@ -1251,11 +1251,12 @@ nlohmann::json run_stream_load_scenario(
               ++stream_poll_calls;
               if (session_id != "default")
               {
-                  return ControlMethodResult::error(
-                      "invalid_session", "Unexpected stream Session.");
+                  return SessionPollBuildResult{
+                      .error_code = "invalid_session",
+                      .error_message = "Unexpected stream Session.",
+                  };
               }
-              return poll_service.handle(
-                  session_poll_request_to_json(request), client_id,
+              return poll_service.build(request, client_id,
                   topology, agents, terminal_views, payload_budget);
           };
     size_t stream_command_dispatches = 0;
@@ -1363,6 +1364,17 @@ nlohmann::json run_stream_load_scenario(
         = stream_service.connection_count();
 
     constexpr int kStreamLoadRounds = 4;
+    std::vector<uint64_t> terminal_delivery_latencies_us;
+    std::vector<uint64_t> topology_delivery_latencies_us;
+    std::vector<uint64_t> command_latencies_us;
+    std::vector<uint64_t> steady_frame_bytes;
+    terminal_delivery_latencies_us.reserve(
+        scenario.panes * kStreamLoadRounds);
+    topology_delivery_latencies_us.reserve(
+        scenario.attached_uis * kStreamLoadRounds);
+    command_latencies_us.reserve(
+        scenario.attached_uis * kStreamLoadRounds);
+    uint64_t next_stream_command_request_id = 10'000;
     std::vector<uint64_t> expected_sequences;
     expected_sequences.reserve(panes.size());
     for (const auto& pane : panes)
@@ -1385,6 +1397,12 @@ nlohmann::json run_stream_load_scenario(
         }
         ++topology.revision;
         ++agents.revision;
+        // Start delivery timing only after the deterministic producer work is
+        // complete. This measures the stream scheduler, framing, transport,
+        // decode, and projection path rather than charging earlier panes for
+        // the fixture's sequential generation of all other pane updates.
+        const auto delivery_started_at
+            = std::chrono::steady_clock::now();
         for (auto& stream : streams)
         {
             REQUIRE(write_stream_update(stream,
@@ -1399,11 +1417,54 @@ nlohmann::json run_stream_load_scenario(
             REQUIRE(frame.kind
                 == SessionStreamServerFrameKind::Events);
             REQUIRE(frame.events);
-            max_frame_bytes = std::max(max_frame_bytes,
-                session_stream_server_frame_to_json(frame).dump().size());
+            const size_t frame_bytes
+                = session_stream_server_frame_to_json(frame).dump().size();
+            max_frame_bytes = std::max(max_frame_bytes, frame_bytes);
+            steady_frame_bytes.push_back(frame_bytes);
             REQUIRE(apply_session_poll_response(
                 stream.ui, panes, *frame.events, error,
                 "stream-epoch"));
+            const uint64_t delivery_latency_us = elapsed_us(
+                delivery_started_at,
+                std::chrono::steady_clock::now());
+            topology_delivery_latencies_us.push_back(
+                delivery_latency_us);
+            for (const auto& pane : panes)
+            {
+                if (pane.client_id == stream.ui.client_id)
+                {
+                    terminal_delivery_latencies_us.push_back(
+                        delivery_latency_us);
+                }
+            }
+
+        }
+        for (auto& stream : streams)
+        {
+            const uint64_t command_request_id
+                = next_stream_command_request_id++;
+            const auto command_started_at
+                = std::chrono::steady_clock::now();
+            REQUIRE(write_stream_command(stream,
+                {
+                    .request_id = command_request_id,
+                    .server_epoch = "stream-epoch",
+                    .method = "test.priority",
+                    .params = {
+                        { "round", round },
+                        { "ui", stream.ui.client_id },
+                    },
+                },
+                error));
+            SessionStreamCommandResult command_result;
+            REQUIRE(read_stream_command_result(stream,
+                stream_service, stream_poll, stream_dispatch,
+                command_result, std::chrono::seconds(4), error));
+            REQUIRE(command_result.request_id == command_request_id);
+            REQUIRE(command_result.ok);
+            command_latencies_us.push_back(elapsed_us(
+                command_started_at,
+                std::chrono::steady_clock::now()));
         }
     }
     for (size_t index = 0; index < panes.size(); ++index)
@@ -1567,7 +1628,8 @@ nlohmann::json run_stream_load_scenario(
         REQUIRE(stalled_reader_disconnected);
         REQUIRE(command_priority_verified);
         REQUIRE(control_reserve_observed);
-        REQUIRE(stream_command_dispatches == 1);
+        REQUIRE(stream_command_dispatches
+            == scenario.attached_uis * kStreamLoadRounds + 1);
         REQUIRE(healthy.connection->connected());
         if (healthy_frame_pending)
         {
@@ -1629,6 +1691,26 @@ nlohmann::json run_stream_load_scenario(
     const auto control_metrics = control.metrics_snapshot();
     REQUIRE(control_metrics.accepted_connections
         == scenario.attached_uis + 1);
+    const auto terminal_delivery_latency
+        = latency_summary(terminal_delivery_latencies_us);
+    const auto topology_delivery_latency
+        = latency_summary(topology_delivery_latencies_us);
+    const auto command_latency
+        = latency_summary(command_latencies_us);
+#ifdef NDEBUG
+    // These are user-facing latency budgets. Debug runs still emit the same
+    // measurements, but unoptimized JSON/projection work is diagnostic rather
+    // than a product performance gate.
+    constexpr bool kLatencyBudgetEnforced = true;
+    CHECK(terminal_delivery_latency.at("p95").get<uint64_t>()
+        < 50'000);
+    CHECK(topology_delivery_latency.at("p95").get<uint64_t>()
+        < 100'000);
+    CHECK(command_latency.at("p95").get<uint64_t>()
+        < 100'000);
+#else
+    constexpr bool kLatencyBudgetEnforced = false;
+#endif
 
     nlohmann::json result{
         { "panes", scenario.panes },
@@ -1651,6 +1733,13 @@ nlohmann::json run_stream_load_scenario(
         { "max_stream_frame_bytes", max_frame_bytes },
         { "stream_queue_budget_bytes", kTestStreamQueueBytes },
         { "status_latency_us", status_latency_us },
+        { "terminal_delivery_latency_us",
+            terminal_delivery_latency },
+        { "topology_delivery_latency_us",
+            topology_delivery_latency },
+        { "interactive_command_latency_us", command_latency },
+        { "latency_budget_enforced", kLatencyBudgetEnforced },
+        { "steady_frame_bytes", latency_summary(steady_frame_bytes) },
         { "stalled_reader_exercised", exercise_stalled_reader },
         { "stalled_reader_disconnected",
             stalled_reader_disconnected },
@@ -1747,12 +1836,13 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
               if (session_id != "default"
                   || client_id != "stream-ui")
               {
-                  return ControlMethodResult::error(
-                      "invalid_binding",
-                      "The Session stream binding changed.");
+                  return SessionPollBuildResult{
+                      .error_code = "invalid_binding",
+                      .error_message
+                      = "The Session stream binding changed.",
+                  };
               }
-              return poll_service.handle(
-                  session_poll_request_to_json(request), client_id,
+              return poll_service.build(request, client_id,
                   topology, agents, terminal_views, payload_budget);
           };
 

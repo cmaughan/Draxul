@@ -42,8 +42,12 @@ TerminalSemanticSnapshot terminal_snapshot(std::string title)
     return result;
 }
 
-RemoteTerminalAttach terminal_attach(uint64_t sequence)
+RemoteTerminalAttach terminal_attach(uint64_t sequence,
+    std::string server_epoch = "coordinator-epoch",
+    std::string title = {})
 {
+    if (title.empty())
+        title = sequence == 0 ? "Initial" : "Updated";
     return {
         .pane = {
             .pane_id = "pane-shared",
@@ -55,14 +59,13 @@ RemoteTerminalAttach terminal_attach(uint64_t sequence)
         .state = {
             .kind = RemoteTerminalEventKind::Snapshot,
             .version = {
-                .server_epoch = "coordinator-epoch",
+                .server_epoch = std::move(server_epoch),
                 .terminal_id = "terminal-shared",
                 .generation = 1,
                 .sequence = sequence,
             },
             .controller_client_id = "coordinator-ui",
-            .snapshot = terminal_snapshot(
-                sequence == 0 ? "Initial" : "Updated"),
+            .snapshot = terminal_snapshot(std::move(title)),
         },
     };
 }
@@ -1500,6 +1503,263 @@ TEST_CASE("remote Session coordinator retains projections and recovers quietly t
     dispatcher.request_stop();
     dispatcher.join();
     control.stop();
+}
+
+TEST_CASE("remote Session coordinator re-handshakes and converges after server epoch replacement",
+    "[client][remote-session-coordinator][session-poll][server-restart]")
+{
+    TempDir temp("draxul-session-coordinator-epoch-replacement");
+    const std::string control_id
+        = namespaced_control_id(kServerControlId, temp.path);
+    auto recovery
+        = std::make_shared<ClientRecoveryState>("coordinator-ui");
+    REQUIRE(recovery->set_server_identity("epoch-a", "token-a"));
+    RemoteSessionClient session_client({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .recovery = recovery,
+        .externally_fed = true,
+    });
+
+    ControlServer first_server;
+    std::string start_error;
+    REQUIRE(first_server.start(
+        control_id, temp.path, [] {}, &start_error));
+    std::atomic<int> first_polls = 0;
+    std::jthread first_dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            first_server.process_pending(
+                [&](const ControlRequest& request) {
+                    if (request.method != "session.poll")
+                    {
+                        return ControlMethodResult::error(
+                            "unknown_method",
+                            "Unexpected first-server method.");
+                    }
+                    ++first_polls;
+                    std::string error;
+                    auto poll = session_poll_request_from_json(
+                        request.params, error);
+                    if (!poll)
+                    {
+                        return ControlMethodResult::error(
+                            "invalid_request", error);
+                    }
+                    SessionPollResponse response{
+                        .request_serial = poll->request_serial,
+                        .server_epoch = "epoch-a",
+                        .topology = {
+                            .revision = 7,
+                            .snapshot = session_topology(7),
+                        },
+                        .agents = {
+                            .revision = 3,
+                            .snapshot = ServerAgentSnapshot{
+                                .revision = 3,
+                                .session_id = "default",
+                            },
+                        },
+                    };
+                    for (const auto& subscription : poll->terminals)
+                    {
+                        response.terminals.push_back({
+                            .subscription_id
+                            = subscription.subscription_id,
+                            .terminal_id = subscription.terminal_id,
+                            .visibility_generation
+                            = subscription.visibility_generation,
+                            .attach = terminal_attach(0, "epoch-a",
+                                "Before replacement"),
+                        });
+                    }
+                    return ControlMethodResult::success(
+                        session_poll_response_to_json(response));
+                });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    std::atomic<int> legacy_requests = 0;
+    RemoteSessionCoordinator coordinator({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .expected_server_epoch = "epoch-a",
+        .method_prefix = "fake",
+        .recovery = recovery,
+        .session_poll_supported = true,
+        .session_client = &session_client,
+    });
+    REQUIRE(coordinator.start());
+    auto registration
+        = coordinator.register_terminal("terminal-shared");
+    REQUIRE(registration);
+    const auto initial_terminal = wait_for_state(registration);
+    REQUIRE(initial_terminal);
+    CHECK(initial_terminal->snapshot.metadata.title
+        == "Before replacement");
+    CHECK(initial_terminal->controller_client_id
+        == "coordinator-ui");
+    CHECK(initial_terminal->process_running);
+    REQUIRE(wait_for_condition([&] {
+        auto state = session_client.take_published_state();
+        return state && state->topology && state->agents
+            && state->topology->revision == 7
+            && state->agents->revision == 3;
+    }));
+    REQUIRE(first_polls > 0);
+
+    first_dispatcher.request_stop();
+    first_dispatcher.join();
+    first_server.stop();
+
+    ControlServer successor;
+    REQUIRE(successor.start(
+        control_id, temp.path, [] {}, &start_error));
+    std::atomic<int> stale_epoch_polls = 0;
+    std::atomic<int> refreshed_polls = 0;
+    std::atomic<int> hello_requests = 0;
+    std::atomic<bool> refreshed_poll_reset_cursors = false;
+    std::atomic<bool> refreshed_token_seen = false;
+    std::jthread successor_dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            successor.process_pending(
+                [&](const ControlRequest& request) {
+                    if (request.method == "server.hello")
+                    {
+                        ++hello_requests;
+                        std::string error;
+                        const auto hello = server_hello_from_json(
+                            request.params, error);
+                        if (!hello)
+                        {
+                            return ControlMethodResult::error(
+                                "invalid_hello", error);
+                        }
+                        return ControlMethodResult::success(
+                            server_welcome_to_json({
+                                .protocol_major = kServerProtocolMajor,
+                                .protocol_minor = kServerProtocolMinor,
+                                .server_pid = 42,
+                                .server_epoch = "epoch-b",
+                                .build_version = "test",
+                                .connection_token = "token-b",
+                                .capabilities = {
+                                    "session-poll-v1",
+                                    std::string(
+                                        kServerClientTokenCapability),
+                                },
+                            }));
+                    }
+                    if (request.method == "session.poll")
+                    {
+                        std::string error;
+                        auto poll = session_poll_request_from_json(
+                            request.params, error);
+                        if (!poll)
+                        {
+                            return ControlMethodResult::error(
+                                "invalid_request", error);
+                        }
+                        if (poll->server_epoch != "epoch-b")
+                        {
+                            ++stale_epoch_polls;
+                            return ControlMethodResult::error(
+                                "stale_epoch",
+                                "The server epoch was replaced.");
+                        }
+                        ++refreshed_polls;
+                        refreshed_token_seen
+                            = request.params.value(
+                                  "connection_token", std::string{})
+                            == "token-b";
+                        refreshed_poll_reset_cursors
+                            = poll->topology_after_revision == 0
+                            && poll->agent_after_revision == 0
+                            && poll->terminals.size() == 1
+                            && !poll->terminals.front().cursor;
+                        SessionPollResponse response{
+                            .request_serial = poll->request_serial,
+                            .server_epoch = "epoch-b",
+                            .topology = {
+                                .revision = 1,
+                                .snapshot = session_topology(1),
+                            },
+                            .agents = {
+                                .revision = 1,
+                                .snapshot = ServerAgentSnapshot{
+                                    .revision = 1,
+                                    .session_id = "default",
+                                },
+                            },
+                        };
+                        for (const auto& subscription : poll->terminals)
+                        {
+                            response.terminals.push_back({
+                                .subscription_id
+                                = subscription.subscription_id,
+                                .terminal_id = subscription.terminal_id,
+                                .visibility_generation
+                                = subscription.visibility_generation,
+                                .attach = terminal_attach(0, "epoch-b",
+                                    "After replacement"),
+                            });
+                        }
+                        return ControlMethodResult::success(
+                            session_poll_response_to_json(response));
+                    }
+                    if (request.method == "fake.attach"
+                        || request.method == "fake.poll")
+                    {
+                        ++legacy_requests;
+                    }
+                    return ControlMethodResult::error(
+                        "unknown_method",
+                        "Unexpected successor method.");
+                });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    std::optional<RemoteTerminalPublishedState> replacement_terminal;
+    std::optional<TopologySnapshot> replacement_topology;
+    std::optional<ServerAgentSnapshot> replacement_agents;
+    REQUIRE(wait_for_condition([&] {
+        if (auto state = registration.take_published_state())
+            replacement_terminal = std::move(state);
+        if (auto state = session_client.take_published_state())
+        {
+            if (state->topology)
+                replacement_topology = std::move(state->topology);
+            if (state->agents)
+                replacement_agents = std::move(state->agents);
+        }
+        return recovery->server_epoch() == "epoch-b"
+            && replacement_terminal
+            && replacement_topology && replacement_agents;
+    }, std::chrono::seconds(6)));
+    REQUIRE(replacement_terminal);
+    CHECK(replacement_terminal->snapshot.metadata.title
+        == "After replacement");
+    CHECK(replacement_terminal->controller_client_id
+        == "coordinator-ui");
+    CHECK(replacement_terminal->process_running);
+    REQUIRE(replacement_topology->revision == 1);
+    REQUIRE(replacement_agents->revision == 1);
+    CHECK(stale_epoch_polls >= 1);
+    CHECK(hello_requests >= 1);
+    CHECK(refreshed_polls >= 1);
+    CHECK(refreshed_poll_reset_cursors);
+    CHECK(refreshed_token_seen);
+    CHECK(legacy_requests == 0);
+    CHECK(coordinator.transport_snapshot().transport
+        == RemoteSessionTransportKind::SessionPoll);
+
+    coordinator.stop();
+    successor_dispatcher.request_stop();
+    successor_dispatcher.join();
+    successor.stop();
 }
 
 TEST_CASE("remote Session coordinator falls back when Session poll is unavailable",
