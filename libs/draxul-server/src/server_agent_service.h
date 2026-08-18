@@ -29,7 +29,8 @@ struct ServerAgentRuntimeView
 };
 
 // Session-scoped authority for discovering and evaluating agents from
-// server-owned terminal runtimes. Only its sanitized projection is exposed.
+// server-owned terminal runtimes. This is a private server collaborator; tests
+// reach it only through draxul-server-test-internals.
 class ServerAgentService
 {
 public:

@@ -13,7 +13,6 @@
 #include <draxul/log.h>
 #include <draxul/process_util.h>
 #include <draxul/remote_terminal_protocol.h>
-#include <draxul/server_agent_service.h>
 #include <draxul/server_protocol.h>
 #include <draxul/session_state.h>
 

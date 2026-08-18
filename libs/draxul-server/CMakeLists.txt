@@ -24,3 +24,11 @@ target_link_libraries(draxul-server PUBLIC
     draxul-terminal-process
     draxul-types
 )
+
+# Private server collaborators are deliberately absent from draxul-server's
+# public include tree. Focused server tests opt into this boundary explicitly.
+add_library(draxul-server-test-internals INTERFACE)
+target_include_directories(draxul-server-test-internals INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(draxul-server-test-internals INTERFACE draxul-server)

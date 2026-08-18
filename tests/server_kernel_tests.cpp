@@ -2,6 +2,7 @@
 
 #include "../libs/draxul-server/src/fake_terminal_runtime.h"
 #include "../libs/draxul-server/src/remote_terminal_service.h"
+#include "server_agent_service.h"
 #include "../libs/draxul-server/src/server_terminal_runtime.h"
 #include "../libs/draxul-server/src/session_poll_service.h"
 #include "../libs/draxul-server/src/session_topology_bridge.h"

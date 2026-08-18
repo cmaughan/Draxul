@@ -25,7 +25,74 @@ def load_do_module():
     return module
 
 
+def load_sdk_smoke_module():
+    spec = importlib.util.spec_from_file_location(
+        "draxul_sdk_smoke", ROOT / "tests" / "support" / "sdk_smoke.py"
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("failed to load tests/support/sdk_smoke.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 draxul_do = load_do_module()
+sdk_smoke = load_sdk_smoke_module()
+
+
+class ExternalSdkSmokeCommandTests(unittest.TestCase):
+    def make_args(self, generator: str, *, platform: str = "", toolset: str = ""):
+        return sdk_smoke.make_argument_parser().parse_args(
+            [
+                "--cmake", "cmake",
+                "--source-root", "source-root",
+                "--build-root", "build-root",
+                "--draxul", "draxul",
+                "--config", "Debug",
+                "--generator", generator,
+                f"--platform={platform}",
+                f"--toolset={toolset}",
+                "--c-compiler=C:/toolchain/cl.exe",
+                "--cxx-compiler=C:/toolchain/cl.exe",
+                "--make-program=C:/tools/ninja.exe",
+                "--toolchain-file=C:/toolchain/parent.cmake",
+            ]
+        )
+
+    def test_single_config_external_build_inherits_parent_toolchain(self) -> None:
+        args = self.make_args("Ninja")
+
+        with mock.patch.object(sdk_smoke, "run") as run:
+            sdk_smoke.configure_external(
+                args, pathlib.Path("fixture"), pathlib.Path("out"), pathlib.Path("sdk")
+            )
+
+        command = run.call_args.args[0]
+        self.assertIn("-DCMAKE_BUILD_TYPE=Debug", command)
+        self.assertIn("-DCMAKE_C_COMPILER=C:/toolchain/cl.exe", command)
+        self.assertIn("-DCMAKE_CXX_COMPILER=C:/toolchain/cl.exe", command)
+        self.assertIn("-DCMAKE_MAKE_PROGRAM=C:/tools/ninja.exe", command)
+        self.assertIn("-DCMAKE_TOOLCHAIN_FILE=C:/toolchain/parent.cmake", command)
+
+    def test_ide_external_build_uses_generator_platform_and_toolset(self) -> None:
+        args = self.make_args(
+            "Visual Studio 17 2022", platform="x64", toolset="v143"
+        )
+
+        with mock.patch.object(sdk_smoke, "run") as run:
+            sdk_smoke.configure_external(
+                args, pathlib.Path("fixture"), pathlib.Path("out"), pathlib.Path("sdk")
+            )
+
+        command = run.call_args.args[0]
+        self.assertIn("-A", command)
+        self.assertIn("x64", command)
+        self.assertIn("-T", command)
+        self.assertIn("v143", command)
+        self.assertFalse(any(argument.startswith("-DCMAKE_C_") for argument in command))
+        self.assertFalse(any(argument.startswith("-DCMAKE_CXX_") for argument in command))
+        self.assertNotIn("-DCMAKE_MAKE_PROGRAM=C:/tools/ninja.exe", command)
+        self.assertIn("-DCMAKE_TOOLCHAIN_FILE=C:/toolchain/parent.cmake", command)
 
 
 class RenderManifestTests(unittest.TestCase):

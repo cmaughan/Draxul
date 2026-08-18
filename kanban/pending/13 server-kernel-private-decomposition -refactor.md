@@ -24,8 +24,8 @@ decomposition. This card does not implement Session streaming.
 
 - [x] Add private `server_kernel_impl.h`.
 - [ ] Move member definitions mechanically into responsibility TUs.
-- [ ] Move `ServerAgentService` to `src/`.
-- [ ] Add `draxul-server-test-internals`.
+- [x] Move `ServerAgentService` to `src/`.
+- [x] Add `draxul-server-test-internals`.
 - [ ] Split tests by responsibility.
 - [ ] Introduce registry/store collaborators only after state ownership is proven.
 - [ ] Do not add service static libraries or another mutex.
@@ -50,6 +50,11 @@ and tags while splitting them into service/protocol, lifecycle/discovery,
 client/authentication, Session/checkpoint, topology/terminal, agent, and process
 integration groups; do not duplicate those registrations across old and new files.
 
+`ServerAgentService` is now a private collaborator under `src/`, and the two
+white-box suites that construct it opt into the explicit
+`draxul-server-test-internals` include/link boundary. The installed/public include
+surface no longer exposes the service.
+
 ### Delivered checkpoint — responsibility translation units
 
 The private boundary now supports behavior-preserving compilation units for the
@@ -64,8 +69,8 @@ until the test-internals boundary and test partition are ready to move with them
 ## Unit tests
 
 - [ ] Add focused lifecycle/discovery, client/authentication, checkpoint, topology/terminal, agent, and resource suites.
-- [ ] Build `draxul-server` and the owning core test target; run the focused CTest selection.
-- [ ] Preserve the server public-header link-isolation build.
+- [x] Build `draxul-server` and the owning core test target; run the aggregate CTest selection.
+- [x] Preserve the server public-header link-isolation build.
 
 ## Cross-platform validation
 
@@ -74,12 +79,12 @@ until the test-internals boundary and test partition are ready to move with them
 
 ## Agent documentation/tooling
 
-- [ ] Document private state/lock ownership beside the implementation.
-- [ ] Update the server row in `docs/module-map.md`.
+- [x] Document private state/lock ownership beside the implementation.
+- [x] Update the server row in `docs/module-map.md`.
 
 ## Acceptance criteria
 
-- [ ] `ServerKernel` public API is unchanged.
+- [x] `ServerKernel` public API is unchanged.
 - [ ] No implementation TU owns unrelated method families.
-- [ ] `ServerAgentService` is no longer production-public.
+- [x] `ServerAgentService` is no longer production-public.
 - [ ] Focused/full tests and headless smoke remain green.

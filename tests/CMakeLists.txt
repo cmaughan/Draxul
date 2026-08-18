@@ -255,6 +255,7 @@ target_link_libraries(draxul-test-core PRIVATE
     draxul-client
     draxul-protocol
     draxul-server
+    draxul-server-test-internals
     draxul-gui
     draxul-runtime-support
     draxul-render-test
@@ -350,7 +351,11 @@ set(DRAXUL_EXTERNAL_SDK_SMOKE_COMMAND
     --config $<CONFIG>
     --generator ${CMAKE_GENERATOR}
     --platform=${CMAKE_GENERATOR_PLATFORM}
-    --toolset=${CMAKE_GENERATOR_TOOLSET})
+    --toolset=${CMAKE_GENERATOR_TOOLSET}
+    --c-compiler=${CMAKE_C_COMPILER}
+    --cxx-compiler=${CMAKE_CXX_COMPILER}
+    --make-program=${CMAKE_MAKE_PROGRAM}
+    --toolchain-file=${CMAKE_TOOLCHAIN_FILE})
 option(DRAXUL_ENABLE_EXTERNAL_SDK_RENDER_SMOKE
     "Render the external SDK fixture after build and discovery"
     ${DRAXUL_ENABLE_RENDER_TESTS})

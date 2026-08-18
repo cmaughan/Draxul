@@ -515,16 +515,15 @@ if(BUILD_TESTING)
     endif()
 
     if(WIN32)
-        find_program(DRAXUL_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
-        if(DRAXUL_POWERSHELL_EXECUTABLE)
-            add_test(NAME draxul-topology-cli-integration
-                COMMAND ${DRAXUL_POWERSHELL_EXECUTABLE}
-                    -NoProfile -ExecutionPolicy Bypass
-                    -File ${CMAKE_SOURCE_DIR}/tests/topology_cli_integration.ps1
-                    -Executable $<TARGET_FILE:draxul>)
-            set_tests_properties(draxul-topology-cli-integration
-                PROPERTIES LABELS "integration;smoke" TIMEOUT 45)
-        endif()
+        # Resolve PowerShell in the test process rather than caching a
+        # versioned WindowsApps path that can disappear after an update.
+        add_test(NAME draxul-topology-cli-integration
+            COMMAND ${CMAKE_COMMAND}
+                -DDRAXUL_POWERSHELL_SCRIPT=${CMAKE_SOURCE_DIR}/tests/topology_cli_integration.ps1
+                -DDRAXUL_EXECUTABLE=$<TARGET_FILE:draxul>
+                -P ${CMAKE_SOURCE_DIR}/tests/cmake/run_powershell_test.cmake)
+        set_tests_properties(draxul-topology-cli-integration
+            PROPERTIES LABELS "integration;smoke" TIMEOUT 45)
     endif()
 
     find_program(NVIM_EXECUTABLE nvim)

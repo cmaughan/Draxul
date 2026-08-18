@@ -7,7 +7,7 @@
 #include "topology_service.h"
 
 #include <draxul/control_plane.h>
-#include <draxul/server_agent_service.h>
+#include "server_agent_service.h"
 #include <draxul/server_kernel.h>
 
 #include <atomic>
