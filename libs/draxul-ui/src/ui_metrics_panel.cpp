@@ -101,6 +101,102 @@ void render_window_sections(const PanelLayout& layout, const DiagnosticPanelStat
         }
     }
 
+    if (!state.session_transport_mode.empty()
+        || !state.session_connection_phase.empty())
+    {
+        ImGui::SeparatorText("Session Transport");
+        if (begin_metric_table("session_transport"))
+        {
+            metric_label("Mode",
+                "Current attached-UI transport: persistent stream, batched Session poll, or legacy per-channel requests.");
+            ImGui::TextUnformatted(state.session_transport_mode.c_str());
+
+            metric_label("Phase");
+            ImGui::TextUnformatted(state.session_connection_phase.c_str());
+
+            metric_label("Attempts");
+            ImGui::Text("%u", state.session_recovery_attempts);
+
+            metric_label("Current Reason");
+            ImGui::TextUnformatted(state.session_current_reason.empty()
+                    ? "none"
+                    : state.session_current_reason.c_str());
+
+            metric_label("Outage");
+            ImGui::Text("%llu ms%s",
+                static_cast<unsigned long long>(state.session_outage_ms),
+                state.session_sustained_outage ? " (sustained)" : "");
+
+            metric_label("Interruptions / Recoveries");
+            ImGui::Text("%llu / %llu",
+                static_cast<unsigned long long>(
+                    state.session_interruption_count),
+                static_cast<unsigned long long>(
+                    state.session_recovery_count));
+
+            metric_label("Reconnect / Fallback / Resync");
+            ImGui::Text("%llu / %llu / %llu",
+                static_cast<unsigned long long>(
+                    state.session_reconnect_attempts),
+                static_cast<unsigned long long>(state.session_fallbacks),
+                static_cast<unsigned long long>(state.session_resyncs));
+            ImGui::EndTable();
+        }
+        if (!state.session_reasons.empty())
+        {
+            if (begin_metric_table("session_transport_reasons"))
+            {
+                for (const auto& reason : state.session_reasons)
+                {
+                    const std::string label = reason.kind + " · "
+                        + reason.channel;
+                    metric_label(label.c_str());
+                    ImGui::Text("%s (%llu)", reason.reason.c_str(),
+                        static_cast<unsigned long long>(reason.count));
+                }
+                if (state.session_reason_overflow > 0)
+                {
+                    metric_label("Other reasons");
+                    ImGui::Text("%llu events",
+                        static_cast<unsigned long long>(
+                            state.session_reason_overflow));
+                }
+                ImGui::EndTable();
+            }
+        }
+    }
+
+    if (state.control_requests > 0
+        || state.control_connection_attempts > 0
+        || !state.control_failures.empty())
+    {
+        ImGui::SeparatorText("Short Control Transport");
+        if (begin_metric_table("short_control_transport"))
+        {
+            metric_label("Requests / Connections");
+            ImGui::Text("%llu / %llu",
+                static_cast<unsigned long long>(state.control_requests),
+                static_cast<unsigned long long>(
+                    state.control_connection_attempts));
+            metric_label("Successful Exchanges");
+            ImGui::Text("%llu", static_cast<unsigned long long>(
+                state.control_successful_exchanges));
+            metric_label("Metadata Refreshes");
+            ImGui::Text("%llu", static_cast<unsigned long long>(
+                state.control_metadata_refreshes));
+            for (const auto& failure : state.control_failures)
+            {
+                const std::string label = failure.operation + " · "
+                    + failure.stage;
+                metric_label(label.c_str());
+                ImGui::Text("%s / %u (%llu)",
+                    failure.classification.c_str(), failure.native_code,
+                    static_cast<unsigned long long>(failure.count));
+            }
+            ImGui::EndTable();
+        }
+    }
+
     ImGui::SeparatorText("Dimensions");
     if (begin_metric_table("window_dimensions"))
     {

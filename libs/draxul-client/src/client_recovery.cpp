@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 
 namespace draxul
 {
@@ -17,6 +18,26 @@ uint64_t next_jitter(uint64_t& state)
     state ^= state >> 7;
     state ^= state << 17;
     return state;
+}
+
+void increment_saturated(uint64_t& value)
+{
+    if (value != std::numeric_limits<uint64_t>::max())
+        ++value;
+}
+
+std::string bounded_label(
+    std::string_view value, size_t limit, std::string_view fallback)
+{
+    if (value.empty())
+        value = fallback;
+    std::string result(value.substr(0, limit));
+    for (char& ch : result)
+    {
+        if (static_cast<unsigned char>(ch) < 0x20 || ch == 0x7f)
+            ch = '?';
+    }
+    return result;
 }
 
 } // namespace
@@ -44,26 +65,59 @@ ClientRecoveryState::channel_locked(std::string_view channel)
     return found->second;
 }
 
-void ClientRecoveryState::note_connected(std::string_view channel)
+bool ClientRecoveryState::note_connected(std::string_view channel)
 {
     std::lock_guard guard(mutex_);
     auto& state = channel_locked(channel);
+    const bool recovered = state.outage_started_at.has_value();
+    if (recovered)
+        increment_saturated(state.recovery_count);
     state.phase = ClientConnectionPhase::Connected;
     state.attempts = 0;
     state.retry_delay = {};
+    state.outage_started_at.reset();
+    state.current_reason.clear();
+    return recovered;
 }
 
 std::chrono::milliseconds ClientRecoveryState::note_failure(
-    std::string_view channel)
+    std::string_view channel, std::string_view reason)
 {
     std::lock_guard guard(mutex_);
+    return note_failure_locked(channel, reason, true);
+}
+
+void ClientRecoveryState::note_aggregate_failure(
+    std::string_view channel, std::string_view reason)
+{
+    std::lock_guard guard(mutex_);
+    (void)note_failure_locked(channel, reason, false);
+}
+
+std::chrono::milliseconds ClientRecoveryState::note_failure_locked(
+    std::string_view channel, std::string_view reason,
+    bool record_metrics)
+{
     auto& state = channel_locked(channel);
+    if (!state.outage_started_at)
+    {
+        state.outage_started_at = std::chrono::steady_clock::now();
+        increment_saturated(state.interruption_count);
+    }
+    state.current_reason = bounded_label(
+        reason, kClientRecoveryMaxReasonBytes, "unspecified");
     state.attempts = std::min<uint32_t>(state.attempts + 1, 64);
     state.phase = state.attempts == 1
         ? ClientConnectionPhase::Degraded
         : ClientConnectionPhase::Reconnecting;
     state.retry_delay = retry_delay_for(
         state.attempts, next_jitter(state.jitter_state));
+    if (record_metrics)
+    {
+        increment_saturated(metrics_.reconnect_attempts);
+        record_reason_locked(
+            ClientRecoveryReasonKind::Reconnect, channel, reason);
+    }
     return state.retry_delay;
 }
 
@@ -77,18 +131,102 @@ void ClientRecoveryState::note_reconnecting(std::string_view channel)
 ClientRecoverySnapshot ClientRecoveryState::snapshot(
     std::string_view channel) const
 {
+    return snapshot_at(channel, std::chrono::steady_clock::now());
+}
+
+ClientRecoverySnapshot ClientRecoveryState::snapshot_at(
+    std::string_view channel,
+    std::chrono::steady_clock::time_point now) const
+{
     std::lock_guard guard(mutex_);
     const auto found = channels_.find(std::string(channel));
     const ChannelState empty;
     const auto& state = found == channels_.end()
         ? empty
         : found->second;
+    std::chrono::milliseconds outage_duration{ 0 };
+    if (state.outage_started_at && now > *state.outage_started_at)
+    {
+        outage_duration
+            = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - *state.outage_started_at);
+    }
     return {
         .phase = state.phase,
         .attempts = state.attempts,
         .retry_delay = state.retry_delay,
         .server_epoch = server_identity_.server_epoch,
+        .outage_duration = outage_duration,
+        .sustained_outage
+        = outage_duration >= kClientSustainedOutageThreshold,
+        .interruption_count = state.interruption_count,
+        .recovery_count = state.recovery_count,
+        .current_reason = state.current_reason,
     };
+}
+
+void ClientRecoveryState::record_reason_locked(
+    ClientRecoveryReasonKind kind, std::string_view channel,
+    std::string_view reason)
+{
+    const std::string bounded_channel = bounded_label(
+        channel, kClientRecoveryMaxChannelBytes, "unknown");
+    const std::string bounded_reason = bounded_label(
+        reason, kClientRecoveryMaxReasonBytes, "unspecified");
+    const auto found = std::ranges::find_if(metrics_.reasons,
+        [&](const ClientRecoveryReasonCount& entry) {
+            return entry.kind == kind
+                && entry.channel == bounded_channel
+                && entry.reason == bounded_reason;
+        });
+    if (found != metrics_.reasons.end())
+    {
+        increment_saturated(found->count);
+        return;
+    }
+    if (metrics_.reasons.size() >= kClientRecoveryMaxReasonBuckets)
+    {
+        increment_saturated(metrics_.reason_overflow);
+        return;
+    }
+    metrics_.reasons.push_back({
+        .kind = kind,
+        .channel = bounded_channel,
+        .reason = bounded_reason,
+        .count = 1,
+    });
+}
+
+void ClientRecoveryState::note_fallback(
+    std::string_view channel, std::string_view reason)
+{
+    std::lock_guard guard(mutex_);
+    increment_saturated(metrics_.fallbacks);
+    record_reason_locked(
+        ClientRecoveryReasonKind::Fallback, channel, reason);
+}
+
+void ClientRecoveryState::note_resync(
+    std::string_view channel, std::string_view reason)
+{
+    std::lock_guard guard(mutex_);
+    increment_saturated(metrics_.resyncs);
+    record_reason_locked(
+        ClientRecoveryReasonKind::Resync, channel, reason);
+}
+
+ClientRecoveryMetricsSnapshot ClientRecoveryState::metrics_snapshot() const
+{
+    std::lock_guard guard(mutex_);
+    ClientRecoveryMetricsSnapshot result = metrics_;
+    std::ranges::sort(result.reasons, [](const auto& left, const auto& right) {
+        if (left.kind != right.kind)
+            return left.kind < right.kind;
+        if (left.channel != right.channel)
+            return left.channel < right.channel;
+        return left.reason < right.reason;
+    });
+    return result;
 }
 
 ClientServerIdentity ClientRecoveryState::server_identity() const
@@ -213,6 +351,34 @@ bool is_resynchronizing_client_error(std::string_view code)
         || code == "stale_sequence"
         || code == "stale_generation"
         || code == "stale_scrollback";
+}
+
+std::string_view to_string(ClientConnectionPhase phase)
+{
+    switch (phase)
+    {
+    case ClientConnectionPhase::Connected:
+        return "connected";
+    case ClientConnectionPhase::Degraded:
+        return "degraded";
+    case ClientConnectionPhase::Reconnecting:
+        return "reconnecting";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(ClientRecoveryReasonKind kind)
+{
+    switch (kind)
+    {
+    case ClientRecoveryReasonKind::Reconnect:
+        return "reconnect";
+    case ClientRecoveryReasonKind::Fallback:
+        return "fallback";
+    case ClientRecoveryReasonKind::Resync:
+        return "resync";
+    }
+    return "unknown";
 }
 
 } // namespace draxul

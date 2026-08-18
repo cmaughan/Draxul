@@ -917,6 +917,8 @@ public:
         void note_connected(std::string_view channel)
         {
             options_.recovery->note_connected(channel);
+            if (auto coordinator = coordinator_.lock())
+                coordinator->note_legacy_connected();
             remember_error_code({});
         }
 
@@ -987,7 +989,7 @@ public:
             std::string_view error_code, const std::string& error)
         {
             const auto delay = options_.recovery->note_failure(
-                recovery_channel());
+                recovery_channel(), error_code);
             const auto recovery = options_.recovery->snapshot(
                 recovery_channel());
             if (recovery.attempts == 1)
@@ -1306,7 +1308,7 @@ public:
                     {
                         publish_error_once(error_code, error);
                         wait_for_retry(options_.recovery->note_failure(
-                            recovery_channel()));
+                            recovery_channel(), error_code));
                         continue;
                     }
                     if (is_transient_client_error(error_code)
@@ -1670,6 +1672,29 @@ public:
         return std::move(waiter->result);
     }
 
+    RemoteSessionTransportSnapshot transport_snapshot() const
+    {
+        RemoteSessionTransportSnapshot result;
+        switch (transport_mode_.load())
+        {
+        case SessionTransportMode::StreamOpening:
+        case SessionTransportMode::StreamActive:
+            result.transport = RemoteSessionTransportKind::Stream;
+            break;
+        case SessionTransportMode::SessionPoll:
+            result.transport = RemoteSessionTransportKind::SessionPoll;
+            break;
+        case SessionTransportMode::Legacy:
+            result.transport = RemoteSessionTransportKind::Legacy;
+            break;
+        }
+        result.stream_commands = stream_commands_active_.load();
+        result.recovery = options_.recovery->snapshot("session");
+        result.recovery_metrics
+            = options_.recovery->metrics_snapshot();
+        return result;
+    }
+
     void stop()
     {
         if (!running_.exchange(false) && stopping_)
@@ -1804,6 +1829,20 @@ public:
     }
 
 private:
+    void note_legacy_connected()
+    {
+        if (transport_mode_.load()
+            != SessionTransportMode::Legacy)
+        {
+            return;
+        }
+        if (options_.recovery->note_connected("session")
+            && options_.session_client)
+        {
+            options_.session_client->publish_session_recovery();
+        }
+    }
+
     uint64_t next_stream_command_request_id()
     {
         // Shared process-wide allocation prevents a recreated coordinator
@@ -2004,6 +2043,8 @@ private:
             for (const auto& [id, entry] : entries_)
                 entries.push_back(entry);
         }
+        options_.recovery->note_fallback(
+            "session", "legacy_transport");
         if (options_.session_client)
             options_.session_client->enable_legacy_polling();
         for (const auto& entry : entries)
@@ -2040,6 +2081,10 @@ private:
         bool stream_commands = false)
     {
         options_.recovery->note_connected(recovery_channel);
+        const bool session_recovered
+            = options_.recovery->note_connected("session");
+        if (session_recovered && options_.session_client)
+            options_.session_client->publish_session_recovery();
         bool changed = response.more || commands_processed;
         if (options_.session_client)
         {
@@ -2366,9 +2411,18 @@ private:
         stream_commands_active_ = false;
         set_topology_stream_dispatcher(false);
         abandon_stream_commands(true);
-        options_.recovery->note_failure("session.stream");
+        options_.recovery->note_failure(
+            "session.stream", stream_failure_code_);
+        options_.recovery->note_aggregate_failure(
+            "session", stream_failure_code_);
+        options_.recovery->note_fallback(
+            "session.stream", stream_failure_code_);
         if (needs_identity_refresh(stream_failure_code_))
+        {
+            options_.recovery->note_resync(
+                "session.stream", stream_failure_code_);
             invalidate_stream_cursors_after_epoch_change();
+        }
         finish_stream_after_worker();
         last_stream_poll_.reset();
         if (session_poll_supported_)
@@ -2887,11 +2941,17 @@ private:
             {
                 if (result.error_code == "unknown_method")
                 {
+                    options_.recovery->note_aggregate_failure(
+                        "session", result.error_code);
+                    options_.recovery->note_fallback(
+                        "session.poll", result.error_code);
                     fall_back_to_legacy();
                     break;
                 }
                 if (needs_identity_refresh(result.error_code))
                 {
+                    options_.recovery->note_resync(
+                        "session.poll", result.error_code);
                     refresh_epoch_bounded();
                     for (const auto& entry : entries)
                         entry->invalidate_batch_cursor();
@@ -2902,13 +2962,13 @@ private:
                     }
                 }
                 const auto delay = options_.recovery->note_failure(
-                    "session.poll");
+                    "session.poll", result.error_code);
+                options_.recovery->note_aggregate_failure(
+                    "session", result.error_code);
                 if (options_.session_client)
                 {
-                    options_.session_client->accept_session_poll_error(
-                        "topology", result.error_message);
-                    options_.session_client->accept_session_poll_error(
-                        "agents", result.error_message);
+                    options_.session_client
+                        ->publish_session_recovery();
                 }
                 std::unique_lock lock(worker_mutex_);
                 worker_wake_.wait_for(lock, delay);
@@ -2929,12 +2989,14 @@ private:
                 request_serial = 1;
             if (!response)
             {
+                options_.recovery->note_failure(
+                    "session.poll", "invalid_response");
+                options_.recovery->note_aggregate_failure(
+                    "session", "invalid_response");
                 if (options_.session_client)
                 {
-                    options_.session_client->accept_session_poll_error(
-                        "topology", parse_error);
-                    options_.session_client->accept_session_poll_error(
-                        "agents", parse_error);
+                    options_.session_client
+                        ->publish_session_recovery();
                 }
                 interval = kIdlePollInterval;
                 idle_polls = 2;
@@ -3220,6 +3282,12 @@ RemoteSessionCoordinator::request_stream_command(
 {
     return impl_->request_stream_command(
         std::move(method), std::move(params), timeout);
+}
+
+RemoteSessionTransportSnapshot
+RemoteSessionCoordinator::transport_snapshot() const
+{
+    return impl_->transport_snapshot();
 }
 
 void RemoteSessionCoordinator::acknowledge_wake()

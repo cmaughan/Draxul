@@ -173,7 +173,7 @@ public:
             topology_poll_revision_ = snapshot.revision;
         }
         publish_topology(snapshot);
-        options_.recovery->note_connected(recovery_channel);
+        note_connected(recovery_channel);
     }
 
     void accept_session_poll_agents(
@@ -186,7 +186,7 @@ public:
             agent_poll_revision_ = snapshot.revision;
         }
         publish_agents(snapshot);
-        options_.recovery->note_connected(recovery_channel);
+        note_connected(recovery_channel);
     }
 
     void accept_session_poll_epoch(std::string server_epoch,
@@ -252,6 +252,38 @@ public:
             else
                 state.agent_error = std::move(error);
         });
+    }
+
+    void publish_session_recovery(
+        std::string_view recovery_channel)
+    {
+        const auto recovery
+            = options_.recovery->snapshot(recovery_channel);
+        publish([&](RemoteSessionPublishedState& state) {
+            state.recovery = recovery;
+        });
+    }
+
+    void note_connected(std::string_view recovery_channel)
+    {
+        bool changed
+            = options_.recovery->note_connected(recovery_channel);
+        std::string_view published_channel = recovery_channel;
+        const bool legacy_projection
+            = recovery_channel == "topology.poll"
+            || recovery_channel == "agent.poll";
+        const bool legacy_projections_healthy
+            = (!topology_supported_ || !topology_failed_)
+            && (!agents_supported_ || !agents_failed_);
+        if (!externally_fed_ && legacy_projection
+            && legacy_projections_healthy)
+        {
+            changed = options_.recovery->note_connected("session")
+                || changed;
+            published_channel = "session";
+        }
+        if (changed)
+            publish_session_recovery(published_channel);
     }
 
     void enable_legacy_polling()
@@ -349,20 +381,23 @@ private:
     }
 
     std::chrono::milliseconds publish_recovery_failure(
-        std::string error, std::string_view channel,
-        bool topology)
+        std::string_view channel, std::string_view reason = {})
     {
+        if (reason.empty())
+            reason = channel;
         const auto delay
-            = options_.recovery->note_failure(channel);
+            = options_.recovery->note_failure(channel, reason);
+        std::string_view published_channel = channel;
+        if (!externally_fed_ && channel != "session")
+        {
+            options_.recovery->note_aggregate_failure(
+                "session", reason);
+            published_channel = "session";
+        }
         const auto recovery
-            = options_.recovery->snapshot(channel);
-        publish([&, error = std::move(error)](
-                    RemoteSessionPublishedState& state) mutable {
+            = options_.recovery->snapshot(published_channel);
+        publish([&](RemoteSessionPublishedState& state) {
             state.recovery = recovery;
-            if (topology)
-                state.topology_error = std::move(error);
-            else
-                state.agent_error = std::move(error);
         });
         return delay;
     }
@@ -413,7 +448,7 @@ private:
         {
             topology_failed_ = false;
             publish_topology(topology.snapshot());
-            options_.recovery->note_connected("topology.poll");
+            note_connected("topology.poll");
         }
         else if (!topology_supported_)
         {
@@ -421,12 +456,23 @@ private:
         }
         else
         {
-            if (topology.last_error_code() == "unknown_method")
+            const std::string error_code
+                = topology.last_error_code();
+            if (error_code == "unknown_method")
                 topology_supported_ = false;
             topology_failed_ = true;
-            publish([&](RemoteSessionPublishedState& state) {
-                state.topology_error = std::move(error);
-            });
+            if (is_transient_client_error(error_code)
+                || is_resynchronizing_client_error(error_code))
+            {
+                publish_recovery_failure(
+                    "topology.poll", error_code);
+            }
+            else
+            {
+                publish([&](RemoteSessionPublishedState& state) {
+                    state.topology_error = std::move(error);
+                });
+            }
         }
 
         error.clear();
@@ -434,7 +480,7 @@ private:
         {
             agents_failed_ = false;
             publish_agents(agents.snapshot());
-            options_.recovery->note_connected("agent.poll");
+            note_connected("agent.poll");
         }
         else if (!agents_supported_)
         {
@@ -442,12 +488,23 @@ private:
         }
         else
         {
-            if (agents.last_error_code() == "unknown_method")
+            const std::string error_code
+                = agents.last_error_code();
+            if (error_code == "unknown_method")
                 agents_supported_ = false;
             agents_failed_ = true;
-            publish([&](RemoteSessionPublishedState& state) {
-                state.agent_error = std::move(error);
-            });
+            if (is_transient_client_error(error_code)
+                || is_resynchronizing_client_error(error_code))
+            {
+                publish_recovery_failure(
+                    "agent.poll", error_code);
+            }
+            else
+            {
+                publish([&](RemoteSessionPublishedState& state) {
+                    state.agent_error = std::move(error);
+                });
+            }
         }
         if ((!topology_supported_ || !topology_failed_)
             && (!agents_supported_ || !agents_failed_))
@@ -463,7 +520,7 @@ private:
         RemoteTopologyCommandCompletion completion)
     {
         if (completion.ok)
-            options_.recovery->note_connected("topology.command");
+            note_connected("topology.command");
         if (completion.snapshot)
         {
             const std::string epoch
@@ -584,19 +641,21 @@ private:
         if (topology_supported_
             && !topology.poll(changed, error))
         {
-            if (topology.last_error_code() == "unknown_method")
+            const std::string error_code
+                = topology.last_error_code();
+            if (error_code == "unknown_method")
                 topology_supported_ = false;
-            if (!topology_failed_)
+            const bool retryable
+                = is_transient_client_error(error_code)
+                || is_resynchronizing_client_error(error_code);
+            if (!topology_failed_ && !retryable)
             {
                 publish([&](RemoteSessionPublishedState& state) {
                     state.topology_error = std::move(error);
                 });
             }
             topology_failed_ = true;
-            if (is_transient_client_error(
-                    topology.last_error_code())
-                || is_resynchronizing_client_error(
-                    topology.last_error_code()))
+            if (retryable)
             {
                 last_poll_failure_channel_ = "topology.poll";
                 return false;
@@ -607,7 +666,7 @@ private:
         {
             topology_failed_ = false;
             publish_topology(topology.snapshot());
-            options_.recovery->note_connected("topology.poll");
+            note_connected("topology.poll");
         }
 
         changed = false;
@@ -615,19 +674,21 @@ private:
         if (agents_supported_
             && !agents.poll(changed, error))
         {
-            if (agents.last_error_code() == "unknown_method")
+            const std::string error_code
+                = agents.last_error_code();
+            if (error_code == "unknown_method")
                 agents_supported_ = false;
-            if (!agents_failed_)
+            const bool retryable
+                = is_transient_client_error(error_code)
+                || is_resynchronizing_client_error(error_code);
+            if (!agents_failed_ && !retryable)
             {
                 publish([&](RemoteSessionPublishedState& state) {
                     state.agent_error = std::move(error);
                 });
             }
             agents_failed_ = true;
-            if (is_transient_client_error(
-                    agents.last_error_code())
-                || is_resynchronizing_client_error(
-                    agents.last_error_code()))
+            if (retryable)
             {
                 last_poll_failure_channel_ = "agent.poll";
                 return false;
@@ -638,7 +699,7 @@ private:
         {
             agents_failed_ = false;
             publish_agents(agents.snapshot());
-            options_.recovery->note_connected("agent.poll");
+            note_connected("agent.poll");
         }
         return true;
     }
@@ -773,14 +834,12 @@ private:
             if (command
                 && !execute_command(topology, std::move(*command)))
             {
+                const std::string error_code
+                    = topology.last_error_code();
                 std::string probe_error;
                 refresh_epoch(probe_error);
                 const auto delay = publish_recovery_failure(
-                    probe_error.empty()
-                        ? "Shared Session command transport is unavailable."
-                        : std::move(probe_error),
-                    "topology.command",
-                    true);
+                    "topology.command", error_code);
                 command_retry_not_before
                     = std::chrono::steady_clock::now() + delay;
                 continue;
@@ -809,6 +868,11 @@ private:
                 }
                 else
                 {
+                    const std::string error_code
+                        = last_poll_failure_channel_
+                                == "topology.poll"
+                        ? topology.last_error_code()
+                        : agents.last_error_code();
                     std::string probe_error;
                     const bool epoch_ready
                         = refresh_epoch(probe_error);
@@ -829,12 +893,7 @@ private:
                         }
                     }
                     const auto delay = publish_recovery_failure(
-                        probe_error.empty()
-                            ? "Shared Session transport is unavailable."
-                            : std::move(probe_error),
-                        last_poll_failure_channel_,
-                        last_poll_failure_channel_
-                            == "topology.poll");
+                        last_poll_failure_channel_, error_code);
                     next_poll = now + delay;
                 }
                 republish_pending();
@@ -975,6 +1034,12 @@ void RemoteSessionClient::accept_session_poll_error(
 {
     impl_->accept_session_poll_error(
         std::move(channel), std::move(error), recovery_channel);
+}
+
+void RemoteSessionClient::publish_session_recovery(
+    std::string_view recovery_channel)
+{
+    impl_->publish_session_recovery(recovery_channel);
 }
 
 void RemoteSessionClient::accept_stream_topology_command_result(

@@ -56,6 +56,22 @@ struct RemoteTerminalPublishedState
     uint64_t visibility_generation = 1;
 };
 
+enum class RemoteSessionTransportKind
+{
+    Stream,
+    SessionPoll,
+    Legacy,
+};
+
+struct RemoteSessionTransportSnapshot
+{
+    RemoteSessionTransportKind transport
+        = RemoteSessionTransportKind::Legacy;
+    bool stream_commands = false;
+    ClientRecoverySnapshot recovery;
+    ClientRecoveryMetricsSnapshot recovery_metrics;
+};
+
 // UI-scoped owner for remote terminal transports. A negotiated event stream
 // is preferred, with one recurring Session poll worker as its fallback;
 // older servers retain the Phase-1 per-terminal workers. Registration,
@@ -121,6 +137,7 @@ public:
     std::optional<ControlClientResult> request_stream_command(
         std::string method, nlohmann::json params,
         std::chrono::milliseconds timeout = std::chrono::milliseconds(600));
+    RemoteSessionTransportSnapshot transport_snapshot() const;
 
     // The UI calls this after draining all ready registrations. Publications
     // racing with the acknowledgement retain their ready marker and schedule

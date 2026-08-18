@@ -217,12 +217,37 @@ remote CI.
 
 ## Phase 5 — interruption UX and diagnostics
 
-- [ ] Keep last coherent projections visible through transient disconnects and do
+- [x] Keep last coherent projections visible through transient disconnects and do
       not toast on the first retryable failure.
-- [ ] Show one sustained-outage warning, clear it quietly after recovery, and expose
+- [x] Show one sustained-outage warning, clear it quietly after recovery, and expose
       reconnect/fallback/resync reasons in diagnostics.
-- [ ] A stream failure falls back to `session.poll`, never silently to per-pane
+- [x] A stream failure falls back to `session.poll`, never silently to per-pane
       polling when batched polling is available.
+
+### Delivered checkpoint — coherent interruption UX
+
+Client recovery now tracks one UI-scoped Session outage in addition to its existing
+per-channel retry state. The first retryable failure is diagnostic only: existing
+topology, agent, and terminal projections remain visible, and topology/agent errors do
+not produce duplicate toasts. An outage becomes user-visible only after two seconds,
+emits one background-reconnect warning, and clears quietly when any viable Session
+transport resumes.
+
+The coordinator exposes an immutable snapshot of the selected Stream → `session.poll`
+→ legacy path and bounded reconnect, fallback, resynchronization, interruption, and
+recovery reason counts. The diagnostics panel shows that snapshot together with the
+short control transport's request, connection, metadata-refresh, and native-stage
+failure counters. A failed stream remains on the single `session.poll` worker whenever
+that capability is available; legacy workers start only when batched polling itself is
+unsupported.
+
+Deterministic coordinator acceptance starts with coherent stream-delivered terminal,
+topology, and agent projections, forces EOF plus one failed fallback poll, and proves
+the retained cursors, non-sustained first failure, two-second warning eligibility,
+bounded reason metrics, quiet recovery, and zero legacy requests. The final Windows
+Debug aggregate passed all nine jobs (1,609 C++ cases / 41,502 assertions plus 82
+Python cases); Debug and Release smoke scenarios also passed. Cross-platform evidence
+remains pending asynchronous CI.
 
 ## Validation
 

@@ -229,12 +229,19 @@ terminal/topology work onto the existing `session.poll` fallback.
 
 ### Phase 5: Interruption UX
 
-- Do not toast on the first retryable transport failure.
-- Keep the last valid projections visible while reconnecting.
-- Show a Session-disconnected warning only after a sustained outage, tentatively two
-  to three seconds.
-- Clear the warning after recovery without emitting repeated success toasts.
-- Expose short interruptions, reconnect count, and resync reasons in diagnostics.
+- **Delivered.** Do not toast on the first retryable transport failure and keep the
+  last valid projections visible while reconnecting.
+- Treat the attached UI as one Session outage rather than surfacing independent
+  topology and agent errors. Show one background-reconnect warning after two seconds.
+- Clear the warning state after recovery without emitting a success toast.
+- Expose the active Stream → `session.poll` → legacy path, outage state, reconnect,
+  fallback, and resynchronization reasons as bounded diagnostics. Show the existing
+  short-control request and native-stage failure counters beside them.
+
+The delivered recovery snapshot separates current outage state from bounded cumulative
+reason metrics. This lets the UI suppress transient noise without hiding failures from
+diagnostics. A healthy `session.poll` fallback immediately clears the aggregate outage;
+legacy polling is considered only when the server cannot provide batched Session poll.
 
 ## Validation
 

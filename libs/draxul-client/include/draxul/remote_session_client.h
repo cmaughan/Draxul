@@ -108,6 +108,8 @@ public:
     void accept_session_poll_error(
         std::string channel, std::string error,
         std::string_view recovery_channel = "session.poll");
+    void publish_session_recovery(
+        std::string_view recovery_channel = "session");
     void accept_stream_topology_command_result(
         TopologyCommand command, ControlClientResult result);
     void enable_legacy_polling();

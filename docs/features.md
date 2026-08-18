@@ -212,7 +212,13 @@ filename drift and dynamic-loader or ABI failures are caught on both platforms.
   capability retain the compatible per-channel polling path. Terminal channels remain
   independently ordered and recover from overflow or cursor gaps with a channel-local
   snapshot; the shared scheduler rotates fairly within the stream's negotiated payload
-  budget.
+  budget. A transient transport failure leaves the last coherent topology, agent, and
+  terminal projections visible and does not produce an immediate toast. If the whole
+  Session remains unavailable for two seconds, the UI emits one background-reconnect
+  warning; recovery clears that outage state without a success toast. The diagnostics
+  panel reports the selected Session transport, connection phase, outage duration,
+  reconnect/fallback/resync counters and bounded reason buckets, alongside the short
+  control transport's request and native-stage failure metrics.
 - The server owns a Windows notification-area or macOS menu-bar status item. Its menu
   reports connected clients, Sessions, Spaces, terminals, live terminals, and agents,
   and provides Open Draxul, refresh, open-log, and one guarded Stop Server action.

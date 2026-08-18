@@ -2760,6 +2760,79 @@ void App::update_diagnostics_panel()
             = options_.server_connection->protocol_minor;
         panel.server_capabilities = options_.server_connection->capabilities;
     }
+    if (remote_session_coordinator_)
+    {
+        const auto session
+            = remote_session_coordinator_->transport_snapshot();
+        switch (session.transport)
+        {
+        case RemoteSessionTransportKind::Stream:
+            panel.session_transport_mode = session.stream_commands
+                ? "stream (events + commands)"
+                : "stream (events)";
+            break;
+        case RemoteSessionTransportKind::SessionPoll:
+            panel.session_transport_mode = "session.poll";
+            break;
+        case RemoteSessionTransportKind::Legacy:
+            panel.session_transport_mode = "legacy";
+            break;
+        }
+        panel.session_connection_phase
+            = std::string(to_string(session.recovery.phase));
+        panel.session_recovery_attempts
+            = session.recovery.attempts;
+        panel.session_current_reason
+            = session.recovery.current_reason;
+        panel.session_outage_ms = static_cast<uint64_t>(
+            std::max<int64_t>(0,
+                session.recovery.outage_duration.count()));
+        panel.session_sustained_outage
+            = session.recovery.sustained_outage;
+        panel.session_interruption_count
+            = session.recovery.interruption_count;
+        panel.session_recovery_count
+            = session.recovery.recovery_count;
+        panel.session_reconnect_attempts
+            = session.recovery_metrics.reconnect_attempts;
+        panel.session_fallbacks
+            = session.recovery_metrics.fallbacks;
+        panel.session_resyncs
+            = session.recovery_metrics.resyncs;
+        panel.session_reason_overflow
+            = session.recovery_metrics.reason_overflow;
+        panel.session_reasons.reserve(
+            session.recovery_metrics.reasons.size());
+        for (const auto& reason
+            : session.recovery_metrics.reasons)
+        {
+            panel.session_reasons.push_back({
+                .kind = std::string(to_string(reason.kind)),
+                .channel = reason.channel,
+                .reason = reason.reason,
+                .count = reason.count,
+            });
+        }
+    }
+    const auto control = ControlClient::metrics_snapshot();
+    panel.control_requests = control.requests;
+    panel.control_connection_attempts
+        = control.connection_attempts;
+    panel.control_successful_exchanges
+        = control.successful_exchanges;
+    panel.control_metadata_refreshes
+        = control.metadata_refreshes;
+    panel.control_failures.reserve(control.failures.size());
+    for (const auto& failure : control.failures)
+    {
+        panel.control_failures.push_back({
+            .operation = failure.operation,
+            .stage = failure.stage,
+            .classification = failure.classification,
+            .native_code = failure.native_code,
+            .count = failure.count,
+        });
+    }
 
     const Tab* tab = find_active_tab();
     if (tab != nullptr && tab->pane_manager.host())
@@ -3236,9 +3309,31 @@ void App::consume_remote_session_state()
         }
     }
 
+    const bool session_transport_unavailable
+        = published->recovery
+        && published->recovery->phase
+            != ClientConnectionPhase::Connected;
+    if (published->recovery)
+    {
+        if (!session_transport_unavailable)
+        {
+            // Recovery is deliberately quiet: the retained projections
+            // simply resume advancing without a success toast.
+            session_outage_warning_announced_ = false;
+        }
+        else if (published->recovery->sustained_outage
+            && !session_outage_warning_announced_)
+        {
+            session_outage_warning_announced_ = true;
+            push_toast(1,
+                "Shared Session disconnected; reconnecting in the background.");
+        }
+    }
+
     if (published->topology_error)
     {
-        if (!topology_poll_error_announced_)
+        if (!session_transport_unavailable
+            && !topology_poll_error_announced_)
         {
             topology_poll_error_announced_ = true;
             push_toast(1, "Shared topology unavailable: " + *published->topology_error);
@@ -3250,7 +3345,8 @@ void App::consume_remote_session_state()
     }
     if (published->agent_error)
     {
-        if (!agent_poll_error_announced_)
+        if (!session_transport_unavailable
+            && !agent_poll_error_announced_)
         {
             agent_poll_error_announced_ = true;
             push_toast(1, "Shared agents unavailable: " + *published->agent_error);

@@ -67,6 +67,43 @@ RemoteTerminalAttach terminal_attach(uint64_t sequence)
     };
 }
 
+TopologySnapshot session_topology(uint64_t revision)
+{
+    return {
+        .revision = revision,
+        .session_id = "default",
+        .spaces = {
+            {
+                .space_id = "space-1",
+                .name = "Work",
+                .tabs = {
+                    {
+                        .tab_id = "tab-1",
+                        .name = "Tab",
+                        .root_node_id = "node-1",
+                        .nodes = {
+                            {
+                                .node_id = "node-1",
+                                .is_leaf = true,
+                                .pane_id = "pane-shared",
+                            },
+                        },
+                        .panes = {
+                            {
+                                .pane_id = "pane-shared",
+                                .name = "Shared terminal",
+                                .domain
+                                = TopologyPaneDomain::ServerTerminal,
+                                .terminal_id = "terminal-shared",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    };
+}
+
 template <typename Predicate>
 bool wait_for_condition(Predicate predicate,
     std::chrono::milliseconds timeout = std::chrono::seconds(3))
@@ -1049,6 +1086,21 @@ TEST_CASE("remote Session coordinator falls from stream negotiation to Session p
     CHECK(stream_opens == 1);
     CHECK(session_polls > 0);
     CHECK(legacy_attaches == 0);
+    const auto transport = coordinator.transport_snapshot();
+    CHECK(transport.transport
+        == RemoteSessionTransportKind::SessionPoll);
+    CHECK(transport.recovery_metrics.fallbacks == 1);
+    CHECK(std::ranges::any_of(
+        transport.recovery_metrics.reasons,
+        [](const ClientRecoveryReasonCount& reason) {
+            return reason.kind
+                    == ClientRecoveryReasonKind::Fallback
+                && reason.channel == "session.stream"
+                && reason.reason == "stream_unavailable"
+                && reason.count == 1;
+        }));
+    CHECK(transport.recovery.phase
+        == ClientConnectionPhase::Connected);
     REQUIRE(registration.enqueue_input("poll-fallback-input"));
     REQUIRE(wait_for_condition(
         [&] { return short_inputs.load() == 1; }));
@@ -1057,6 +1109,397 @@ TEST_CASE("remote Session coordinator falls from stream negotiation to Session p
     dispatcher.request_stop();
     dispatcher.join();
     server.stop();
+}
+
+TEST_CASE("remote Session coordinator retains projections and recovers quietly through Session poll",
+    "[client][remote-session-coordinator][session-stream][recovery]")
+{
+    TempDir temp("draxul-session-stream-interruption");
+    ControlServer control;
+    std::string start_error;
+    REQUIRE(control.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &start_error));
+    AsyncFrameStreamListener stream;
+    AsyncFrameStreamError stream_error;
+    REQUIRE(stream.start(
+        namespaced_control_id("coordinator-interruption", temp.path),
+        temp.path, stream_error));
+
+    auto recovery
+        = std::make_shared<ClientRecoveryState>("coordinator-ui");
+    REQUIRE(recovery->set_server_epoch("coordinator-epoch"));
+    RemoteSessionClient session_client({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .recovery = recovery,
+        .externally_fed = true,
+    });
+
+    std::atomic<int> stream_opens = 0;
+    std::atomic<int> session_polls = 0;
+    std::atomic<int> legacy_requests = 0;
+    std::atomic<bool> allow_poll_recovery = false;
+    std::mutex opened_mutex;
+    std::optional<SessionPollRequest> opened_poll;
+    std::optional<SessionPollRequest> first_fallback_poll;
+    std::jthread dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            control.process_pending([&](const ControlRequest& request) {
+                if (request.method == "session.stream.open")
+                {
+                    ++stream_opens;
+                    std::string error;
+                    auto opened = session_stream_open_request_from_json(
+                        request.params, error);
+                    if (!opened)
+                    {
+                        return ControlMethodResult::error(
+                            "invalid_session_stream", error);
+                    }
+                    {
+                        std::lock_guard guard(opened_mutex);
+                        opened_poll = opened->poll;
+                    }
+                    return ControlMethodResult::success(
+                        session_stream_open_response_to_json({
+                            .server_epoch = "coordinator-epoch",
+                            .endpoint = stream.endpoint(),
+                            .ticket = "interruption-ticket",
+                            .heartbeat_interval_ms = 1000,
+                            .max_frame_bytes = kControlMaxMessageBytes,
+                            .max_queue_bytes
+                            = kSessionStreamDefaultQueueBytes,
+                        }));
+                }
+                if (request.method == "session.poll")
+                {
+                    const int attempt = ++session_polls;
+                    std::string error;
+                    auto poll = session_poll_request_from_json(
+                        request.params, error);
+                    if (!poll)
+                    {
+                        return ControlMethodResult::error(
+                            "invalid_request", error);
+                    }
+                    if (attempt == 1)
+                    {
+                        std::lock_guard guard(opened_mutex);
+                        first_fallback_poll = *poll;
+                        return ControlMethodResult::error(
+                            "io_error", "Temporary Session poll failure.");
+                    }
+                    while (!allow_poll_recovery.load()
+                        && !stop.stop_requested())
+                    {
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(1));
+                    }
+                    SessionPollResponse response{
+                        .request_serial = poll->request_serial,
+                        .server_epoch = "coordinator-epoch",
+                        .topology = {
+                            .revision = 8,
+                            .snapshot = session_topology(8),
+                        },
+                        .agents = {
+                            .revision = 4,
+                            .snapshot = ServerAgentSnapshot{
+                                .revision = 4,
+                                .session_id = "default",
+                            },
+                        },
+                    };
+                    for (const auto& subscription : poll->terminals)
+                    {
+                        SessionTerminalPollBatch batch{
+                            .subscription_id
+                            = subscription.subscription_id,
+                            .terminal_id = subscription.terminal_id,
+                            .visibility_generation
+                            = subscription.visibility_generation,
+                        };
+                        if (subscription.cursor)
+                        {
+                            batch.events.push_back(
+                                terminal_attach(1).state);
+                        }
+                        else
+                        {
+                            batch.attach = terminal_attach(1);
+                        }
+                        response.terminals.push_back(
+                            std::move(batch));
+                    }
+                    return ControlMethodResult::success(
+                        session_poll_response_to_json(response));
+                }
+                if (request.method == "fake.attach"
+                    || request.method == "fake.poll")
+                {
+                    ++legacy_requests;
+                }
+                return ControlMethodResult::error(
+                    "unknown_method",
+                    "Unexpected interruption test method.");
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    std::atomic<bool> stream_connected = false;
+    std::atomic<bool> initial_sent = false;
+    std::atomic<bool> drop_stream = false;
+    std::jthread stream_peer([&](std::stop_token stop) {
+        AsyncFrameStreamError error;
+        auto connection = stream.accept(stop, error);
+        if (!connection)
+            return;
+        std::string bytes;
+        if (!connection->read_frame(bytes, stop, error))
+            return;
+        std::string parse_error;
+        auto connect = session_stream_client_frame_from_json(
+            nlohmann::json::parse(bytes, nullptr, false),
+            parse_error);
+        if (!connect
+            || connect->kind != SessionStreamClientFrameKind::Connect
+            || !connect->connect
+            || connect->connect->ticket != "interruption-ticket")
+        {
+            return;
+        }
+        stream_connected = true;
+
+        SessionPollRequest poll;
+        {
+            std::lock_guard guard(opened_mutex);
+            if (opened_poll)
+                poll = *opened_poll;
+        }
+        while (poll.terminals.empty() && !stop.stop_requested())
+        {
+            bytes.clear();
+            if (!connection->read_frame(bytes, stop, error))
+                return;
+            auto frame = session_stream_client_frame_from_json(
+                nlohmann::json::parse(bytes, nullptr, false),
+                parse_error);
+            if (frame
+                && frame->kind
+                    == SessionStreamClientFrameKind::Update
+                && frame->update)
+            {
+                poll = frame->update->poll;
+            }
+        }
+        if (stop.stop_requested())
+            return;
+        SessionPollResponse response{
+            .request_serial = poll.request_serial,
+            .server_epoch = "coordinator-epoch",
+            .topology = {
+                .revision = 7,
+                .snapshot = session_topology(7),
+            },
+            .agents = {
+                .revision = 3,
+                .snapshot = ServerAgentSnapshot{
+                    .revision = 3,
+                    .session_id = "default",
+                },
+            },
+        };
+        for (const auto& subscription : poll.terminals)
+        {
+            response.terminals.push_back({
+                .subscription_id = subscription.subscription_id,
+                .terminal_id = subscription.terminal_id,
+                .visibility_generation
+                = subscription.visibility_generation,
+                .attach = terminal_attach(0),
+            });
+        }
+        if (!connection->write_frame(
+                session_stream_server_frame_to_json({
+                    .kind = SessionStreamServerFrameKind::Events,
+                    .frame_serial = 1,
+                    .server_epoch = "coordinator-epoch",
+                    .events = std::move(response),
+                }).dump(),
+                stop, error))
+        {
+            return;
+        }
+        initial_sent = true;
+        while (!drop_stream.load() && !stop.stop_requested())
+        {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(1));
+        }
+        connection->close();
+    });
+
+    RemoteSessionCoordinator coordinator({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .expected_server_epoch = "coordinator-epoch",
+        .method_prefix = "fake",
+        .recovery = recovery,
+        .session_stream_supported = true,
+        .session_stream_commands_supported = true,
+        .session_poll_supported = true,
+        .session_client = &session_client,
+    });
+    REQUIRE(coordinator.start());
+    auto registration
+        = coordinator.register_terminal("terminal-shared");
+    REQUIRE(registration);
+    REQUIRE(wait_for_condition([&] {
+        return stream_connected.load() && initial_sent.load();
+    }));
+    const auto terminal_before_outage = wait_for_state(registration);
+    REQUIRE(terminal_before_outage);
+    CHECK(terminal_before_outage->snapshot.metadata.title
+        == "Initial");
+
+    std::optional<TopologySnapshot> topology_before_outage;
+    std::optional<ServerAgentSnapshot> agents_before_outage;
+    REQUIRE(wait_for_condition([&] {
+        auto state = session_client.take_published_state();
+        if (state)
+        {
+            if (state->topology)
+                topology_before_outage = std::move(state->topology);
+            if (state->agents)
+                agents_before_outage = std::move(state->agents);
+        }
+        return topology_before_outage && agents_before_outage;
+    }));
+    REQUIRE(topology_before_outage->revision == 7);
+    REQUIRE(agents_before_outage->revision == 3);
+
+    drop_stream = true;
+    REQUIRE(wait_for_condition([&] {
+        return session_polls.load() >= 1
+            && coordinator.transport_snapshot().transport
+                == RemoteSessionTransportKind::SessionPoll;
+    }));
+    std::optional<RemoteSessionPublishedState> transient_failure;
+    REQUIRE(wait_for_condition([&] {
+        auto state = session_client.take_published_state();
+        if (state && state->recovery
+            && state->recovery->phase
+                != ClientConnectionPhase::Connected)
+        {
+            transient_failure = std::move(state);
+        }
+        return transient_failure.has_value();
+    }));
+    CHECK_FALSE(transient_failure->topology_error);
+    CHECK_FALSE(transient_failure->agent_error);
+    CHECK_FALSE(transient_failure->recovery->sustained_outage);
+    CHECK(transient_failure->recovery->interruption_count == 1);
+    CHECK(session_client.session_poll_revisions().topology == 7);
+    CHECK(session_client.session_poll_revisions().agents == 3);
+    {
+        std::lock_guard guard(opened_mutex);
+        REQUIRE(first_fallback_poll);
+        REQUIRE(first_fallback_poll->terminals.size() == 1);
+        REQUIRE(first_fallback_poll->terminals.front().cursor);
+        CHECK(first_fallback_poll->terminals.front()
+                  .cursor->generation
+            == 1);
+        CHECK(first_fallback_poll->terminals.front()
+                  .cursor->after_sequence
+            == 0);
+    }
+
+    const auto sustained = recovery->snapshot_at("session",
+        std::chrono::steady_clock::now()
+            + kClientSustainedOutageThreshold
+            + std::chrono::milliseconds(1));
+    CHECK(sustained.sustained_outage);
+    CHECK(sustained.interruption_count == 1);
+    CHECK(sustained.current_reason == "io_error");
+
+    const auto interrupted = coordinator.transport_snapshot();
+    CHECK(interrupted.transport
+        == RemoteSessionTransportKind::SessionPoll);
+    CHECK(interrupted.recovery.phase
+        != ClientConnectionPhase::Connected);
+    CHECK(interrupted.recovery_metrics.fallbacks == 1);
+    CHECK(std::ranges::any_of(
+        interrupted.recovery_metrics.reasons,
+        [](const ClientRecoveryReasonCount& reason) {
+            return reason.kind
+                    == ClientRecoveryReasonKind::Fallback
+                && reason.channel == "session.stream"
+                && !reason.reason.empty()
+                && reason.count == 1;
+        }));
+    CHECK(std::ranges::any_of(
+        interrupted.recovery_metrics.reasons,
+        [](const ClientRecoveryReasonCount& reason) {
+            return reason.kind
+                    == ClientRecoveryReasonKind::Reconnect
+                && reason.channel == "session.poll"
+                && reason.reason == "io_error"
+                && reason.count == 1;
+        }));
+    CHECK(legacy_requests == 0);
+
+    allow_poll_recovery = true;
+    std::optional<TopologySnapshot> recovered_topology;
+    std::optional<ServerAgentSnapshot> recovered_agents;
+    std::optional<ClientRecoverySnapshot> recovered_session;
+    bool recovery_republished_an_error = false;
+    REQUIRE(wait_for_condition([&] {
+        auto state = session_client.take_published_state();
+        if (state)
+        {
+            recovery_republished_an_error
+                = recovery_republished_an_error
+                || state->topology_error.has_value()
+                || state->agent_error.has_value();
+            if (state->topology)
+                recovered_topology = std::move(state->topology);
+            if (state->agents)
+                recovered_agents = std::move(state->agents);
+            if (state->recovery)
+                recovered_session = std::move(state->recovery);
+        }
+        const auto diagnostics = coordinator.transport_snapshot();
+        return recovered_topology && recovered_agents
+            && recovered_session
+            && recovered_session->phase
+                == ClientConnectionPhase::Connected
+            && diagnostics.recovery.phase
+                == ClientConnectionPhase::Connected;
+    }));
+    REQUIRE(recovered_topology->revision == 8);
+    REQUIRE(recovered_agents->revision == 4);
+    CHECK_FALSE(recovery_republished_an_error);
+    CHECK(recovered_session->interruption_count == 1);
+    CHECK(recovered_session->recovery_count == 1);
+    const auto recovered_terminal = wait_for_state(registration);
+    REQUIRE(recovered_terminal);
+    CHECK(recovered_terminal->snapshot.metadata.title == "Updated");
+    const auto final_transport = coordinator.transport_snapshot();
+    CHECK(final_transport.transport
+        == RemoteSessionTransportKind::SessionPoll);
+    CHECK(final_transport.recovery_metrics.fallbacks == 1);
+    CHECK(legacy_requests == 0);
+
+    coordinator.stop();
+    stream.stop();
+    stream_peer.request_stop();
+    stream_peer.join();
+    dispatcher.request_stop();
+    dispatcher.join();
+    control.stop();
 }
 
 TEST_CASE("remote Session coordinator falls back when Session poll is unavailable",
@@ -1125,6 +1568,11 @@ TEST_CASE("remote Session coordinator falls back when Session poll is unavailabl
     REQUIRE(wait_for_state(registration));
     CHECK(session_polls == 1);
     CHECK(legacy_attaches == 1);
+    const auto transport = coordinator.transport_snapshot();
+    CHECK(transport.transport
+        == RemoteSessionTransportKind::Legacy);
+    CHECK(transport.recovery.phase
+        == ClientConnectionPhase::Connected);
 
     coordinator.stop();
     dispatcher.request_stop();

@@ -80,6 +80,91 @@ TEST_CASE("client recovery backoff is bounded, jittered, and channel isolated",
         "invalid_connection_token"));
 }
 
+TEST_CASE("client recovery diagnostics distinguish sustained outages and recoveries",
+    "[client][recovery][diagnostics]")
+{
+    ClientRecoveryState recovery("diagnostic-client");
+    recovery.note_failure("session", "io_error");
+    recovery.note_failure("session", "deadline_exceeded");
+    const auto after_failure = std::chrono::steady_clock::now();
+
+    const auto active = recovery.snapshot_at("session",
+        after_failure + kClientSustainedOutageThreshold
+            + std::chrono::milliseconds(1));
+    CHECK(active.phase == ClientConnectionPhase::Reconnecting);
+    CHECK(active.attempts == 2);
+    CHECK(active.sustained_outage);
+    CHECK(active.interruption_count == 1);
+    CHECK(active.recovery_count == 0);
+    CHECK(active.current_reason == "deadline_exceeded");
+
+    CHECK(recovery.note_connected("session"));
+    CHECK_FALSE(recovery.note_connected("session"));
+    const auto connected = recovery.snapshot("session");
+    CHECK(connected.phase == ClientConnectionPhase::Connected);
+    CHECK(connected.outage_duration == std::chrono::milliseconds::zero());
+    CHECK_FALSE(connected.sustained_outage);
+    CHECK(connected.interruption_count == 1);
+    CHECK(connected.recovery_count == 1);
+    CHECK(connected.current_reason.empty());
+
+    recovery.note_fallback("session.stream", "io_error");
+    recovery.note_resync("session.poll", "stale_epoch");
+    const auto metrics = recovery.metrics_snapshot();
+    CHECK(metrics.reconnect_attempts == 2);
+    CHECK(metrics.fallbacks == 1);
+    CHECK(metrics.resyncs == 1);
+    CHECK(metrics.reason_overflow == 0);
+    REQUIRE(metrics.reasons.size() == 4);
+    CHECK(std::ranges::any_of(metrics.reasons, [](const auto& reason) {
+        return reason.kind == ClientRecoveryReasonKind::Fallback
+            && reason.channel == "session.stream"
+            && reason.reason == "io_error" && reason.count == 1;
+    }));
+}
+
+TEST_CASE("client recovery reason diagnostics have bounded cardinality and text",
+    "[client][recovery][diagnostics][bounds]")
+{
+    ClientRecoveryState recovery("bounded-diagnostic-client");
+    for (size_t index = 0;
+         index < kClientRecoveryMaxReasonBuckets + 5; ++index)
+    {
+        recovery.note_fallback("session.stream",
+            "reason-" + std::to_string(index) + "-"
+                + std::string(kClientRecoveryMaxReasonBytes + 20, 'a'));
+    }
+    const auto metrics = recovery.metrics_snapshot();
+    CHECK(metrics.fallbacks
+        == kClientRecoveryMaxReasonBuckets + 5);
+    CHECK(metrics.reasons.size()
+        == kClientRecoveryMaxReasonBuckets);
+    CHECK(metrics.reason_overflow == 5);
+    CHECK(std::ranges::all_of(metrics.reasons, [](const auto& reason) {
+        return reason.channel.size() <= kClientRecoveryMaxChannelBytes
+            && reason.reason.size() <= kClientRecoveryMaxReasonBytes;
+    }));
+}
+
+TEST_CASE("aggregate recovery state does not double count physical failures",
+    "[client][recovery][diagnostics]")
+{
+    ClientRecoveryState recovery("aggregate-diagnostic-client");
+    recovery.note_failure("session.stream", "io_error");
+    recovery.note_aggregate_failure("session", "io_error");
+
+    const auto aggregate = recovery.snapshot("session");
+    CHECK(aggregate.phase == ClientConnectionPhase::Degraded);
+    CHECK(aggregate.attempts == 1);
+    CHECK(aggregate.interruption_count == 1);
+    CHECK(aggregate.current_reason == "io_error");
+
+    const auto metrics = recovery.metrics_snapshot();
+    CHECK(metrics.reconnect_attempts == 1);
+    REQUIRE(metrics.reasons.size() == 1);
+    CHECK(metrics.reasons.front().channel == "session.stream");
+}
+
 TEST_CASE("client recovery refresh atomically replaces server epoch and token",
     "[client][server][recovery][token]")
 {
