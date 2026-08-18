@@ -691,3 +691,243 @@ TEST_CASE("user plugin tier overrides bundled plugin and duplicate ids are inval
     CHECK(manager->find("dev.draxul.fixture")->error.find("Duplicate")
         != std::string::npos);
 }
+
+TEST_CASE("plugin manager prepares a distinct shadow-copied generation",
+    "[plugin][reload][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    const auto runtime = temp.root / "runtime";
+    install_plugin(bundled, "fixture", "dev.draxul.fixture",
+        DRAXUL_FIXTURE_VALID_PATH);
+    const auto manager = draxul::PluginManager::discover(
+        bundled, user, runtime);
+    std::string error;
+    const auto first = manager->load("dev.draxul.fixture", error);
+    REQUIRE(first);
+    const auto candidate = manager->prepare_reload(
+        "dev.draxul.fixture", error);
+    REQUIRE(candidate);
+    CHECK(first->generation() != candidate->generation());
+    CHECK(first->manifest().directory != candidate->manifest().directory);
+    CHECK(first->manifest().directory.string().find(runtime.string()) == 0);
+    CHECK(candidate->manifest().directory.string().find(runtime.string()) == 0);
+    CHECK(manager->activate(candidate));
+    CHECK(manager->load("dev.draxul.fixture", error) == candidate);
+}
+
+TEST_CASE("plugin discovery follows the atomic publication pointer",
+    "[plugin][reload][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    install_plugin(bundled, "fixture", "dev.draxul.fixture",
+        DRAXUL_FIXTURE_VALID_PATH, {}, "Fixture", "0.9.0");
+    install_plugin(bundled / "fixture" / "generations", "build-2",
+        "dev.draxul.fixture", DRAXUL_FIXTURE_VALID_PATH);
+    {
+        std::ofstream pointer(bundled / "fixture" / "current.json");
+        pointer << R"({"schema_version":1,"generation":"build-2"})";
+    }
+
+    const auto manager = draxul::PluginManager::discover(bundled, user,
+        temp.root / "runtime");
+    const auto* manifest = manager->find("dev.draxul.fixture");
+    REQUIRE(manifest);
+    CHECK(manifest->version == "1.0.0");
+    CHECK(manifest->package_generation == "build-2");
+}
+
+TEST_CASE("PluginHost reloads a prepared generation and restores transient state",
+    "[plugin][reload][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    install_plugin(bundled, "fixture", "dev.draxul.fixture",
+        DRAXUL_FIXTURE_VALID_PATH);
+    const auto manager = draxul::PluginManager::discover(
+        bundled, user, temp.root / "runtime");
+
+    draxul::HostContext context;
+    context.launch_options.kind = draxul::HostKind::Plugin;
+    context.launch_options.client_plugin_id = "dev.draxul.fixture";
+    context.launch_options.client_plugin_config_json
+        = R"({"reload_import":"write-storage"})";
+    context.pane_id = "reload-pane";
+    context.initial_viewport.pixel_size = { 640, 360 };
+    draxul::tests::FakeTermRenderer renderer;
+    context.grid_renderer = &renderer;
+    draxul::PluginHost host(manager, temp.root / "storage");
+    draxul::tests::TestHostCallbacks callbacks;
+    REQUIRE(host.initialize(context, callbacks));
+    const auto old_plugin = host.loaded_plugin();
+    REQUIRE(old_plugin);
+#ifdef _WIN32
+    HMODULE old_module = LoadLibraryW(
+        old_plugin->manifest().library_path.c_str());
+    REQUIRE(old_module);
+    const auto request_from_quiesced = reinterpret_cast<void (*)()>(
+        GetProcAddress(old_module,
+            "draxul_fixture_request_tick_from_quiesced"));
+#else
+    void* old_module = dlopen(old_plugin->manifest().library_path.c_str(),
+        RTLD_NOW | RTLD_LOCAL);
+    REQUIRE(old_module);
+    const auto request_from_quiesced = reinterpret_cast<void (*)()>(
+        dlsym(old_module, "draxul_fixture_request_tick_from_quiesced"));
+#endif
+    REQUIRE(request_from_quiesced);
+    REQUIRE(host.dispatch_action("fixture_action"));
+    CHECK(host.status_text().find("reload=1") != std::string::npos);
+
+    std::string error;
+    const auto candidate = host.prepare_reload(error);
+    REQUIRE(candidate);
+    std::string warning;
+    REQUIRE(host.reload(candidate, warning, error));
+    CHECK(warning.empty());
+    CHECK(host.status_text().find("reload=1") != std::string::npos);
+    CHECK(renderer.wait_idle_calls == 1);
+    CHECK(std::filesystem::exists(temp.root / "storage" / "config"
+        / "dev.draxul.fixture" / "panes" / "reload-pane"
+        / "reload-import.json"));
+    const int wakes_before_stale_callback = callbacks.wake_window_calls;
+    request_from_quiesced();
+    CHECK(callbacks.wake_window_calls == wakes_before_stale_callback);
+    host.shutdown();
+#ifdef _WIN32
+    FreeLibrary(old_module);
+#else
+    dlclose(old_module);
+#endif
+}
+
+TEST_CASE("PluginHost treats reload-state failures as fresh-state warnings",
+    "[plugin][reload][integration]")
+{
+    struct Scenario
+    {
+        const char* config;
+        const char* warning;
+    };
+    for (const auto& scenario : {
+             Scenario{ R"({"reload_extension":false})", "" },
+             Scenario{ R"({"reload_export":"invalid"})", "valid JSON" },
+             Scenario{ R"({"reload_export":"oversized"})", "export failed" },
+             Scenario{ R"({"reload_import":"reject"})", "incompatible" } })
+    {
+        DYNAMIC_SECTION(scenario.config)
+        {
+            TempPlugins temp;
+            const auto bundled = temp.root / "bundled";
+            const auto user = temp.root / "user";
+            install_plugin(bundled, "fixture", "dev.draxul.fixture",
+                DRAXUL_FIXTURE_VALID_PATH);
+            const auto manager = draxul::PluginManager::discover(
+                bundled, user, temp.root / "runtime");
+            draxul::HostContext context;
+            context.launch_options.kind = draxul::HostKind::Plugin;
+            context.launch_options.client_plugin_id = "dev.draxul.fixture";
+            context.launch_options.client_plugin_config_json = scenario.config;
+            context.pane_id = "reload-state-pane";
+            context.initial_viewport.pixel_size = { 640, 360 };
+            draxul::tests::FakeTermRenderer renderer;
+            context.grid_renderer = &renderer;
+            draxul::PluginHost host(manager, temp.root / "storage");
+            draxul::tests::TestHostCallbacks callbacks;
+            REQUIRE(host.initialize(context, callbacks));
+            REQUIRE(host.dispatch_action("fixture_action"));
+
+            std::string error;
+            const auto candidate = host.prepare_reload(error);
+            REQUIRE(candidate);
+            std::string warning;
+            REQUIRE(host.reload(candidate, warning, error));
+            CHECK(host.status_text() == "ready");
+            if (*scenario.warning)
+                CHECK(warning.find(scenario.warning) != std::string::npos);
+            else
+                CHECK(warning.empty());
+            host.shutdown();
+        }
+    }
+}
+
+TEST_CASE("PluginHost rolls back a failed candidate and drops storage writes",
+    "[plugin][reload][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    install_plugin(bundled, "fixture", "dev.draxul.fixture",
+        DRAXUL_FIXTURE_VALID_PATH);
+    const auto manager = draxul::PluginManager::discover(
+        bundled, user, temp.root / "runtime");
+    draxul::HostContext context;
+    context.launch_options.kind = draxul::HostKind::Plugin;
+    context.launch_options.client_plugin_id = "dev.draxul.fixture";
+    context.pane_id = "reload-rollback-pane";
+    context.initial_viewport.pixel_size = { 640, 360 };
+    draxul::tests::FakeTermRenderer renderer;
+    context.grid_renderer = &renderer;
+    draxul::PluginHost host(manager, temp.root / "storage");
+    draxul::tests::TestHostCallbacks callbacks;
+    REQUIRE(host.initialize(context, callbacks));
+    const auto working = host.loaded_plugin();
+
+    std::filesystem::copy_file(DRAXUL_FIXTURE_FAIL_CREATE_PATH,
+        bundled / "fixture"
+            / std::filesystem::path(DRAXUL_FIXTURE_VALID_PATH).filename(),
+        std::filesystem::copy_options::overwrite_existing);
+    std::string error;
+    const auto candidate = host.prepare_reload(error);
+    REQUIRE(candidate);
+    std::string warning;
+    CHECK_FALSE(host.reload(candidate, warning, error));
+    CHECK(error.find("Previous generation restored") != std::string::npos);
+    CHECK(host.loaded_plugin() == working);
+    CHECK(host.status_text() == "ready");
+    CHECK_FALSE(std::filesystem::exists(temp.root / "storage" / "config"
+        / "dev.draxul.fixture" / "panes" / "reload-rollback-pane"
+        / "candidate-create.json"));
+    host.shutdown();
+}
+
+TEST_CASE("PluginHost rejects an incompatible candidate before quiescing",
+    "[plugin][reload][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    install_plugin(bundled, "fixture", "dev.draxul.fixture",
+        DRAXUL_FIXTURE_VALID_PATH);
+    const auto manager = draxul::PluginManager::discover(
+        bundled, user, temp.root / "runtime");
+
+    draxul::HostContext context;
+    context.launch_options.kind = draxul::HostKind::Plugin;
+    context.launch_options.client_plugin_id = "dev.draxul.fixture";
+    context.pane_id = "reload-preflight-pane";
+    context.initial_viewport.pixel_size = { 640, 360 };
+    draxul::tests::FakeTermRenderer renderer;
+    context.grid_renderer = &renderer;
+    draxul::PluginHost host(manager, temp.root / "storage");
+    draxul::tests::TestHostCallbacks callbacks;
+    REQUIRE(host.initialize(context, callbacks));
+    const auto working = host.loaded_plugin();
+
+    std::filesystem::copy_file(DRAXUL_FIXTURE_UNSUPPORTED_PATH,
+        bundled / "fixture"
+            / std::filesystem::path(DRAXUL_FIXTURE_VALID_PATH).filename(),
+        std::filesystem::copy_options::overwrite_existing);
+    std::string error;
+    CHECK_FALSE(host.prepare_reload(error));
+    CHECK(error.find("renderer backend") != std::string::npos);
+    CHECK(host.loaded_plugin() == working);
+    CHECK(renderer.wait_idle_calls == 0);
+    CHECK(host.status_text() == "ready");
+    host.shutdown();
+}

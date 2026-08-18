@@ -31,9 +31,22 @@ Draxul can host trusted, client-local native plugins in a pane or an entire tab.
 Plugins are discovered at startup from `%APPDATA%/draxul/plugins` and
 `<exe>/plugins` on Windows, or `~/Library/Application Support/draxul/plugins`
 and the app bundle's `Contents/PlugIns` on macOS. Each immediate child directory
-contains a `plugin.toml` manifest and a platform DLL/dylib. User plugins override
-bundled plugins with the same stable ID; installing or replacing one requires a UI
-restart.
+contains either a legacy `plugin.toml` plus platform DLL/dylib or atomically
+published immutable generations selected by `current.json`. User plugins override
+bundled plugins with the same stable ID. Draxul shadow-copies the complete selected
+package to a host-private per-process runtime directory, so the producer can rebuild
+without overwriting or locking the active DLL/dylib.
+
+`reload_plugin` in the GUI and `draxul plugin reload <id>` on the local control
+endpoint prepare and validate a new generation, quiesce every matching pane in that
+UI, release their render passes, wait for the renderer once, and replace them as one
+cohort. A lifecycle failure rolls the cohort back to the resident prior generation.
+Late callbacks carry generation-scoped tokens and cannot target the replacement.
+Candidate storage-service writes are journaled until activation. The optional
+`draxul.hot-reload` extension transfers bounded transient JSON state; missing or
+incompatible state starts fresh and warns rather than rejecting a healthy build.
+Retired native images remain resident until process exit because general C++ and
+Objective-C module unloading is not a safe runtime contract.
 
 The server stores only the stable plugin ID and bounded JSON configuration. Each
 attached UI loads its own installed module, so an unavailable or incompatible
@@ -150,6 +163,7 @@ under `plugins/scoreview`; no Draxul C++ canvas or ImGui object crosses the ABI.
 ```text
 draxul plugin list --json
 draxul plugin get <plugin-id> --json
+draxul plugin reload <plugin-id> --session <id> --json
 draxul pane split <pane-id> --direction right --plugin <plugin-id> \
   [--plugin-config <json>] --json
 draxul tab create --space <space-id> --name <name> --plugin <plugin-id> \

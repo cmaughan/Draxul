@@ -157,7 +157,8 @@ ControlMethodResult ControlRequestRouter::handle(const ControlRequest& request)
                     "agent.get", "agent.explain", "pane.read", "space.focus",
                     "agent.start", "agent.focus", "agent.restart",
                     "agent.send_text", "agent.send_keys", "agent.wait",
-                    "event.subscribe", "pane.report_agent_session" } },
+                    "event.subscribe", "pane.report_agent_session",
+                    "plugin.reload" } },
         });
     }
 

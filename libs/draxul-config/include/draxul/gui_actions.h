@@ -31,7 +31,7 @@ struct GuiActionInfo
 // Size must equal the initialized rows exactly: std::array value-initializes
 // any tail, and two empty-named entries broke registry parity when actions
 // were removed without shrinking the count.
-inline constexpr std::array<GuiActionInfo, 56> kGuiActions = { {
+inline constexpr std::array<GuiActionInfo, 57> kGuiActions = { {
     { "toggle_diagnostics" },
     { "copy" },
     { "paste" },
@@ -66,6 +66,7 @@ inline constexpr std::array<GuiActionInfo, 56> kGuiActions = { {
     { "toggle_zoom" },
     { "close_pane" },
     { "restart_host" },
+    { "reload_plugin" },
     { "swap_pane" },
     { "focus_left" },
     { "focus_right" },

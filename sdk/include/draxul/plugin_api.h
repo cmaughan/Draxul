@@ -22,6 +22,9 @@ extern "C" {
 
 #define DRAXUL_PLUGIN_PRESENTATION_EXTENSION_ID "draxul.presentation"
 #define DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION 1u
+#define DRAXUL_PLUGIN_HOT_RELOAD_EXTENSION_ID "draxul.hot-reload"
+#define DRAXUL_PLUGIN_HOT_RELOAD_EXTENSION_VERSION 1u
+#define DRAXUL_PLUGIN_MAX_HOT_RELOAD_JSON_BYTES (1024u * 1024u)
 #define DRAXUL_PLUGIN_PATH_SERVICE_ID "draxul.paths"
 #define DRAXUL_PLUGIN_PATH_SERVICE_VERSION 1u
 #define DRAXUL_PLUGIN_STORAGE_SERVICE_ID "draxul.storage"
@@ -322,6 +325,24 @@ typedef struct DraxulPluginPresentationExtensionV2
         DraxulPluginStringViewV2* action_id,
         DraxulPluginStringViewV2* display_name);
 } DraxulPluginPresentationExtensionV2;
+
+// Optional best-effort transient-state handoff used when replacing one native
+// generation with another. export_json follows the two-call buffer convention:
+// buffer=null returns the required byte count including the trailing NUL.
+// Import rejection starts the replacement instance fresh; it is not a plugin
+// lifecycle failure. The plugin owns schema compatibility across its builds.
+typedef struct DraxulPluginHotReloadExtensionV2
+{
+    uint32_t struct_size;
+    uint32_t extension_version;
+    const char* schema_id;
+    uint32_t schema_version;
+    int32_t (*export_json)(void* instance, char* buffer,
+        size_t* in_out_size);
+    int32_t (*import_json)(void* instance, const char* json,
+        size_t json_length, const char* source_schema_id,
+        uint32_t source_schema_version);
+} DraxulPluginHotReloadExtensionV2;
 
 typedef int32_t (*DraxulPluginQueryExtensionFnV2)(void* instance,
     const char* extension_id, size_t extension_id_length,

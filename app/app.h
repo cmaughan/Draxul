@@ -51,6 +51,16 @@ enum class TopologySplitDirection;
 struct ControlMethodResult;
 struct ControlRequest;
 
+struct PluginReloadSummary
+{
+    int matched = 0;
+    int reloaded = 0;
+    bool rolled_back = false;
+    std::string generation;
+    std::string warning;
+    std::string error;
+};
+
 // ---------------------------------------------------------------------------
 // AppDeps — injectable dependency bundle for App.
 //
@@ -149,6 +159,7 @@ private:
     // observe failure. Previously this was `void` and silent — the only hint
     // of failure was a log line.
     Result<void, Error> reload_config();
+    PluginReloadSummary reload_plugin(std::string_view plugin_id);
 
     bool pump_once(std::optional<std::chrono::steady_clock::time_point> wait_deadline = std::nullopt);
     void pump_background_hosts();

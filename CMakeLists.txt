@@ -15,6 +15,8 @@ endif()
 
 project(draxul VERSION 0.1.0 LANGUAGES CXX C)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 # All internal libraries are static; prevent any cached or inherited value from flipping this.
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 

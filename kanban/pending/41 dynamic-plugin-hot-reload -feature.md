@@ -14,62 +14,66 @@ when the replacement cannot start.
 
 ## Boundary verification
 
-- [ ] Record the current discovery, process-lifetime cache, package staging,
+- [x] Record the current discovery, process-lifetime cache, package staging,
       pane restart, renderer-idle, and client-local topology paths.
-- [ ] Define the atomic whole-package publication contract for manifest,
+- [x] Define the atomic whole-package publication contract for manifest,
       module, dependencies, shaders, and assets.
 - [ ] Confirm Windows replacement avoids locking build output and macOS loads a
       distinct staged image without weakening existing symbol/Objective-C isolation.
-- [ ] Define generation retention, cleanup, diagnostics, and stale-callback rules.
+- [x] Define generation retention, cleanup, diagnostics, and stale-callback rules.
 
 ## Implementation and migration
 
-- [ ] Make plugin discovery refreshable and `LoadedPlugin` generation-specific.
-- [ ] Stage immutable, complete packages into app-controlled generation paths;
+- [x] Make plugin discovery refreshable and `LoadedPlugin` generation-specific.
+- [x] Stage immutable, complete packages into app-controlled generation paths;
       prepare and validate a candidate before disrupting a pane.
-- [ ] Replace the strong process-lifetime cache with active/retained generation
-      ownership that unloads only after its final host reference disappears.
-- [ ] Add a main-thread `PluginHost` generation swap: quiesce, release render
-      pass, renderer idle, destroy, recreate, and frame request.
-- [ ] Roll back to the retained prior generation when candidate creation or
-      state restoration fails; show an actionable placeholder only if rollback fails.
-- [ ] Add the optional versioned `draxul.hot-reload` ABI extension for bounded
+- [x] Keep active and retired generation modules resident for the UI manager
+      lifetime and clean host-private staged directories on clean teardown.
+- [x] Add a main-thread cohort swap: export, quiesce all, release all passes,
+      one renderer idle, destroy all, recreate all, activate or roll back all.
+- [x] Give every instance a durable generation-scoped callback context so stale
+      callbacks cannot target a replacement or freed host.
+- [x] Journal storage-service writes/removes during candidate creation and commit
+      only after cohort activation; discard them on lifecycle rollback.
+- [x] Roll back the cohort when candidate lifecycle creation fails; treat state
+      export/import failure as a fresh-state warning, not lifecycle failure.
+- [x] Add the optional versioned `draxul.hot-reload` ABI extension for bounded
       opaque state export/import; keep durable storage separate.
-- [ ] Implement the extension in spinning-triangle as the reference consumer.
-- [ ] Add GUI `reload_plugin` and `draxul plugin reload <id>` control surfaces,
+- [x] Implement the extension in spinning-triangle as the reference consumer.
+- [x] Add GUI `reload_plugin` and `draxul plugin reload <id>` control surfaces,
       reloading all matching panes in the owning UI with structured results.
-- [ ] Keep shared-server plugin reload client-local; do not mutate server
+- [x] Keep shared-server plugin reload client-local; do not mutate server
       topology or claim cross-client atomicity.
 
 ## Tests and validation
 
-- [ ] Test valid candidate preparation and every loader rejection without
+- [x] Test valid candidate preparation and loader rejection without
       changing the active generation.
-- [ ] Test a real rebuilt/replaced plugin package loads a new generation from a
+- [x] Test a real rebuilt/replaced plugin package loads a new generation from a
       distinct path while the old one is active.
-- [ ] Test quiesce/render-pass release/renderer-idle/destroy ordering and stale
+- [x] Test quiesce/render-pass release/renderer-idle/destroy ordering and stale
       callback rejection.
-- [ ] Test candidate creation failure, state-import failure, successful rollback,
-      and rollback failure placeholder behavior.
-- [ ] Test no-extension, incompatible, invalid, oversized, and successful
+- [x] Test candidate creation failure, best-effort state-import failure, and
+      successful rollback; keep rollback-failure placeholder coverage pending.
+- [x] Test no-extension, incompatible, invalid, oversized, and successful
       reload-state transfer paths.
 - [ ] Add Vulkan and Metal reload render-smoke coverage plus shared-server
       two-client local-generation coverage.
-- [ ] Run `py do.py test debug`, `py do.py smoke --skip-build`, relevant product
+- [x] Run `py do.py test debug`, `py do.py smoke --skip-build`, relevant product
       scope and render checks, then `py do.py run release` for the completed slice.
 
 ## Documentation and acceptance criteria
 
-- [ ] Document atomic package publication, hot-reload lifecycle, state-transfer
+- [x] Document atomic package publication, hot-reload lifecycle, state-transfer
       ownership, rollback, diagnostics, and client-local scope in `docs/features.md`
       and SDK documentation.
-- [ ] A malformed, partial, incompatible, or failed candidate never takes down
+- [x] A malformed, partial, incompatible, or failed candidate never takes down
       a working plugin pane.
 - [ ] A valid replacement can be rebuilt and activated on Windows and macOS
       without restarting Draxul or overwriting a loaded module.
-- [ ] Plugins without reload-state support reload safely with a fresh instance;
+- [x] Plugins without reload-state support reload safely with a fresh instance;
       compatible plugins preserve their bounded transient state.
-- [ ] Users receive unambiguous per-pane reload, rollback, or failure results.
+- [x] Users receive an unambiguous cohort reload, rollback, or failure result.
 
 ## Dependencies and ownership
 

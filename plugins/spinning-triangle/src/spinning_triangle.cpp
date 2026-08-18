@@ -799,6 +799,83 @@ constexpr draxul::plugin_support::AdapterAction kActions[] = {
 using Presentation = draxul::plugin_support::PresentationAdapter<kActions,
     &get_presentation_state, &dispatch_action>;
 
+int32_t export_reload_json(void* opaque, char* buffer,
+    size_t* in_out_size)
+{
+    auto* instance = static_cast<TriangleInstance*>(opaque);
+    if (!instance || !in_out_size)
+        return 0;
+    const std::string value = nlohmann::json{
+        { "angle", instance->angle },
+        { "paused", instance->paused },
+        { "direction", instance->direction },
+    }.dump();
+    const size_t required = value.size() + 1;
+    if (!buffer)
+    {
+        *in_out_size = required;
+        return 1;
+    }
+    if (*in_out_size < required)
+    {
+        *in_out_size = required;
+        return 0;
+    }
+    std::memcpy(buffer, value.c_str(), required);
+    *in_out_size = required;
+    return 1;
+}
+
+int32_t import_reload_json(void* opaque, const char* json,
+    size_t json_length, const char* source_schema_id,
+    uint32_t source_schema_version)
+{
+    auto* instance = static_cast<TriangleInstance*>(opaque);
+    if (!instance || !json || !source_schema_id
+        || std::string_view(source_schema_id) != "dev.draxul.spinning-triangle.state"
+        || source_schema_version != 1)
+        return 0;
+    try
+    {
+        const auto state = nlohmann::json::parse(json, json + json_length);
+        instance->angle = state.value("angle", instance->angle);
+        instance->paused = state.value("paused", instance->paused);
+        instance->direction = state.value("direction", instance->direction) < 0.0f
+            ? -1.0f : 1.0f;
+        notify_presentation(instance);
+        return 1;
+    }
+    catch (...)
+    {
+        return 0;
+    }
+}
+
+int32_t query_extension(void* instance, const char* extension_id,
+    size_t extension_id_length, uint32_t requested_version,
+    void* extension_table, size_t extension_table_size)
+{
+    const std::string_view id(extension_id ? extension_id : "",
+        extension_id ? extension_id_length : 0);
+    if (id == DRAXUL_PLUGIN_HOT_RELOAD_EXTENSION_ID
+        && requested_version == DRAXUL_PLUGIN_HOT_RELOAD_EXTENSION_VERSION
+        && extension_table
+        && extension_table_size >= sizeof(DraxulPluginHotReloadExtensionV2))
+    {
+        auto* extension = static_cast<DraxulPluginHotReloadExtensionV2*>(
+            extension_table);
+        *extension = {
+            sizeof(*extension), DRAXUL_PLUGIN_HOT_RELOAD_EXTENSION_VERSION,
+            "dev.draxul.spinning-triangle.state", 1,
+            &export_reload_json, &import_reload_json
+        };
+        return 1;
+    }
+    return Presentation::query_extension(instance, extension_id,
+        extension_id_length, requested_version, extension_table,
+        extension_table_size);
+}
+
 const DraxulPluginApiV2 kApi = draxul::plugin_support::make_plugin_api(
     { kPluginId, "Spinning Triangle", "0.2.0",
         draxul::plugin_support::kNativeBackendMask },
@@ -816,7 +893,7 @@ const DraxulPluginApiV2 kApi = draxul::plugin_support::make_plugin_api(
 #else
         .render_vulkan = &render_vulkan,
 #endif
-        .query_extension = &Presentation::query_extension,
+        .query_extension = &query_extension,
     });
 
 } // namespace

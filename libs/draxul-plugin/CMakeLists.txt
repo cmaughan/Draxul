@@ -10,6 +10,7 @@ target_link_libraries(draxul-plugin PUBLIC
 )
 target_link_libraries(draxul-plugin PRIVATE
     draxul-performance
+    nlohmann_json::nlohmann_json
     tomlplusplus::tomlplusplus
 )
 

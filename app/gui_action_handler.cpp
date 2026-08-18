@@ -82,6 +82,7 @@ const std::unordered_map<std::string_view, GuiActionHandler::ActionFn>& GuiActio
         {"toggle_zoom",        [](auto& h, auto) { h.toggle_zoom(); }},
         {"close_pane",         [](auto& h, auto) { h.close_pane(); }},
         {"restart_host",       [](auto& h, auto) { h.restart_host(); }},
+        {"reload_plugin",      [](auto& h, auto) { if (h.deps_.on_reload_plugin) h.deps_.on_reload_plugin(); }},
         {"swap_pane",          [](auto& h, auto) { h.swap_pane(); }},
         {"focus_left",         [](auto& h, auto) { h.focus_left(); }},
         {"focus_right",        [](auto& h, auto) { h.focus_right(); }},

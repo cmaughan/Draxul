@@ -5,8 +5,12 @@
 #include <draxul/runtime_path.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
+#include <fstream>
+#include <nlohmann/json.hpp>
 #include <toml++/toml.hpp>
 
 #ifdef _WIN32
@@ -15,12 +19,15 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#include <unistd.h>
 #endif
 
 namespace draxul
 {
 namespace
 {
+
+std::string next_runtime_generation();
 
 void close_module(void* module)
 {
@@ -133,6 +140,63 @@ PluginManifest parse_manifest(const std::filesystem::path& path, bool user_insta
     return result;
 }
 
+std::filesystem::path process_plugin_runtime_directory()
+{
+#ifdef _WIN32
+    const uint64_t process_id = GetCurrentProcessId();
+#else
+    const uint64_t process_id = static_cast<uint64_t>(getpid());
+#endif
+    return user_cache_dir() / "draxul" / "plugin-runtime"
+        / ("process-" + std::to_string(process_id) + "-"
+            + next_runtime_generation());
+}
+
+std::optional<std::filesystem::path> published_manifest(
+    const std::filesystem::path& plugin_directory)
+{
+    const auto legacy = plugin_directory / "plugin.toml";
+    std::error_code error;
+    const auto pointer = plugin_directory / "current.json";
+    if (std::filesystem::is_regular_file(pointer, error))
+    {
+        try
+        {
+            std::ifstream input(pointer, std::ios::binary);
+            const auto document = nlohmann::json::parse(input);
+            const std::string generation = document.value("generation", "");
+            if (!generation.empty() && generation != "." && generation != ".."
+                && generation.find('/') == std::string::npos
+                && generation.find('\\') == std::string::npos)
+            {
+                const auto manifest = plugin_directory / "generations"
+                    / generation / "plugin.toml";
+                if (std::filesystem::is_regular_file(manifest, error))
+                    return manifest;
+            }
+        }
+        catch (...)
+        {
+        }
+        // Once a publisher marker exists it is authoritative. Returning it
+        // makes discovery surface an invalid manifest instead of silently
+        // falling back to an older, potentially unrelated legacy package.
+        return pointer;
+    }
+    if (std::filesystem::is_regular_file(legacy, error))
+        return legacy;
+    return std::nullopt;
+}
+
+std::string next_runtime_generation()
+{
+    static std::atomic<uint64_t> serial{ 0 };
+    const auto ticks = std::chrono::steady_clock::now()
+                           .time_since_epoch().count();
+    return std::to_string(ticks) + "-"
+        + std::to_string(serial.fetch_add(1));
+}
+
 } // namespace
 
 LoadedPlugin::~LoadedPlugin()
@@ -140,20 +204,59 @@ LoadedPlugin::~LoadedPlugin()
     close_module(module_);
 }
 
+PluginManager::~PluginManager()
+{
+    std::scoped_lock lock(mutex_);
+    loaded_.clear();
+    resident_.clear();
+    std::error_code error;
+    std::filesystem::remove_all(runtime_directory_, error);
+}
+
 std::shared_ptr<PluginManager> PluginManager::discover_default()
 {
-    return discover(bundled_plugin_directory(), user_plugin_directory());
+    return discover(bundled_plugin_directory(), user_plugin_directory(),
+        process_plugin_runtime_directory());
 }
 
 std::shared_ptr<PluginManager> PluginManager::discover(
     const std::filesystem::path& bundled_directory,
-    const std::filesystem::path& user_directory)
+    const std::filesystem::path& user_directory,
+    const std::filesystem::path& runtime_directory)
 {
     PERF_MEASURE();
     auto manager = std::make_shared<PluginManager>();
-    manager->merge_tier(scan_tier(bundled_directory, false));
-    manager->merge_tier(scan_tier(user_directory, true));
+    manager->bundled_directory_ = bundled_directory;
+    manager->user_directory_ = user_directory;
+    manager->runtime_directory_ = runtime_directory.empty()
+        ? user_directory.parent_path() / ".draxul-plugin-runtime"
+        : runtime_directory;
+    std::error_code cleanup_error;
+    std::filesystem::remove_all(manager->runtime_directory_, cleanup_error);
+    std::filesystem::create_directories(
+        manager->runtime_directory_, cleanup_error);
+    std::string refresh_error;
+    manager->refresh(refresh_error);
     return manager;
+}
+
+bool PluginManager::refresh(std::string& error)
+{
+    std::scoped_lock lock(mutex_);
+    try
+    {
+        manifests_.clear();
+        index_.clear();
+        merge_tier(scan_tier(bundled_directory_, false));
+        merge_tier(scan_tier(user_directory_, true));
+        error.clear();
+        return true;
+    }
+    catch (const std::exception& exception)
+    {
+        error = exception.what();
+        return false;
+    }
 }
 
 bool PluginManager::valid_plugin_id(std::string_view id)
@@ -175,14 +278,20 @@ std::vector<PluginManifest> PluginManager::scan_tier(
     std::vector<std::filesystem::path> manifests;
     for (const auto& entry : std::filesystem::directory_iterator(directory, error))
     {
-        if (entry.is_directory(error) && std::filesystem::exists(entry.path() / "plugin.toml", error))
-            manifests.push_back(entry.path() / "plugin.toml");
+        if (!entry.is_directory(error))
+            continue;
+        if (const auto manifest = published_manifest(entry.path()))
+            manifests.push_back(*manifest);
     }
     std::sort(manifests.begin(), manifests.end());
     std::unordered_map<std::string, size_t> ids;
     for (const auto& path : manifests)
     {
         PluginManifest manifest = parse_manifest(path, user_installed);
+        if (path.parent_path().parent_path().filename() == "generations")
+            manifest.package_generation = path.parent_path().filename().string();
+        else
+            manifest.package_generation = "legacy";
         const auto existing = ids.find(manifest.id);
         if (!manifest.id.empty() && existing != ids.end())
         {
@@ -245,7 +354,53 @@ std::shared_ptr<LoadedPlugin> PluginManager::load(std::string_view id, std::stri
         error = manifest->error;
         return {};
     }
-    void* module = open_module(manifest->library_path, error);
+    const auto plugin = load_generation(*manifest, error);
+    if (!plugin)
+        return {};
+    loaded_[key] = plugin;
+    resident_.push_back(plugin);
+    return plugin;
+}
+
+std::optional<PluginManifest> PluginManager::stage_generation(
+    const PluginManifest& manifest, std::string& error)
+{
+    const std::string runtime_generation = next_runtime_generation();
+    const auto target = runtime_directory_ / manifest.id / runtime_generation;
+    std::error_code copy_error;
+    std::filesystem::create_directories(target.parent_path(), copy_error);
+    std::filesystem::copy(manifest.directory, target,
+        std::filesystem::copy_options::recursive
+            | std::filesystem::copy_options::overwrite_existing,
+        copy_error);
+    if (copy_error)
+    {
+        error = "Unable to stage plugin generation: " + copy_error.message();
+        return std::nullopt;
+    }
+    PluginManifest staged = manifest;
+    const auto relative_library = std::filesystem::relative(
+        manifest.library_path, manifest.directory, copy_error);
+    if (copy_error || relative_library.empty()
+        || relative_library.native().starts_with(
+            std::filesystem::path("..").native()))
+    {
+        error = "Plugin library is outside its package: " + manifest.id;
+        return std::nullopt;
+    }
+    staged.directory = target;
+    staged.library_path = target / relative_library;
+    staged.package_generation = runtime_generation;
+    return staged;
+}
+
+std::shared_ptr<LoadedPlugin> PluginManager::load_generation(
+    const PluginManifest& source_manifest, std::string& error)
+{
+    const auto staged = stage_generation(source_manifest, error);
+    if (!staged)
+        return {};
+    void* module = open_module(staged->library_path, error);
     if (!module)
         return {};
     const auto query = reinterpret_cast<DraxulPluginQueryFnV2>(
@@ -260,19 +415,50 @@ std::shared_ptr<LoadedPlugin> PluginManager::load(std::string_view id, std::stri
     if (!api || api->struct_size < sizeof(DraxulPluginApiV2)
         || api->abi_version != DRAXUL_PLUGIN_ABI_VERSION || !api->plugin_id
         || !api->display_name || !api->plugin_version
-        || manifest->id != api->plugin_id
-        || manifest->name != api->display_name
-        || manifest->version != api->plugin_version
+        || staged->id != api->plugin_id
+        || staged->name != api->display_name
+        || staged->version != api->plugin_version
         || !api->create_instance
         || !api->destroy_instance)
     {
-        error = "Plugin ABI or identity validation failed: " + manifest->id;
+        error = "Plugin ABI or identity validation failed: " + staged->id;
         close_module(module);
         return {};
     }
-    auto plugin = std::shared_ptr<LoadedPlugin>(new LoadedPlugin(*manifest, module, api));
-    loaded_[key] = plugin;
+    return std::shared_ptr<LoadedPlugin>(new LoadedPlugin(
+        *staged, module, api, staged->package_generation));
+}
+
+std::shared_ptr<LoadedPlugin> PluginManager::prepare_reload(
+    std::string_view id, std::string& error)
+{
+    if (!refresh(error))
+        return {};
+    std::scoped_lock lock(mutex_);
+    const PluginManifest* manifest = find(id);
+    if (!manifest)
+    {
+        error = "Plugin is not installed: " + std::string(id);
+        return {};
+    }
+    if (!manifest->error.empty())
+    {
+        error = manifest->error;
+        return {};
+    }
+    auto plugin = load_generation(*manifest, error);
+    if (plugin)
+        resident_.push_back(plugin);
     return plugin;
+}
+
+bool PluginManager::activate(const std::shared_ptr<LoadedPlugin>& plugin)
+{
+    if (!plugin)
+        return false;
+    std::scoped_lock lock(mutex_);
+    loaded_[plugin->manifest().id] = plugin;
+    return true;
 }
 
 } // namespace draxul

@@ -26,6 +26,8 @@
 #include <draxul/log.h>
 #include <draxul/pane_print.h>
 #include <draxul/perf_timing.h>
+#include <draxul/plugin_host.h>
+#include <draxul/plugin_manager.h>
 #include <draxul/pixel_scale.h>
 #include <draxul/remote_session_client.h>
 #include <draxul/remote_session_coordinator.h>
@@ -1203,6 +1205,23 @@ void App::wire_gui_actions()
         });
         if (!result.accepted())
             push_toast(2, result.error);
+    };
+    gui_deps.on_reload_plugin = [this]() {
+        auto* focused = dynamic_cast<PluginHost*>(
+            active_pane_manager().focused_host());
+        if (!focused)
+        {
+            push_toast(1, "The focused pane is not a native plugin.");
+            return;
+        }
+        const auto result = reload_plugin(focused->plugin_id());
+        if (!result.error.empty())
+            push_toast(2, result.error);
+        else if (!result.warning.empty())
+            push_toast(1, result.warning);
+        else
+            push_toast(0, "Reloaded " + std::to_string(result.reloaded)
+                + " plugin pane(s) from generation " + result.generation + ".");
     };
     gui_deps.on_swap_pane = [this]() {
         const LeafId focused
@@ -4525,6 +4544,119 @@ ServerControlChannel App::server_control_channel() const
     });
 }
 
+PluginReloadSummary App::reload_plugin(std::string_view plugin_id)
+{
+    PluginReloadSummary result;
+    std::vector<PluginHost*> hosts;
+    for (const auto& space : space_controller_.spaces())
+    {
+        for (const auto& tab : space->tab_controller.tabs())
+        {
+            tab->pane_manager.for_each_host(
+                [&](LeafId, IHost& host) {
+                    auto* plugin_host = dynamic_cast<PluginHost*>(&host);
+                    if (plugin_host && plugin_host->plugin_id() == plugin_id)
+                        hosts.push_back(plugin_host);
+                });
+        }
+    }
+    result.matched = static_cast<int>(hosts.size());
+    if (hosts.empty())
+    {
+        result.error = "No local pane is running plugin '"
+            + std::string(plugin_id) + "'.";
+        return result;
+    }
+
+    std::string prepare_error;
+    const auto candidate = hosts.front()->prepare_reload(prepare_error);
+    if (!candidate)
+    {
+        result.error = std::move(prepare_error);
+        return result;
+    }
+    result.generation = std::string(candidate->generation());
+    for (PluginHost* host : hosts)
+    {
+        std::string warning;
+        host->quiesce_for_reload(warning);
+        if (!warning.empty())
+        {
+            if (!result.warning.empty())
+                result.warning += " ";
+            result.warning += warning;
+        }
+    }
+    if (renderer_.impl)
+        renderer_.impl->wait_idle();
+    std::vector<std::pair<PluginHost*, std::shared_ptr<LoadedPlugin>>> changed;
+    for (size_t host_index = 0; host_index < hosts.size(); ++host_index)
+    {
+        PluginHost* host = hosts[host_index];
+        const auto previous = host->loaded_plugin();
+        std::string warning;
+        std::string reload_error;
+        if (!host->reload(candidate, warning, reload_error, true))
+        {
+            result.error = std::move(reload_error);
+            if (!warning.empty())
+            {
+                if (!result.warning.empty())
+                    result.warning += " ";
+                result.warning += warning;
+            }
+            for (auto it = changed.rbegin(); it != changed.rend(); ++it)
+            {
+                std::string rollback_warning;
+                std::string rollback_error;
+                if (!it->first->reload(it->second,
+                        rollback_warning, rollback_error))
+                {
+                    result.error += " Cohort rollback failed: "
+                        + rollback_error;
+                }
+            }
+            for (size_t pending = host_index + 1;
+                 pending < hosts.size(); ++pending)
+            {
+                std::string rollback_warning;
+                std::string rollback_error;
+                const auto unchanged = hosts[pending]->loaded_plugin();
+                if (!hosts[pending]->reload(unchanged,
+                        rollback_warning, rollback_error))
+                {
+                    result.error += " Cohort resume failed: "
+                        + rollback_error;
+                }
+            }
+            result.rolled_back = true;
+            result.reloaded = 0;
+            request_frame();
+            return result;
+        }
+        if (!warning.empty())
+        {
+            if (!result.warning.empty())
+                result.warning += " ";
+            result.warning += warning;
+        }
+        changed.emplace_back(host, previous);
+        ++result.reloaded;
+    }
+    for (const auto& [host, _] : changed)
+    {
+        std::string storage_error;
+        if (!host->finalize_reload_storage(storage_error))
+        {
+            if (!result.warning.empty())
+                result.warning += " ";
+            result.warning += storage_error;
+        }
+    }
+    request_frame();
+    return result;
+}
+
 ControlClientResult App::attached_ui_command(
     std::string_view method, nlohmann::json params) const
 {
@@ -5245,6 +5377,34 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
             });
         return it == agents.end() ? std::nullopt : std::optional(*it);
     };
+
+    if (request.method == "plugin.reload")
+    {
+        if (!request.params.is_object()
+            || !request.params.contains("plugin_id")
+            || !request.params["plugin_id"].is_string()
+            || request.params["plugin_id"].get_ref<const std::string&>().empty())
+        {
+            return ControlMethodResult::error("invalid_params",
+                "plugin.reload requires a non-empty string 'plugin_id'.");
+        }
+        const std::string plugin_id
+            = request.params["plugin_id"].get<std::string>();
+        const auto reloaded = reload_plugin(plugin_id);
+        if (!reloaded.error.empty())
+        {
+            return ControlMethodResult::error(
+                reloaded.rolled_back ? "reload_rolled_back" : "reload_failed",
+                reloaded.error);
+        }
+        return ControlMethodResult::success({
+            { "plugin_id", plugin_id },
+            { "generation", reloaded.generation },
+            { "matched", reloaded.matched },
+            { "reloaded", reloaded.reloaded },
+            { "warning", reloaded.warning },
+        });
+    }
 
     if (request.method == "pane.report_agent_session")
     {

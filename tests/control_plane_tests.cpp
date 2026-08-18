@@ -74,6 +74,13 @@ TEST_CASE("control CLI recognizes read-only Space and pane commands", "[control]
     auto invalid = parse_control_cli({ "draxul", "pane", "read", "pane-4", "--lines", "201" });
     CHECK(invalid.recognized);
     CHECK(invalid.error);
+
+    auto reload = parse_control_cli({
+        "draxul", "plugin", "reload", "dev.draxul.fixture", "--json" });
+    REQUIRE(reload.command);
+    CHECK(reload.command->method == "plugin.reload");
+    CHECK(reload.command->value == "dev.draxul.fixture");
+    CHECK(reload.command->json);
 }
 
 TEST_CASE("control CLI keeps agent argv structured and parses wait policy", "[control][cli]")

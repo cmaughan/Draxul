@@ -6,6 +6,7 @@ import io
 import json
 import pathlib
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,6 +15,35 @@ from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+class PluginPublisherTests(unittest.TestCase):
+    def test_publish_moves_complete_generation_then_updates_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "plugin"
+            incoming = root / ".incoming"
+            incoming.mkdir(parents=True)
+            (incoming / "plugin.toml").write_text("schema_version = 1\n")
+            (incoming / "plugin.dll").write_bytes(b"first")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools" / "publish_plugin.py"),
+                    "--root",
+                    str(root),
+                    "--incoming",
+                    str(incoming),
+                ],
+                check=True,
+            )
+            pointer = json.loads((root / "current.json").read_text())
+            generation = root / "generations" / pointer["generation"]
+            self.assertTrue((generation / "plugin.toml").is_file())
+            self.assertEqual(b"first", (generation / "plugin.dll").read_bytes())
+            package = json.loads((generation / "package.json").read_text())
+            self.assertEqual(pointer["generation"], package["build_id"])
+            self.assertIn("plugin.dll", package["files"])
 
 
 def load_do_module():

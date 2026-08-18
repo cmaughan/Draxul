@@ -40,7 +40,7 @@ std::optional<uint64_t> parse_uint64(std::string_view text)
 
 std::string usage()
 {
-    return "Usage: draxul <space|agent|pane> <command> [value] "
+    return "Usage: draxul <space|agent|pane|plugin> <command> [value] "
            "[--session <id>] [--json] [--lines <1-200>]";
 }
 
@@ -127,7 +127,8 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
 {
     ParseControlCliResult parsed;
     if (args.size() < 2
-        || (args[1] != "space" && args[1] != "agent" && args[1] != "pane"))
+        || (args[1] != "space" && args[1] != "agent"
+            && args[1] != "pane" && args[1] != "plugin"))
         return parsed;
     parsed.recognized = true;
     if (args.size() < 3)
@@ -171,6 +172,8 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         command.method = "pane.read";
     else if (noun == "pane" && verb == "report-agent-session")
         command.method = "pane.report_agent_session";
+    else if (noun == "plugin" && verb == "reload")
+        command.method = "plugin.reload";
     else
     {
         parsed.error = usage();
@@ -183,7 +186,8 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         || command.method == "agent.send_text"
         || command.method == "agent.send_keys" || command.method == "agent.wait"
         || command.method == "agent.explain" || command.method == "pane.read"
-        || command.method == "pane.report_agent_session";
+        || command.method == "pane.report_agent_session"
+        || command.method == "plugin.reload";
     if (needs_value)
     {
         if (position >= args.size() || args[position].starts_with("--"))
@@ -544,6 +548,8 @@ int run_control_cli(const ControlCliCommand& command)
         params["pane_id"] = command.value;
         params["lines"] = command.lines;
     }
+    else if (command.method == "plugin.reload")
+        params["plugin_id"] = command.value;
     else if (command.method == "agent.start")
     {
         params["profile_id"] = command.value;

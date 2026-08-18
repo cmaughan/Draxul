@@ -17,6 +17,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <system_error>
 
 #ifdef _WIN32
@@ -96,6 +97,27 @@ PluginHost::PluginHost(std::shared_ptr<PluginManager> manager,
 PluginHost::~PluginHost()
 {
     shutdown();
+    retire_callback_contexts();
+}
+
+void PluginHost::retire_callback_contexts()
+{
+    for (auto& context : callback_contexts_)
+    {
+        context->active.store(false);
+        context->host.store(nullptr);
+    }
+
+    // Broken plugins may issue a callback after quiesce. Keep the small token
+    // allocations valid until process exit so those calls are rejected rather
+    // than dereferencing freed host memory.
+    static auto* mutex = new std::mutex;
+    static auto* resident
+        = new std::vector<std::unique_ptr<CallbackContext>>;
+    std::scoped_lock lock(*mutex);
+    for (auto& context : callback_contexts_)
+        resident->push_back(std::move(context));
+    callback_contexts_.clear();
 }
 
 bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callbacks)
@@ -125,22 +147,88 @@ bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callback
         error_ = std::move(load_error);
         return false;
     }
+    if (!start_instance(plugin_, error_))
+        return false;
+    callbacks.request_frame();
+    return true;
+}
+
+uint32_t copy_storage_value(std::string_view value, char* buffer,
+    size_t* in_out_size)
+{
+    const size_t required = value.size() + 1;
+    if (!buffer)
+    {
+        *in_out_size = required;
+        return DRAXUL_PLUGIN_STORAGE_OK;
+    }
+    if (*in_out_size < required)
+    {
+        *in_out_size = required;
+        return DRAXUL_PLUGIN_STORAGE_BUFFER_TOO_SMALL;
+    }
+    std::memcpy(buffer, value.data(), value.size());
+    buffer[value.size()] = '\0';
+    *in_out_size = required;
+    return DRAXUL_PLUGIN_STORAGE_OK;
+}
+
+bool write_json_file(const std::filesystem::path& path,
+    std::string_view json, std::error_code& error)
+{
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error)
+        return false;
+    static std::atomic<uint64_t> serial{ 0 };
+    const auto temporary = path.parent_path()
+        / (path.filename().string() + ".tmp-"
+            + std::to_string(serial.fetch_add(1)));
+    {
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        output.write(json.data(), static_cast<std::streamsize>(json.size()));
+        output.flush();
+        if (!output)
+        {
+            output.close();
+            std::filesystem::remove(temporary, error);
+            return false;
+        }
+    }
+    if (!replace_file_atomically(temporary, path, error))
+    {
+        std::filesystem::remove(temporary, error);
+        return false;
+    }
+    return true;
+}
+
+bool PluginHost::start_instance(const std::shared_ptr<LoadedPlugin>& plugin,
+    std::string& error)
+{
+    plugin_ = plugin;
     plugin_directory_ = plugin_->manifest().directory.string();
     initialize_service_paths();
     started_at_ = std::chrono::steady_clock::now();
-    host_api_ = {
-        .struct_size = sizeof(host_api_),
+
+    auto callback_context = std::make_unique<CallbackContext>();
+    callback_context->host.store(this);
+    callback_context->generation = ++callback_generation_;
+    callback_context->active.store(true);
+    callback_context->api = {
+        .struct_size = sizeof(DraxulPluginHostApiV2),
         .abi_version = DRAXUL_PLUGIN_ABI_VERSION,
-        .host_context = this,
+        .host_context = callback_context.get(),
         .request_redraw = &PluginHost::request_redraw,
         .request_tick = &PluginHost::request_tick,
         .notify_presentation_changed = &PluginHost::notify_presentation_changed,
         .log = &PluginHost::log_message,
         .query_service = &PluginHost::query_service,
     };
+    active_callback_context_ = callback_context.get();
+    callback_contexts_.push_back(std::move(callback_context));
     const DraxulPluginCreateInfoV2 create_info{
         .struct_size = sizeof(DraxulPluginCreateInfoV2),
-        .host = &host_api_,
+        .host = &active_callback_context_->api,
         .plugin_id = plugin_id_.c_str(),
         .plugin_directory_utf8 = plugin_directory_.c_str(),
         .config_json = config_json_.c_str(),
@@ -150,10 +238,16 @@ bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callback
     instance_ = plugin_->api().create_instance(&create_info);
     if (!instance_)
     {
-        error_ = "Plugin instance creation failed for '" + plugin_id_
+        active_callback_context_->active.store(false);
+        active_callback_context_ = nullptr;
+        error = "Plugin instance creation failed for '" + plugin_id_
             + "'; check its configuration, bundled resources, and Draxul log";
         return false;
     }
+    if (plugin_->api().set_visible)
+        plugin_->api().set_visible(instance_, visible_ ? 1 : 0);
+    if (plugin_->api().set_focused)
+        plugin_->api().set_focused(instance_, focused_ ? 1 : 0);
 
     if (plugin_->api().query_extension)
     {
@@ -170,45 +264,259 @@ bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callback
             && presentation_.get_state;
     }
 
+    hot_reload_ = {};
+    if (plugin_->api().query_extension)
+    {
+        hot_reload_.struct_size = sizeof(hot_reload_);
+        hot_reload_.extension_version = DRAXUL_PLUGIN_HOT_RELOAD_EXTENSION_VERSION;
+        const bool available = plugin_->api().query_extension(instance_,
+            DRAXUL_PLUGIN_HOT_RELOAD_EXTENSION_ID,
+            std::strlen(DRAXUL_PLUGIN_HOT_RELOAD_EXTENSION_ID),
+            DRAXUL_PLUGIN_HOT_RELOAD_EXTENSION_VERSION,
+            &hot_reload_, sizeof(hot_reload_));
+        if (!available || hot_reload_.struct_size < sizeof(hot_reload_)
+            || hot_reload_.extension_version
+                != DRAXUL_PLUGIN_HOT_RELOAD_EXTENSION_VERSION
+            || !hot_reload_.schema_id || !hot_reload_.export_json
+            || !hot_reload_.import_json)
+        {
+            hot_reload_ = {};
+        }
+    }
+
     render_pass_ = create_plugin_render_pass(plugin_, instance_, *this, started_at_);
     if (!render_pass_)
     {
-        error_ = "Plugin does not support this renderer backend";
+        error = "Plugin does not support this renderer backend";
         if (plugin_->api().quiesce_instance)
             plugin_->api().quiesce_instance(instance_);
         plugin_->api().destroy_instance(instance_);
         instance_ = nullptr;
+        active_callback_context_->active.store(false);
+        active_callback_context_ = nullptr;
         return false;
     }
     running_ = true;
     if (plugin_->api().tick)
         next_tick_ = started_at_;
-    callbacks.request_frame();
     return true;
 }
 
-void PluginHost::shutdown()
+void PluginHost::stop_instance(bool wait_for_renderer)
 {
     if (!instance_)
     {
-        callbacks_.store(nullptr);
+        if (active_callback_context_)
+        {
+            active_callback_context_->active.store(false);
+            active_callback_context_ = nullptr;
+        }
         return;
     }
     shutting_down_.store(true);
-    callbacks_.store(nullptr);
     next_frame_.reset();
     next_tick_.reset();
     if (plugin_->api().quiesce_instance)
         plugin_->api().quiesce_instance(instance_);
     render_pass_.reset();
-    if (renderer_)
+    if (wait_for_renderer && renderer_)
         renderer_->wait_idle();
     plugin_->api().destroy_instance(instance_);
     instance_ = nullptr;
-    plugin_.reset();
+    if (active_callback_context_)
+    {
+        active_callback_context_->active.store(false);
+        active_callback_context_ = nullptr;
+    }
     running_ = false;
     has_presentation_ = false;
+    hot_reload_ = {};
+}
+
+void PluginHost::shutdown()
+{
+    stop_instance(true);
+    callbacks_.store(nullptr);
+    plugin_.reset();
     renderer_ = nullptr;
+}
+
+std::shared_ptr<LoadedPlugin> PluginHost::prepare_reload(std::string& error)
+{
+    auto candidate = manager_
+        ? manager_->prepare_reload(plugin_id_, error) : nullptr;
+    if (candidate && !plugin_supports_active_backend(*candidate))
+    {
+        error = "Plugin replacement does not support this renderer backend";
+        return nullptr;
+    }
+    return candidate;
+}
+
+void PluginHost::quiesce_for_reload(std::string& warning)
+{
+    if (!instance_ || reload_prequiesced_)
+        return;
+    prepared_reload_schema_ = hot_reload_.schema_id
+        ? hot_reload_.schema_id : "";
+    prepared_reload_schema_version_ = hot_reload_.schema_version;
+    prepared_reload_state_ = export_reload_state(warning);
+    shutting_down_.store(true);
+    next_frame_.reset();
+    next_tick_.reset();
+    if (plugin_->api().quiesce_instance)
+        plugin_->api().quiesce_instance(instance_);
+    render_pass_.reset();
+    if (active_callback_context_)
+    {
+        active_callback_context_->active.store(false);
+        active_callback_context_ = nullptr;
+    }
+    reload_prequiesced_ = true;
+}
+
+std::optional<std::string> PluginHost::export_reload_state(
+    std::string& warning)
+{
+    if (!instance_ || !hot_reload_.export_json)
+        return std::nullopt;
+    size_t required = 0;
+    if (!hot_reload_.export_json(instance_, nullptr, &required)
+        || required == 0
+        || required > DRAXUL_PLUGIN_MAX_HOT_RELOAD_JSON_BYTES + 1)
+    {
+        warning = "Plugin reload state export failed; starting fresh.";
+        return std::nullopt;
+    }
+    std::string state(required, '\0');
+    if (!hot_reload_.export_json(instance_, state.data(), &required)
+        || required == 0 || required > state.size())
+    {
+        warning = "Plugin reload state export failed; starting fresh.";
+        return std::nullopt;
+    }
+    state.resize(required - 1);
+    try
+    {
+        (void)nlohmann::json::parse(state);
+    }
+    catch (...)
+    {
+        warning = "Plugin reload state was not valid JSON; starting fresh.";
+        return std::nullopt;
+    }
+    return state;
+}
+
+bool PluginHost::reload(const std::shared_ptr<LoadedPlugin>& candidate,
+    std::string& warning, std::string& error, bool defer_storage_commit)
+{
+    if (!candidate || !instance_)
+    {
+        error = "Plugin reload candidate or live instance is unavailable.";
+        return false;
+    }
+    const auto old_plugin = plugin_;
+    const std::string old_schema = reload_prequiesced_
+        ? prepared_reload_schema_
+        : (hot_reload_.schema_id ? hot_reload_.schema_id : "");
+    const uint32_t old_schema_version = reload_prequiesced_
+        ? prepared_reload_schema_version_ : hot_reload_.schema_version;
+    auto state = reload_prequiesced_
+        ? std::move(prepared_reload_state_)
+        : export_reload_state(warning);
+    if (reload_prequiesced_)
+    {
+        plugin_->api().destroy_instance(instance_);
+        instance_ = nullptr;
+        running_ = false;
+        has_presentation_ = false;
+        hot_reload_ = {};
+        reload_prequiesced_ = false;
+    }
+    else
+        stop_instance(true);
+    shutting_down_.store(false);
+    storage_overlay_.clear();
+    storage_overlay_active_ = true;
+    std::string candidate_error;
+    if (start_instance(candidate, candidate_error))
+    {
+        if (state && hot_reload_.import_json)
+        {
+            if (!hot_reload_.import_json(instance_, state->data(), state->size(),
+                    old_schema.c_str(), old_schema_version))
+            {
+                warning = "Plugin reload state was incompatible; replacement started fresh.";
+            }
+        }
+        std::string storage_error;
+        if (!defer_storage_commit
+            && !commit_storage_overlay(storage_error))
+        {
+            if (!warning.empty())
+                warning += " ";
+            warning += storage_error;
+        }
+        manager_->activate(candidate);
+        if (auto* callbacks = callbacks_.load())
+            callbacks->request_frame();
+        return true;
+    }
+
+    stop_instance(false);
+    storage_overlay_active_ = false;
+    storage_overlay_.clear();
+    shutting_down_.store(false);
+    std::string rollback_error;
+    if (start_instance(old_plugin, rollback_error))
+    {
+        if (state && hot_reload_.import_json)
+        {
+            (void)hot_reload_.import_json(instance_, state->data(), state->size(),
+                old_schema.c_str(), old_schema_version);
+        }
+        error = candidate_error + " Previous generation restored.";
+        if (auto* callbacks = callbacks_.load())
+            callbacks->request_frame();
+        return false;
+    }
+    error = candidate_error + " Rollback also failed: " + rollback_error;
+    plugin_ = old_plugin;
+    return false;
+}
+
+bool PluginHost::commit_storage_overlay(std::string& error)
+{
+    storage_overlay_active_ = false;
+    for (const auto& [name, value] : storage_overlay_)
+    {
+        const std::filesystem::path path = std::filesystem::u8path(name);
+        std::error_code io_error;
+        if (value)
+        {
+            if (!write_json_file(path, *value, io_error))
+            {
+                error = "Plugin reload activated, but a storage write failed: "
+                    + io_error.message();
+                storage_overlay_.clear();
+                return false;
+            }
+        }
+        else
+        {
+            std::filesystem::remove(path, io_error);
+            if (io_error)
+            {
+                error = "Plugin reload activated, but a storage remove failed: "
+                    + io_error.message();
+                storage_overlay_.clear();
+                return false;
+            }
+        }
+    }
+    storage_overlay_.clear();
+    return true;
 }
 
 void PluginHost::attach_imgui_host(IImGuiHost&)
@@ -371,8 +679,8 @@ void PluginHost::accept_render_result(const DraxulPluginRenderResultV2& result)
 
 void PluginHost::request_redraw(void* context)
 {
-    auto* host = static_cast<PluginHost*>(context);
-    if (!host || host->shutting_down_.load())
+    auto* host = callback_host(context);
+    if (!host)
         return;
     host->redraw_pending_.store(true);
     if (auto* callbacks = host->callbacks_.load())
@@ -381,8 +689,8 @@ void PluginHost::request_redraw(void* context)
 
 void PluginHost::request_tick(void* context)
 {
-    auto* host = static_cast<PluginHost*>(context);
-    if (!host || host->shutting_down_.load())
+    auto* host = callback_host(context);
+    if (!host)
         return;
     host->tick_pending_.store(true);
     if (auto* callbacks = host->callbacks_.load())
@@ -391,16 +699,30 @@ void PluginHost::request_tick(void* context)
 
 void PluginHost::notify_presentation_changed(void* context)
 {
-    auto* host = static_cast<PluginHost*>(context);
-    if (!host || host->shutting_down_.load())
+    auto* host = callback_host(context);
+    if (!host)
         return;
     host->presentation_pending_.store(true);
     if (auto* callbacks = host->callbacks_.load())
         callbacks->wake_window();
 }
 
-void PluginHost::log_message(void*, uint32_t level, const char* message, size_t length)
+PluginHost* PluginHost::callback_host(void* context)
 {
+    auto* callback = static_cast<CallbackContext*>(context);
+    if (!callback || !callback->active.load())
+        return nullptr;
+    auto* host = callback->host.load();
+    if (!host || host->active_callback_context_ != callback
+        || host->shutting_down_.load())
+        return nullptr;
+    return host;
+}
+
+void PluginHost::log_message(void* context, uint32_t level, const char* message, size_t length)
+{
+    if (!callback_host(context))
+        return;
     const std::string text(message ? message : "", message ? length : 0);
     const LogLevel mapped = level >= DRAXUL_PLUGIN_LOG_ERROR ? LogLevel::Error
         : level == DRAXUL_PLUGIN_LOG_WARNING                 ? LogLevel::Warn
@@ -460,7 +782,7 @@ int32_t PluginHost::query_service(void* context, const char* service_id,
     size_t service_id_length, uint32_t requested_version,
     void* service_table, size_t service_table_size)
 {
-    auto* host = static_cast<PluginHost*>(context);
+    auto* host = callback_host(context);
     if (!host || !service_id || !service_table)
         return 0;
     const std::string_view id(service_id, service_id_length);
@@ -470,7 +792,7 @@ int32_t PluginHost::query_service(void* context, const char* service_id,
     {
         auto* service = static_cast<DraxulPluginPathServiceV2*>(service_table);
         *service = { sizeof(*service), DRAXUL_PLUGIN_PATH_SERVICE_VERSION,
-            host, &PluginHost::get_service_path };
+            context, &PluginHost::get_service_path };
         return 1;
     }
     if (id == DRAXUL_PLUGIN_STORAGE_SERVICE_ID
@@ -479,7 +801,7 @@ int32_t PluginHost::query_service(void* context, const char* service_id,
     {
         auto* service = static_cast<DraxulPluginStorageServiceV2*>(service_table);
         *service = { sizeof(*service), DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION,
-            host, &PluginHost::read_storage_json,
+            context, &PluginHost::read_storage_json,
             &PluginHost::write_storage_json, &PluginHost::remove_storage };
         return 1;
     }
@@ -489,7 +811,7 @@ int32_t PluginHost::query_service(void* context, const char* service_id,
     {
         auto* service = static_cast<DraxulPluginUiStyleServiceV2*>(service_table);
         *service = { sizeof(*service), DRAXUL_PLUGIN_UI_STYLE_SERVICE_VERSION,
-            host, &PluginHost::get_recommended_font };
+            context, &PluginHost::get_recommended_font };
         return 1;
     }
     return 0;
@@ -499,7 +821,7 @@ int32_t PluginHost::get_recommended_font(void* context, char* path,
     size_t* in_out_size, float* size_pixels, float* display_scale,
     uint64_t* generation)
 {
-    auto* host = static_cast<PluginHost*>(context);
+    auto* host = callback_host(context);
     if (!host || !in_out_size || !size_pixels || !display_scale || !generation
         || std::this_thread::get_id() != host->main_thread_id_)
         return 0;
@@ -525,7 +847,7 @@ int32_t PluginHost::get_recommended_font(void* context, char* path,
 int32_t PluginHost::get_service_path(void* context, uint32_t path_kind,
     char* buffer, size_t* in_out_size)
 {
-    auto* host = static_cast<PluginHost*>(context);
+    auto* host = callback_host(context);
     if (!host || !in_out_size)
         return 0;
     const std::filesystem::path* selected = nullptr;
@@ -576,7 +898,7 @@ int32_t PluginHost::get_service_path(void* context, uint32_t path_kind,
 uint32_t PluginHost::read_storage_json(void* context, uint32_t scope,
     const char* key, size_t key_length, char* buffer, size_t* in_out_size)
 {
-    auto* host = static_cast<PluginHost*>(context);
+    auto* host = callback_host(context);
     if (!host || std::this_thread::get_id() != host->main_thread_id_)
         return DRAXUL_PLUGIN_STORAGE_WRONG_THREAD;
     if (!key || !in_out_size
@@ -585,6 +907,16 @@ uint32_t PluginHost::read_storage_json(void* context, uint32_t scope,
     const auto path = host->storage_path(scope, std::string_view(key, key_length));
     if (path.empty())
         return DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
+    if (host->storage_overlay_active_)
+    {
+        const auto found = host->storage_overlay_.find(path_utf8(path));
+        if (found != host->storage_overlay_.end())
+        {
+            if (!found->second)
+                return DRAXUL_PLUGIN_STORAGE_NOT_FOUND;
+            return copy_storage_value(*found->second, buffer, in_out_size);
+        }
+    }
     std::error_code error;
     const auto file_size = std::filesystem::file_size(path, error);
     if (error)
@@ -608,26 +940,13 @@ uint32_t PluginHost::read_storage_json(void* context, uint32_t scope,
     {
         return DRAXUL_PLUGIN_STORAGE_INVALID_JSON;
     }
-    const size_t required = value.size() + 1;
-    if (!buffer)
-    {
-        *in_out_size = required;
-        return DRAXUL_PLUGIN_STORAGE_OK;
-    }
-    if (*in_out_size < required)
-    {
-        *in_out_size = required;
-        return DRAXUL_PLUGIN_STORAGE_BUFFER_TOO_SMALL;
-    }
-    std::memcpy(buffer, value.c_str(), required);
-    *in_out_size = required;
-    return DRAXUL_PLUGIN_STORAGE_OK;
+    return copy_storage_value(value, buffer, in_out_size);
 }
 
 uint32_t PluginHost::write_storage_json(void* context, uint32_t scope,
     const char* key, size_t key_length, const char* json, size_t json_length)
 {
-    auto* host = static_cast<PluginHost*>(context);
+    auto* host = callback_host(context);
     if (!host || std::this_thread::get_id() != host->main_thread_id_)
         return DRAXUL_PLUGIN_STORAGE_WRONG_THREAD;
     if (!key || !valid_storage_key(std::string_view(key, key_length)))
@@ -647,37 +966,22 @@ uint32_t PluginHost::write_storage_json(void* context, uint32_t scope,
     const auto path = host->storage_path(scope, std::string_view(key, key_length));
     if (path.empty())
         return DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
+    if (host->storage_overlay_active_)
+    {
+        host->storage_overlay_[path_utf8(path)]
+            = std::string(json, json_length);
+        return DRAXUL_PLUGIN_STORAGE_OK;
+    }
     std::error_code error;
-    std::filesystem::create_directories(path.parent_path(), error);
-    if (error)
+    if (!write_json_file(path, std::string_view(json, json_length), error))
         return DRAXUL_PLUGIN_STORAGE_IO_ERROR;
-    static std::atomic<uint64_t> serial{ 0 };
-    const auto temporary = path.parent_path()
-        / (path.filename().string() + ".tmp-"
-            + std::to_string(serial.fetch_add(1)));
-    {
-        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-        output.write(json, static_cast<std::streamsize>(json_length));
-        output.flush();
-        if (!output)
-        {
-            output.close();
-            std::filesystem::remove(temporary, error);
-            return DRAXUL_PLUGIN_STORAGE_IO_ERROR;
-        }
-    }
-    if (!replace_file_atomically(temporary, path, error))
-    {
-        std::filesystem::remove(temporary, error);
-        return DRAXUL_PLUGIN_STORAGE_IO_ERROR;
-    }
     return DRAXUL_PLUGIN_STORAGE_OK;
 }
 
 uint32_t PluginHost::remove_storage(void* context, uint32_t scope,
     const char* key, size_t key_length)
 {
-    auto* host = static_cast<PluginHost*>(context);
+    auto* host = callback_host(context);
     if (!host || std::this_thread::get_id() != host->main_thread_id_)
         return DRAXUL_PLUGIN_STORAGE_WRONG_THREAD;
     if (!key || !valid_storage_key(std::string_view(key, key_length)))
@@ -685,6 +989,11 @@ uint32_t PluginHost::remove_storage(void* context, uint32_t scope,
     const auto path = host->storage_path(scope, std::string_view(key, key_length));
     if (path.empty())
         return DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
+    if (host->storage_overlay_active_)
+    {
+        host->storage_overlay_[path_utf8(path)] = std::nullopt;
+        return DRAXUL_PLUGIN_STORAGE_OK;
+    }
     std::error_code error;
     const bool removed = std::filesystem::remove(path, error);
     if (error)
