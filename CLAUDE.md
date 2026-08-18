@@ -216,6 +216,16 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 
 ## Validation Expectations
 
+- Plan substantial work as a small sequence of defined vertical slices. Each slice
+  should cross the relevant module, protocol, platform, test, documentation, and
+  tracker boundaries needed to deliver one meaningful, independently testable
+  outcome; do not equate a slice with a single file, class, or mechanical edit.
+- Treat the end of a slice as a human review point. Hand off the completed outcome
+  and its validation evidence before beginning the next slice unless the user has
+  explicitly asked for uninterrupted execution. Tell the reviewer briefly what
+  behavior, code boundary, diagnostics, or compatibility path is most useful to
+  inspect so they can make an informed go/no-go decision for the next slice.
+
 - Prefer integration tests, vertical-slice tests, and smoke tests that exercise
   real feature boundaries over narrow unit tests with little incremental value.
   Reserve new unit tests for cases where isolation materially improves coverage,
