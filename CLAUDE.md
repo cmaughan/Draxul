@@ -260,6 +260,12 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
   passes. Run the full render inventory only for shared renderer/harness changes.
 - When blessing render references, use `py do.py blessbasic`, `py do.py blesscmdline`, `py do.py blessunicode`, `py do.py blessnanovg`, or `py do.py blessall` from the repo root instead of calling `draxul.exe --render-test` manually.
 - If you change build wiring, keep both Windows and macOS paths valid in CI.
+- When a change touches a platform that is unavailable in the current environment,
+  use the local build/tests as the interactive handoff gate. Push or dispatch the
+  remote cross-platform CI, leave the platform-specific tracker checkbox pending,
+  and schedule a follow-up (normally about 30 minutes later) to inspect the result.
+  Do not keep the user-facing turn open solely waiting for remote CI unless the user
+  explicitly asked you to monitor it synchronously.
 - Do not run `clang-format` manually in this repo. The pre-commit hook runs `clang-format` automatically on staged files, so if formatting is needed the first commit attempt may fail; re-stage the hook's edits and retry the commit.
 - Work items live in `kanban/` — `kanban/pending/` (active), `kanban/ice-box/` (deferred), `kanban/done/` (complete). See [Work Items](#work-items) below.
 - When you complete a work item or a concrete subtask from `kanban/pending/*.md`, update that markdown file in the same turn and mark the completed entries with Markdown task ticks (`- [x]`). Leave incomplete follow-ups as unchecked items so progress stays visible in the file itself.
