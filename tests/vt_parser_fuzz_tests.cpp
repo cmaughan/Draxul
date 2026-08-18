@@ -1,5 +1,3 @@
-#include "support/test_support.h"
-
 #include <catch2/catch_test_macros.hpp>
 
 #include <draxul/vt_parser.h>
@@ -133,10 +131,8 @@ TEST_CASE("vt parser fuzz: corpus of known-tricky sequences", "[vt_parser][fuzz]
     }
 }
 
-TEST_CASE("vt parser fuzz: 10000 random-pattern inputs", "[vt_parser][fuzz][slow]")
+TEST_CASE("vt parser fuzz: 10000 random-pattern inputs", "[vt_parser][fuzz][.fuzz]")
 {
-    DRAXUL_SKIP_UNLESS_SLOW();
-
     // Simple LCG PRNG seeded with 42 for deterministic output.
     uint64_t state = 42;
     auto lcg_next = [&]() -> uint64_t {

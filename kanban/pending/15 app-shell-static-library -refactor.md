@@ -3,7 +3,8 @@
 **Type:** refactor  
 **Priority:** P1  
 **Raised by:** Claude and Grok  
-**Depends on:** pending `00` and `01`
+**Depends on:** `kanban/pending/00 internal-target-build-policy -refactor.md` and
+`kanban/pending/01 app-local-cmake-ownership -refactor.md`
 
 ## Boundary verification
 
@@ -36,7 +37,8 @@
 ## Agent documentation/tooling
 
 - [ ] Add dependency-contract comments.
-- [ ] Update module map and pending `08` label mapping.
+- [ ] Update the module map and
+      `kanban/pending/08 agent-guidance-label-validation -refactor.md` validation mapping.
 
 ## Acceptance criteria
 

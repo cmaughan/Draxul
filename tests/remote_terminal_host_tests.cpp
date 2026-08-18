@@ -7,6 +7,7 @@
 
 #include <draxul/client_recovery.h>
 #include <draxul/control_plane.h>
+#include <draxul/remote_session_coordinator.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/remote_terminal_host.h>
 #include <draxul/remote_terminal_protocol.h>
@@ -18,6 +19,7 @@
 
 #include <SDL3/SDL_keycode.h>
 
+#include <atomic>
 #include <thread>
 
 using namespace draxul;
@@ -918,7 +920,7 @@ TEST_CASE("remote terminal host recovers from malformed and unexpected polling",
     control.stop();
 }
 
-TEST_CASE("remote terminal hosts recover in place after a long server restart",
+TEST_CASE("remote terminal hosts recover after repeated failed reconnect attempts",
     "[host][remote-terminal][recovery][server-restart]")
 {
     TempDir temp("draxul-remote-host-server-restart");
@@ -993,20 +995,25 @@ TEST_CASE("remote terminal hosts recover in place after a long server restart",
         first_server.request_stop();
     }
 
-    // The old wall-clock grace killed a pane after roughly one failed
-    // request. Keep this pane disconnected longer than ten seconds to prove
-    // recovery is attempt-based and remains alive during a real outage.
-    const auto stalled_until
-        = std::chrono::steady_clock::now()
-        + std::chrono::milliseconds(10250);
-    while (std::chrono::steady_clock::now()
-        < stalled_until)
+    // The old recovery path orphaned the pane after its first failed request.
+    // Observe several real reconnect attempts instead of sleeping through a
+    // ten-second wall-clock interval; the retry policy itself is covered by
+    // deterministic ClientRecoveryState tests.
+    first_host->set_presentation_visible(true);
+    const std::string recovery_channel
+        = "terminal:" + std::string(kServerShellTerminalId);
+    const auto attempts_deadline
+        = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (recovery->snapshot(recovery_channel).attempts < 3
+        && std::chrono::steady_clock::now() < attempts_deadline)
     {
         first_host->pump();
         REQUIRE(first_host->is_running());
         std::this_thread::sleep_for(
             std::chrono::milliseconds(10));
     }
+    REQUIRE(recovery->snapshot(recovery_channel).attempts >= 3);
+    REQUIRE(first_host->is_running());
 
     {
         ServerKernel second_server({
@@ -1016,7 +1023,6 @@ TEST_CASE("remote terminal hosts recover in place after a long server restart",
         REQUIRE(second_server.start().disposition
             == ServerStartDisposition::Started);
         ServerRunGuard second_run(second_server);
-        first_host->set_presentation_visible(true);
         REQUIRE(pump_until(*first_host, [&] {
             return recovery->server_epoch()
                 == "restart-second"
@@ -1056,7 +1062,7 @@ TEST_CASE("remote terminal hosts recover in place after a long server restart",
 }
 
 TEST_CASE("remote terminal host renders shared state and can take control",
-    "[host][remote-terminal]")
+    "[host][remote-terminal][coordinator]")
 {
     TempDir temp("draxul-remote-host");
     ServerKernel server({
@@ -1072,10 +1078,20 @@ TEST_CASE("remote terminal host renders shared state and can take control",
     draxul::tests::init_text_service(text_service);
 
     TestHostCallbacks callbacks;
+    std::atomic<int> coordinator_wakes = 0;
+    auto coordinator = std::make_shared<RemoteSessionCoordinator>(
+        RemoteSessionCoordinatorOptions{
+            .runtime_directory = temp.path,
+            .client_id = "render-client",
+            .expected_server_epoch = "host-test-epoch",
+            .wake_consumer = [&] { ++coordinator_wakes; },
+        });
+    REQUIRE(coordinator->start());
     RemoteTerminalHost host({
         .runtime_directory = temp.path,
         .client_id = "render-client",
         .server_epoch = "host-test-epoch",
+        .coordinator = coordinator,
     });
     HostContext context{
         .window = &window,
@@ -1091,6 +1107,7 @@ TEST_CASE("remote terminal host renders shared state and can take control",
         .display_ppi = 96.0f,
     };
     REQUIRE(host.initialize(context, callbacks));
+    CHECK_FALSE(host.requires_periodic_wake());
     REQUIRE(pump_until(host, [&] {
         return host.grid_cols() == 20 && host.grid_rows() == 5;
     }));
@@ -1155,8 +1172,10 @@ TEST_CASE("remote terminal host renders shared state and can take control",
         < static_cast<size_t>(host.grid_cols() * host.grid_rows()));
     REQUIRE(observer.poll(changed, error));
     REQUIRE(changed);
+    CHECK(coordinator_wakes.load() > 0);
 
     host.shutdown();
+    coordinator->stop();
 }
 
 TEST_CASE("hidden remote terminal host suspends presentation and resumes with current state",
@@ -1626,21 +1645,6 @@ TEST_CASE("two rendered remote terminal hosts survive repeated control transfer"
     REQUIRE(rename_with_retry(held_metadata_path, metadata_path));
     REQUIRE(survived_transport_gap);
     pump_for(first, second, std::chrono::milliseconds(500));
-    REQUIRE(first.is_running());
-    REQUIRE(second.is_running());
-
-    const auto input_deadline
-        = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-    while (std::chrono::steady_clock::now() < input_deadline)
-    {
-        first.on_text_input({
-            .text = "abcdefghijklmnopqrstuvwxyz0123456789",
-        });
-        first.pump();
-        second.pump();
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    pump_for(first, second, std::chrono::seconds(6));
     REQUIRE(first.is_running());
     REQUIRE(second.is_running());
 

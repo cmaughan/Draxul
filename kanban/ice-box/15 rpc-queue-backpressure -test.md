@@ -32,9 +32,8 @@ Verify that the notification queue correctly handles burst traffic, that no noti
 
 ## Interdependencies
 
-- Depends on WI 05 (reader exception safety) being in place — the reader thread must not crash during the burst.
-- WI 07 (callback race) should also be fixed first so the TSan run is clean.
-- This test can be written before the WI 05/07 fixes as a characterisation test to confirm the bugs exist.
+- Reader exception and callback lifetime hardening are already delivered. Exercise the
+  current 512-warning/4096-drop thresholds directly.
 
 ---
 

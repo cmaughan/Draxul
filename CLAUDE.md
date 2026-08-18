@@ -93,14 +93,17 @@ Use the `--log-file` and `--log-level` CLI flags for debug logging. These are re
 - `libs/`: reusable infrastructure libraries; see the complete ownership list in
   [docs/module-map.md](docs/module-map.md#core-libraries).
 - `modules/markdown/` and `modules/kanban/`: product modules built by default.
-- `plugins/megacity/`, `plugins/satview/`, `plugins/scoreview/`: **git
+- `plugins/megacity/`, `plugins/satview/`, `plugins/scoreview/`,
+  `plugins/rezonality/`: **git
   submodules** for the product plugin repositories
   ([draxul-megacity](https://github.com/cmaughan/draxul-megacity),
   [draxul-satview](https://github.com/cmaughan/draxul-satview),
-  [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview)), gated by
+  [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview), and
+  [draxul-rezonality](https://github.com/cmaughan/draxul-rezonality)), gated by
   `DRAXUL_ENABLE_MEGACITY` / `DRAXUL_ENABLE_SATVIEW` /
-  `DRAXUL_ENABLE_SCOREVIEW`. Each product owns its sources, dependencies,
-  shaders, assets, tests, docs, plans, and kanban cards in its own repo.
+  `DRAXUL_ENABLE_SCOREVIEW` / `DRAXUL_ENABLE_REZONALITY`. Each product owns its
+  sources, dependencies, shaders, assets, tests, docs, plans, and kanban cards
+  in its own repo.
 - `plugins/spinning-triangle/`: the in-repo reference plugin and ABI test
   vehicle; `plugins/support/`: generic plugin-support code. Both stay in this
   repository.
@@ -118,7 +121,7 @@ When working under `plugins/megacity/`, also read `plugins/megacity/product/AGEN
   `git submodule update --init`. An uninitialized product submodule is a
   supported state — configure skips it with a STATUS message (CI hard-fails
   instead via `DRAXUL_REQUIRE_ENABLED_PLUGINS`).
-- A change inside `plugins/megacity|satview|scoreview` is a commit in that
+- A change inside `plugins/megacity|satview|scoreview|rezonality` is a commit in that
   product's repository, pushed there, then adopted here with a deliberate
   submodule pointer-bump commit. Never commit a pointer bump as a drive-by in
   an unrelated change; `git submodule update` snaps an unwanted local pointer
@@ -216,6 +219,16 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 
 ## Validation Expectations
 
+- Plan substantial work as a small sequence of defined vertical slices. Each slice
+  should cross the relevant module, protocol, platform, test, documentation, and
+  tracker boundaries needed to deliver one meaningful, independently testable
+  outcome; do not equate a slice with a single file, class, or mechanical edit.
+- Treat the end of a slice as a human review point. Hand off the completed outcome
+  and its validation evidence before beginning the next slice unless the user has
+  explicitly asked for uninterrupted execution. Tell the reviewer briefly what
+  behavior, code boundary, diagnostics, or compatibility path is most useful to
+  inspect so they can make an informed go/no-go decision for the next slice.
+
 - Prefer integration tests, vertical-slice tests, and smoke tests that exercise
   real feature boundaries over narrow unit tests with little incremental value.
   Reserve new unit tests for cases where isolation materially improves coverage,
@@ -233,14 +246,18 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
   `--scoreview` only when that product or a seam it consumes changed. Use
   `--products` when shared plugin SDK/support/renderer changes can affect every
   product, and `--all` only for an explicitly requested complete unit inventory.
-- During implementation, build the narrowest affected target and run focused
-  tests. Do not repeatedly stack overlapping aggregate builds, `do.py test`,
-  broad CTest, smoke, and render suites after each small edit.
-- **Before committing, build the core test aggregate once and run smoke from that same
-  cache:** `py do.py test debug` followed by `py do.py smoke --skip-build` (or
-  `python do.py ...`). This catches broken includes, link errors, unit failures,
-  and basic startup failures without rebuilding through another generator. Add
-  the relevant product scope to the test command when product code changed.
+- During implementation, build the narrowest affected target and use focused test
+  filters only when they shorten an active edit/diagnosis loop. Do not run focused
+  coverage immediately before an aggregate run that will repeat the same cases
+  unless the focused selection is materially faster or guards an unusually risky
+  boundary.
+- **The default completed-slice handoff gate is one scope-appropriate aggregate test
+  run plus one smoke from the same cache:** `py do.py test debug` followed by
+  `py do.py smoke --skip-build` (or `python do.py ...`). This catches broken
+  includes, link errors, unit failures, and basic startup failures without a
+  redundant focused pass or another generator. Add the relevant product scope when
+  product code changed; use `--products`/`--all` only when the affected seam warrants
+  that broader inventory.
 - On Windows, run process-launch tests before starting a long-lived server from
   that build tree where practical. A server intentionally keeps
   `draxul-server.exe` open; after `draxul.exe` is relinked, helper-refresh tests
@@ -260,6 +277,18 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
   passes. Run the full render inventory only for shared renderer/harness changes.
 - When blessing render references, use `py do.py blessbasic`, `py do.py blesscmdline`, `py do.py blessunicode`, `py do.py blessnanovg`, or `py do.py blessall` from the repo root instead of calling `draxul.exe --render-test` manually.
 - If you change build wiring, keep both Windows and macOS paths valid in CI.
+- When a change touches a platform that is unavailable in the current environment,
+  use the local build/tests as the interactive handoff gate. Push or dispatch the
+  remote cross-platform CI, leave the platform-specific tracker checkbox pending,
+  and schedule a follow-up (normally about 30 minutes later) to inspect the result.
+  Do not keep the user-facing turn open solely waiting for remote CI unless the user
+  explicitly asked you to monitor it synchronously.
+- After each completed implementation slice, give the user a brief validation cost
+  summary. Break out configure/generate, compilation, focused tests, aggregate tests,
+  smoke or render checks, and remote CI as applicable; for each, report the number of
+  targets/tests/scenarios, elapsed time, and pass/fail result. Explicitly identify
+  skipped, pending, repeated, or overlapping steps so extra validation work remains
+  visible instead of being folded into a generic "tests passed" statement.
 - Do not run `clang-format` manually in this repo. The pre-commit hook runs `clang-format` automatically on staged files, so if formatting is needed the first commit attempt may fail; re-stage the hook's edits and retry the commit.
 - Work items live in `kanban/` — `kanban/pending/` (active), `kanban/ice-box/` (deferred), `kanban/done/` (complete). See [Work Items](#work-items) below.
 - When you complete a work item or a concrete subtask from `kanban/pending/*.md`, update that markdown file in the same turn and mark the completed entries with Markdown task ticks (`- [x]`). Leave incomplete follow-ups as unchecked items so progress stays visible in the file itself.

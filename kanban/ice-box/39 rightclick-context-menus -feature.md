@@ -54,16 +54,16 @@ Choose an implementation path:
 ### Step 3: Action dispatch
 
 - [ ] Each context menu item should dispatch an existing named action (e.g., `Action::rename_tab`, `Action::close_pane`, `Action::duplicate_pane`, `Action::split_pane_horizontal`).
-- [ ] The `duplicate_pane` action (WI 37) should be included; implement WI 37 first or in the same patch.
+- [ ] Include the delivered `duplicate_pane` action.
 
 ### Step 4: Tab right-click menu
 
-- [ ] Items: Rename tab, Duplicate pane (WI 37), Close tab, Move tab left, Move tab right.
+- [ ] Items: Rename tab, Duplicate pane, Close tab, Move tab left, Move tab right.
 - [ ] "Rename tab" should focus the inline rename input if one exists.
 
 ### Step 5: Pane pill right-click menu
 
-- [ ] Items: Rename pane, Close pane, Zoom pane, Split horizontal, Split vertical, Duplicate pane (WI 37).
+- [ ] Items: Rename pane, Close pane, Zoom pane, Split horizontal, Split vertical, Duplicate pane.
 
 ### Step 6: Status/cwd right-click menu
 
@@ -95,7 +95,8 @@ Choose an implementation path:
 
 ## Dependencies
 
-- [ ] WI 26 (inputdispatcher-routing-consolidation) — right-click routing should go through the consolidated input path; implement after WI 26 to avoid adding more Deps footguns.
-- [ ] WI 125 (overlay-registry-refactor) — context menu is an overlay; cleaner registry avoids hand-wiring.
-- [ ] WI 37 (duplicate-pane) — "Duplicate pane" menu item depends on this action existing.
-- [ ] WI 38 (pane-activity-badges) — visual surface design should be coordinated (both touch tab bar appearance).
+- [x] Route through the delivered consolidated InputDispatcher/GUI action path.
+- [x] Reuse the delivered duplicate-pane action.
+- [ ] Coordinate overlay ownership with
+      `kanban/ice-box/125 overlay-registry-refactor -refactor.md` and Chrome visuals with
+      `kanban/ice-box/38 pane-activity-badges -feature.md`.

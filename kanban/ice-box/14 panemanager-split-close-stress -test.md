@@ -27,7 +27,7 @@ Verify that PaneManager's split-tree remains structurally valid and all pane des
 
 ## Implementation notes
 
-- Use `PaneManager` with `FakeHost` instances (see WI 25 for centralised fixtures).
+- Use `PaneManager` with the current shared fake-host/test-support fixtures.
 - No GPU renderer needed — pass a `NullRenderer` or `FakeRenderer`.
 - This test should be runnable with `ctest -R panemanager-split-close-stress` on both macOS and Windows.
 - Run the stress portion under ASan to catch any use-after-free in the tree mutation paths.
@@ -36,9 +36,8 @@ Verify that PaneManager's split-tree remains structurally valid and all pane des
 
 ## Interdependencies
 
-- WI 25 (centralised test fixtures) provides the `FakeHost` and `NullRenderer` helpers — do WI 25 first or in parallel.
-- WI 16 (host lifecycle state machine) is a companion covering single-host lifecycle; this test covers the multi-host tree.
-- WI 04 (NvimHost RAII rollback) must be in place before this test can reliably exercise host-creation failure paths.
+- Shared fixtures and NvimHost rollback are delivered. Concrete lifecycle gaps are tracked
+  in `kanban/ice-box/16 concrete-host-lifecycle-faults -test.md`.
 
 ---
 

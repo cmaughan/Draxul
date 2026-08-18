@@ -15,7 +15,7 @@
 
 ## Implementation Plan
 
-- [ ] Read `libs/draxul-app-support/src/split_tree.cpp` and its header in full.
+- [ ] Read `app/split_tree.cpp` and `app/split_tree.h` in full.
 - [ ] Read `app/app.cpp` or wherever divider hit-detection and drag handling is implemented (search for `divider`/`drag`).
 - [ ] Design the reorder operation:
   - A pane drag starts when the user clicks and drags a pane's **title bar or header** (not the divider — divider drag already adjusts ratios).
@@ -29,7 +29,7 @@
   - Swap with self → no-op.
   - Swap panes in different subtrees → verify tree is consistent.
 - [ ] Run `cmake --build build --target draxul draxul-tests && py do.py smoke`.
-- [ ] Run `clang-format` on touched files.
+- [ ] Run focused split/Chrome tests, relevant render coverage, and same-cache smoke.
 
 ---
 

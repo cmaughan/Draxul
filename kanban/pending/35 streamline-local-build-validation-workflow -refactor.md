@@ -11,6 +11,30 @@ misuse. A focused implementation should use the smallest relevant build and inte
 tests while iterating, then run one reliable final build, smoke, render, and full-suite
 gate without orphaned compiler processes or interference from a live Draxul server.
 
+## Delivered checkpoint (2026-08-17)
+
+Commit `b88906f0` made Debug/Ninja the normal Windows development cache, added
+core-by-default and product-opt-in `do.py test` scopes with bounded parallel CTest,
+made build mode explicit, added same-cache `smoke --skip-build`, and updated the
+canonical guidance, README, help, and Python tests. The remaining work below is
+process ownership/serialization, exact Catch/CTest selection, live-helper preflight,
+and a single final validation gate.
+
+## Test-integrity checkpoint (2026-08-18)
+
+The normal core aggregate now runs the inexpensive mpack fuzz corpus instead of
+reporting 34 opt-in skips, and the hidden 10,000-input VT fuzz case is explicitly
+excluded rather than counted as skipped coverage. Vacuous literal/`REQUIRE(true)`
+tests were removed, while startup rollback now asserts the real application error.
+
+Five meaningful server/remote-terminal regressions were changed to exercise the
+same production degradation, resync, recovery, takeover, and convergence paths with
+lower injected test budgets or observable retry counts. On the Windows Debug/Ninja
+cache, their combined focused runtime fell from about 70 seconds to 8.5 seconds; the
+core aggregate's slow shard fell from 131.2 seconds to 73.9 seconds. The complete
+nine-job core CTest gate passed in 73.9 seconds, followed by a 5.6-second same-cache
+smoke.
+
 ## Evidence from the hidden-terminal suspension run
 
 The implementation run invoked the build pipeline 11 times:
@@ -42,11 +66,11 @@ loop, and helper-lock failures were avoidable workflow cost.
 
 - [ ] Measure configure, compile, link, focused-test, smoke, render, and full-CTest time
       on the supported Windows and macOS generators.
-- [ ] Define an explicit fast iteration tier and a final validation tier, including
+- [x] Define an explicit fast iteration tier and a final validation tier, including
       which source areas map to which existing CMake targets and CTest labels.
-- [ ] Decide whether the primary interface should extend `do.py`, `t.bat`/`t.sh`, or a
+- [x] Decide whether the primary interface should extend `do.py`, `t.bat`/`t.sh`, or a
       small shared runner used by all three; keep CMake/CTest authoritative.
-- [ ] Make configuration and build type explicit so a Release implementation loop does
+- [x] Make configuration and build type explicit so a Release implementation loop does
       not unexpectedly configure and rebuild the Debug/Ninja tree for smoke.
 - [ ] Specify how a timed-out caller can recover the actual build result instead of
       abandoning still-running MSBuild/Ninja descendants.
@@ -73,7 +97,7 @@ loop, and helper-lock failures were avoidable workflow cost.
       clear selection error and print the correctly escaped command.
 - [ ] Support repeat-with-new-seed for timing/concurrency integration tests without
       repeating configure or unrelated builds.
-- [ ] Reuse the integration-first policy from `CLAUDE.md`: focused vertical tests during
+- [x] Reuse the integration-first policy from `CLAUDE.md`: focused vertical tests during
       iteration, then one final full-suite gate; do not replace useful integration
       coverage with low-value helper unit tests.
 - [ ] Print a compact end-of-run summary containing targets built, tests selected,
@@ -107,15 +131,15 @@ loop, and helper-lock failures were avoidable workflow cost.
 
 ## Documentation
 
-- [ ] Update `CLAUDE.md` build and validation guidance to name the streamlined commands
+- [x] Update `CLAUDE.md` build and validation guidance to name the streamlined commands
       and the fast-versus-final workflow.
-- [ ] Update `do.py --help`, wrapper help, and `docs/features.md` if the delivered runner
+- [x] Update `do.py --help`, wrapper help, and `docs/features.md` if the delivered runner
       becomes a supported developer-facing capability.
 - [ ] Document recovery from an interrupted build and from a live server-helper lock.
 
 ## Acceptance criteria
 
-- [ ] A typical RPC/input feature iteration needs one focused build and one focused
+- [x] A typical RPC/input feature iteration needs one focused build and one focused
       integration-test command per code revision, followed by one final validation
       command.
 - [ ] No supported workflow can accidentally overlap builds in the same output tree.
@@ -127,5 +151,5 @@ loop, and helper-lock failures were avoidable workflow cost.
       run.
 - [ ] Final output clearly distinguishes build failures, product-test failures,
       snapshot failures, and validation-environment failures.
-- [ ] Windows Release build, focused integration tests, smoke, render snapshots, and
+- [x] Windows Release build, focused integration tests, smoke, render snapshots, and
       full CTest pass; macOS command construction and CI coverage remain valid.

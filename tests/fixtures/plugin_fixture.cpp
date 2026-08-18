@@ -25,6 +25,12 @@ struct FixtureInstance
     bool visible = true;
     bool focused = false;
     std::string status = "ready";
+    int reload_value = 0;
+    bool reload_extension = true;
+    bool invalid_reload_export = false;
+    bool oversized_reload_export = false;
+    bool reject_reload_import = false;
+    bool write_storage_on_import = false;
 };
 
 struct CapturedEvent
@@ -35,6 +41,7 @@ struct CapturedEvent
 
 std::vector<CapturedEvent> captured_events;
 FixtureInstance* live_instance = nullptr;
+const DraxulPluginHostApiV2* last_quiesced_host = nullptr;
 size_t tick_count = 0;
 size_t quiesce_count = 0;
 size_t action_dispatch_count = 0;
@@ -47,12 +54,32 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
     instance->host = info->host;
     instance->services
         = std::make_unique<draxul::plugin_support::HostServices>(*info);
+    const std::string_view config(info->config_json ? info->config_json : "",
+        info->config_json ? info->config_json_length : 0);
+    instance->reload_extension
+        = config.find("\"reload_extension\":false") == std::string_view::npos;
+    instance->invalid_reload_export
+        = config.find("\"reload_export\":\"invalid\"") != std::string_view::npos;
+    instance->oversized_reload_export
+        = config.find("\"reload_export\":\"oversized\"") != std::string_view::npos;
+    instance->reject_reload_import
+        = config.find("\"reload_import\":\"reject\"") != std::string_view::npos;
+    instance->write_storage_on_import
+        = config.find("\"reload_import\":\"write-storage\"") != std::string_view::npos;
+#ifdef DRAXUL_FIXTURE_FAIL_CREATE
+    (void)instance->services->write_json(DRAXUL_PLUGIN_STORAGE_PANE,
+        "candidate-create", R"({"written":true})");
+    delete instance;
+    return nullptr;
+#endif
     live_instance = instance;
     return instance;
 }
 
-void quiesce_instance(void*)
+void quiesce_instance(void* opaque)
 {
+    auto* instance = static_cast<FixtureInstance*>(opaque);
+    last_quiesced_host = instance ? instance->host : nullptr;
     ++quiesce_count;
 }
 
@@ -120,6 +147,8 @@ int32_t get_presentation_state(void* opaque,
     instance->status = instance->visible ? "ready" : "hidden";
     if (instance->focused)
         instance->status += " | focused";
+    if (instance->reload_value != 0)
+        instance->status += " | reload=" + std::to_string(instance->reload_value);
     *state = {};
     state->struct_size = sizeof(*state);
     state->display_name = { "Fixture instance", 16 };
@@ -144,6 +173,7 @@ int32_t dispatch_action(void* opaque, const char* action,
         || std::string_view(action, action_length) != "fixture_action")
         return 0;
     ++action_dispatch_count;
+    ++instance->reload_value;
     instance->status = "action dispatched";
     if (instance->host->notify_presentation_changed)
     {
@@ -169,13 +199,101 @@ int32_t action_at(void*, size_t index,
     return 1;
 }
 
-int32_t query_extension(void*, const char* extension_id,
+int32_t query_extension(void* opaque, const char* extension_id,
     size_t extension_id_length, uint32_t requested_version,
     void* extension_table, size_t extension_table_size)
 {
-    if (!extension_id || !extension_table
-        || std::string_view(extension_id, extension_id_length)
-            != DRAXUL_PLUGIN_PRESENTATION_EXTENSION_ID
+    if (!extension_id || !extension_table)
+        return 0;
+    const std::string_view id(extension_id, extension_id_length);
+    if (id == DRAXUL_PLUGIN_HOT_RELOAD_EXTENSION_ID
+        && requested_version == DRAXUL_PLUGIN_HOT_RELOAD_EXTENSION_VERSION
+        && extension_table_size >= sizeof(DraxulPluginHotReloadExtensionV2))
+    {
+        auto* queried_instance = static_cast<FixtureInstance*>(opaque);
+        if (!queried_instance || !queried_instance->reload_extension)
+            return 0;
+        auto export_json = [](void* opaque, char* buffer,
+                               size_t* in_out_size) -> int32_t {
+            auto* instance = static_cast<FixtureInstance*>(opaque);
+            if (!instance || !in_out_size)
+                return 0;
+            if (instance->oversized_reload_export)
+            {
+                *in_out_size = DRAXUL_PLUGIN_MAX_HOT_RELOAD_JSON_BYTES + 2;
+                return 1;
+            }
+            if (instance->invalid_reload_export)
+            {
+                constexpr std::string_view invalid = "not-json";
+                const size_t required = invalid.size() + 1;
+                if (!buffer)
+                {
+                    *in_out_size = required;
+                    return 1;
+                }
+                if (*in_out_size < required)
+                    return 0;
+                std::memcpy(buffer, invalid.data(), invalid.size());
+                buffer[invalid.size()] = '\0';
+                *in_out_size = required;
+                return 1;
+            }
+            const std::string value = "{\"reload_value\":"
+                + std::to_string(instance->reload_value) + "}";
+            const size_t required = value.size() + 1;
+            if (!buffer)
+            {
+                *in_out_size = required;
+                return 1;
+            }
+            if (*in_out_size < required)
+                return 0;
+            std::memcpy(buffer, value.c_str(), required);
+            *in_out_size = required;
+            return 1;
+        };
+        auto import_json = [](void* opaque, const char* json,
+                               size_t length, const char* schema,
+                               uint32_t version) -> int32_t {
+            auto* instance = static_cast<FixtureInstance*>(opaque);
+            if (!instance || !json || !schema || version != 1
+                || std::string_view(schema) != "dev.draxul.fixture.state")
+                return 0;
+            if (instance->reject_reload_import)
+                return 0;
+            const std::string_view value(json, length);
+            constexpr std::string_view prefix = "{\"reload_value\":";
+            if (!value.starts_with(prefix) || !value.ends_with('}'))
+                return 0;
+            try
+            {
+                instance->reload_value = std::stoi(std::string(
+                    value.substr(prefix.size(), value.size() - prefix.size() - 1)));
+                if (instance->write_storage_on_import && instance->services)
+                {
+                    if (instance->services->write_json(
+                            DRAXUL_PLUGIN_STORAGE_PANE, "reload-import",
+                            R"({"written":true})")
+                        != DRAXUL_PLUGIN_STORAGE_OK)
+                        return 0;
+                }
+                return 1;
+            }
+            catch (...)
+            {
+                return 0;
+            }
+        };
+        auto* extension = static_cast<DraxulPluginHotReloadExtensionV2*>(
+            extension_table);
+        *extension = {
+            sizeof(*extension), DRAXUL_PLUGIN_HOT_RELOAD_EXTENSION_VERSION,
+            "dev.draxul.fixture.state", 1, export_json, import_json
+        };
+        return 1;
+    }
+    if (id != DRAXUL_PLUGIN_PRESENTATION_EXTENSION_ID
         || requested_version != DRAXUL_PLUGIN_PRESENTATION_EXTENSION_VERSION
         || extension_table_size < sizeof(DraxulPluginPresentationExtensionV2))
         return 0;
@@ -228,6 +346,7 @@ extern "C" DRAXUL_PLUGIN_EXPORT void draxul_fixture_reset_events()
     tick_count = 0;
     quiesce_count = 0;
     action_dispatch_count = 0;
+    last_quiesced_host = nullptr;
 }
 
 extern "C" DRAXUL_PLUGIN_EXPORT size_t draxul_fixture_event_count()
@@ -250,6 +369,16 @@ extern "C" DRAXUL_PLUGIN_EXPORT void draxul_fixture_request_tick()
 {
     if (live_instance && live_instance->host->request_tick)
         live_instance->host->request_tick(live_instance->host->host_context);
+}
+
+extern "C" DRAXUL_PLUGIN_EXPORT void
+draxul_fixture_request_tick_from_quiesced()
+{
+    if (last_quiesced_host && last_quiesced_host->request_tick)
+    {
+        last_quiesced_host->request_tick(
+            last_quiesced_host->host_context);
+    }
 }
 
 extern "C" DRAXUL_PLUGIN_EXPORT size_t draxul_fixture_tick_count()

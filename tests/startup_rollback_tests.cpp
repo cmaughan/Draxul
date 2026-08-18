@@ -74,38 +74,6 @@ TEST_CASE("startup rollback: AppOptions overrides are applied to AppConfig", "[s
 }
 
 // -------------------------------------------------------------------------
-// Error-string conventions
-// -------------------------------------------------------------------------
-
-TEST_CASE("startup rollback: window-creation failure message is documented", "[startup]")
-{
-    const std::string expected = "Failed to create the application window.";
-    INFO("window failure error string is non-empty");
-    REQUIRE(!expected.empty());
-}
-
-TEST_CASE("startup rollback: renderer init failure message is documented", "[startup]")
-{
-    const std::string expected = "Failed to initialize the renderer.";
-    INFO("renderer failure error string is non-empty");
-    REQUIRE(!expected.empty());
-}
-
-TEST_CASE("startup rollback: font load failure message is documented", "[startup]")
-{
-    const std::string expected_prefix = "Failed to load the configured font";
-    INFO("font failure error string is non-empty");
-    REQUIRE(!expected_prefix.empty());
-}
-
-TEST_CASE("startup rollback: host init failure message is documented", "[startup]")
-{
-    const std::string expected = "Failed to initialize the selected host.";
-    INFO("host failure error string is non-empty");
-    REQUIRE(!expected.empty());
-}
-
-// -------------------------------------------------------------------------
 // Integration-level rollback tests
 // -------------------------------------------------------------------------
 
@@ -120,10 +88,9 @@ TEST_CASE("startup rollback: window creation failure leaves app in clean state [
 
     INFO("initialize() should return false when window creation fails");
     REQUIRE(!ok);
-    INFO("init_error() should be non-empty after window failure");
-    REQUIRE(!app.init_error().empty());
     INFO("init_error describes the window failure");
-    REQUIRE((app.init_error().find("window") != std::string::npos || true));
+    REQUIRE(app.init_error()
+        == "Failed to create the application window.");
     // App destructor / implicit shutdown runs here — must not crash under ASan
 }
 
@@ -190,21 +157,6 @@ TEST_CASE("startup rollback: host init failure destroys all earlier subsystems [
     INFO("init_error() should describe the host failure");
     REQUIRE(!app.init_error().empty());
     // Fake renderer, text_service, and window all rolled back cleanly
-}
-
-TEST_CASE("startup rollback: failed initialize sets non-empty init_error [integration]", "[startup]")
-{
-    AppOptions opts = base_options();
-    // Force the earliest possible failure: window
-    opts.window_factory = []() -> std::unique_ptr<IWindow> { return nullptr; };
-
-    App app(std::move(opts));
-    const bool ok = app.initialize();
-
-    INFO("initialize() returns false on failure");
-    REQUIRE(!ok);
-    INFO("init_error() is non-empty after any initialize() failure");
-    REQUIRE(!app.init_error().empty());
 }
 
 TEST_CASE("startup rollback: double shutdown does not crash [integration]", "[startup]")

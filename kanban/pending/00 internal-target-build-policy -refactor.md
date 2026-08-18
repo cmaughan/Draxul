@@ -14,8 +14,9 @@ MSVC `/FS` with one target-local helper plus a configure-time completeness audit
 
 - [ ] Inventory every project-owned compiled, OBJECT, executable, INTERFACE,
   imported, alias, and third-party target after all optional subdirectories load.
-- [ ] Confirm omissions called out by consensus, including Score support targets,
-  NanoVG, renderer OBJECT targets, and Vulkan resources.
+- [ ] Re-inventory current core/plugin-support targets, including NanoVG, renderer OBJECT
+      targets, Vulkan resources, and test-support leaves; external product-owned targets
+      must be explicitly outside core policy.
 - [ ] Record the existing ASan/TSan/coverage and `/FS` behavior before changing it.
 - [ ] Define explicit skip rules for imported, alias, INTERFACE, and third-party targets.
 
@@ -44,7 +45,8 @@ MSVC `/FS` with one target-local helper plus a configure-time completeness audit
 - [ ] macOS: configure/build `mac-asan`, `mac-tsan`, and coverage presets.
 - [ ] Verify both Metal and Vulkan OBJECT targets are considered without applying link
   options to OBJECT libraries.
-- [ ] Configure with MegaCity, SatView, and ScoreView individually disabled.
+- [ ] Configure with each mounted product disabled or absent and prove external product
+      targets are not accidentally treated as core internals.
 
 ## Agent documentation and tooling
 

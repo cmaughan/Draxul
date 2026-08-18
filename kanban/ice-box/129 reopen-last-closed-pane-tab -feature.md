@@ -19,10 +19,11 @@ When a user accidentally closes a pane or tab there is no way to reopen it. Mode
 1. When a pane is closed (`PaneManager::close_leaf()`), push a `ClosedPaneRecord` onto a bounded stack (max depth: 10):
    ```cpp
    struct ClosedPaneRecord {
-       HostKind kind;           // nvim, shell, megacity, etc.
+       std::string provider_id; // built-in provider or plugin manifest id
+       std::string launch_descriptor; // bounded provider-owned JSON
        std::string cwd;         // OSC 7 last reported CWD
-       std::string tab_name;    // tab name
-       SplitRatio ratio;        // approximate split geometry hint
+       std::string tab_name;
+       SplitRatio ratio;
    };
    ```
 2. GUI action `"reopen_last_pane:"` pops the top record and creates a new pane with those parameters.
@@ -45,7 +46,8 @@ When a user accidentally closes a pane or tab there is no way to reopen it. Mode
   the exited process.
 - CWD only available if the pane reported OSC 7; gracefully fall back to default CWD otherwise
 - Shell host reopens a fresh shell in the last CWD (not a replay of the session)
-- NvimHost reopens nvim in the last CWD
+- Client-owned hosts and plugins reopen only when their provider is still available;
+  unavailable providers produce a clear non-destructive error.
 
 ---
 
@@ -62,5 +64,5 @@ When a user accidentally closes a pane or tab there is no way to reopen it. Mode
 
 ## Interdependencies
 
-- **WI 128** (tab name editing) — store the user-assigned tab name in `ClosedTabRecord`
-- **WI 25** (session restore) — `ClosedPaneRecord` format can be shared
+- Tab naming and server-authoritative session descriptors are already delivered; reuse
+  their canonical values instead of defining a parallel host-kind format.

@@ -1,7 +1,8 @@
 # fork() child: FD close-loop fallback misses high-numbered FDs
 
 **Severity:** MEDIUM  
-**Files:** `libs/draxul-nvim/src/nvim_process.cpp:328–336`, `libs/draxul-host/src/unix_pty_process.cpp:95–98`  
+**Files:** `libs/draxul-nvim/src/nvim_process.cpp`,
+`libs/draxul-terminal-process/src/unix_pty_process.cpp`
 **Source:** review-bugs-consensus BUG-07 (claude)
 
 ## Bug Description
@@ -41,7 +42,8 @@ If `sysconf(_SC_OPEN_MAX)` returns `−1` (valid on some configurations), the fa
   #endif
   ```
   For `nvim_process.cpp`: save `exec_status_pipe[1]` to a known low slot (`dup2` to e.g. fd 3), then call `closefrom(4)`, then restore.
-- [ ] For `unix_pty_process.cpp` (no exec-status pipe): `closefrom(STDERR_FILENO + 1)` with no special handling needed.
+- [ ] For `unix_pty_process.cpp`, preserve its exec-status descriptor while closing the
+      remaining inherited descriptors; verify the exact current launch contract first.
 - [ ] Keep the loop as a fallback for Linux until `close_range()` support is confirmed.
 
 ## Acceptance Criteria

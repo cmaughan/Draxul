@@ -10,7 +10,10 @@ Reorder tabs directly with the pointer instead of invoking move-left/right actio
 
 ## Implementation plan
 
-- [ ] Build on `ChromeLayout` tab rectangles from pending `23 chrome-layout-render-editing -refactor.md` and the existing `App::move_tab()` operation moved into `TabController` (the `ice-box/22 app-tab-session-controllers -refactor.md` refactor, currently deferred).
+- [ ] Build on `ChromeLayout` tab rectangles from
+      `kanban/done/23 chrome-layout-render-editing -refactor.md` and move the existing
+      reorder operation into the partially delivered
+      `kanban/ice-box/22 app-tab-session-controllers -refactor.md` boundary.
 - [ ] Add a tab-drag state machine with press threshold, captured tab ID, insertion index, cancellation, and focus-loss handling.
 - [ ] Render an insertion marker/ghost without mutating order on every mouse move; commit one controller reorder on release.
 - [ ] Keep click-to-activate and inline rename behavior distinct from drag through distance/time thresholds.
@@ -26,6 +29,8 @@ Reorder tabs directly with the pointer instead of invoking move-left/right actio
 
 ## Dependencies and parallelism
 
-Depends on the `TabController` refactor (`ice-box/22 app-tab-session-controllers -refactor.md`, currently deferred to the ice box) and pending `23 chrome-layout-render-editing -refactor.md`. Distinct from ice-boxed pane drag/reorder. Best owned by a Chrome-focused agent after layout geometry is pure/tested.
+Depends on finishing the relevant `TabController` ownership in
+`kanban/ice-box/22 app-tab-session-controllers -refactor.md`; Chrome layout is already
+pure/tested. Distinct from pane drag/reorder.
 
 <model>GPT-5 Codex</model>

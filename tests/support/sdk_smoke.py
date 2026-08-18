@@ -37,6 +37,10 @@ def make_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--generator", required=True)
     parser.add_argument("--platform", default="")
     parser.add_argument("--toolset", default="")
+    parser.add_argument("--c-compiler", default="")
+    parser.add_argument("--cxx-compiler", default="")
+    parser.add_argument("--make-program", default="")
+    parser.add_argument("--toolchain-file", default="")
     parser.add_argument("--render", action="store_true")
     return parser
 
@@ -106,10 +110,24 @@ def configure_external(args: argparse.Namespace, source: pathlib.Path,
         "-G", args.generator,
         f"-DCMAKE_PREFIX_PATH={sdk_prefix}",
     ]
-    if ("Visual Studio" not in args.generator
-            and "Xcode" not in args.generator
-            and "Multi-Config" not in args.generator):
+    single_config = ("Visual Studio" not in args.generator
+                     and "Xcode" not in args.generator
+                     and "Multi-Config" not in args.generator)
+    if single_config:
         configure.append(f"-DCMAKE_BUILD_TYPE={args.config}")
+        inherited_cache_variables = (
+            ("CMAKE_C_COMPILER", args.c_compiler),
+            ("CMAKE_CXX_COMPILER", args.cxx_compiler),
+            ("CMAKE_MAKE_PROGRAM", args.make_program),
+        )
+        configure.extend(
+            f"-D{name}={value}"
+            for name, value in inherited_cache_variables
+            if value
+        )
+    if args.toolchain_file:
+        configure.append(
+            f"-DCMAKE_TOOLCHAIN_FILE={args.toolchain_file}")
     if args.platform:
         configure.extend(["-A", args.platform])
     if args.toolset:

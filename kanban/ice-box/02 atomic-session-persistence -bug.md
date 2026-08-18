@@ -39,6 +39,7 @@ strengthen interrupted/corrupt-file recovery without changing server ownership.
 
 ## Dependencies and parallelism
 
-Blocks `40 crash-recovery-session-journal -feature.md` and contributes to item 48. Can proceed independently of the attach protocol work.
+Blocks `kanban/ice-box/40 crash-recovery-session-journal -feature.md` and contributes
+to `kanban/ice-box/48 portable-profile-bundle -feature.md`.
 
 <model>GPT-5 Codex</model>

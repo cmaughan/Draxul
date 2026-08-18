@@ -27,6 +27,7 @@ Toasts are currently fire-and-forget. Users should be able to dismiss a toast an
 
 ## Dependencies and parallelism
 
-Prefer item 08 first so labels are Unicode-safe; coordinate with item 23 if Chrome/input routing changes concurrently.
+Unicode label helpers and Chrome extraction are delivered; coordinate only with active
+overlay/input changes.
 
 <model>GPT-5 Codex</model>

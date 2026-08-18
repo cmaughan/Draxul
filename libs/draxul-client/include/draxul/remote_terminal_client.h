@@ -6,6 +6,8 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -21,6 +23,7 @@ struct RemoteTerminalClientOptions
     std::string method_prefix = "fake";
     std::string terminal_id;
     std::shared_ptr<ClientRecoveryState> recovery;
+    std::optional<std::chrono::milliseconds> request_timeout;
 };
 
 class RemoteTerminalProjection
@@ -71,6 +74,15 @@ public:
     bool restart(std::string& error, uint64_t request_id = 0);
     bool read_scrollback(uint64_t offset_from_live, size_t max_rows,
         RemoteTerminalScrollbackPage& page, std::string& error);
+
+    // Applies transport-decoded state to the same projection used by the
+    // legacy attach/poll methods. Session-level transports use these narrow
+    // helpers so projection validation and dirty-state behavior stay shared.
+    bool accept_attach(const RemoteTerminalAttach& attach,
+        std::string& error,
+        std::chrono::microseconds latency = {});
+    bool accept_events(std::span<const RemoteTerminalEvent> events,
+        bool& changed, std::string& error);
 
     const RemoteTerminalClientOptions& options() const;
     const RemoteTerminalProjection& projection() const;

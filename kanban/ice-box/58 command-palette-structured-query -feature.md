@@ -27,6 +27,7 @@ Filter large palettes by category and complete typed arguments such as host, tab
 
 ## Dependencies and parallelism
 
-Benefits from pending 12 provider metadata and 29 GUI contracts. It becomes shared infrastructure for 50, 55, and 69; assign one palette owner before parallel features register completions.
+Provider metadata and GUI contracts are delivered. This becomes shared infrastructure
+for layout templates and richer launch/file-drop completion; assign one palette owner.
 
 <model>GPT-5 Codex</model>

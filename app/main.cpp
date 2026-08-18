@@ -1051,33 +1051,35 @@ static int draxul_main(std::vector<std::string> args)
     {
         options.host_kind = draxul::HostKind::RemoteTerminal;
         options.host_kind_explicit = true;
-        draxul::RemoteTerminalHostOptions remote_options{
-            .runtime_directory = connected_server_runtime,
-            .client_id = connected_server_client_id,
-            .session_id = parsed.session_id,
-            .server_epoch = options.server_connection
-                ? options.server_connection->server_epoch
-                : std::string{},
-            .method_prefix = real_remote_terminal
-                ? "terminal"
-                : "fake",
-            .recovery = options.client_recovery,
-            .presentation_suspend_supported
-            = options.server_connection
-                && std::ranges::find(
-                       options.server_connection->capabilities,
-                       "terminal-presentation-suspend-v1")
-                    != options.server_connection->capabilities.end(),
-        };
-        options.host_factory = [remote_options](draxul::HostKind kind) {
-            if (kind == draxul::HostKind::RemoteTerminal)
-            {
-                return std::unique_ptr<draxul::IHost>(
-                    std::make_unique<draxul::RemoteTerminalHost>(
-                        remote_options));
-            }
-            return draxul::create_host(kind);
-        };
+        if (!real_remote_terminal)
+        {
+            draxul::RemoteTerminalHostOptions remote_options{
+                .runtime_directory = connected_server_runtime,
+                .client_id = connected_server_client_id,
+                .session_id = parsed.session_id,
+                .server_epoch = options.server_connection
+                    ? options.server_connection->server_epoch
+                    : std::string{},
+                .method_prefix = "fake",
+                .recovery = options.client_recovery,
+                .presentation_suspend_supported
+                = options.server_connection
+                    && std::ranges::find(
+                           options.server_connection->capabilities,
+                           "terminal-presentation-suspend-v1")
+                        != options.server_connection->capabilities.end(),
+            };
+            options.host_factory = [remote_options](
+                                       draxul::HostKind kind) {
+                if (kind == draxul::HostKind::RemoteTerminal)
+                {
+                    return std::unique_ptr<draxul::IHost>(
+                        std::make_unique<draxul::RemoteTerminalHost>(
+                            remote_options));
+                }
+                return draxul::create_host(kind);
+            };
+        }
     }
     if (!parsed.screenshot_path.empty())
     {

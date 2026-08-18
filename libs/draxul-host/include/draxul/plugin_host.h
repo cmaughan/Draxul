@@ -9,6 +9,8 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 namespace draxul
 {
@@ -45,6 +47,7 @@ public:
     void on_mouse_wheel(const MouseWheelEvent& event) override;
     std::optional<MouseCursor> mouse_cursor_at(int px, int py) const override;
     bool dispatch_action(std::string_view action) override;
+    std::vector<HostAction> palette_actions() const override;
     void request_close() override { running_ = false; }
     std::string display_name() const override;
     std::string status_text() const override;
@@ -56,9 +59,29 @@ public:
     void set_imgui_font(const std::string& path,
         float size_pixels) override;
 
+    std::string_view plugin_id() const noexcept { return plugin_id_; }
+    std::shared_ptr<LoadedPlugin> loaded_plugin() const noexcept { return plugin_; }
+    std::shared_ptr<LoadedPlugin> prepare_reload(std::string& error);
+    void quiesce_for_reload(std::string& warning);
+    bool reload(const std::shared_ptr<LoadedPlugin>& candidate,
+        std::string& warning, std::string& error,
+        bool defer_storage_commit = false);
+    bool finalize_reload_storage(std::string& error)
+    {
+        return commit_storage_overlay(error);
+    }
+
     void accept_render_result(const DraxulPluginRenderResultV2& result);
 
 private:
+    struct CallbackContext
+    {
+        std::atomic<PluginHost*> host{ nullptr };
+        uint64_t generation = 0;
+        std::atomic<bool> active{ false };
+        DraxulPluginHostApiV2 api{};
+    };
+
     struct PresentationSnapshot
     {
         std::string display_name;
@@ -90,6 +113,13 @@ private:
     static uint32_t remove_storage(void* context, uint32_t scope,
         const char* key, size_t key_length);
     DraxulPluginViewportV2 plugin_viewport() const;
+    bool start_instance(const std::shared_ptr<LoadedPlugin>& plugin,
+        std::string& error);
+    void stop_instance(bool wait_for_renderer);
+    std::optional<std::string> export_reload_state(std::string& warning);
+    bool commit_storage_overlay(std::string& error);
+    static PluginHost* callback_host(void* context);
+    void retire_callback_contexts();
     void send_input(DraxulPluginInputEventV2 event);
     void send_focus(bool focused);
     void run_tick(std::chrono::steady_clock::time_point now,
@@ -106,8 +136,8 @@ private:
     std::atomic<IHostCallbacks*> callbacks_{ nullptr };
     void* instance_ = nullptr;
     HostViewport viewport_;
-    DraxulPluginHostApiV2 host_api_{};
     DraxulPluginPresentationExtensionV2 presentation_{};
+    DraxulPluginHotReloadExtensionV2 hot_reload_{};
     std::atomic<bool> redraw_pending_{ false };
     std::atomic<bool> tick_pending_{ false };
     std::atomic<bool> presentation_pending_{ false };
@@ -135,6 +165,15 @@ private:
     float imgui_font_size_pixels_ = 13.0f;
     float display_ppi_ = 96.0f;
     uint64_t ui_style_generation_ = 1;
+    uint64_t callback_generation_ = 0;
+    CallbackContext* active_callback_context_ = nullptr;
+    std::vector<std::unique_ptr<CallbackContext>> callback_contexts_;
+    bool storage_overlay_active_ = false;
+    std::unordered_map<std::string, std::optional<std::string>> storage_overlay_;
+    bool reload_prequiesced_ = false;
+    std::optional<std::string> prepared_reload_state_;
+    std::string prepared_reload_schema_;
+    uint32_t prepared_reload_schema_version_ = 0;
 };
 
 class HostProviderRegistry;

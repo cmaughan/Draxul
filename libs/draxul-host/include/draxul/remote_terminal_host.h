@@ -13,6 +13,7 @@ namespace draxul
 {
 
 class ClientRecoveryState;
+class RemoteSessionCoordinator;
 
 struct RemoteTerminalHostOptions
 {
@@ -23,6 +24,7 @@ struct RemoteTerminalHostOptions
     std::string method_prefix = "fake";
     std::string terminal_id;
     std::shared_ptr<ClientRecoveryState> recovery;
+    std::shared_ptr<RemoteSessionCoordinator> coordinator;
     bool presentation_suspend_supported = false;
 };
 

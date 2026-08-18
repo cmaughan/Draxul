@@ -3,6 +3,7 @@ add_library(draxul-client
     src/client_recovery.cpp
     src/remote_terminal_client.cpp
     src/remote_session_client.cpp
+    src/remote_session_coordinator.cpp
     src/server_client.cpp
     src/server_control_channel.cpp
     src/topology_client.cpp

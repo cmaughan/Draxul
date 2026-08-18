@@ -90,7 +90,7 @@ mixed-version rollout reports the wrong problem.
 ## Dependencies and ownership
 
 Shares `server_client.cpp` and the runtime-metadata schema with
-`kanban/pending/16 posix-server-singleton-race -bug.md`; if both are scheduled, one owner
-should hold the metadata format, since the start-time field added here and the lock file added
-there are the same discovery contract. The concurrent-launch fixtures from `16` are reused for
+`kanban/done/16 posix-server-singleton-race -bug.md`; one owner held the metadata format,
+since the start-time field added here and the lock file added there are the same discovery
+contract. The concurrent-launch fixtures from that card are reused for
 the PID-reuse tests.

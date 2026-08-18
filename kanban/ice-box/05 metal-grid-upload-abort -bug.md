@@ -16,20 +16,21 @@
 - [ ] Keep the old buffer available for retirement but never pair it with new instance counts.
 - [ ] Log a rate-limited error including requested/current sizes and frame slot.
 - [ ] Add an injectable Metal-buffer allocation seam or a narrow `MetalGridHandle` test hook.
-- [ ] Clamp pane scissor width/height with an outer `std::max(0, ...)`, matching Vulkan, so a pane origin beyond the drawable cannot wrap a negative extent into `NSUInteger`.
+- [x] Share and test pane-scissor clamping across Metal/Vulkan (`pane_scissor::clamp`,
+      delivered by `7318f41b`).
 
 ## Tests
 
 - [ ] Force a growth allocation failure and prove no draw is encoded.
 - [ ] Prove the next frame retries and renders after allocation recovers.
 - [ ] Cover map failure and zero-sized state.
-- [ ] Cover negative/off-window pane origins and zero-area intersections for Metal/Vulkan parity.
+- [x] Cover negative/off-window pane origins and zero-area intersections for Metal/Vulkan parity.
 
 ## Acceptance criteria
 
 - [ ] A failed upload cannot submit a draw with stale capacity.
 - [ ] Normal upload and retry behavior is unchanged.
-- [ ] Grid scissor rectangles never exceed the drawable and match the shared viewport contract.
+- [x] Grid scissor rectangles never exceed the drawable and match the shared viewport contract.
 - [ ] Build and run renderer tests/render smoke on macOS; inspect Vulkan parity.
 
 ## Dependencies and parallelism

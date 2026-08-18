@@ -613,16 +613,6 @@ TEST_CASE("terminal: scrolled-off rows accumulate in scrollback", "[terminal]")
     REQUIRE(ts.host.cell_text(0, 2) == std::string("E"));
 }
 
-TEST_CASE("terminal: OSC title sequence parses without crash", "[terminal]")
-{
-    VtTerminalSetup ts;
-    INFO("host must initialize");
-    REQUIRE(ts.ok);
-    ts.host.feed("\x1B]0;My Title\x07");
-    INFO("OSC title sequence parsed without crash");
-    REQUIRE(true);
-}
-
 TEST_CASE("terminal: SGR 0 full reset clears all attributes", "[terminal]")
 {
     VtTerminalSetup ts;

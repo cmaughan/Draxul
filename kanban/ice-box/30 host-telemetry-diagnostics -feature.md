@@ -44,15 +44,15 @@ The F12 overlay already shows: frame timing, dirty cell count, glyph atlas stats
 ## Notes for the agent
 
 - Keep `HostTelemetry` as a simple value struct (no virtuals, no locks) — collect it on the main thread during the frame loop, never from the RPC reader thread.
-- The latency threshold toast can share the `rpc_timeout_s` infrastructure from WI 28.
+- Timeout/latency status can share the result path designed in
+  `kanban/ice-box/28 rpc-timeout-user-feedback -feature.md`.
 
 ---
 
 ## Interdependencies
 
-- WI 28 (rpc timeout user feedback) introduces the toast mechanism for RPC failures; this builds on top.
-- Phase 1 bugs (WI 04-07) should be fixed first — telemetry should not mask underlying crashes.
-- WI 24 (unified result type) is not strictly required but helps if telemetry collection returns errors.
+- Toast delivery and typed results are already available. Coordinate status semantics with
+  `kanban/ice-box/28 rpc-timeout-user-feedback -feature.md`; telemetry must not mask bugs.
 
 ---
 

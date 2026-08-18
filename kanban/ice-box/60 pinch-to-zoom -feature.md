@@ -22,10 +22,11 @@ Use a trackpad pinch gesture to resize the focused pane's content with the same 
 - [ ] Unit-test translation, phase cancellation, accumulation thresholds, direction, min/max clamps, focus change, overlay capture, and scroll coexistence.
 - [ ] Verify one gesture produces equivalent final host/config state to the corresponding keyboard actions.
 - [ ] Manually validate representative macOS and Windows precision touchpads.
-- [ ] No gesture reaches a destroyed dispatcher; pending callback-lifetime item 10 must be complete.
+- [ ] No gesture reaches a destroyed dispatcher; use the existing guarded callback lifetime.
 
 ## Dependencies and parallelism
 
-Depends on pending 10 and the reopened platform-neutral key/event boundary if needed. A window-event agent can implement translation while a host-action agent adds capability routing after the event contract is fixed.
+The callback-lifetime boundary is delivered. A window-event owner can implement
+translation while a host-action owner adds capability routing after the event contract is fixed.
 
 <model>GPT-5 Codex</model>

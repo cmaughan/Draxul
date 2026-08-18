@@ -64,6 +64,7 @@ public:
         std::function<void()> on_toggle_zoom; // zoom/unzoom the focused pane
         std::function<void()> on_close_pane; // close the focused pane
         std::function<void()> on_restart_host; // restart the host in the focused pane
+        std::function<void()> on_reload_plugin; // load a newly published plugin generation
         std::function<void()> on_swap_pane; // swap focused pane with the next one
         std::function<void()> on_focus_left; // move focus to left pane
         std::function<void()> on_focus_right; // move focus to right pane

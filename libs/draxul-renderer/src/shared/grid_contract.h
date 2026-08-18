@@ -15,7 +15,7 @@
 // Kept free of Metal/Vulkan/Objective-C headers so BOTH renderer backends and
 // the plain-C++ unit tests can include it. Do NOT promote to a public
 // include/draxul/ header — the card requires this contract stay backend-private
-// (kanban/pending/19 shader-abi-parity -test.md).
+// (kanban/ice-box/19 shader-abi-parity -test.md).
 
 #include <cstddef>
 #include <cstdint>

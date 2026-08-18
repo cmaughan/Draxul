@@ -125,6 +125,165 @@ std::optional<ServerSessionStatusSnapshot> session_status_from_json(
     return status;
 }
 
+nlohmann::json control_timing_to_json(
+    const ServerControlTimingSnapshot& timing)
+{
+    return {
+        { "samples", timing.samples },
+        { "total_us", timing.total_us },
+        { "max_us", timing.max_us },
+    };
+}
+
+std::optional<ServerControlTimingSnapshot> control_timing_from_json(
+    const nlohmann::json& value)
+{
+    if (!value.is_object())
+        return std::nullopt;
+    ServerControlTimingSnapshot timing;
+    if (!read_bounded_integer(value.at("samples"), timing.samples)
+        || !read_bounded_integer(value.at("total_us"), timing.total_us)
+        || !read_bounded_integer(value.at("max_us"), timing.max_us))
+    {
+        return std::nullopt;
+    }
+    return timing;
+}
+
+nlohmann::json control_metrics_to_json(
+    const ServerControlMetricsSnapshot& metrics)
+{
+    nlohmann::json methods = nlohmann::json::array();
+    for (const auto& method : metrics.methods)
+    {
+        methods.push_back({
+            { "method", method.method },
+            { "requests", method.requests },
+            { "failures", method.failures },
+            { "queue_time", control_timing_to_json(method.queue_time) },
+            { "dispatch_time", control_timing_to_json(method.dispatch_time) },
+            { "response_time", control_timing_to_json(method.response_time) },
+        });
+    }
+    nlohmann::json failures = nlohmann::json::array();
+    for (const auto& failure : metrics.transport_failures)
+    {
+        failures.push_back({
+            { "operation", failure.operation },
+            { "stage", failure.stage },
+            { "native_domain", failure.native_domain },
+            { "classification", failure.classification },
+            { "native_code", failure.native_code },
+            { "count", failure.count },
+        });
+    }
+    return {
+        { "listener_capacity", metrics.listener_capacity },
+        { "accepted_connections", metrics.accepted_connections },
+        { "active_connections", metrics.active_connections },
+        { "peak_connections", metrics.peak_connections },
+        { "requests", metrics.requests },
+        { "failed_requests", metrics.failed_requests },
+        { "invalid_frames", metrics.invalid_frames },
+        { "methods", std::move(methods) },
+        { "transport_failures", std::move(failures) },
+    };
+}
+
+std::optional<ServerControlMetricsSnapshot> control_metrics_from_json(
+    const nlohmann::json& value)
+{
+    if (!value.is_object())
+        return std::nullopt;
+    ServerControlMetricsSnapshot metrics;
+    if (!read_bounded_integer(value.at("listener_capacity"),
+            metrics.listener_capacity)
+        || !read_bounded_integer(value.at("accepted_connections"),
+            metrics.accepted_connections)
+        || !read_bounded_integer(value.at("active_connections"),
+            metrics.active_connections)
+        || !read_bounded_integer(value.at("peak_connections"),
+            metrics.peak_connections)
+        || !read_bounded_integer(value.at("requests"), metrics.requests)
+        || !read_bounded_integer(value.at("failed_requests"),
+            metrics.failed_requests)
+        || !read_bounded_integer(value.at("invalid_frames"),
+            metrics.invalid_frames)
+        || metrics.listener_capacity == 0
+        || metrics.listener_capacity > 64
+        || metrics.active_connections > metrics.listener_capacity
+        || metrics.active_connections > metrics.peak_connections
+        || metrics.peak_connections > metrics.accepted_connections)
+    {
+        return std::nullopt;
+    }
+    const auto methods = value.find("methods");
+    const auto failures = value.find("transport_failures");
+    if (methods == value.end() || !methods->is_array()
+        || methods->size() > 64
+        || failures == value.end() || !failures->is_array()
+        || failures->size() > 64)
+    {
+        return std::nullopt;
+    }
+    for (const auto& item : *methods)
+    {
+        if (!item.is_object())
+            return std::nullopt;
+        ServerControlMethodMetricsSnapshot method;
+        method.method = item.at("method").get<std::string>();
+        const auto queue = control_timing_from_json(item.at("queue_time"));
+        const auto dispatch
+            = control_timing_from_json(item.at("dispatch_time"));
+        const auto response
+            = control_timing_from_json(item.at("response_time"));
+        if (method.method.empty() || method.method.size() > 128
+            || has_control_characters(method.method)
+            || !read_bounded_integer(item.at("requests"), method.requests)
+            || !read_bounded_integer(item.at("failures"), method.failures)
+            || method.failures > method.requests
+            || !queue || !dispatch || !response)
+        {
+            return std::nullopt;
+        }
+        method.queue_time = *queue;
+        method.dispatch_time = *dispatch;
+        method.response_time = *response;
+        metrics.methods.push_back(std::move(method));
+    }
+    for (const auto& item : *failures)
+    {
+        if (!item.is_object())
+            return std::nullopt;
+        ServerControlFailureMetricsSnapshot failure;
+        failure.operation = item.at("operation").get<std::string>();
+        failure.stage = item.at("stage").get<std::string>();
+        failure.native_domain
+            = item.at("native_domain").get<std::string>();
+        failure.classification
+            = item.at("classification").get<std::string>();
+        if (failure.operation.empty() || failure.operation.size() > 64
+            || failure.stage.empty() || failure.stage.size() > 64
+            || failure.native_domain.empty()
+            || failure.native_domain.size() > 32
+            || failure.classification.empty()
+            || failure.classification.size() > 32
+            || has_control_characters(failure.operation)
+            || has_control_characters(failure.stage)
+            || has_control_characters(failure.native_domain)
+            || has_control_characters(failure.classification)
+            || !read_bounded_integer(item.at("native_code"),
+                failure.native_code)
+            || !read_bounded_integer(item.at("count"), failure.count)
+            || failure.count == 0)
+        {
+            return std::nullopt;
+        }
+        metrics.transport_failures.push_back(std::move(failure));
+    }
+    return metrics;
+}
+
 } // namespace
 
 std::string_view to_string(ServerProbeState state)
@@ -308,7 +467,7 @@ nlohmann::json server_status_to_json(const ServerStatusSnapshot& status)
     nlohmann::json session_statuses = nlohmann::json::array();
     for (const auto& session : status.session_statuses)
         session_statuses.push_back(session_status_to_json(session));
-    return {
+    nlohmann::json result = {
         { "state", status.state },
         { "protocol_major", status.protocol_major },
         { "protocol_minor", status.protocol_minor },
@@ -333,6 +492,15 @@ nlohmann::json server_status_to_json(const ServerStatusSnapshot& status)
         { "restore_warnings", status.restore_warnings },
         { "session_statuses", std::move(session_statuses) },
     };
+    // A zero capacity denotes an older/default producer with no transport
+    // diagnostics. Omit the additive field so legacy-shaped snapshots remain
+    // valid and round-trip as unsupported rather than malformed.
+    if (status.control_transport.listener_capacity != 0)
+    {
+        result["control_transport"]
+            = control_metrics_to_json(status.control_transport);
+    }
+    return result;
 }
 
 std::optional<ServerStatusSnapshot> server_status_from_json(
@@ -428,6 +596,17 @@ std::optional<ServerStatusSnapshot> server_status_from_json(
                 status.session_statuses.push_back(
                     std::move(*parsed));
             }
+        }
+        if (const auto control = value.find("control_transport");
+            control != value.end())
+        {
+            const auto parsed = control_metrics_from_json(*control);
+            if (!parsed)
+            {
+                error = "Server control transport metrics are invalid.";
+                return std::nullopt;
+            }
+            status.control_transport = *parsed;
         }
         if (status.state.empty()
             || status.state.size() > kServerMaxStatusStateBytes

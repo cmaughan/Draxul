@@ -70,6 +70,54 @@ struct ServerSessionStatusSnapshot
     bool operator==(const ServerSessionStatusSnapshot&) const = default;
 };
 
+struct ServerControlTimingSnapshot
+{
+    uint64_t samples = 0;
+    uint64_t total_us = 0;
+    uint64_t max_us = 0;
+
+    bool operator==(const ServerControlTimingSnapshot&) const = default;
+};
+
+struct ServerControlMethodMetricsSnapshot
+{
+    std::string method;
+    uint64_t requests = 0;
+    uint64_t failures = 0;
+    ServerControlTimingSnapshot queue_time;
+    ServerControlTimingSnapshot dispatch_time;
+    ServerControlTimingSnapshot response_time;
+
+    bool operator==(const ServerControlMethodMetricsSnapshot&) const = default;
+};
+
+struct ServerControlFailureMetricsSnapshot
+{
+    std::string operation;
+    std::string stage;
+    std::string native_domain;
+    std::string classification;
+    uint32_t native_code = 0;
+    uint64_t count = 0;
+
+    bool operator==(const ServerControlFailureMetricsSnapshot&) const = default;
+};
+
+struct ServerControlMetricsSnapshot
+{
+    uint64_t listener_capacity = 0;
+    uint64_t accepted_connections = 0;
+    uint64_t active_connections = 0;
+    uint64_t peak_connections = 0;
+    uint64_t requests = 0;
+    uint64_t failed_requests = 0;
+    uint64_t invalid_frames = 0;
+    std::vector<ServerControlMethodMetricsSnapshot> methods;
+    std::vector<ServerControlFailureMetricsSnapshot> transport_failures;
+
+    bool operator==(const ServerControlMetricsSnapshot&) const = default;
+};
+
 struct ServerStatusSnapshot
 {
     std::string state;
@@ -92,6 +140,7 @@ struct ServerStatusSnapshot
     std::string checkpoint_error;
     std::vector<std::string> restore_warnings;
     std::vector<ServerSessionStatusSnapshot> session_statuses;
+    ServerControlMetricsSnapshot control_transport;
 
     bool operator==(const ServerStatusSnapshot&) const = default;
 };

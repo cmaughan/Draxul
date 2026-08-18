@@ -6,22 +6,22 @@ the terminal/agentic/host core and each product repo documents its own
 facilities. Full plan, verified coupling inventory, and owner decision points in
 [`plans/product-plugin-submodule-split.md`](../../plans/product-plugin-submodule-split.md).
 Builds on the completed boundary work in
-`kanban/pending/36 external-product-plugin-separation -refactor.md` and
-supersedes the direction of
-`kanban/ice-box/23 core-extra-repo-split -architecture.md`.
+`kanban/done/36 external-product-plugin-separation -refactor.md` and
+supersedes the rejected sibling-overlay direction recorded in
+`kanban/done/23 core-extra-repo-split -refactor.md`.
 
 - [x] Owner decisions: public `draxul-satview`/`draxul-megacity`/
       `draxul-scoreview` repos, fresh-start history with import-SHA
       provenance, product roadmap cards/plans move with their products,
       `plugins/support/imgui` stays in Draxul.
-- [ ] Phase 0: pre-split cleanup — move product test fixtures out of core
+- [x] Phase 0: pre-split cleanup — move product test fixtures out of core
       `tests/support/`, drop `draxul-host`/`draxul-renderer` links from
       megacity/satview test CMake and extend the dependency guard to
       `TEST_TARGETS`, de-hardcode cross-tree fixture paths, add missing
       third-party declares, delete dead `vk_cube_pass`/`megacity_cube`/
       `assets/megacity`/`megacity_screenshot.sh`, fix `do.py` scoreview
       coverage target name, disambiguate ScoreView shadow headers.
-- [ ] Phase 0 gate: card 36's 7E macOS runtime acceptance closed; card 36 to
+- [x] Phase 0 gate: card 36's 7E macOS runtime acceptance closed; card 36 moved to
       done.
 - [x] Phase 1: create and seed `draxul-satview`, `draxul-megacity`,
       `draxul-scoreview` repos with product docs, READMEs, and import-commit

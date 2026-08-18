@@ -36,7 +36,7 @@ RPC and child-process transport while retaining compatibility during migration.
 - [ ] Link fragmentation, backpressure, request/response, crash, partial-init, and process tests to transport.
 - [ ] Add public-header/link-isolation consumers for both targets.
 - [ ] Preserve fake `IRpcChannel` as the standard UI/input seam.
-- [ ] Build `draxul-test-core` and `draxul-rpc-fake`; run the core CTest label.
+- [ ] Build the owning core test aggregate and `draxul-rpc-fake`; run the focused CTest selection.
 
 ## Cross-platform validation
 

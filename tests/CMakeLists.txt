@@ -165,12 +165,14 @@ endif()
 # numbers to the then-current inventory: startup_config_tests.cpp merged into
 # config_lifecycle_tests.cpp (-1 source; its three near-clone TEST_CASEs were
 # kept once, -3 registrations) while terminal_surface_parity_tests.cpp was
-# added (+1 source, +1 registration).
-set(DRAXUL_TEST_SOURCE_BASELINE 206)
-set(DRAXUL_TEST_REGISTRATION_BASELINE 2079)
+# added (+1 source, +1 registration). The ServerKernel responsibility split
+# later replaced one monolithic suite with seven focused sources (+6 sources)
+# while preserving its 66 registrations and tags.
+set(DRAXUL_TEST_SOURCE_BASELINE 213)
+set(DRAXUL_TEST_REGISTRATION_BASELINE 2081)
 # The Workspace -> Tab terminology migration consolidated the old [workspace]
 # tag into the existing [tab] token without removing any test registrations.
-set(DRAXUL_TEST_TAG_TOKEN_BASELINE 309)
+set(DRAXUL_TEST_TAG_TOKEN_BASELINE 310)
 list(LENGTH DRAXUL_SORTED_ALL_TEST_SOURCES DRAXUL_TEST_SOURCE_COUNT)
 # The baseline describes the full inventory with every product mounted. A
 # partial checkout (an uninitialized product submodule, or a product switched
@@ -255,11 +257,13 @@ target_link_libraries(draxul-test-core PRIVATE
     draxul-client
     draxul-protocol
     draxul-server
+    draxul-server-test-internals
     draxul-gui
     draxul-runtime-support
     draxul-render-test
     draxul-host
     draxul-nanovg
+    draxul-control-test-internals
     draxul-renderer-test-internals
     Draxul::PluginSupport::CameraInput
 )
@@ -301,6 +305,13 @@ target_compile_definitions(draxul-plugin-fixture-unsupported PRIVATE
     DRAXUL_FIXTURE_BACKENDS=0)
 set_target_properties(draxul-plugin-fixture-unsupported PROPERTIES PREFIX "")
 
+add_library(draxul-plugin-fixture-fail-create MODULE fixtures/plugin_fixture.cpp)
+target_link_libraries(draxul-plugin-fixture-fail-create PRIVATE
+    Draxul::PluginSDK Draxul::PluginSupport::Runtime)
+target_compile_definitions(draxul-plugin-fixture-fail-create PRIVATE
+    DRAXUL_FIXTURE_FAIL_CREATE)
+set_target_properties(draxul-plugin-fixture-fail-create PROPERTIES PREFIX "")
+
 add_library(draxul-plugin-fixture-no-symbol MODULE
     fixtures/plugin_fixture_no_symbol.cpp)
 set_target_properties(draxul-plugin-fixture-no-symbol PROPERTIES PREFIX "")
@@ -311,6 +322,7 @@ add_dependencies(draxul-test-app
     draxul-plugin-fixture-bad-abi
     draxul-plugin-fixture-wrong-id
     draxul-plugin-fixture-unsupported
+    draxul-plugin-fixture-fail-create
     draxul-plugin-fixture-no-symbol)
 target_compile_definitions(draxul-test-app PRIVATE
     DRAXUL_TRIANGLE_PLUGIN_PATH="$<TARGET_FILE:draxul-spinning-triangle>"
@@ -318,6 +330,7 @@ target_compile_definitions(draxul-test-app PRIVATE
     DRAXUL_FIXTURE_BAD_ABI_PATH="$<TARGET_FILE:draxul-plugin-fixture-bad-abi>"
     DRAXUL_FIXTURE_WRONG_ID_PATH="$<TARGET_FILE:draxul-plugin-fixture-wrong-id>"
     DRAXUL_FIXTURE_UNSUPPORTED_PATH="$<TARGET_FILE:draxul-plugin-fixture-unsupported>"
+    DRAXUL_FIXTURE_FAIL_CREATE_PATH="$<TARGET_FILE:draxul-plugin-fixture-fail-create>"
     DRAXUL_FIXTURE_NO_SYMBOL_PATH="$<TARGET_FILE:draxul-plugin-fixture-no-symbol>"
 )
 draxul_add_test_target(
@@ -349,7 +362,11 @@ set(DRAXUL_EXTERNAL_SDK_SMOKE_COMMAND
     --config $<CONFIG>
     --generator ${CMAKE_GENERATOR}
     --platform=${CMAKE_GENERATOR_PLATFORM}
-    --toolset=${CMAKE_GENERATOR_TOOLSET})
+    --toolset=${CMAKE_GENERATOR_TOOLSET}
+    --c-compiler=${CMAKE_C_COMPILER}
+    --cxx-compiler=${CMAKE_CXX_COMPILER}
+    --make-program=${CMAKE_MAKE_PROGRAM}
+    --toolchain-file=${CMAKE_TOOLCHAIN_FILE})
 option(DRAXUL_ENABLE_EXTERNAL_SDK_RENDER_SMOKE
     "Render the external SDK fixture after build and discovery"
     ${DRAXUL_ENABLE_RENDER_TESTS})
@@ -475,6 +492,10 @@ if(TARGET draxul-test-scoreview AND TARGET draxul-test-scoreview-runtime)
         draxul-test-scoreview
         draxul-test-scoreview-runtime
     )
+endif()
+if(TARGET draxul-test-rezonality)
+    add_custom_target(draxul-tests-rezonality)
+    add_dependencies(draxul-tests-rezonality draxul-test-rezonality)
 endif()
 
 target_compile_definitions(draxul-test-core PRIVATE

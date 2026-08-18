@@ -31,6 +31,7 @@
 
 ## Dependencies and parallelism
 
-Independent bug; item 19 later validates ABI rather than build invalidation.
+Independent bug; `kanban/ice-box/19 shader-abi-parity -test.md` validates ABI rather
+than build invalidation.
 
 <model>GPT-5 Codex</model>

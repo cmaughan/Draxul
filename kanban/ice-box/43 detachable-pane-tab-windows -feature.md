@@ -10,7 +10,9 @@ Allow a pane or full tab to move into a new OS window and later rejoin without r
 
 ## Architecture phases
 
-- [ ] Land platform callback lifetime item 10 and TabController item 22.
+- [x] Reuse the delivered guarded platform callback lifetime.
+- [ ] Finish the required tab ownership in
+      `kanban/ice-box/22 app-tab-session-controllers -refactor.md`.
 - [ ] Introduce `AppWindowContext` owning one `IWindow`, renderer/frame context, overlays, input dispatcher, DPI state, and a set of tabs.
 - [x] Shell process and Session ownership already live above windows in the
   shared server.

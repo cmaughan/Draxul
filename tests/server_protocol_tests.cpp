@@ -2,11 +2,246 @@
 
 #include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_protocol.h>
+#include <draxul/session_protocol.h>
 #include <draxul/topology_protocol.h>
 
 #include <nlohmann/json.hpp>
 
 using namespace draxul;
+
+TEST_CASE("Session stream protocol round-trips open and framed updates",
+    "[server][protocol][session-stream]")
+{
+    SessionPollRequest poll{
+        .request_serial = 9,
+        .server_epoch = "stream-epoch",
+        .topology_after_revision = 4,
+        .agent_after_revision = 5,
+        .terminals = {
+            {
+                .subscription_id = 3,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 2,
+                .visible = true,
+                .cursor = SessionTerminalCursor{
+                    .generation = 7,
+                    .after_sequence = 11,
+                },
+            },
+        },
+    };
+    const SessionStreamOpenRequest open{
+        .server_epoch = "stream-epoch",
+        .session_id = "default",
+        .poll = poll,
+    };
+    std::string error;
+    const auto decoded_open = session_stream_open_request_from_json(
+        session_stream_open_request_to_json(open), error);
+    REQUIRE(decoded_open);
+    CHECK(*decoded_open == open);
+
+    const SessionStreamClientFrame update{
+        .kind = SessionStreamClientFrameKind::Update,
+        .update = SessionStreamUpdate{ .poll = poll },
+    };
+    const auto decoded_update = session_stream_client_frame_from_json(
+        session_stream_client_frame_to_json(update), error);
+    REQUIRE(decoded_update);
+    CHECK(*decoded_update == update);
+
+    SessionPollResponse events{
+        .request_serial = poll.request_serial,
+        .server_epoch = poll.server_epoch,
+    };
+    const SessionStreamServerFrame frame{
+        .kind = SessionStreamServerFrameKind::Events,
+        .frame_serial = 17,
+        .server_epoch = "stream-epoch",
+        .events = events,
+    };
+    const auto decoded_frame = session_stream_server_frame_from_json(
+        session_stream_server_frame_to_json(frame), error);
+    REQUIRE(decoded_frame);
+    CHECK(*decoded_frame == frame);
+}
+
+TEST_CASE("Session stream protocol rejects unsafe negotiated limits",
+    "[server][protocol][session-stream][bounds]")
+{
+    nlohmann::json response{
+        { "server_epoch", "stream-epoch" },
+        { "endpoint", "endpoint" },
+        { "ticket", "ticket" },
+        { "heartbeat_interval_ms",
+            kSessionStreamDefaultHeartbeatIntervalMs },
+        { "max_frame_bytes", kSessionStreamMaxFrameBytes + 1 },
+        { "max_queue_bytes", kSessionStreamDefaultQueueBytes },
+    };
+    std::string error;
+    CHECK_FALSE(session_stream_open_response_from_json(response, error));
+    response["max_frame_bytes"] = kSessionStreamMaxFrameBytes;
+    response["max_queue_bytes"] = kSessionStreamMaxQueueBytes + 1;
+    CHECK_FALSE(session_stream_open_response_from_json(response, error));
+    response["max_queue_bytes"] = kSessionStreamMinQueueBytes - 1;
+    CHECK_FALSE(session_stream_open_response_from_json(response, error));
+    response["max_queue_bytes"] = kSessionStreamDefaultQueueBytes;
+    response["heartbeat_interval_ms"]
+        = kSessionStreamMinHeartbeatIntervalMs - 1;
+    CHECK_FALSE(session_stream_open_response_from_json(response, error));
+}
+
+TEST_CASE("Session stream commands preserve correlation and reject malformed envelopes",
+    "[server][protocol][session-stream][commands]")
+{
+    const SessionStreamClientFrame command{
+        .kind = SessionStreamClientFrameKind::Command,
+        .command = SessionStreamCommand{
+            .request_id = 42,
+            .server_epoch = "stream-epoch",
+            .method = "terminal.input",
+            .params = {
+                { "terminal_id", "terminal-a" },
+                { "request_id", 9001 },
+                { "text", "echo hello" },
+            },
+        },
+    };
+    std::string error;
+    const auto decoded_command = session_stream_client_frame_from_json(
+        session_stream_client_frame_to_json(command), error);
+    INFO(error);
+    REQUIRE(decoded_command);
+    CHECK(*decoded_command == command);
+
+    const SessionStreamServerFrame response{
+        .kind = SessionStreamServerFrameKind::CommandResult,
+        .frame_serial = 7,
+        .server_epoch = "stream-epoch",
+        .command_result = SessionStreamCommandResult{
+            .request_id = 42,
+            .ok = true,
+            .replayed = true,
+            .result = { { "accepted", true } },
+        },
+    };
+    const auto decoded_response = session_stream_server_frame_from_json(
+        session_stream_server_frame_to_json(response), error);
+    INFO(error);
+    REQUIRE(decoded_response);
+    CHECK(*decoded_response == response);
+
+    auto malformed = session_stream_client_frame_to_json(command);
+    malformed["command"]["request_id"] = 0;
+    CHECK_FALSE(session_stream_client_frame_from_json(malformed, error));
+    malformed = session_stream_client_frame_to_json(command);
+    malformed["command"]["params"] = nlohmann::json::array();
+    CHECK_FALSE(session_stream_client_frame_from_json(malformed, error));
+    malformed = session_stream_client_frame_to_json(command);
+    malformed["command"]["method"]
+        = std::string(kSessionStreamMaxMethodBytes + 1, 'x');
+    CHECK_FALSE(session_stream_client_frame_from_json(malformed, error));
+}
+
+TEST_CASE("Session poll protocol preserves subscription and visibility identity",
+    "[server][protocol][session-poll]")
+{
+    SessionPollRequest request{
+        .request_serial = 7,
+        .server_epoch = "epoch-a",
+        .topology_after_revision = 4,
+        .agent_after_revision = 5,
+        .terminals = {
+            {
+                .subscription_id = 11,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 3,
+                .visible = true,
+                .cursor = std::nullopt,
+            },
+            {
+                .subscription_id = 12,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 8,
+                .visible = false,
+                .cursor = SessionTerminalCursor{
+                    .generation = 2,
+                    .after_sequence = 19,
+                },
+            },
+        },
+    };
+    const auto encoded = session_poll_request_to_json(request);
+    REQUIRE(encoded["terminals"][0]["cursor"].is_null());
+    std::string error;
+    const auto decoded = session_poll_request_from_json(encoded, error);
+    INFO(error);
+    REQUIRE(decoded);
+    CHECK(*decoded == request);
+
+    SessionPollResponse response{
+        .request_serial = request.request_serial,
+        .server_epoch = request.server_epoch,
+        .topology = { .revision = 4 },
+        .agents = { .revision = 5 },
+        .terminals = {
+            {
+                .subscription_id = 11,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 3,
+                .suspended = false,
+                .resync = true,
+            },
+            {
+                .subscription_id = 12,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 8,
+                .suspended = true,
+            },
+        },
+    };
+    const auto decoded_response = session_poll_response_from_json(
+        session_poll_response_to_json(response), error);
+    INFO(error);
+    REQUIRE(decoded_response);
+    CHECK(*decoded_response == response);
+}
+
+TEST_CASE("Session poll protocol rejects hostile subscription envelopes",
+    "[server][protocol][session-poll]")
+{
+    SessionPollRequest request{
+        .request_serial = 1,
+        .server_epoch = "epoch-a",
+        .terminals = {
+            {
+                .subscription_id = 1,
+                .terminal_id = "terminal-a",
+                .visibility_generation = 1,
+            },
+            {
+                .subscription_id = 1,
+                .terminal_id = "terminal-b",
+                .visibility_generation = 1,
+            },
+        },
+    };
+    std::string error;
+    CHECK_FALSE(session_poll_request_from_json(
+        session_poll_request_to_json(request), error));
+
+    auto missing_epoch = session_poll_request_to_json(request);
+    missing_epoch["server_epoch"] = "";
+    CHECK_FALSE(session_poll_request_from_json(
+        missing_epoch, error));
+
+    request.terminals.resize(kSessionPollMaxSubscriptions + 1,
+        request.terminals.front());
+    for (size_t index = 0; index < request.terminals.size(); ++index)
+        request.terminals[index].subscription_id = index + 1;
+    CHECK_FALSE(session_poll_request_from_json(
+        session_poll_request_to_json(request), error));
+}
 
 TEST_CASE("server protocol round-trips hello welcome and status", "[server][protocol]")
 {
@@ -77,10 +312,39 @@ TEST_CASE("server protocol round-trips hello welcome and status", "[server][prot
                 .last_checkpoint_unix_ms = 456,
             },
         },
+        .control_transport = {
+            .listener_capacity = 4,
+            .accepted_connections = 8,
+            .active_connections = 1,
+            .peak_connections = 3,
+            .requests = 7,
+            .failed_requests = 1,
+            .invalid_frames = 2,
+            .methods = {
+                {
+                    .method = "session.poll",
+                    .requests = 7,
+                    .failures = 1,
+                    .queue_time = { 7, 70, 20 },
+                    .dispatch_time = { 7, 140, 40 },
+                    .response_time = { 7, 210, 60 },
+                },
+            },
+            .transport_failures = {
+                { "read", "read_prefix", "win32", "io_error", 109, 2 },
+            },
+        },
     };
     const auto decoded_status = server_status_from_json(
         server_status_to_json(status), error);
     REQUIRE(decoded_status == status);
+
+    auto legacy_status = server_status_to_json(status);
+    legacy_status.erase("control_transport");
+    auto expected_legacy_status = status;
+    expected_legacy_status.control_transport = {};
+    REQUIRE(server_status_from_json(legacy_status, error)
+        == expected_legacy_status);
 }
 
 TEST_CASE("server protocol rejects malformed identity and capabilities", "[server][protocol]")
@@ -172,6 +436,30 @@ TEST_CASE("server protocol rejects narrowing overflow and hostile status values"
             { "spaces", 0 },
             { "terminals", 0 },
             { "live_terminals", 0 },
+        });
+    }
+    CHECK_FALSE(server_status_from_json(encoded, error));
+
+    encoded = server_status_to_json(status);
+    encoded["control_transport"]["active_connections"] = 2;
+    encoded["control_transport"]["peak_connections"] = 1;
+    CHECK_FALSE(server_status_from_json(encoded, error));
+
+    encoded = server_status_to_json(status);
+    encoded["control_transport"]["methods"]
+        = nlohmann::json::array();
+    for (size_t index = 0; index < 65; ++index)
+    {
+        encoded["control_transport"]["methods"].push_back({
+            { "method", "method-" + std::to_string(index) },
+            { "requests", 1 },
+            { "failures", 0 },
+            { "queue_time", {
+                  { "samples", 1 }, { "total_us", 1 }, { "max_us", 1 } } },
+            { "dispatch_time", {
+                  { "samples", 1 }, { "total_us", 1 }, { "max_us", 1 } } },
+            { "response_time", {
+                  { "samples", 1 }, { "total_us", 1 }, { "max_us", 1 } } },
         });
     }
     CHECK_FALSE(server_status_from_json(encoded, error));

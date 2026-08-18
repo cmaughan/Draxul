@@ -1,5 +1,12 @@
 # Multiplexed Session Event Stream Plan
 
+**Tracker:** `kanban/pending/40 multiplexed-session-event-stream -feature.md`
+
+**Sequencing:** diagnostics and UI coordination may start alongside
+`kanban/pending/12 control-transport-boundary -refactor.md`; batched polling waits
+for card 12, and the persistent endpoint also waits for
+`kanban/pending/13 server-kernel-private-decomposition -refactor.md`.
+
 ## Goal
 
 Replace per-pane timer polling with one multiplexed Session transport per attached UI.
@@ -180,7 +187,7 @@ first release-worthy fix.
 
 ### Phase 3: Persistent server-to-UI event stream
 
-- Add a dedicated asynchronous Session event endpoint rather than holding a worker in
+- **Delivered.** Add a dedicated asynchronous Session event endpoint rather than holding a worker in
   the existing synchronous control listener pool.
 - Keep one persistent authenticated stream per UI.
 - Push an event batch when terminal output, topology, agents, or heartbeat state
@@ -189,25 +196,52 @@ first release-worthy fix.
   logic.
 - Retain `session.poll` as fallback for older servers or failed stream negotiation.
 
+The delivered `session-stream-v1` handshake uses the short control endpoint only to
+open an epoch-qualified stream and issue a one-use authenticated ticket. Registration
+and cursor Updates plus Events/Heartbeat/Error frames use the persistent framed local
+connection. The server derives the Phase 2 scheduler payload budget from the
+negotiated writer queue, so one initial multi-pane snapshot cannot overflow its own
+stream. Commands remain on short control methods until Phase 4.
+
 ### Phase 4: Bidirectional multiplexing
 
-- Carry commands over the persistent connection with request IDs and correlated
-  responses.
-- Prioritize input, resize, topology commands, acknowledgements, and heartbeats over
-  bulk presentation output.
+- **Delivered.** Carry attached-UI terminal, topology, and selected agent commands
+  over the persistent connection with outer correlation IDs while retaining the
+  existing method-specific idempotency IDs.
+- Prioritize command responses and heartbeats ahead of bulk presentation output,
+  reserve bounded control capacity, and retain the Phase 2 terminal scheduler's fair
+  rotation.
+- Replay an identical completed command after reconnect without redispatching it, and
+  reject reuse of an outer ID with different method parameters.
 - Retain the short-lived control endpoint for bootstrap, status, diagnostics, CLI
-  access, and compatibility rather than normal attached-UI traffic.
-- Remove legacy per-pane UI polling only after cross-version fallback and recovery are
-  proven.
+  access, transport fallback, and compatibility rather than normal attached-UI
+  traffic.
+
+The negotiated `session-stream-commands-v1` extension adds command and correlated
+command-result frames to the Phase 3 connection. The server reader only admits
+bounded commands; the state thread authenticates and dispatches an allowlisted command
+through the existing Session handlers; and the writer assigns frame serials after
+selecting the priority queue so control traffic can overtake queued presentation
+without breaking wire ordering. A bounded per-client/Session completion cache makes a
+lost response replayable across stream replacement. Clients without the extension
+retain Phase 3 events plus short control mutations, while a stream failure requeues
+terminal/topology work onto the existing `session.poll` fallback.
 
 ### Phase 5: Interruption UX
 
-- Do not toast on the first retryable transport failure.
-- Keep the last valid projections visible while reconnecting.
-- Show a Session-disconnected warning only after a sustained outage, tentatively two
-  to three seconds.
-- Clear the warning after recovery without emitting repeated success toasts.
-- Expose short interruptions, reconnect count, and resync reasons in diagnostics.
+- **Delivered.** Do not toast on the first retryable transport failure and keep the
+  last valid projections visible while reconnecting.
+- Treat the attached UI as one Session outage rather than surfacing independent
+  topology and agent errors. Show one background-reconnect warning after two seconds.
+- Clear the warning state after recovery without emitting a success toast.
+- Expose the active Stream → `session.poll` → legacy path, outage state, reconnect,
+  fallback, and resynchronization reasons as bounded diagnostics. Show the existing
+  short-control request and native-stage failure counters beside them.
+
+The delivered recovery snapshot separates current outage state from bounded cumulative
+reason metrics. This lets the UI suppress transient noise without hiding failures from
+diagnostics. A healthy `session.poll` fallback immediately clears the aggregate outage;
+legacy polling is considered only when the server cannot provide batched Session poll.
 
 ## Validation
 

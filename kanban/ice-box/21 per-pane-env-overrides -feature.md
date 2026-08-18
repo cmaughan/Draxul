@@ -15,7 +15,7 @@ There is currently no way to inject environment variables (e.g., `TERM`, `COLORT
 
 ## Implementation Plan
 
-- [ ] Read `app/app_config.h` to understand the current per-host or global config sections.
+- [ ] Read `libs/draxul-config/include/draxul/app_config_types.h` and provider launch descriptors.
 - [ ] Read `draxul-terminal-process` and the server launch-descriptor handling to
       understand how environment is applied to server-owned child processes.
 - [ ] Add a `[hosts.shell]` (or `[hosts.nvim]`) config table with an `env` sub-table:

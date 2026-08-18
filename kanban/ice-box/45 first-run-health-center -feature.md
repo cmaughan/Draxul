@@ -11,12 +11,15 @@ Provide actionable checks for Neovim, renderer/shaders, fonts, shells, config/se
 ## Implementation plan
 
 - [ ] Define pure health-check results with id, severity, summary, details, remediation action, duration, and cacheability.
-- [ ] Add checks for config parse, writable app-data paths, bundled/selected fonts, Neovim/shell discovery, renderer/shader assets, optional module assets, and item 00 transport/caches.
+- [ ] Add core checks for config parse, writable app-data paths, bundled/selected fonts,
+      Neovim/shell discovery, renderer/shader assets, and core transport/caches.
+- [ ] Define a generic plugin health/status capability so optional products report their
+      own assets, data sources, and remediation without core inspecting product paths.
 - [ ] Run cheap checks synchronously and expensive/network/GPU checks asynchronously with cancellation and timeouts.
 - [ ] Present results in an ImGui/native diagnostics surface available on first run, safe mode, and a palette action.
 - [ ] Provide safe actions such as Open Config, Open Log Folder, Retry, Copy Details, and Clear Cache; no arbitrary shell commands.
 - [ ] Store only check timestamps/results, not sensitive environment contents.
-- [ ] Integrate safe-mode explanation from item 41 when available.
+- [ ] Integrate `kanban/ice-box/41 safe-mode-startup -feature.md` explanation when available.
 
 ## Tests and acceptance
 
@@ -27,6 +30,8 @@ Provide actionable checks for Neovim, renderer/shaders, fonts, shells, config/se
 
 ## Dependencies and parallelism
 
-Depends on stable config/network contracts (00, 07/21) and complements item 41. Checks can be delegated by subsystem after the result API lands.
+The config, result, and HTTP contracts are available. Coordinates with
+`kanban/ice-box/41 safe-mode-startup -feature.md` and
+`kanban/ice-box/49 network-privacy-controls -feature.md`.
 
 <model>GPT-5 Codex</model>

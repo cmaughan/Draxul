@@ -15,7 +15,7 @@ Add a `--generate-config` CLI flag that writes a fully-annotated `config.toml` w
 
 ## Implementation Plan
 
-- [ ] Read `app/main.cpp` CLI parsing. Read `libs/draxul-app-support/src/app_config_io.cpp` to understand the current save/load format.
+- [ ] Read `app/main.cpp`, `app/cli_args.cpp`, and `libs/draxul-config/src/app_config_io.cpp`.
 - [ ] Create `AppConfig::write_annotated_toml(std::ostream&)` (or equivalent) that writes every field with:
   - A comment line explaining the field.
   - The default value (in TOML syntax).
@@ -29,7 +29,7 @@ Add a `--generate-config` CLI flag that writes a fully-annotated `config.toml` w
 - [ ] Add a test that calls `write_annotated_toml`, parses the output with `AppConfig::load()`, and asserts all fields equal their defaults.
 - [ ] Update `CLAUDE.md` to document the flag.
 - [ ] Run `cmake --build build --target draxul draxul-tests && py do.py smoke`.
-- [ ] Run `clang-format` on touched files.
+- [ ] Run focused CLI/config tests and same-cache smoke.
 
 ---
 

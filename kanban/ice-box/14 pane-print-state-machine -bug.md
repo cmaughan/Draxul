@@ -36,6 +36,8 @@
 
 ## Dependencies and parallelism
 
-Coordinate with pending 22 (`App` controllers) and 31 (runtime-support ownership), but this reliability fix should not wait for a full App split. It establishes the capture seam used by feature 56 (PNG export). One integration owner should control `app.cpp`; platform adapters can be separate tasks after the contract lands.
+Coordinate with `kanban/ice-box/22 app-tab-session-controllers -refactor.md`, but this
+reliability fix should not wait for a full App split. It establishes the capture seam used
+by `kanban/ice-box/56 export-pane-png -feature.md`.
 
 <model>GPT-5 Codex</model>

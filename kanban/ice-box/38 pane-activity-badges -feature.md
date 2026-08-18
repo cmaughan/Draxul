@@ -12,7 +12,7 @@
 Show a small visual badge on the tab and/or pane pill for panes that have background activity, specifically:
 
 1. **Bell**: a shell `\a` (BEL) signal was received while the pane was not focused.
-2. **Non-zero exit**: the last foreground command exited with a non-zero code (requires OSC 133 integration — see WI 24).
+2. **Non-zero exit**: the last foreground command exited with a non-zero code (OSC 133 parsing is delivered; see `kanban/ice-box/24 osc133-shell-integration -feature.md`).
 3. **Long-running**: a command has been running for longer than a configurable threshold (e.g., 30 seconds).
 
 The badge should clear when the user focuses the pane. The intent is to allow users with many split panes to see at a glance which panes need attention without switching to each one.
@@ -25,7 +25,7 @@ The badge should clear when the user focuses the pane. The intent is to allow us
 - [ ] Read `libs/draxul-host/include/draxul/host.h` — check if `IHost` has a notification/activity API or if one needs to be added.
 - [ ] Read `draxul-terminal-core` and the server terminal projection to find
       where BEL and shell marks become semantic state.
-- [ ] Check if OSC 133 (WI 24) is implemented; if not, the non-zero-exit badge should be marked as dependent on WI 24.
+- [x] Reuse the delivered OSC 133 mark/exit-code model.
 - [ ] Review `AppConfig` for any existing notification-related fields.
 
 ---
@@ -71,7 +71,7 @@ The badge should clear when the user focuses the pane. The intent is to allow us
   [notifications]
   running_badge_threshold_s = 30.0   # seconds before "running" badge appears
   show_bell_badge = true
-  show_exit_badge = true             # requires OSC 133 / WI 24
+  show_exit_badge = true             # uses delivered OSC 133 marks
   show_running_badge = true
   ```
 - [ ] Document in `docs/features.md`.
@@ -96,6 +96,6 @@ The badge should clear when the user focuses the pane. The intent is to allow us
 
 ## Dependencies
 
-- [ ] WI 24 (osc133-shell-integration) — `exit_err` badge requires OSC 133. Implement without it first; add `exit_err` badge as a follow-up when WI 24 lands.
-- [ ] WI 125 (overlay-registry-refactor) — badge rendering touches `ChromeHost` draw path; cleaner seam reduces merge risk.
-- [ ] Coordinate design with WI 39 (right-click menus) since both modify the tab/pill visual surface.
+- [x] OSC 133 parsing/transport prerequisite is delivered.
+- [ ] Coordinate with `kanban/ice-box/125 overlay-registry-refactor -refactor.md` and
+      `kanban/ice-box/39 rightclick-context-menus -feature.md` because all touch Chrome.

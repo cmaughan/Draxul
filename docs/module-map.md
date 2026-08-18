@@ -115,13 +115,13 @@ does not rebuild or extend the universal value-type archive.
 | `libs/draxul-performance/` | Runtime timing collection and the `PERF_MEASURE` instrumentation API |
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
-| `libs/draxul-plugin/` | Manifest discovery, platform dynamic loading, ABI/identity validation, and process-lifetime module cache; consumes the public SDK but does not own it |
+| `libs/draxul-plugin/` | Refreshable manifest discovery, immutable generation shadow staging, platform dynamic loading, ABI/identity validation, and active/retired module residency; consumes the public SDK but does not own it |
 | `libs/draxul-agent/` | Neutral agent identity/profile/runtime values plus bundled, versioned terminal-status and process-discovery evaluators |
 | `libs/draxul-session-model/` | Renderer-free durable Session/Space/tab/pane snapshot values, validation, versioned TOML codec, and transactional file replacement shared by the app and server |
-| `libs/draxul-control/` | Versioned, authenticated local Session control transport and client (Windows named pipe; Unix-domain socket elsewhere) |
-| `libs/draxul-protocol/` | Renderer- and transport-neutral server hello/status, versioned topology and sanitized agent-projection values, plus terminal pane, snapshot, delta, controller, clipboard, paged-scrollback, and diagnostic values; also the single topology→session layout conversion (`topology_tab_to_layout` in `topology_layout.h`, agent identity preserved), the shared topology traversal (`find_space`/`find_tab`/`find_pane`/`find_node`), `topology_id_serial`, and the split-ratio bounds constants used by both the server (reject) and app (clamp) sides |
-| `libs/draxul-client/` | Singleton discovery/launch/status/shutdown plus renderer-free remote-terminal and sanitized-agent polling, acknowledged/coalesced Session delivery, and `TopologyProjection`, which owns remote/local Space-tab-pane identities, stable leaf/split projection, structural signatures, divider-node mapping, and topology command activation bookkeeping behind the app's thin controller/PaneManager adapters; also owns the scrollback-page client, attach-latency metric, headless probe API, `ServerControlChannel` (the one control-plane envelope + transient-error/epoch-refresh retry policy), and the `RevisionPolledClient` base shared by `AgentClient`/`TopologyClient` |
-| `libs/draxul-server/` | Headless server kernel, authoritative revisioned/idempotent topology service, Session-scoped agent discovery, sanitized status projection, profile-resolved managed-agent launch/restore, headless agent inspection/input/restart control, and epoch/runtime-pinned native-session reporting, server-owned periodic/graceful v4 Session checkpoint and cold restore, deterministic fake terminal plus a stable-ID registry of lazy real server-owned shell runtimes, semantic scrollback, per-terminal controller leases, sanitized transport metrics, bounded per-client terminal event queues, and serialized control event loop; deliberately has no window, renderer, host, or product dependency |
+| `libs/draxul-control/` | Versioned, authenticated local Session control transport and client, plus the cancellable framed local-stream primitive used by persistent Session delivery. Its public facade owns request dispatch, compatibility error mapping, and bounded diagnostic snapshots; private common sources own framing, absolute deadlines, metadata caching, and typed stage/native failures, while CMake selects exactly one current-user-only backend (Windows named pipes or POSIX Unix-domain sockets). Diagnostics retain attempts, listener occupancy, bounded method/failure buckets, and queue/dispatch/response timing without exposing backend handles or native error types; white-box access is limited to the test-only `draxul-control-test-internals` target. |
+| `libs/draxul-protocol/` | Renderer- and transport-neutral server hello/status, versioned topology and sanitized agent-projection values, terminal pane/snapshot/delta/controller/clipboard/scrollback values, the bounded `session.poll` request/response contract, and the `session-stream-v1` open/update/event/heartbeat envelopes and negotiated budgets; also the single topology→session layout conversion (`topology_tab_to_layout` in `topology_layout.h`, agent identity preserved), the shared topology traversal (`find_space`/`find_tab`/`find_pane`/`find_node`), `topology_id_serial`, and the split-ratio bounds constants used by both the server (reject) and app (clamp) sides |
+| `libs/draxul-client/` | Singleton discovery/launch/status/shutdown plus renderer-free remote-terminal and sanitized-agent delivery, and `TopologyProjection`, which owns remote/local Space-tab-pane identities, stable leaf/split projection, structural signatures, divider-node mapping, and topology command activation bookkeeping behind the app's thin controller/PaneManager adapters. `RemoteSessionCoordinator` owns terminal registrations, commands, recovery, visibility generations, projection mailboxes, and coalesced UI wakes; it prefers one `session-stream-v1` connection, falls back to one recurring `session.poll` worker, and uses the Phase-1 per-channel workers only for older servers. Stream/poll batches externally feed topology and agents while one coordinator thread owns terminal cursors and projections. The library also owns the scrollback-page client, attach-latency metric, headless probe API, `ServerControlChannel` (the one control-plane envelope + transient-error/epoch-refresh retry policy), and the `RevisionPolledClient` base shared by `AgentClient`/`TopologyClient` |
+| `libs/draxul-server/` | Headless server kernel, authoritative revisioned/idempotent topology service, Session-scoped agent discovery, sanitized status projection, profile-resolved managed-agent launch/restore, headless agent inspection/input/restart control, and epoch/runtime-pinned native-session reporting, server-owned periodic/graceful v4 Session checkpoint and cold restore, deterministic fake terminal plus a stable-ID registry of lazy real server-owned shell runtimes, semantic scrollback, per-terminal controller leases, sanitized transport metrics, bounded per-client terminal event queues, a bounded fair per-Session batch scheduler, and one kernel-wide asynchronous Session-stream listener with authenticated tickets, heartbeats, bounded per-UI writers, and off-state-thread connection reaping. `server_kernel.h` is the stable public façade; the grouped state/method inventory and state-thread, mutex, task, lease, generation, cache, and shutdown invariants live in private `src/server_kernel_impl.h`. Façade, client-lease, lifecycle/state-loop, and authenticated request-routing definitions are isolated in responsibility TUs without changing runtime ownership. `ServerAgentService` and other white-box collaborators remain private under `src/`; tests opt into them through `draxul-server-test-internals`. The target deliberately has no window, renderer, host, or product dependency. |
 | `libs/draxul-terminal-core/` | Renderer-, window-, and process-free VT state machine, semantic full/dirty/cell snapshots (including the shared `full_grid_update` snapshot→dirty expansion), terminal identity/limits, alternate-screen state, attributes, and reusable scrollback storage |
 | `libs/draxul-terminal-process/` | UI-free PTY/ConPTY process adapters owned by server terminal runtimes |
 
@@ -180,16 +180,15 @@ Good place for:
 Public renderer API plus Vulkan/Metal backends.
 
 Owns:
-- renderer implementation hierarchy (`IBaseRenderer` → `I3DRenderer` → `IGridRenderer`)
+- renderer implementation hierarchy (`IBaseRenderer` → `IGridRenderer`)
 - shared renderer CPU-side state
 - GPU upload/submission code
 - frame capture for render snapshots
 
 Renderer hierarchy:
 ```
-IBaseRenderer           ← swapchain, device, begin_frame, end_frame, resize
-└── I3DRenderer         ← render pass registration (register_render_pass / unregister_render_pass)
-    └── IGridRenderer   ← grid cells, atlas, cursor, overlay, font metrics
+IBaseRenderer           ← swapchain, device, frame lifecycle, resize, typed render passes
+└── IGridRenderer       ← grid cells, atlas, cursor, overlay, font metrics
 ```
 
 Good place for:
@@ -271,15 +270,17 @@ Good place for:
 | `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Submodule → [draxul-megacity](https://github.com/cmaughan/draxul-megacity). Self-contained MegaCity/BioView product: code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic module |
 | `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Submodule → [draxul-satview](https://github.com/cmaughan/draxul-satview). Self-contained satellite product: core, scene, services, runtime, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |
 | `plugins/scoreview/` | `DRAXUL_ENABLE_SCOREVIEW` | Submodule → [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview). Self-contained notation, learning, transport, worker, MIDI/audio/microphone, UI, NanoVG Vulkan/Metal rendering, assets, tests, and dynamic module |
+| `plugins/rezonality/` | `DRAXUL_ENABLE_REZONALITY` | Submodule → [draxul-rezonality](https://github.com/cmaughan/draxul-rezonality). Fault-tolerant live scene/shader product ported from VkLive; owns its watched project loader, compiler tools, SPIR-V candidates, Vulkan/Metal pipelines, examples, diagnostics, tests, and remaining product slices |
 
-All three optional product directories own their third-party dependency
+All optional product directories own their third-party dependency
 declarations, sanitizer/coverage target lists, shader compilation, package
 payload, test source inventory, and focused CTest wiring. The root build contains
 only their feature switches and mount-point `add_subdirectory` calls. SatView's
 catalog and texture generators likewise live under `plugins/satview/tools/`, so
 the product can become a submodule without leaving maintenance scripts in core.
 Each mount point is a cache path (`DRAXUL_MEGACITY_PLUGIN_DIR`,
-`DRAXUL_SATVIEW_PLUGIN_DIR`, or `DRAXUL_SCOREVIEW_PLUGIN_DIR`). An enabled but
+`DRAXUL_SATVIEW_PLUGIN_DIR`, `DRAXUL_SCOREVIEW_PLUGIN_DIR`, or
+`DRAXUL_REZONALITY_PLUGIN_DIR`). An enabled but
 absent checkout is reported and skipped, making no-product and partial-submodule
 trees supported configurations rather than configure errors.
 Their registrations use strict dependency checking: SatView and MegaCity/BioView
@@ -290,7 +291,7 @@ naming. None of the product targets links `draxul-host`, the renderer
 implementation, app orchestration, or another product.
 
 Markdown and Kanban are linked directly into `draxul`. MegaCity/BioView, SatView,
-and ScoreView are staged and loaded only as native modules. Core has no product
+ScoreView, and Rezonality are staged and loaded only as native modules. Core has no product
 host kinds, provider factories, renderer bridge, or compiled-in fallback.
 
 ## Generated Views

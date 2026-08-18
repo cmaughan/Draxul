@@ -36,7 +36,7 @@ A narrower variant: if A binds between B's `access()` and B's `bind()`, B fails 
 `endpoint_in_use`, so `ServerKernel::start` returns `Failed` rather than `AlreadyRunning` — a
 misreported but benign outcome.
 
-`kanban/pending/09 multi-instance-session-endpoint-collisions -bug.md` fixed the case where a
+`kanban/done/09 multi-instance-session-endpoint-collisions -bug.md` fixed the case where a
 *client* unconditionally unlinks a live server's socket. This is the different case of two
 *launchers* racing on a stale one, which the probe-then-unlink design cannot resolve.
 
@@ -77,7 +77,6 @@ misreported but benign outcome.
 
 ## Dependencies and ownership
 
-Extends `kanban/pending/09 multi-instance-session-endpoint-collisions -bug.md`; one owner
-should hold both, since the stale-endpoint policy must stay consistent. Independent of the
-other P0 cards. The concurrent-launch test fixtures added here are also what
-`kanban/pending/18 server-discovery-recovery-wedges -bug.md` needs.
+Extends `kanban/done/09 multi-instance-session-endpoint-collisions -bug.md`; the
+stale-endpoint policy was kept consistent. The concurrent-launch test fixtures added here
+were also reused by `kanban/done/18 server-discovery-recovery-wedges -bug.md`.

@@ -19,6 +19,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | BioView | `--plugin dev.draxul.megacity` with `{"mode":"biology"}` | Biology mode of the same dynamic plugin: modules become tissues, classes become cells, and dependencies become blood vessels; semantic model, procedural geometry, UI, assets, and Vulkan/Metal renderer are plugin-owned |
 | ScoreView | `--plugin dev.draxul.scoreview` at launch or on pane/tab commands | Dynamically loaded music score viewer + adaptive learning runner ([docs/features/scoreview.md](features/scoreview.md)); launch JSON accepts `source`, `mode`, and `background_playback` |
 | SatView | `--plugin dev.draxul.satview` at launch or on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and plugin-owned ImGui controls. Full narrative: [docs/features/satview.md](features/satview.md) |
+| Rezonality | `--plugin dev.draxul.rezonality` at launch or on pane/tab commands | Fault-tolerant Vulkan/Metal live shader viewer ported from VkLive. It loads the bundled `simple` project or a configured project directory, watches external edits, compiles GLSL off the UI thread, and retains the last valid GPU generation when an edit fails |
 
 Shell Session splits use the server's platform default shell (Zsh on macOS,
 PowerShell on Windows). Explicit self-contained product windows advertise only
@@ -31,9 +32,22 @@ Draxul can host trusted, client-local native plugins in a pane or an entire tab.
 Plugins are discovered at startup from `%APPDATA%/draxul/plugins` and
 `<exe>/plugins` on Windows, or `~/Library/Application Support/draxul/plugins`
 and the app bundle's `Contents/PlugIns` on macOS. Each immediate child directory
-contains a `plugin.toml` manifest and a platform DLL/dylib. User plugins override
-bundled plugins with the same stable ID; installing or replacing one requires a UI
-restart.
+contains either a legacy `plugin.toml` plus platform DLL/dylib or atomically
+published immutable generations selected by `current.json`. User plugins override
+bundled plugins with the same stable ID. Draxul shadow-copies the complete selected
+package to a host-private per-process runtime directory, so the producer can rebuild
+without overwriting or locking the active DLL/dylib.
+
+`reload_plugin` in the GUI and `draxul plugin reload <id>` on the local control
+endpoint prepare and validate a new generation, quiesce every matching pane in that
+UI, release their render passes, wait for the renderer once, and replace them as one
+cohort. A lifecycle failure rolls the cohort back to the resident prior generation.
+Late callbacks carry generation-scoped tokens and cannot target the replacement.
+Candidate storage-service writes are journaled until activation. The optional
+`draxul.hot-reload` extension transfers bounded transient JSON state; missing or
+incompatible state starts fresh and warns rather than rejecting a healthy build.
+Retired native images remain resident until process exit because general C++ and
+Objective-C module unloading is not a safe runtime contract.
 
 The server stores only the stable plugin ID and bounded JSON configuration. Each
 attached UI loads its own installed module, so an unavailable or incompatible
@@ -137,8 +151,9 @@ with no encoder and a load/store continuation descriptor. Plugins end every pass
 or encoder they create, restore the documented continuation state, and never
 submit, present, retain, release, or destroy borrowed host objects.
 
-Bundled IDs currently include `dev.draxul.satview`, `dev.draxul.scoreview`, and
-the ABI example `dev.draxul.spinning-triangle`. Product preferences are pane-local
+Bundled IDs currently include `dev.draxul.satview`, `dev.draxul.scoreview`,
+`dev.draxul.rezonality`, and the ABI example `dev.draxul.spinning-triangle`.
+Product preferences are pane-local
 and durable; shared launch JSON remains limited to values every attached UI should
 see. SatView now owns its complete product stack under `plugins/satview`: model,
 services, simulation, UI, Vulkan/Metal HDR renderer, shaders, catalogs, textures,
@@ -150,6 +165,7 @@ under `plugins/scoreview`; no Draxul C++ canvas or ImGui object crosses the ABI.
 ```text
 draxul plugin list --json
 draxul plugin get <plugin-id> --json
+draxul plugin reload <plugin-id> --session <id> --json
 draxul pane split <pane-id> --direction right --plugin <plugin-id> \
   [--plugin-config <json>] --json
 draxul tab create --space <space-id> --name <name> --plugin <plugin-id> \
@@ -183,12 +199,45 @@ filename drift and dynamic-loader or ABI failures are caught on both platforms.
 - `draxul --server` runs the renderer-free per-user server, while
   `--server-status` and `--shutdown-server --yes` inspect or stop it.
   `--server-runtime-dir <path>` isolates an endpoint for testing.
+- `--server-status --json` includes bounded control-transport diagnostics:
+  accepted/current/peak listener occupancy, request and failure counts, per-method
+  queue/dispatch/response timing, and failures grouped by operation, transport
+  stage, native error domain/code, and compatibility classification. These are
+  physical connection/request measurements and are separate from the logical
+  client leases reported by `connected_clients`.
 - An ordinary `draxul` launch discovers or starts the singleton, opens the default
   shared shell Session, and reconnects to the same server-owned Spaces, panes,
   terminals, and agents after the UI closes. Shells have no client-owned fallback.
   Explicit hosts such as `--host nvim`, Markdown, and Kanban remain client-owned
   and do not start the server. MegaCity/BioView, SatView, and ScoreView are
   client-local plugin panes created in shared server topology.
+- New clients prefer the negotiated `session-stream-v1` path: one authenticated,
+  epoch-bound local event connection per attached UI carries bounded topology, agent,
+  and terminal batches plus idle heartbeats. The server state thread only enqueues
+  work to a bounded writer and never waits for platform I/O; a stalled UI is isolated
+  and disconnected without blocking healthy clients or CLI status requests.
+  Registration/cursor updates travel on the stream. When
+  `session-stream-commands-v1` is also negotiated, attached-UI terminal input,
+  resize, controller and scrollback operations, topology mutations, and GUI agent
+  start/restart requests use correlated stream commands. Existing mutation IDs make
+  retries idempotent, command responses have reserved priority capacity ahead of bulk
+  presentation, and lost responses can be replayed after reconnect without applying
+  the mutation twice. Bootstrap, status, diagnostics, CLI access, and compatibility
+  continue to use short control requests. Stream negotiation or transport failure
+  falls back to one recurring `session.poll` per UI, and older servers without either
+  capability retain the compatible per-channel polling path. Terminal channels remain
+  independently ordered and recover from overflow or cursor gaps with a channel-local
+  snapshot; the shared scheduler rotates fairly within the stream's negotiated payload
+  budget. The persistent path feeds that scheduler with typed requests and responses,
+  so it serializes only the final stream frame; the JSON `session.poll` boundary is
+  retained only for fallback and compatibility clients. A transient transport failure
+  leaves the last coherent topology, agent, and
+  terminal projections visible and does not produce an immediate toast. If the whole
+  Session remains unavailable for two seconds, the UI emits one background-reconnect
+  warning; recovery clears that outage state without a success toast. The diagnostics
+  panel reports the selected Session transport, connection phase, outage duration,
+  reconnect/fallback/resync counters and bounded reason buckets, alongside the short
+  control transport's request and native-stage failure metrics.
 - The server owns a Windows notification-area or macOS menu-bar status item. Its menu
   reports connected clients, Sessions, Spaces, terminals, live terminals, and agents,
   and provides Open Draxul, refresh, open-log, and one guarded Stop Server action.
@@ -880,16 +929,19 @@ and `draxul integration status` do not pass through the launch-option parser.
 | `DRAXUL_ENABLE_MEGACITY` | ON | Builds and stages `dev.draxul.megacity` with its private City/Biology implementation, tests, shaders, and assets; the production executable has no static registration |
 | `DRAXUL_ENABLE_SATVIEW` | ON | Builds and stages the `dev.draxul.satview` DLL/dylib plus its private product libraries and assets; the executable has no static SatView host fallback |
 | `DRAXUL_ENABLE_SCOREVIEW` | ON on Windows/macOS | Builds and stages `dev.draxul.scoreview`, its private runtime libraries, Verovio, fonts, and soundfonts; the executable has no static ScoreView fallback |
+| `DRAXUL_ENABLE_REZONALITY` | ON | Builds and stages the `dev.draxul.rezonality` DLL/dylib, preserved platform shader compiler, bundled simple project, live-edit runtime, and Vulkan/Metal single-pass renderer |
 | `DRAXUL_MEGACITY_PLUGIN_DIR` | `plugins/megacity` | MegaCity/BioView submodule mount path; an enabled but absent mount is skipped |
 | `DRAXUL_SATVIEW_PLUGIN_DIR` | `plugins/satview` | SatView submodule mount path; an enabled but absent mount is skipped |
 | `DRAXUL_SCOREVIEW_PLUGIN_DIR` | `plugins/scoreview` | ScoreView submodule mount path; an enabled but absent mount is skipped |
+| `DRAXUL_REZONALITY_PLUGIN_DIR` | `plugins/rezonality` | Rezonality submodule mount path; an enabled but absent mount is skipped |
 | `DRAXUL_REQUIRE_ENABLED_PLUGINS` | OFF (ON when `CI` env var set) | Turns the enabled-but-unmounted plugin skip into a configure failure so CI cannot silently drop product coverage |
 | `BUILD_TESTING` | ON | Test targets |
 
-The three product mounts are git submodules of their own repositories:
+The product mounts are git submodules of their own repositories:
 [draxul-megacity](https://github.com/cmaughan/draxul-megacity),
 [draxul-satview](https://github.com/cmaughan/draxul-satview), and
-[draxul-scoreview](https://github.com/cmaughan/draxul-scoreview). Clone with
+[draxul-scoreview](https://github.com/cmaughan/draxul-scoreview), and
+[draxul-rezonality](https://github.com/cmaughan/draxul-rezonality). Clone with
 `--recurse-submodules` (or run `git submodule update --init`); an
 uninitialized submodule leaves a core-only build.
 

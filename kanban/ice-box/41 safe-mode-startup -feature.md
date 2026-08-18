@@ -29,6 +29,7 @@ When config, fonts, modules, session state, or network services break startup, u
 
 ## Dependencies and parallelism
 
-Benefits from items 07/21 and 45. Can be designed in parallel, but implementation touches startup/App and should not overlap item 22/24.
+The result/config foundations are delivered. Coordinate UX with
+`kanban/ice-box/45 first-run-health-center -feature.md`; implementation touches startup/App.
 
 <model>GPT-5 Codex</model>

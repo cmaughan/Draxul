@@ -15,6 +15,8 @@ endif()
 
 project(draxul VERSION 0.1.0 LANGUAGES CXX C)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 # All internal libraries are static; prevent any cached or inherited value from flipping this.
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
@@ -27,6 +29,7 @@ option(DRAXUL_ENABLE_TSAN "Enable ThreadSanitizer (Clang/GCC only, incompatible 
 option(DRAXUL_ENABLE_COVERAGE "Enable LLVM source-based code coverage (Clang/Apple Clang only)" OFF)
 option(DRAXUL_ENABLE_MEGACITY "Build and bundle the MegaCity/BioView plugin" ON)
 option(DRAXUL_ENABLE_SATVIEW "Build and bundle the SatView plugin" ON)
+option(DRAXUL_ENABLE_REZONALITY "Build and bundle the Rezonality live graphics plugin" ON)
 if(APPLE OR WIN32)
     set(DRAXUL_SCOREVIEW_DEFAULT ON)
 else()
@@ -52,6 +55,8 @@ set(DRAXUL_SATVIEW_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/satview"
     CACHE PATH "Mounted SatView plugin source directory")
 set(DRAXUL_SCOREVIEW_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/scoreview"
     CACHE PATH "Mounted ScoreView plugin source directory")
+set(DRAXUL_REZONALITY_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/rezonality"
+    CACHE PATH "Mounted Rezonality plugin source directory")
 
 # Sanitizer helper — applied to draxul targets after FetchContent deps are fetched
 function(draxul_apply_sanitizers target)
@@ -197,7 +202,8 @@ add_subdirectory(modules/kanban)
 set(DRAXUL_HAVE_MEGACITY OFF)
 set(DRAXUL_HAVE_SATVIEW OFF)
 set(DRAXUL_HAVE_SCOREVIEW OFF)
-foreach(_product IN ITEMS MEGACITY SATVIEW SCOREVIEW)
+set(DRAXUL_HAVE_REZONALITY OFF)
+foreach(_product IN ITEMS MEGACITY SATVIEW SCOREVIEW REZONALITY)
     if(DRAXUL_ENABLE_${_product})
         if(EXISTS "${DRAXUL_${_product}_PLUGIN_DIR}/CMakeLists.txt")
             set(DRAXUL_HAVE_${_product} ON)
@@ -227,6 +233,9 @@ if(DRAXUL_HAVE_SATVIEW)
 endif()
 if(DRAXUL_HAVE_SCOREVIEW)
     add_subdirectory("${DRAXUL_SCOREVIEW_PLUGIN_DIR}" plugins/scoreview)
+endif()
+if(DRAXUL_HAVE_REZONALITY)
+    add_subdirectory("${DRAXUL_REZONALITY_PLUGIN_DIR}" plugins/rezonality)
 endif()
 
 # This namespace is the explicit shared C++ surface for mounted product
@@ -515,16 +524,15 @@ if(BUILD_TESTING)
     endif()
 
     if(WIN32)
-        find_program(DRAXUL_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
-        if(DRAXUL_POWERSHELL_EXECUTABLE)
-            add_test(NAME draxul-topology-cli-integration
-                COMMAND ${DRAXUL_POWERSHELL_EXECUTABLE}
-                    -NoProfile -ExecutionPolicy Bypass
-                    -File ${CMAKE_SOURCE_DIR}/tests/topology_cli_integration.ps1
-                    -Executable $<TARGET_FILE:draxul>)
-            set_tests_properties(draxul-topology-cli-integration
-                PROPERTIES LABELS "integration;smoke" TIMEOUT 45)
-        endif()
+        # Resolve PowerShell in the test process rather than caching a
+        # versioned WindowsApps path that can disappear after an update.
+        add_test(NAME draxul-topology-cli-integration
+            COMMAND ${CMAKE_COMMAND}
+                -DDRAXUL_POWERSHELL_SCRIPT=${CMAKE_SOURCE_DIR}/tests/topology_cli_integration.ps1
+                -DDRAXUL_EXECUTABLE=$<TARGET_FILE:draxul>
+                -P ${CMAKE_SOURCE_DIR}/tests/cmake/run_powershell_test.cmake)
+        set_tests_properties(draxul-topology-cli-integration
+            PROPERTIES LABELS "integration;smoke" TIMEOUT 45)
     endif()
 
     find_program(NVIM_EXECUTABLE nvim)

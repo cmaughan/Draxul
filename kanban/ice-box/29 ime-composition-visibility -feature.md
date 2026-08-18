@@ -35,8 +35,8 @@ Display the IME pre-edit (composition) string at the cursor position while compo
 
 ## Notes
 
-This feature is related to the platform integration icebox item 07. If 07 is thawed,
-coordinate with it rather than duplicating IME work.
+This is the remaining IME slice after the obsolete platform-integration umbrella was
+removed; keep it owned by the platform/window boundary.
 
 ## Sub-Agent Split
 

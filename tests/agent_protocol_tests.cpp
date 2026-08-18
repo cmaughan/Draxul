@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <draxul/agent_protocol.h>
-#include <draxul/server_agent_service.h>
+#include "server_agent_service.h"
 
 #include <nlohmann/json.hpp>
 

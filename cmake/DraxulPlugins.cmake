@@ -313,15 +313,17 @@ function(draxul_stage_registered_plugins app_target)
             set(_stage_directory
                 "$<TARGET_FILE_DIR:${app_target}>/plugins/${_plugin_id}")
         endif()
+        set(_incoming_directory "${_stage_directory}/.incoming")
 
         set(_commands
-            COMMAND ${CMAKE_COMMAND} -E remove_directory "${_stage_directory}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_stage_directory}"
+            COMMAND ${CMAKE_COMMAND} -E remove_directory "${_incoming_directory}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${_incoming_directory}"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_manifest}" "${_stage_directory}/plugin.toml"
+                "${_manifest}" "${_incoming_directory}/plugin.toml"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:${_target}>"
-                "${_stage_directory}/$<TARGET_FILE_NAME:${_target}>")
+                "${_incoming_directory}/$<TARGET_FILE_NAME:${_target}>")
 
         set(_payload_dependencies)
         foreach(_mapping IN LISTS _copy_files)
@@ -329,21 +331,26 @@ function(draxul_stage_registered_plugins app_target)
             get_filename_component(_destination_directory "${_destination}" DIRECTORY)
             if(_destination_directory AND NOT _destination_directory STREQUAL ".")
                 list(APPEND _commands COMMAND ${CMAKE_COMMAND} -E make_directory
-                    "${_stage_directory}/${_destination_directory}")
+                    "${_incoming_directory}/${_destination_directory}")
             endif()
             list(APPEND _commands COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_source}" "${_stage_directory}/${_destination}")
+                "${_source}" "${_incoming_directory}/${_destination}")
             list(APPEND _payload_dependencies "${_source}")
         endforeach()
 
         foreach(_mapping IN LISTS _copy_directories)
             _draxul_split_plugin_mapping("${_mapping}" _source _destination)
             list(APPEND _commands COMMAND ${CMAKE_COMMAND} -E make_directory
-                "${_stage_directory}/${_destination}")
+                "${_incoming_directory}/${_destination}")
             list(APPEND _commands COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${_source}" "${_stage_directory}/${_destination}")
+                "${_source}" "${_incoming_directory}/${_destination}")
             list(APPEND _payload_dependencies "${_source}")
         endforeach()
+
+        list(APPEND _commands COMMAND "${Python3_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/tools/publish_plugin.py"
+            --root "${_stage_directory}"
+            --incoming "${_incoming_directory}")
 
         set(_stage_target "draxul-stage-plugin-${_key}")
         add_custom_target(${_stage_target}

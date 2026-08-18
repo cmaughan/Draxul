@@ -34,6 +34,7 @@ The POSIX branches in `app/main.cpp` and `app/session_picker_host.cpp` allocate 
 
 ## Dependencies and parallelism
 
-Distinct from completed `kanban/done/04 fork-child-async-signal-unsafe -bug.md`, which covered Neovim and PTY launchers. Blocks item 24. Suitable for one session-focused agent.
+Distinct from the earlier Neovim and PTY launcher hardening, which is retained in
+Git history. The dependent application-topology work has also landed.
 
 <model>GPT-5 Codex</model>

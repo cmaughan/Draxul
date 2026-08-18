@@ -29,16 +29,20 @@ are reused across waves and directories:
 
 ```
 # Good
-See kanban/ice-box/20 url-detection-click -feature.md
+See kanban/ice-box/20 searchable-scrollback -feature.md
 
 # Bad — ambiguous
 See item 20
 ```
 
 This rule is why colliding numbers are tolerated rather than renumbered: a full filename is
-unambiguous regardless. Known collisions in `ice-box/` (as of 2026-03-22): number 19
-(`guicursor-full-support`, `per-monitor-dpi-font-scaling`) and number 22
-(`agent-scripts-deduplication-refactor`).
+unambiguous regardless. Do not maintain a prose list of collisions; it becomes stale as
+planning waves move between directories.
+
+Completed and superseded cards stay in `done/` as concise historical records. If older
+history was pruned before this policy, refer to the implementing commit or describe the
+delivered capability instead of creating a bare-number dependency that can silently point
+at a newer card.
 
 ## Working an item
 

@@ -14,7 +14,8 @@ Version the `config.toml` schema with a `config_version` field. When an older co
 
 ## Problem
 
-When config fields are renamed, removed, or have changed semantics (e.g. `enable_ligatures` being split into per-feature flags, or the upcoming `[chrome]` section from WI 03), users with existing `config.toml` files get silent unknown-key warnings or wrong defaults. There is no migration path; users must manually update their config or use defaults.
+When config fields are renamed, removed, or change semantics, users need explicit migration
+or deprecation handling instead of relying only on unknown-key warnings.
 
 Claude flagged this as #8 in "Best 10 Features to Add."
 
@@ -50,9 +51,8 @@ Claude flagged this as #8 in "Best 10 Features to Add."
 
 ## Interdependencies
 
-- **Requires WI 24 (unified Result type)** for clean error returns from migration steps.
-- WI 37 icebox (hierarchical-config) will need migration support — coordinate when that work begins.
-- WI 03 (chromehost-hardcoded-theme-colors, active) introduces new `[chrome]` config fields; migration from configs without it is the first real test case.
+- Typed results are delivered. Coordinate with
+  `kanban/ice-box/37 hierarchical-config -feature.md` when that work begins.
 
 ---
 

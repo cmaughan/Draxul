@@ -1318,6 +1318,10 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
     {
         new_host = deps_.options->host_factory(launch.kind);
     }
+    else if (deps_.host_factory)
+    {
+        new_host = deps_.host_factory(launch.kind);
+    }
     else
     {
         new_host = HostProviderRegistry::global().create(launch.kind);

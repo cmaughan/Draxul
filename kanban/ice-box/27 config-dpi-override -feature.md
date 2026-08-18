@@ -16,7 +16,7 @@ Provide a `dpi_override` config field that bypasses OS DPI detection. Useful for
 ## Implementation Plan
 
 - [ ] Read `app/app.cpp` and `app/app.h` to find `display_ppi_` and where DPI is read from the OS.
-- [ ] Read `libs/draxul-app-support/src/app_config_io.cpp` to see existing config fields.
+- [ ] Read `libs/draxul-config/src/app_config_io.cpp` and the declarative schema.
 - [ ] Add `dpi_override = 0` to `AppConfig` (0 = use OS value, any non-zero value overrides). Add validation: must be ≥ 72 and ≤ 400 if non-zero; log WARN and ignore if out of range.
 - [ ] In `App::initialize()` (or wherever `display_ppi_` is first set), check `config.dpi_override`. If non-zero, use it instead of the OS-reported value.
 - [ ] Ensure DPI hotplug events (monitor change) do NOT override the override — the configured value stays sticky.
@@ -24,7 +24,7 @@ Provide a `dpi_override` config field that bypasses OS DPI detection. Useful for
 - [ ] Add config round-trip test for `dpi_override`.
 - [ ] Add validation tests: dpi_override = 0 uses OS value; dpi_override = 144 sets PPI to 144; dpi_override = 50 (out of range) logs WARN and falls back to OS.
 - [ ] Run `cmake --build build --target draxul draxul-tests && py do.py smoke`.
-- [ ] Run `clang-format` on touched files.
+- [ ] Run focused config/DPI tests and same-cache smoke.
 
 ---
 

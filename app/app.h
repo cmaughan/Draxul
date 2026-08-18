@@ -42,6 +42,7 @@ class MacOsMenu;
 class ControlServer;
 class ControlEventJournal;
 class RemoteSessionClient;
+class RemoteSessionCoordinator;
 struct ServerAgentSnapshot;
 struct TopologyCommand;
 struct TopologySnapshot;
@@ -49,6 +50,16 @@ struct TopologyTab;
 enum class TopologySplitDirection;
 struct ControlMethodResult;
 struct ControlRequest;
+
+struct PluginReloadSummary
+{
+    int matched = 0;
+    int reloaded = 0;
+    bool rolled_back = false;
+    std::string generation;
+    std::string warning;
+    std::string error;
+};
 
 // ---------------------------------------------------------------------------
 // AppDeps — injectable dependency bundle for App.
@@ -148,6 +159,7 @@ private:
     // observe failure. Previously this was `void` and silent — the only hint
     // of failure was a log line.
     Result<void, Error> reload_config();
+    PluginReloadSummary reload_plugin(std::string_view plugin_id);
 
     bool pump_once(std::optional<std::chrono::steady_clock::time_point> wait_deadline = std::nullopt);
     void pump_background_hosts();
@@ -244,6 +256,8 @@ private:
     std::optional<std::string> remote_tab_id(
         SpaceId local_space_id, int local_tab_id) const;
     ServerControlChannel server_control_channel() const;
+    ControlClientResult attached_ui_command(
+        std::string_view method, nlohmann::json params) const;
 
     // --- Tab orchestration (collection ownership lives in TabController) ---
     TabController& active_tab_controller();
@@ -329,6 +343,8 @@ private:
     std::unique_ptr<ControlServer> control_server_;
     std::unique_ptr<ControlEventJournal> control_events_;
     std::unique_ptr<RemoteSessionClient> remote_session_client_;
+    std::shared_ptr<RemoteSessionCoordinator>
+        remote_session_coordinator_;
     std::unique_ptr<ITopologyMutationRoute>
         topology_mutation_route_;
     TopologySnapshot remote_topology_snapshot_;
@@ -347,6 +363,7 @@ private:
     std::string pending_markdown_preview_path_;
     bool topology_poll_error_announced_ = false;
     bool agent_poll_error_announced_ = false;
+    bool session_outage_warning_announced_ = false;
     bool topology_command_error_announced_ = false;
     bool accept_next_remote_topology_revision_ = false;
     uint64_t next_server_agent_mutation_id_ = 1;

@@ -25,9 +25,9 @@ This is high-value for shell-heavy workflows and is a differentiator from termin
 
 ### Phase 1: Parse OSC 133 sequences
 
-- [ ] Read the OSC dispatch in `libs/draxul-host/src/terminal_host_base_osc.cpp` (or equivalent).
-- [ ] Add a handler for OSC sequence `133` (params: `A`, `B`, `C`, `D[;exit_code]`).
-- [ ] On each marker, record a `ShellMark` in the scrollback:
+- [x] Parse OSC 133 in `libs/draxul-terminal-core/src/terminal_core_csi.cpp`.
+- [x] Handle `A`, `B`, `C`, and `D[;exit_code]` markers.
+- [x] Record bounded, resize-safe shell marks in terminal state and protocol snapshots.
   ```cpp
   enum class ShellMarkType { kPromptStart, kCommandStart, kOutputStart, kOutputEnd };
   struct ShellMark {
@@ -36,7 +36,7 @@ This is high-value for shell-heavy workflows and is a differentiator from termin
       int exit_code; // for kOutputEnd only
   };
   ```
-- [ ] Store marks in `ScrollbackBuffer` alongside rows, or in a parallel list indexed by scrollback row.
+- [x] Keep marks coherent with scrollback eviction and terminal snapshots.
 
 ### Phase 2: Command navigation keybindings
 
@@ -55,7 +55,7 @@ This is high-value for shell-heavy workflows and is a differentiator from termin
 
 - [ ] In the grid renderer or an ImGui overlay, draw a thin coloured line in the left gutter at each `kPromptStart` row in the current viewport.
 - [ ] Optionally: colour the gutter marker by exit code (green = 0, red = non-zero).
-- [ ] Add `enable_shell_integration_marks = true` to `config.toml`.
+- [x] Add `enable_shell_integration_marks = true` to the declarative configuration schema.
 
 ### Phase 5: Shell setup documentation
 
@@ -67,13 +67,13 @@ This is high-value for shell-heavy workflows and is a differentiator from termin
 - [ ] `prev_command`/`next_command` keybindings scroll the viewport to the correct command boundaries.
 - [ ] `select_command_output` selects the last command's output.
 - [ ] Gutter marks are visible in the scrollback viewport.
-- [ ] No crash when OSC 133 markers arrive before the scrollback is initialised.
+- [x] No crash when OSC 133 markers arrive before scrollback is initialized; terminal,
+      replay, protocol, and server tests cover parsing and transport.
 
 ## Interdependencies
 
-- **`20 osc8-hyperlink-support -feature`**: shares OSC dispatch infrastructure; implement OSC 8 first to validate the pattern.
-- **Icebox `20 searchable-scrollback -feature`**: search benefits from knowing command boundaries; coordinate.
-- **`06 scrollback-ring-wrap -test`**: shell marks associated with evicted rows must be cleaned up; add a test.
+- `kanban/ice-box/20 searchable-scrollback -feature.md` can use the delivered mark model.
+- Remaining work is client navigation, selection, gutter presentation, and shell setup documentation.
 
 ---
 *Filed by `claude-sonnet-4-6` · 2026-03-26*

@@ -18,8 +18,8 @@ Add a font inspector mode to the debug panel that, when a cell is hovered or sel
 - [ ] In the debug panel, add a "Font Inspector" section.
 - [ ] Track the hovered grid cell from mouse position (already computed for mouse input routing).
 - [ ] On hover: call `get_glyph_debug_info(hovered_cell.codepoint)` and display in the panel.
-- [ ] Guard behind `DRAXUL_ENABLE_DEBUG_PANEL` compile flag (item 55).
-- [ ] Run `ctest` and `clang-format`.
+- [ ] Reuse the existing diagnostics/debug-panel availability policy.
+- [ ] Run focused font/UI tests, relevant render coverage, and same-cache smoke.
 
 ## Sub-Agent Split
 

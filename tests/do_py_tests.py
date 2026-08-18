@@ -6,6 +6,7 @@ import io
 import json
 import pathlib
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,6 +15,35 @@ from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+class PluginPublisherTests(unittest.TestCase):
+    def test_publish_moves_complete_generation_then_updates_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "plugin"
+            incoming = root / ".incoming"
+            incoming.mkdir(parents=True)
+            (incoming / "plugin.toml").write_text("schema_version = 1\n")
+            (incoming / "plugin.dll").write_bytes(b"first")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools" / "publish_plugin.py"),
+                    "--root",
+                    str(root),
+                    "--incoming",
+                    str(incoming),
+                ],
+                check=True,
+            )
+            pointer = json.loads((root / "current.json").read_text())
+            generation = root / "generations" / pointer["generation"]
+            self.assertTrue((generation / "plugin.toml").is_file())
+            self.assertEqual(b"first", (generation / "plugin.dll").read_bytes())
+            package = json.loads((generation / "package.json").read_text())
+            self.assertEqual(pointer["generation"], package["build_id"])
+            self.assertIn("plugin.dll", package["files"])
 
 
 def load_do_module():
@@ -25,7 +55,74 @@ def load_do_module():
     return module
 
 
+def load_sdk_smoke_module():
+    spec = importlib.util.spec_from_file_location(
+        "draxul_sdk_smoke", ROOT / "tests" / "support" / "sdk_smoke.py"
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("failed to load tests/support/sdk_smoke.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 draxul_do = load_do_module()
+sdk_smoke = load_sdk_smoke_module()
+
+
+class ExternalSdkSmokeCommandTests(unittest.TestCase):
+    def make_args(self, generator: str, *, platform: str = "", toolset: str = ""):
+        return sdk_smoke.make_argument_parser().parse_args(
+            [
+                "--cmake", "cmake",
+                "--source-root", "source-root",
+                "--build-root", "build-root",
+                "--draxul", "draxul",
+                "--config", "Debug",
+                "--generator", generator,
+                f"--platform={platform}",
+                f"--toolset={toolset}",
+                "--c-compiler=C:/toolchain/cl.exe",
+                "--cxx-compiler=C:/toolchain/cl.exe",
+                "--make-program=C:/tools/ninja.exe",
+                "--toolchain-file=C:/toolchain/parent.cmake",
+            ]
+        )
+
+    def test_single_config_external_build_inherits_parent_toolchain(self) -> None:
+        args = self.make_args("Ninja")
+
+        with mock.patch.object(sdk_smoke, "run") as run:
+            sdk_smoke.configure_external(
+                args, pathlib.Path("fixture"), pathlib.Path("out"), pathlib.Path("sdk")
+            )
+
+        command = run.call_args.args[0]
+        self.assertIn("-DCMAKE_BUILD_TYPE=Debug", command)
+        self.assertIn("-DCMAKE_C_COMPILER=C:/toolchain/cl.exe", command)
+        self.assertIn("-DCMAKE_CXX_COMPILER=C:/toolchain/cl.exe", command)
+        self.assertIn("-DCMAKE_MAKE_PROGRAM=C:/tools/ninja.exe", command)
+        self.assertIn("-DCMAKE_TOOLCHAIN_FILE=C:/toolchain/parent.cmake", command)
+
+    def test_ide_external_build_uses_generator_platform_and_toolset(self) -> None:
+        args = self.make_args(
+            "Visual Studio 17 2022", platform="x64", toolset="v143"
+        )
+
+        with mock.patch.object(sdk_smoke, "run") as run:
+            sdk_smoke.configure_external(
+                args, pathlib.Path("fixture"), pathlib.Path("out"), pathlib.Path("sdk")
+            )
+
+        command = run.call_args.args[0]
+        self.assertIn("-A", command)
+        self.assertIn("x64", command)
+        self.assertIn("-T", command)
+        self.assertIn("v143", command)
+        self.assertFalse(any(argument.startswith("-DCMAKE_C_") for argument in command))
+        self.assertFalse(any(argument.startswith("-DCMAKE_CXX_") for argument in command))
+        self.assertNotIn("-DCMAKE_MAKE_PROGRAM=C:/tools/ninja.exe", command)
+        self.assertIn("-DCMAKE_TOOLCHAIN_FILE=C:/toolchain/parent.cmake", command)
 
 
 class RenderManifestTests(unittest.TestCase):
@@ -273,6 +370,7 @@ class TestCommandTests(unittest.TestCase):
         self.assertIn("run core unit tests in parallel", help_output.lower())
         self.assertIn("--satview", help_output)
         self.assertIn("--scoreview", help_output)
+        self.assertIn("--rezonality", help_output)
         self.assertIn("--products", help_output)
         self.assertIn("--all", help_output)
         self.assertNotIn("test         Run the full local test suite", help_output)
@@ -372,12 +470,15 @@ class TestCommandTests(unittest.TestCase):
                 "draxul-tests-megacity",
                 "draxul-tests-satview",
                 "draxul-tests-scoreview",
+                "draxul-tests-rezonality",
             ),
             targets,
         )
-        for product in ("megacity", "satview", "scoreview"):
+        for product in ("megacity", "satview", "scoreview", "rezonality"):
             self.assertIn(f"draxul-test-{product}-shard", ctest_filter[1])
-        self.assertEqual("core + megacity, satview, scoreview", label)
+        self.assertEqual(
+            "core + megacity, satview, scoreview, rezonality", label
+        )
 
     def test_all_scope_uses_complete_unit_aggregate(self) -> None:
         parsed = draxul_do._parse_test_args(["--all"])

@@ -6,7 +6,9 @@
 
 ## Overview
 
-Users want to launch Draxul with different host configurations without editing `config.toml` each time. Named launch profiles allow them to define multiple configurations — e.g. a "work nvim", a "personal shell", a "MegaCity code browser" — and select one at startup or via the command palette.
+Users want to launch Draxul with different host configurations without editing
+`config.toml` each time. Profiles must use the generic provider/plugin identity and a
+bounded launch descriptor rather than compile-time product host kinds.
 
 ## Config format
 
@@ -24,8 +26,9 @@ args = ["/bin/zsh", "--login"]
 cwd = "~"
 
 [[profiles]]
-name = "megacity"
-host_type = "megacity"
+name = "code-map"
+provider = "plugin:dev.draxul.megacity"
+config_json = '{"mode":"city"}'
 cwd = "~/work/myproject"
 ```
 
@@ -40,9 +43,10 @@ The first profile is used by default on startup; a `--profile <name>` CLI flag s
   ```cpp
   struct LaunchProfile {
       std::string name;
-      std::string host_type; // "nvim", "shell", "megacity"
+      std::string provider; // built-in provider or plugin:<manifest-id>
       std::vector<std::string> args;
       std::string cwd;
+      std::string config_json; // bounded provider launch descriptor
   };
   ```
 - [ ] Add `std::vector<LaunchProfile> profiles` to `AppConfig`.
@@ -56,7 +60,7 @@ The first profile is used by default on startup; a `--profile <name>` CLI flag s
 
 ### Phase 3: Command palette integration
 
-- [ ] Expose profiles as selectable entries in the command palette (icebox `60 command-palette`) when that feature is implemented.
+- [ ] Expose profiles as selectable entries in the delivered command palette.
 - [ ] For now: add a keybinding action `open_profile_picker` that shows an ImGui popup listing all profiles.
 
 ### Phase 4: Documentation
@@ -69,14 +73,14 @@ The first profile is used by default on startup; a `--profile <name>` CLI flag s
 
 - [ ] `draxul --profile zsh` launches with the `zsh` profile.
 - [ ] A `config.toml` without `[[profiles]]` still works (backwards compatible).
-- [ ] Profile with an unknown `host_type` logs a `WARN` and falls back to default.
+- [ ] Profile with an unavailable provider reports the exact provider and does not
+      silently launch a different host.
 - [ ] Profile picker ImGui popup shows all named profiles and applies the selected one.
 
 ## Interdependencies
 
-- **Icebox `60 command-palette -feature`**: profiles integrate naturally as palette entries.
-- **Icebox `37 hierarchical-config -feature`**: profiles are a form of per-launch config override; coordinate if that feature lands.
-- **`14 config-layer-decoupling -refactor`**: adding profiles to `AppConfig` is simpler after the config layer is decoupled.
+- `kanban/ice-box/37 hierarchical-config -feature.md` may later define profile overlay rules.
+- The command palette, provider metadata, and config-layer boundaries are already available.
 
 ---
 *Filed by `claude-sonnet-4-6` · 2026-03-26*

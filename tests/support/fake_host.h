@@ -209,6 +209,11 @@ public:
         return dispatch_action_result;
     }
 
+    std::vector<HostAction> palette_actions() const override
+    {
+        return advertised_palette_actions;
+    }
+
     void request_close() override
     {
         ++request_close_calls;
@@ -261,6 +266,7 @@ public:
     // Controls what dispatch_action returns; tests can flip to false to
     // simulate an action the host does not recognise.
     bool dispatch_action_result = true;
+    std::vector<HostAction> advertised_palette_actions;
     std::optional<int> fake_exit_code;
     std::optional<AgentObservation> fake_agent_observation;
     std::optional<AgentProcessObservation> fake_agent_process_observation;

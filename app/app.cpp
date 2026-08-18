@@ -22,11 +22,16 @@
 #include <draxul/client_recovery.h>
 #include <draxul/control_plane.h>
 #include <draxul/grid_host_base.h>
+#include <draxul/host_registry.h>
 #include <draxul/log.h>
 #include <draxul/pane_print.h>
 #include <draxul/perf_timing.h>
+#include <draxul/plugin_host.h>
+#include <draxul/plugin_manager.h>
 #include <draxul/pixel_scale.h>
 #include <draxul/remote_session_client.h>
+#include <draxul/remote_session_coordinator.h>
+#include <draxul/remote_terminal_host.h>
 #include <draxul/render_test_driver.h>
 #include <draxul/sdl_window.h>
 #include <draxul/server_client.h>
@@ -511,6 +516,9 @@ bool App::initialize()
         palette_host_deps.gui_action_handler = &gui_action_handler_;
         palette_host_deps.keybindings = &config_.keybindings;
         palette_host_deps.palette_bg_alpha = &config_.palette_bg_alpha;
+        palette_host_deps.focused_host = [this]() {
+            return active_pane_manager().focused_host();
+        };
         palette_host_ = std::make_unique<CommandPaletteHost>(std::move(palette_host_deps));
 
         HostContext palette_ctx;
@@ -1200,6 +1208,23 @@ void App::wire_gui_actions()
         });
         if (!result.accepted())
             push_toast(2, result.error);
+    };
+    gui_deps.on_reload_plugin = [this]() {
+        auto* focused = dynamic_cast<PluginHost*>(
+            active_pane_manager().focused_host());
+        if (!focused)
+        {
+            push_toast(1, "The focused pane is not a native plugin.");
+            return;
+        }
+        const auto result = reload_plugin(focused->plugin_id());
+        if (!result.error.empty())
+            push_toast(2, result.error);
+        else if (!result.warning.empty())
+            push_toast(1, result.warning);
+        else
+            push_toast(0, "Reloaded " + std::to_string(result.reloaded)
+                + " plugin pane(s) from generation " + result.generation + ".");
     };
     gui_deps.on_swap_pane = [this]() {
         const LeafId focused
@@ -2321,6 +2346,8 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         rebuild_render_tree();
         walk_pump(render_root_);
         pump_background_hosts();
+        if (remote_session_coordinator_)
+            remote_session_coordinator_->acknowledge_wake();
         refresh_tab_default_names();
         // An agent launched by hand into an existing pane (rather than through
         // launch_agent) mutates no pane, tab, or Space, so no existing event
@@ -2755,6 +2782,79 @@ void App::update_diagnostics_panel()
             = options_.server_connection->protocol_minor;
         panel.server_capabilities = options_.server_connection->capabilities;
     }
+    if (remote_session_coordinator_)
+    {
+        const auto session
+            = remote_session_coordinator_->transport_snapshot();
+        switch (session.transport)
+        {
+        case RemoteSessionTransportKind::Stream:
+            panel.session_transport_mode = session.stream_commands
+                ? "stream (events + commands)"
+                : "stream (events)";
+            break;
+        case RemoteSessionTransportKind::SessionPoll:
+            panel.session_transport_mode = "session.poll";
+            break;
+        case RemoteSessionTransportKind::Legacy:
+            panel.session_transport_mode = "legacy";
+            break;
+        }
+        panel.session_connection_phase
+            = std::string(to_string(session.recovery.phase));
+        panel.session_recovery_attempts
+            = session.recovery.attempts;
+        panel.session_current_reason
+            = session.recovery.current_reason;
+        panel.session_outage_ms = static_cast<uint64_t>(
+            std::max<int64_t>(0,
+                session.recovery.outage_duration.count()));
+        panel.session_sustained_outage
+            = session.recovery.sustained_outage;
+        panel.session_interruption_count
+            = session.recovery.interruption_count;
+        panel.session_recovery_count
+            = session.recovery.recovery_count;
+        panel.session_reconnect_attempts
+            = session.recovery_metrics.reconnect_attempts;
+        panel.session_fallbacks
+            = session.recovery_metrics.fallbacks;
+        panel.session_resyncs
+            = session.recovery_metrics.resyncs;
+        panel.session_reason_overflow
+            = session.recovery_metrics.reason_overflow;
+        panel.session_reasons.reserve(
+            session.recovery_metrics.reasons.size());
+        for (const auto& reason
+            : session.recovery_metrics.reasons)
+        {
+            panel.session_reasons.push_back({
+                .kind = std::string(to_string(reason.kind)),
+                .channel = reason.channel,
+                .reason = reason.reason,
+                .count = reason.count,
+            });
+        }
+    }
+    const auto control = ControlClient::metrics_snapshot();
+    panel.control_requests = control.requests;
+    panel.control_connection_attempts
+        = control.connection_attempts;
+    panel.control_successful_exchanges
+        = control.successful_exchanges;
+    panel.control_metadata_refreshes
+        = control.metadata_refreshes;
+    panel.control_failures.reserve(control.failures.size());
+    for (const auto& failure : control.failures)
+    {
+        panel.control_failures.push_back({
+            .operation = failure.operation,
+            .stage = failure.stage,
+            .classification = failure.classification,
+            .native_code = failure.native_code,
+            .count = failure.count,
+        });
+    }
 
     const Tab* tab = find_active_tab();
     if (tab != nullptr && tab->pane_manager.host())
@@ -3003,6 +3103,35 @@ PaneManager::Deps App::make_pane_manager_deps(const Space* space)
     deps.text_service = &text_service_;
     deps.display_ppi = &display_ppi_;
     deps.owner_lifetime = host_owner_lifetime_;
+    deps.host_factory = [this](HostKind kind)
+        -> std::unique_ptr<IHost> {
+        if (kind == HostKind::RemoteTerminal
+            && remote_session_coordinator_)
+        {
+            const bool suspend_supported
+                = options_.server_connection
+                && std::ranges::find(
+                       options_.server_connection->capabilities,
+                       "terminal-presentation-suspend-v1")
+                    != options_.server_connection->capabilities.end();
+            return std::make_unique<RemoteTerminalHost>(
+                RemoteTerminalHostOptions{
+                    .runtime_directory
+                    = options_.server_runtime_directory,
+                    .client_id = options_.server_client_id,
+                    .session_id = options_.session_id,
+                    .server_epoch = options_.server_connection
+                        ? options_.server_connection->server_epoch
+                        : std::string{},
+                    .method_prefix = "terminal",
+                    .recovery = options_.client_recovery,
+                    .coordinator = remote_session_coordinator_,
+                    .presentation_suspend_supported
+                    = suspend_supported,
+                });
+        }
+        return HostProviderRegistry::global().create(kind);
+    };
     deps.allow_local_layout_mutation
         = !options_.enable_remote_topology;
     if (options_.enable_remote_topology)
@@ -3069,6 +3198,84 @@ bool App::initialize_remote_topology()
             = "Remote topology requires a server runtime and client identity.";
         return false;
     }
+    const bool session_poll_supported
+        = !options_.host_factory && options_.server_connection
+        && std::ranges::find(
+               options_.server_connection->capabilities,
+               "session-poll-v1")
+            != options_.server_connection->capabilities.end();
+    const bool session_stream_supported
+        = !options_.host_factory && options_.server_connection
+        && std::ranges::find(
+               options_.server_connection->capabilities,
+               "session-stream-v1")
+            != options_.server_connection->capabilities.end();
+    const bool session_stream_commands_supported
+        = session_stream_supported && options_.server_connection
+        && std::ranges::find(
+               options_.server_connection->capabilities,
+               "session-stream-commands-v1")
+            != options_.server_connection->capabilities.end();
+    remote_session_client_
+        = std::make_unique<RemoteSessionClient>(
+            RemoteSessionClientOptions{
+                .runtime_directory = options_.server_runtime_directory,
+                .client_id = options_.server_client_id,
+                .session_id = options_.session_id,
+                .wake_consumer = [this] { wake_window(); },
+                .recovery = options_.client_recovery,
+                .externally_fed
+                = session_stream_supported || session_poll_supported,
+            });
+    if (!remote_session_client_->start())
+    {
+        last_init_error_
+            = "Failed to start the shared Session client worker.";
+        remote_session_client_.reset();
+        return false;
+    }
+    if (!options_.host_factory)
+    {
+        const bool suspend_supported
+            = options_.server_connection
+            && std::ranges::find(
+                   options_.server_connection->capabilities,
+                   "terminal-presentation-suspend-v1")
+                != options_.server_connection->capabilities.end();
+        remote_session_coordinator_
+            = std::make_shared<RemoteSessionCoordinator>(
+                RemoteSessionCoordinatorOptions{
+                    .runtime_directory
+                    = options_.server_runtime_directory,
+                    .client_id = options_.server_client_id,
+                    .session_id = options_.session_id,
+                    .expected_server_epoch = options_.server_connection
+                        ? options_.server_connection->server_epoch
+                        : std::string{},
+                    .method_prefix = "terminal",
+                    .recovery = options_.client_recovery,
+                    .presentation_suspend_supported
+                    = suspend_supported,
+                    .session_stream_supported
+                    = session_stream_supported,
+                    .session_stream_commands_supported
+                    = session_stream_commands_supported,
+                    .session_poll_supported
+                    = session_poll_supported,
+                    .session_client
+                    = remote_session_client_.get(),
+                    .wake_consumer = [this] { wake_window(); },
+                });
+        if (!remote_session_coordinator_->start())
+        {
+            last_init_error_
+                = "Failed to start the remote terminal Session coordinator.";
+            remote_session_coordinator_.reset();
+            remote_session_client_->stop();
+            remote_session_client_.reset();
+            return false;
+        }
+    }
     if (find_active_tab() == nullptr)
     {
         TabController& tabs = active_tab_controller();
@@ -3080,24 +3287,15 @@ bool App::initialize_remote_topology()
         {
             last_init_error_
                 = "Failed to create the shared Session placeholder.";
+            if (remote_session_coordinator_)
+            {
+                remote_session_coordinator_->stop();
+                remote_session_coordinator_.reset();
+            }
+            remote_session_client_->stop();
+            remote_session_client_.reset();
             return false;
         }
-    }
-    remote_session_client_
-        = std::make_unique<RemoteSessionClient>(
-            RemoteSessionClientOptions{
-                .runtime_directory = options_.server_runtime_directory,
-                .client_id = options_.server_client_id,
-                .session_id = options_.session_id,
-                .wake_consumer = [this] { wake_window(); },
-                .recovery = options_.client_recovery,
-            });
-    if (!remote_session_client_->start())
-    {
-        last_init_error_
-            = "Failed to start the shared Session client worker.";
-        remote_session_client_.reset();
-        return false;
     }
     push_toast(0, "Connecting to shared Session...");
     return true;
@@ -3133,9 +3331,31 @@ void App::consume_remote_session_state()
         }
     }
 
+    const bool session_transport_unavailable
+        = published->recovery
+        && published->recovery->phase
+            != ClientConnectionPhase::Connected;
+    if (published->recovery)
+    {
+        if (!session_transport_unavailable)
+        {
+            // Recovery is deliberately quiet: the retained projections
+            // simply resume advancing without a success toast.
+            session_outage_warning_announced_ = false;
+        }
+        else if (published->recovery->sustained_outage
+            && !session_outage_warning_announced_)
+        {
+            session_outage_warning_announced_ = true;
+            push_toast(1,
+                "Shared Session disconnected; reconnecting in the background.");
+        }
+    }
+
     if (published->topology_error)
     {
-        if (!topology_poll_error_announced_)
+        if (!session_transport_unavailable
+            && !topology_poll_error_announced_)
         {
             topology_poll_error_announced_ = true;
             push_toast(1, "Shared topology unavailable: " + *published->topology_error);
@@ -3147,7 +3367,8 @@ void App::consume_remote_session_state()
     }
     if (published->agent_error)
     {
-        if (!agent_poll_error_announced_)
+        if (!session_transport_unavailable
+            && !agent_poll_error_announced_)
         {
             agent_poll_error_announced_ = true;
             push_toast(1, "Shared agents unavailable: " + *published->agent_error);
@@ -4326,6 +4547,135 @@ ServerControlChannel App::server_control_channel() const
     });
 }
 
+PluginReloadSummary App::reload_plugin(std::string_view plugin_id)
+{
+    PluginReloadSummary result;
+    std::vector<PluginHost*> hosts;
+    for (const auto& space : space_controller_.spaces())
+    {
+        for (const auto& tab : space->tab_controller.tabs())
+        {
+            tab->pane_manager.for_each_host(
+                [&](LeafId, IHost& host) {
+                    auto* plugin_host = dynamic_cast<PluginHost*>(&host);
+                    if (plugin_host && plugin_host->plugin_id() == plugin_id)
+                        hosts.push_back(plugin_host);
+                });
+        }
+    }
+    result.matched = static_cast<int>(hosts.size());
+    if (hosts.empty())
+    {
+        result.error = "No local pane is running plugin '"
+            + std::string(plugin_id) + "'.";
+        return result;
+    }
+
+    std::string prepare_error;
+    const auto candidate = hosts.front()->prepare_reload(prepare_error);
+    if (!candidate)
+    {
+        result.error = std::move(prepare_error);
+        return result;
+    }
+    result.generation = std::string(candidate->generation());
+    for (PluginHost* host : hosts)
+    {
+        std::string warning;
+        host->quiesce_for_reload(warning);
+        if (!warning.empty())
+        {
+            if (!result.warning.empty())
+                result.warning += " ";
+            result.warning += warning;
+        }
+    }
+    if (renderer_.impl)
+        renderer_.impl->wait_idle();
+    std::vector<std::pair<PluginHost*, std::shared_ptr<LoadedPlugin>>> changed;
+    for (size_t host_index = 0; host_index < hosts.size(); ++host_index)
+    {
+        PluginHost* host = hosts[host_index];
+        const auto previous = host->loaded_plugin();
+        std::string warning;
+        std::string reload_error;
+        if (!host->reload(candidate, warning, reload_error, true))
+        {
+            result.error = std::move(reload_error);
+            if (!warning.empty())
+            {
+                if (!result.warning.empty())
+                    result.warning += " ";
+                result.warning += warning;
+            }
+            for (auto it = changed.rbegin(); it != changed.rend(); ++it)
+            {
+                std::string rollback_warning;
+                std::string rollback_error;
+                if (!it->first->reload(it->second,
+                        rollback_warning, rollback_error))
+                {
+                    result.error += " Cohort rollback failed: "
+                        + rollback_error;
+                }
+            }
+            for (size_t pending = host_index + 1;
+                 pending < hosts.size(); ++pending)
+            {
+                std::string rollback_warning;
+                std::string rollback_error;
+                const auto unchanged = hosts[pending]->loaded_plugin();
+                if (!hosts[pending]->reload(unchanged,
+                        rollback_warning, rollback_error))
+                {
+                    result.error += " Cohort resume failed: "
+                        + rollback_error;
+                }
+            }
+            result.rolled_back = true;
+            result.reloaded = 0;
+            request_frame();
+            return result;
+        }
+        if (!warning.empty())
+        {
+            if (!result.warning.empty())
+                result.warning += " ";
+            result.warning += warning;
+        }
+        changed.emplace_back(host, previous);
+        ++result.reloaded;
+    }
+    for (const auto& [host, _] : changed)
+    {
+        std::string storage_error;
+        if (!host->finalize_reload_storage(storage_error))
+        {
+            if (!result.warning.empty())
+                result.warning += " ";
+            result.warning += storage_error;
+        }
+    }
+    request_frame();
+    return result;
+}
+
+ControlClientResult App::attached_ui_command(
+    std::string_view method, nlohmann::json params) const
+{
+    if (remote_session_coordinator_)
+    {
+        if (auto streamed
+            = remote_session_coordinator_->request_stream_command(
+                std::string(method), params))
+        {
+            return std::move(*streamed);
+        }
+    }
+    return server_control_channel().request_with_recovery(
+        method, std::move(params));
+}
+
 Result<SpaceId, Error> App::create_space(
     std::string_view raw_name, std::filesystem::path root_directory)
 {
@@ -4522,9 +4872,8 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
             if (!cwd.empty())
                 params["cwd"] = cwd;
         }
-        const auto started
-            = server_control_channel().request_with_recovery(
-                "agent.start", std::move(params));
+        const auto started = attached_ui_command(
+            "agent.start", std::move(params));
         if (!started.ok)
         {
             return Result<std::string, Error>::err(
@@ -4636,9 +4985,8 @@ Result<void, Error> App::restart_agent_runtime(
             { "instance_id",
                 agent.identity.instance_id },
         };
-        const auto restarted
-            = server_control_channel().request_with_recovery(
-                "agent.restart", std::move(params));
+        const auto restarted = attached_ui_command(
+            "agent.restart", std::move(params));
         if (!restarted.ok)
         {
             return Result<void, Error>::err(
@@ -5033,6 +5381,34 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
         return it == agents.end() ? std::nullopt : std::optional(*it);
     };
 
+    if (request.method == "plugin.reload")
+    {
+        if (!request.params.is_object()
+            || !request.params.contains("plugin_id")
+            || !request.params["plugin_id"].is_string()
+            || request.params["plugin_id"].get_ref<const std::string&>().empty())
+        {
+            return ControlMethodResult::error("invalid_params",
+                "plugin.reload requires a non-empty string 'plugin_id'.");
+        }
+        const std::string plugin_id
+            = request.params["plugin_id"].get<std::string>();
+        const auto reloaded = reload_plugin(plugin_id);
+        if (!reloaded.error.empty())
+        {
+            return ControlMethodResult::error(
+                reloaded.rolled_back ? "reload_rolled_back" : "reload_failed",
+                reloaded.error);
+        }
+        return ControlMethodResult::success({
+            { "plugin_id", plugin_id },
+            { "generation", reloaded.generation },
+            { "matched", reloaded.matched },
+            { "reloaded", reloaded.reloaded },
+            { "warning", reloaded.warning },
+        });
+    }
+
     if (request.method == "pane.report_agent_session")
     {
         const auto required_string = [&](const char* name)
@@ -5388,11 +5764,19 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
 void App::shutdown()
 {
     PERF_MEASURE();
+    // The coordinator's batch worker publishes through RemoteSessionClient,
+    // so quiesce it before releasing that client.
+    if (remote_session_coordinator_)
+        remote_session_coordinator_->stop();
     if (remote_session_client_)
     {
         remote_session_client_->stop();
         remote_session_client_.reset();
     }
+    // Stop every coordinator entry against one shared deadline, then retain
+    // the coordinator object until pane registrations have been destroyed.
+    // Stopping registrations one-by-one would turn the per-entry join budget
+    // into an O(pane-count) window shutdown delay.
     if (control_server_)
     {
         control_server_->stop();
@@ -5415,6 +5799,7 @@ void App::shutdown()
 
     space_controller_.shutdown_all();
     render_root_ = RenderNode{};
+    remote_session_coordinator_.reset();
 
     if (chrome_host_)
         chrome_host_->shutdown();

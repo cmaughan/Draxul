@@ -50,6 +50,10 @@ public:
         TextService* text_service = nullptr;
         const float* display_ppi = nullptr;
         std::weak_ptr<void> owner_lifetime;
+        // App-scoped composition seam. Production uses this to supply
+        // coordinator-backed remote terminals while preserving caller-owned
+        // AppOptions::host_factory overrides and direct PaneManager tests.
+        std::function<std::unique_ptr<IHost>(HostKind)> host_factory;
         // False when this manager is a projection of server-authoritative
         // topology. Projection reconciliation can still change the tree,
         // while local split commands and divider drags cannot diverge it.

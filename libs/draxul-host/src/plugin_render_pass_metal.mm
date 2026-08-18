@@ -48,12 +48,17 @@ private:
 
 } // namespace
 
+bool plugin_supports_active_backend(const LoadedPlugin& plugin)
+{
+    return (plugin.api().supported_backends & DRAXUL_PLUGIN_BACKEND_METAL)
+        && plugin.api().render_metal;
+}
+
 std::unique_ptr<IRenderPass> create_plugin_render_pass(
     std::shared_ptr<LoadedPlugin> plugin, void* instance,
     PluginHost& host, std::chrono::steady_clock::time_point started_at)
 {
-    if (!(plugin->api().supported_backends & DRAXUL_PLUGIN_BACKEND_METAL)
-        || !plugin->api().render_metal)
+    if (!plugin_supports_active_backend(*plugin))
         return {};
     return std::make_unique<MetalPluginRenderPass>(
         std::move(plugin), instance, host, started_at);

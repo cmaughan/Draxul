@@ -28,6 +28,23 @@ struct HostPaneDimensions
     glm::ivec2 pixel_size{ 0 };
 };
 
+struct DiagnosticRecoveryReasonCount
+{
+    std::string kind;
+    std::string channel;
+    std::string reason;
+    uint64_t count = 0;
+};
+
+struct DiagnosticTransportFailureCount
+{
+    std::string operation;
+    std::string stage;
+    std::string classification;
+    uint32_t native_code = 0;
+    uint64_t count = 0;
+};
+
 struct DiagnosticPanelState
 {
     bool visible = false;
@@ -50,6 +67,24 @@ struct DiagnosticPanelState
     int server_protocol_major = 0;
     int server_protocol_minor = 0;
     std::vector<std::string> server_capabilities;
+    std::string session_transport_mode;
+    std::string session_connection_phase;
+    uint32_t session_recovery_attempts = 0;
+    std::string session_current_reason;
+    uint64_t session_outage_ms = 0;
+    bool session_sustained_outage = false;
+    uint64_t session_interruption_count = 0;
+    uint64_t session_recovery_count = 0;
+    uint64_t session_reconnect_attempts = 0;
+    uint64_t session_fallbacks = 0;
+    uint64_t session_resyncs = 0;
+    uint64_t session_reason_overflow = 0;
+    std::vector<DiagnosticRecoveryReasonCount> session_reasons;
+    uint64_t control_requests = 0;
+    uint64_t control_connection_attempts = 0;
+    uint64_t control_successful_exchanges = 0;
+    uint64_t control_metadata_refreshes = 0;
+    std::vector<DiagnosticTransportFailureCount> control_failures;
 };
 
 struct PanelLayout
