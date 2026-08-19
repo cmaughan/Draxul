@@ -7,6 +7,27 @@ using draxul::tests::TempDir;
 using namespace draxul::tests::server_kernel;
 
 #ifdef DRAXUL_EXECUTABLE_PATH
+namespace
+{
+
+std::filesystem::path isolated_server_executable(
+    const std::filesystem::path& runtime,
+    std::error_code& error)
+{
+#ifdef _WIN32
+    const auto executable = runtime / "draxul.exe";
+    std::filesystem::copy_file(DRAXUL_EXECUTABLE_PATH,
+        executable, std::filesystem::copy_options::overwrite_existing,
+        error);
+    return executable;
+#else
+    error.clear();
+    return DRAXUL_EXECUTABLE_PATH;
+#endif
+}
+
+} // namespace
+
 #ifdef _WIN32
 bool set_process_suspended(
     uint64_t process_id, bool suspend)
@@ -47,11 +68,13 @@ bool set_process_suspended(
 TEST_CASE("ensure relaunches past a recycled PID and an expired startup marker",
     "[server][process][discovery][recovery]")
 {
-    const std::filesystem::path executable
-        = DRAXUL_EXECUTABLE_PATH;
-
     auto ensure_and_stop
-        = [&executable](const std::filesystem::path& runtime) {
+        = [](const std::filesystem::path& runtime) {
+              std::error_code copy_error;
+              const auto executable = isolated_server_executable(
+                  runtime, copy_error);
+              INFO(copy_error.message());
+              REQUIRE_FALSE(copy_error);
               ServerEnsureOptions options{
                   .runtime_directory = runtime,
                   .executable_path = executable,
@@ -120,8 +143,13 @@ TEST_CASE("force stop uses published process identity when the server is unrespo
     "[server][process][discovery][recovery]")
 {
     TempDir temp("draxul-server-force-stop-wedged");
+    std::error_code copy_error;
+    const auto executable = isolated_server_executable(
+        temp.path, copy_error);
+    INFO(copy_error.message());
+    REQUIRE_FALSE(copy_error);
     auto options = probe_options(temp.path);
-    options.executable_path = DRAXUL_EXECUTABLE_PATH;
+    options.executable_path = executable;
     options.launch_if_missing = true;
     options.timeout = std::chrono::seconds(15);
     const auto running = ServerClient::ensure(options);
@@ -180,7 +208,11 @@ TEST_CASE("force stop uses published process identity when the server is unrespo
 TEST_CASE("ten concurrent clients converge on one detached server epoch", "[server][process]")
 {
     TempDir temp("draxul-server-process");
-    const std::filesystem::path executable = DRAXUL_EXECUTABLE_PATH;
+    std::error_code copy_error;
+    const auto executable = isolated_server_executable(
+        temp.path, copy_error);
+    INFO(copy_error.message());
+    REQUIRE_FALSE(copy_error);
 
     std::vector<std::future<ServerProbeResult>> clients;
     for (int index = 0; index < 10; ++index)

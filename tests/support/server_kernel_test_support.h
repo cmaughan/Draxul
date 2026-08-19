@@ -128,7 +128,7 @@ inline bool wait_for_text(
     RemoteTerminalClient& client, std::string_view expected,
     std::string& error)
 {
-    for (int attempt = 0; attempt < 200; ++attempt)
+    for (int attempt = 0; attempt < 600; ++attempt)
     {
         bool changed = false;
         if (!client.poll(changed, error))

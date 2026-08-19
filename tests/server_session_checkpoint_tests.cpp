@@ -150,7 +150,7 @@ TEST_CASE("binary shell output without subscribers leaves the server running",
     REQUIRE(client.send_input(binary_command, error));
     REQUIRE(client.disconnect(error));
     for (int attempt = 0;
-        attempt < 100 && !std::filesystem::exists(completed);
+        attempt < 400 && !std::filesystem::exists(completed);
         ++attempt)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(25));

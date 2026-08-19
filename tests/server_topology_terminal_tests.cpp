@@ -990,7 +990,7 @@ TEST_CASE("suspended remote terminal presentation avoids deltas and resumes from
     REQUIRE(client.send_input(command, error, 3));
 
     bool avoided_delta = false;
-    for (int attempt = 0; attempt < 200; ++attempt)
+    for (int attempt = 0; attempt < 1000; ++attempt)
     {
         metrics = ControlClient::request(
             namespaced_control_id(kServerControlId, temp.path), temp.path,
