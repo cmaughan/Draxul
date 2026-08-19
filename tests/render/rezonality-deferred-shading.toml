@@ -1,7 +1,7 @@
-name = "rezonality-plugin"
+name = "rezonality-deferred-shading"
 host = "plugin"
 plugin_id = "dev.draxul.rezonality"
-plugin_config_json = '{"project_path":"examples/default","auto_reload":false,"paused":true}'
+plugin_config_json = '{"project_path":"examples/deferred_shading","auto_reload":false}'
 width = 960
 height = 640
 settle_ms = 1500

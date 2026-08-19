@@ -495,6 +495,7 @@ bool should_use_shared_server(const ParsedArgs& args)
         return true;
     }
     return !args.host_kind
+        || *args.host_kind == HostKind::Plugin
         || is_server_owned_shell_host(*args.host_kind);
 }
 

@@ -59,6 +59,10 @@ struct AppOptions
     bool enable_remote_topology = false;
     std::filesystem::path server_runtime_directory;
     std::string server_client_id;
+    // A normal `--plugin` launch creates a server-topology tab before the UI
+    // attaches. Focus that durable tab after its first projection; render-test
+    // launches bypass shared topology and leave this empty.
+    std::string startup_remote_tab_id;
     // Request that the renderer skip vblank waiting so a host can drive
     // continuous refresh (3D scenes, animation-heavy hosts). The host kind
     // doesn't matter — any host that wants to render every frame can opt in.

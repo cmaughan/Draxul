@@ -476,6 +476,16 @@ class TestCommandTests(unittest.TestCase):
         )
         for product in ("megacity", "satview", "scoreview", "rezonality"):
             self.assertIn(f"draxul-test-{product}-shard", ctest_filter[1])
+        self.assertIn("draxul-render-rezonality-pbr-robot", ctest_filter[1])
+        self.assertIn("draxul-render-rezonality-ray-tracer", ctest_filter[1])
+        self.assertIn("draxul-render-rezonality-audio-spectrum", ctest_filter[1])
+        self.assertIn("draxul-render-rezonality-plugin", ctest_filter[1])
+        self.assertIn("draxul-render-rezonality-blend-waves", ctest_filter[1])
+        self.assertIn("draxul-render-rezonality-deferred-shading", ctest_filter[1])
+        self.assertIn(
+            "draxul-render-rezonality-protoplanetary-disc", ctest_filter[1]
+        )
+        self.assertIn("draxul-rezonality-agent-layout", ctest_filter[1])
         self.assertEqual(
             "core + megacity, satview, scoreview, rezonality", label
         )

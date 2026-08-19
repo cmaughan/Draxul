@@ -20,6 +20,16 @@ bool ensure_allocator(VmaAllocator& allocator,
     info.device = static_cast<VkDevice>(frame.device);
     info.pVulkanFunctions = &functions;
     info.vulkanApiVersion = VK_API_VERSION_1_2;
+    VkPhysicalDeviceBufferDeviceAddressFeatures address_features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES
+    };
+    VkPhysicalDeviceFeatures2 features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2
+    };
+    features.pNext = &address_features;
+    vkGetPhysicalDeviceFeatures2(info.physicalDevice, &features);
+    if (address_features.bufferDeviceAddress)
+        info.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
     const VkResult result = vmaCreateAllocator(&info, &allocator);
     if (result != VK_SUCCESS)
     {

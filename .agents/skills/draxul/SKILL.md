@@ -187,9 +187,12 @@ Accepted modes are `city` and `biology`. `show_ui` defaults to true and
 `--host bioview`; the production executable deliberately has no static product
 registration.
 
-Rezonality loads a watched shader project. Use the server mutation form when
-the user needs terminal/editor panes beside it; direct `draxul --plugin` launch
-is a standalone product window and cannot create server-owned shells.
+Rezonality loads a watched shader project. A direct `draxul --plugin` launch
+attaches to the selected server Session, preserves its shell tab, and creates
+and focuses a durable plugin tab, so terminals and splits remain available.
+The explicit server mutations below remain useful when an agent needs exact
+placement or stable created IDs. Only the internal render-test harness uses an
+isolated product window.
 
 ```text
 draxul tab create --space <space-id> --name Rezonality \
@@ -201,9 +204,34 @@ draxul pane split <terminal-pane-id> --direction right \
 ```
 
 `project_path` resolves on each attached UI. `scenegraph` defaults from
-`project.toml`, `auto_reload` defaults to true, and
-`compile_debounce_ms` defaults to 150. Saving watched scene/shader files
-rebuilds automatically; compile failures keep the last valid GPU generation.
+`project.toml`, `auto_reload` defaults to true, `paused` defaults to false, and
+`compile_debounce_ms` defaults to 150. `diagnostics_id` optionally selects a
+stable lowercase JSON filename using letters, digits, `.`, `_`, and `-`.
+Saving watched scene/shader files
+or OBJ/glTF/model texture assets rebuilds automatically; compile and asset
+failures keep the last valid GPU generation. Bundled projects include
+`simple`, `default`, `blend_waves`, `deferred_shading`,
+`protoplanetary_disc`, `pbr_robot`, `ray_tracer`, and
+`audio_spectrum_analysis`. Animated
+projects request approximately 60 FPS only while visible; Space toggles pause,
+left-drag orbits the active camera, and the mouse wheel dollies.
+
+Create an atomic agent workspace with the checked-in generator:
+
+```text
+py plugins/rezonality/tools/rezonality_layout.py --project D:/art/live-project | draxul layout apply - --json
+```
+
+Repeat `--project` for additional views. Capture the returned `editor` and
+`view` aliases. Each generated view has a deterministic `diagnostics_id` and
+publishes bounded JSON below that UI's Rezonality plugin cache at
+`diagnostics/<diagnostics_id>.json`. Inspect `attempted_generation`,
+`active_generation`, `severity`, `path`, `line`, `message`, and
+`last_success_unix_ms`: after a bad edit, the attempted generation advances
+while the active generation remains the last good render; after repair, both
+advance. This is preferable to scraping the rendered pane. Compatible native
+module replacement preserves project identity, elapsed time, pause, and camera
+state.
 
 ## Drive terminal processes
 

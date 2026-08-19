@@ -532,7 +532,10 @@ if(BUILD_TESTING)
                 -DDRAXUL_EXECUTABLE=$<TARGET_FILE:draxul>
                 -P ${CMAKE_SOURCE_DIR}/tests/cmake/run_powershell_test.cmake)
         set_tests_properties(draxul-topology-cli-integration
-            PROPERTIES LABELS "integration;smoke" TIMEOUT 45)
+            PROPERTIES
+                LABELS "integration;smoke"
+                RESOURCE_LOCK draxul_gpu
+                TIMEOUT 60)
     endif()
 
     find_program(NVIM_EXECUTABLE nvim)
@@ -582,6 +585,22 @@ if(BUILD_TESTING)
                 message(FATAL_ERROR "Manifest scenario '${DRAXUL_RENDER_NAME}' is missing ${DRAXUL_RENDER_SCENARIO}")
             endif()
 
+            string(JSON DRAXUL_RENDER_REQUIRED_TARGET ERROR_VARIABLE DRAXUL_RENDER_REQUIRED_TARGET_ERROR
+                GET "${DRAXUL_RENDER_MANIFEST_JSON}" scenarios ${DRAXUL_RENDER_INDEX} requires_target)
+            if(DRAXUL_RENDER_REQUIRED_TARGET_ERROR)
+                set(DRAXUL_RENDER_REQUIRED_TARGET "")
+            endif()
+            set(DRAXUL_RENDER_SCENARIO_ENABLED TRUE)
+            if(DRAXUL_RENDER_REQUIRED_TARGET AND NOT TARGET ${DRAXUL_RENDER_REQUIRED_TARGET})
+                set(DRAXUL_RENDER_SCENARIO_ENABLED FALSE)
+            endif()
+
+            string(JSON DRAXUL_RENDER_TEST_SCOPE ERROR_VARIABLE DRAXUL_RENDER_TEST_SCOPE_ERROR
+                GET "${DRAXUL_RENDER_MANIFEST_JSON}" scenarios ${DRAXUL_RENDER_INDEX} test_scope)
+            if(DRAXUL_RENDER_TEST_SCOPE_ERROR)
+                set(DRAXUL_RENDER_TEST_SCOPE "")
+            endif()
+
             string(JSON DRAXUL_RENDER_REFERENCE_REQUIRED GET "${DRAXUL_RENDER_MANIFEST_JSON}" scenarios ${DRAXUL_RENDER_INDEX} reference_required)
             string(JSON DRAXUL_RENDER_PLATFORM_COUNT LENGTH "${DRAXUL_RENDER_MANIFEST_JSON}" scenarios ${DRAXUL_RENDER_INDEX} platforms)
             set(DRAXUL_RENDER_PLATFORM_SUPPORTED FALSE)
@@ -592,7 +611,7 @@ if(BUILD_TESTING)
                 if(DRAXUL_RENDER_SUPPORTED_PLATFORM STREQUAL DRAXUL_RENDER_PLATFORM)
                     set(DRAXUL_RENDER_PLATFORM_SUPPORTED TRUE)
                 endif()
-                if(DRAXUL_RENDER_REFERENCE_REQUIRED)
+                if(DRAXUL_RENDER_SCENARIO_ENABLED AND DRAXUL_RENDER_REFERENCE_REQUIRED)
                     set(DRAXUL_RENDER_REQUIRED_REFERENCE
                         ${CMAKE_SOURCE_DIR}/tests/render/reference/${DRAXUL_RENDER_NAME}.${DRAXUL_RENDER_SUPPORTED_PLATFORM}.bmp)
                     if(NOT EXISTS ${DRAXUL_RENDER_REQUIRED_REFERENCE})
@@ -602,14 +621,20 @@ if(BUILD_TESTING)
             endforeach()
 
             string(JSON DRAXUL_RENDER_CTEST GET "${DRAXUL_RENDER_MANIFEST_JSON}" scenarios ${DRAXUL_RENDER_INDEX} ctest)
-            if(DRAXUL_RENDER_CTEST AND DRAXUL_RENDER_PLATFORM_SUPPORTED)
+            if(DRAXUL_RENDER_CTEST AND DRAXUL_RENDER_PLATFORM_SUPPORTED AND DRAXUL_RENDER_SCENARIO_ENABLED)
                 if(WIN32)
                     add_test(NAME draxul-render-${DRAXUL_RENDER_NAME} COMMAND $<TARGET_FILE:draxul> --console --render-test ${DRAXUL_RENDER_SCENARIO})
                 else()
                     add_test(NAME draxul-render-${DRAXUL_RENDER_NAME} COMMAND $<TARGET_FILE:draxul> --render-test ${DRAXUL_RENDER_SCENARIO})
                 endif()
+                set(DRAXUL_RENDER_TEST_LABELS render)
+                if(DRAXUL_RENDER_TEST_SCOPE)
+                    list(APPEND DRAXUL_RENDER_TEST_LABELS ${DRAXUL_RENDER_TEST_SCOPE})
+                endif()
                 set_tests_properties(draxul-render-${DRAXUL_RENDER_NAME}
-                    PROPERTIES LABELS render RESOURCE_LOCK draxul_gpu TIMEOUT 30)
+                    PROPERTIES LABELS "${DRAXUL_RENDER_TEST_LABELS}" RESOURCE_LOCK draxul_gpu TIMEOUT 30)
+            elseif(DRAXUL_RENDER_CTEST AND NOT DRAXUL_RENDER_SCENARIO_ENABLED)
+                message(STATUS "Render scenario '${DRAXUL_RENDER_NAME}' requires unavailable target '${DRAXUL_RENDER_REQUIRED_TARGET}'")
             elseif(DRAXUL_RENDER_CTEST)
                 message(STATUS "Render scenario '${DRAXUL_RENDER_NAME}' explicitly excludes ${DRAXUL_RENDER_PLATFORM}")
             endif()

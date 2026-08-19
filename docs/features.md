@@ -19,7 +19,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | BioView | `--plugin dev.draxul.megacity` with `{"mode":"biology"}` | Biology mode of the same dynamic plugin: modules become tissues, classes become cells, and dependencies become blood vessels; semantic model, procedural geometry, UI, assets, and Vulkan/Metal renderer are plugin-owned |
 | ScoreView | `--plugin dev.draxul.scoreview` at launch or on pane/tab commands | Dynamically loaded music score viewer + adaptive learning runner ([docs/features/scoreview.md](features/scoreview.md)); launch JSON accepts `source`, `mode`, and `background_playback` |
 | SatView | `--plugin dev.draxul.satview` at launch or on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and plugin-owned ImGui controls. Full narrative: [docs/features/satview.md](features/satview.md) |
-| Rezonality | `--plugin dev.draxul.rezonality` at launch or on pane/tab commands | Fault-tolerant Vulkan/Metal live shader viewer ported from VkLive. It loads the bundled `simple` project or a configured project directory, watches external edits, compiles GLSL off the UI thread, and retains the last valid GPU generation when an edit fails |
+| Rezonality | `--plugin dev.draxul.rezonality` at launch or on pane/tab commands | Fault-tolerant Vulkan/Metal live graphics viewer ported from VkLive. Direct launch creates and focuses a server-topology plugin tab while preserving terminal access. It watches external edits, compiles complete GLSL candidates off the UI thread, renders named surfaces plus OBJ/glTF models with cameras, PBR/HDR materials, and the Cornell-box ray project through Vulkan ray shader groups or a native Metal kernel, retains the last valid GPU generation when a candidate fails, and publishes bounded agent-readable generation diagnostics |
 
 Shell Session splits use the server's platform default shell (Zsh on macOS,
 PowerShell on Windows). Explicit self-contained product windows advertise only
@@ -150,6 +150,14 @@ active render pass and a color-attachment-optimal target; Metal callbacks begin
 with no encoder and a load/store continuation descriptor. Plugins end every pass
 or encoder they create, restore the documented continuation state, and never
 submit, present, retain, release, or destroy borrowed host objects.
+
+On Vulkan, Draxul enables buffer-device-address support when the selected
+device advertises it, and enables the acceleration-structure and ray-pipeline
+extension/feature set only when the complete set is available. This lets a
+trusted plugin record native ray work through the existing borrowed frame
+without making ray tracing a startup requirement for Draxul or raster plugins.
+Unsupported devices keep the normal raster path and let the plugin publish an
+actionable capability status.
 
 Bundled IDs currently include `dev.draxul.satview`, `dev.draxul.scoreview`,
 `dev.draxul.rezonality`, and the ABI example `dev.draxul.spinning-triangle`.
@@ -906,7 +914,7 @@ and `draxul integration status` do not pass through the launch-option parser.
 - `do run --vs` falls back to the Visual Studio generator if you want the existing `build/` workflow
 - `do run --ninja` forces the Ninja local-iteration path explicitly
 - `do test` builds `draxul-tests-core` and its helper/dependency targets in the selected `do.py` cache, then runs the core, app, Markdown/Kanban, and Python workflow unit entries through CTest with bounded parallelism. It does not launch the app or run smoke/render snapshots
-- Product unit suites are opt-in and additive: `do test --megacity`, `--satview`, or `--scoreview` adds only that product's aggregate and CTest entries; `--products` adds all three for shared plugin SDK/support/renderer changes; `--all` builds the historical `draxul-tests` aggregate and runs the complete unit inventory
+- Product suites are opt-in and additive: `do test --megacity`, `--satview`, `--scoreview`, or `--rezonality` adds only that product's aggregate and CTest entries; `--products` adds all four for shared plugin SDK/support/renderer changes; `--all` builds the historical `draxul-tests` aggregate and runs the complete unit inventory
 - `do clean` recursively removes repository-root build directories named `build/` or `build-*`, covering Visual Studio, Ninja, tooling, and custom build trees. It succeeds when none exist and preserves deploy packages, render outputs and references, databases, source files, and similarly named regular files
 - `do hygiene` fails (exit 1) if a forbidden artifact is tracked — OS/coverage temps (`.DS_Store`, partial-transfer `.!*`, `*.profraw`, `*.profdata`) anywhere, or `key.txt` / `NUL.obj` / `megacity-linux-drivers-mesh.bmp` / stray `*.log`, `*.obj`, `*.bmp` at the repo root — or if the feature docs have duplicated (`docs/features.md` must exist and root `FEATURES.md` must stay a short pointer, not a second inventory). Legitimate nested assets (mesh `*.obj`, render-reference `*.bmp`) are allowed
 - `do kanban-report` reads `kanban/` as the authoritative tracker and prints lane counts, flags `kanban/done` cards that still carry unchecked task boxes, and lists fully-ticked `kanban/pending` cards as move candidates. It is strictly read-only — it never edits, ticks, or moves a card
@@ -929,7 +937,7 @@ and `draxul integration status` do not pass through the launch-option parser.
 | `DRAXUL_ENABLE_MEGACITY` | ON | Builds and stages `dev.draxul.megacity` with its private City/Biology implementation, tests, shaders, and assets; the production executable has no static registration |
 | `DRAXUL_ENABLE_SATVIEW` | ON | Builds and stages the `dev.draxul.satview` DLL/dylib plus its private product libraries and assets; the executable has no static SatView host fallback |
 | `DRAXUL_ENABLE_SCOREVIEW` | ON on Windows/macOS | Builds and stages `dev.draxul.scoreview`, its private runtime libraries, Verovio, fonts, and soundfonts; the executable has no static ScoreView fallback |
-| `DRAXUL_ENABLE_REZONALITY` | ON | Builds and stages the `dev.draxul.rezonality` DLL/dylib, preserved platform shader compiler, bundled simple project, live-edit runtime, and Vulkan/Metal single-pass renderer |
+| `DRAXUL_ENABLE_REZONALITY` | ON | Builds and stages the `dev.draxul.rezonality` DLL/dylib, preserved platform shader compiler, bundled simple/default/waves/deferred/disc/PBR/Cornell-ray projects, live-edit runtime, Assimp model loader, and Vulkan/Metal raster and ray renderers |
 | `DRAXUL_MEGACITY_PLUGIN_DIR` | `plugins/megacity` | MegaCity/BioView submodule mount path; an enabled but absent mount is skipped |
 | `DRAXUL_SATVIEW_PLUGIN_DIR` | `plugins/satview` | SatView submodule mount path; an enabled but absent mount is skipped |
 | `DRAXUL_SCOREVIEW_PLUGIN_DIR` | `plugins/scoreview` | ScoreView submodule mount path; an enabled but absent mount is skipped |

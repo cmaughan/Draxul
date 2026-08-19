@@ -116,6 +116,28 @@ try {
         throw 'The isolated Draxul server did not publish a ready endpoint.'
     }
 
+    Invoke-Draxul @(
+        '--console', '--smoke-test',
+        '--plugin', 'dev.draxul.spinning-triangle',
+        '--plugin-config', '{"paused":true}',
+        '--server-runtime-dir', $runtime) | Out-Null
+    $launchSpaces = @(Invoke-Draxul @(
+        'space', 'list', '--json', '--server-runtime-dir', $runtime) |
+        ConvertFrom-Json)
+    $launchTabs = @(Invoke-Draxul @(
+        'tab', 'list', '--space', $launchSpaces[0].id, '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json)
+    $launchPanes = @(Invoke-Draxul @(
+        'pane', 'list', '--space', $launchSpaces[0].id, '--json',
+        '--server-runtime-dir', $runtime) | ConvertFrom-Json)
+    if (-not ($launchPanes | Where-Object { $_.terminal_id }) `
+        -or -not ($launchPanes | Where-Object {
+            $_.client_plugin_id -eq 'dev.draxul.spinning-triangle'
+        }) `
+        -or $launchTabs.Count -lt 2) {
+        throw 'A direct plugin launch did not retain a shell tab and create a durable plugin tab.'
+    }
+
     $before = @(Invoke-Draxul @(
         'space', 'list', '--json', '--server-runtime-dir', $runtime) |
         ConvertFrom-Json)

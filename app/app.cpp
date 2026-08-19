@@ -3807,6 +3807,25 @@ bool App::apply_remote_topology_tabs(
 
     topology_projection_.prune_panes(live_pane_ids);
 
+    if (!options_.startup_remote_tab_id.empty())
+    {
+        const auto startup_tab = topology_projection_.local_tab(
+            options_.startup_remote_tab_id);
+        if (startup_tab)
+        {
+            if (space_controller_.activate_space(startup_tab->first))
+            {
+                if (Space* startup_space
+                    = space_controller_.find_space(startup_tab->first))
+                {
+                    startup_space->tab_controller.activate_tab(
+                        startup_tab->second);
+                }
+            }
+            options_.startup_remote_tab_id.clear();
+        }
+    }
+
     refresh_app_shell_layout();
     request_frame();
     if (!first_error.empty())

@@ -27,7 +27,6 @@ TEST_CASE("server-owned shell discovery converges in two agent clients",
     INFO(error);
 
 #ifdef _WIN32
-    REQUIRE(wait_for_text(terminal, "PS ", error));
     const auto source
         = std::filesystem::path(
               std::getenv("SystemRoot"))

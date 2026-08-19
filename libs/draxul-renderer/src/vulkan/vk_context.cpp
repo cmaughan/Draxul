@@ -5,6 +5,11 @@
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 
+#include <algorithm>
+#include <array>
+#include <cstring>
+#include <vector>
+
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
@@ -94,6 +99,27 @@ void destroy_swapchain_info(VkDevice device, VmaAllocator allocator, SwapchainIn
     swapchain = {};
 }
 
+bool supports_device_extensions(VkPhysicalDevice physical_device,
+    const std::array<const char*, 3>& required)
+{
+    uint32_t count = 0;
+    if (vkEnumerateDeviceExtensionProperties(
+            physical_device, nullptr, &count, nullptr)
+        != VK_SUCCESS)
+        return false;
+    std::vector<VkExtensionProperties> available(count);
+    if (vkEnumerateDeviceExtensionProperties(physical_device, nullptr,
+            &count, available.data()) != VK_SUCCESS)
+        return false;
+    return std::all_of(required.begin(), required.end(),
+        [&available](const char* name) {
+            return std::any_of(available.begin(), available.end(),
+                [name](const VkExtensionProperties& extension) {
+                    return std::strcmp(extension.extensionName, name) == 0;
+                });
+        });
+}
+
 } // namespace
 
 bool VkContext::initialize(SDL_Window* window)
@@ -148,7 +174,61 @@ bool VkContext::initialize(SDL_Window* window)
     vkb_phys.features.samplerAnisotropy = supported_features.samplerAnisotropy;
     vkb_phys.features.fillModeNonSolid = supported_features.fillModeNonSolid;
 
+    VkPhysicalDeviceBufferDeviceAddressFeatures supported_address{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES
+    };
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR supported_acceleration{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR
+    };
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR supported_ray_pipeline{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR
+    };
+    supported_address.pNext = &supported_acceleration;
+    supported_acceleration.pNext = &supported_ray_pipeline;
+    VkPhysicalDeviceFeatures2 extended_features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2
+    };
+    extended_features.pNext = &supported_address;
+    vkGetPhysicalDeviceFeatures2(physical_device_, &extended_features);
+
+    VkPhysicalDeviceBufferDeviceAddressFeatures enabled_address{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES
+    };
+    enabled_address.bufferDeviceAddress
+        = supported_address.bufferDeviceAddress;
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR enabled_acceleration{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR
+    };
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR enabled_ray_pipeline{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR
+    };
+    constexpr std::array ray_extensions{
+        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+        VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+        VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME
+    };
+    const bool enable_ray_tracing = enabled_address.bufferDeviceAddress
+        && supported_acceleration.accelerationStructure
+        && supported_ray_pipeline.rayTracingPipeline
+        && supports_device_extensions(physical_device_, ray_extensions);
+    if (enable_ray_tracing)
+    {
+        for (const char* extension : ray_extensions)
+            vkb_phys.enable_extension_if_present(extension);
+        enabled_acceleration.accelerationStructure = VK_TRUE;
+        enabled_ray_pipeline.rayTracingPipeline = VK_TRUE;
+        DRAXUL_LOG_INFO(LogCategory::Renderer,
+            "Vulkan ray-tracing pipeline support enabled");
+    }
+
     vkb::DeviceBuilder device_builder(vkb_phys);
+    if (enabled_address.bufferDeviceAddress)
+        device_builder.add_pNext(&enabled_address);
+    if (enable_ray_tracing)
+    {
+        device_builder.add_pNext(&enabled_acceleration);
+        device_builder.add_pNext(&enabled_ray_pipeline);
+    }
     auto dev_ret = device_builder.build();
     if (!dev_ret)
     {
