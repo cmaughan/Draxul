@@ -20,6 +20,7 @@ under `plugins/` and loaded at runtime over the C ABI:
 - **[draxul-megacity](https://github.com/cmaughan/draxul-megacity)** — the interactive city view of a codebase: a living 3D city where buildings represent code, with live performance and coverage overlays. The city is a human metaphor for the code an agent is building. (Richard Wettel tried this back in 2007 — https://wettel.github.io/codecity.html — we are giving it another go, plus a BioView organism mode.)
 - **[draxul-satview](https://github.com/cmaughan/draxul-satview)** — satellite and sky visualization: SGP4-propagated CelesTrak catalogs on a 3D globe, Hipparcos starfield, ephemeris Moon/Sun/planets, HDR atmosphere.
 - **[draxul-scoreview](https://github.com/cmaughan/draxul-scoreview)** — MusicXML piano practice: Verovio notation, MIDI and microphone judging, and an adaptive practice stream.
+- **[draxul-rezonality](https://github.com/cmaughan/draxul-rezonality)** — fault-tolerant live Vulkan/Metal graphics: watched shaders and scenegraphs, multipass surfaces, OBJ/glTF models, cameras, PBR materials, and HDR environments rendered inside a pane.
 
 **None of the code has been human-written.** Draxul is 100% agentically coded using multiple agents on Claude, Codex, and Gemini. Code reviews, feature updates, and planning are managed by agents with a human arbiter. A part-time project, built in less than 3 weeks at time of writing — several person-years of equivalent effort.
 

@@ -206,9 +206,11 @@ draxul pane split <terminal-pane-id> --direction right \
 `project_path` resolves on each attached UI. `scenegraph` defaults from
 `project.toml`, `auto_reload` defaults to true, `paused` defaults to false, and
 `compile_debounce_ms` defaults to 150. Saving watched scene/shader files
-rebuilds automatically; compile failures keep the last valid GPU generation.
-Animated projects request approximately 60 FPS only while visible; Space
-toggles pause.
+or OBJ/glTF/model texture assets rebuilds automatically; compile and asset
+failures keep the last valid GPU generation. Bundled projects include
+`examples/pbr_robot` for textured PBR geometry and an HDR environment. Animated
+projects request approximately 60 FPS only while visible; Space toggles pause,
+left-drag orbits the active camera, and the mouse wheel dollies.
 
 ## Drive terminal processes
 
