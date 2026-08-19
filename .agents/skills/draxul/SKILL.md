@@ -211,7 +211,7 @@ Saving watched scene/shader files
 or OBJ/glTF/model texture assets rebuilds automatically; compile and asset
 failures keep the last valid GPU generation. Bundled projects include
 `simple`, `default`, `blend_waves`, `deferred_shading`,
-`protoplanetary_disc`, `pbr_robot`, `ray_tracer`, and
+`protoplanetary_disc`, `pbr_robot`, `robot2`, `ray_tracer`, and
 `audio_spectrum_analysis`. Animated
 projects request approximately 60 FPS only while visible; Space toggles pause,
 left-drag orbits the active camera, and the mouse wheel dollies.
