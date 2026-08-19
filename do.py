@@ -549,6 +549,11 @@ def _test_scope_selection(
         elif scope == "scoreview":
             patterns.append(r"draxul-test-scoreview-runtime-shard-[0-9]+")
         elif scope == "rezonality":
+            patterns.append(r"draxul-rezonality-agent-layout")
+            patterns.append(r"draxul-render-rezonality-plugin")
+            patterns.append(r"draxul-render-rezonality-blend-waves")
+            patterns.append(r"draxul-render-rezonality-deferred-shading")
+            patterns.append(r"draxul-render-rezonality-protoplanetary-disc")
             patterns.append(r"draxul-render-rezonality-pbr-robot")
             patterns.append(r"draxul-render-rezonality-ray-tracer")
             patterns.append(r"draxul-render-rezonality-audio-spectrum")
