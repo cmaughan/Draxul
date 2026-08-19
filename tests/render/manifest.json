@@ -75,7 +75,7 @@
     },
     {
       "name": "rezonality-plugin",
-      "purpose": "Fault-tolerant Rezonality single-pass project compiled at runtime",
+      "purpose": "Rezonality named color/depth surfaces and final viewport composition",
       "status": "regression",
       "platforms": ["windows"],
       "ctest": true,
@@ -84,6 +84,42 @@
       "blessall": true,
       "compare_command": "rezonalityplugin",
       "bless_command": "blessrezonalityplugin"
+    },
+    {
+      "name": "rezonality-blend-waves",
+      "purpose": "Rezonality ordered offscreen pass and sampled-surface composition",
+      "status": "regression",
+      "platforms": ["windows"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "rezonalitywaves",
+      "bless_command": "blessrezonalitywaves"
+    },
+    {
+      "name": "rezonality-deferred-shading",
+      "purpose": "Rezonality MRT, float surfaces, depth, and three-sampler composition",
+      "status": "regression",
+      "platforms": ["windows"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "rezonalitydeferred",
+      "bless_command": "blessrezonalitydeferred"
+    },
+    {
+      "name": "rezonality-protoplanetary-disc",
+      "purpose": "Rezonality float offscreen target and protoplanetary-disc composition",
+      "status": "regression",
+      "platforms": ["windows"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "rezonalitydisc",
+      "bless_command": "blessrezonalitydisc"
     },
     {
       "name": "satview-plugin",

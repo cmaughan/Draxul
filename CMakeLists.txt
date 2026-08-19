@@ -532,7 +532,10 @@ if(BUILD_TESTING)
                 -DDRAXUL_EXECUTABLE=$<TARGET_FILE:draxul>
                 -P ${CMAKE_SOURCE_DIR}/tests/cmake/run_powershell_test.cmake)
         set_tests_properties(draxul-topology-cli-integration
-            PROPERTIES LABELS "integration;smoke" TIMEOUT 45)
+            PROPERTIES
+                LABELS "integration;smoke"
+                RESOURCE_LOCK draxul_gpu
+                TIMEOUT 60)
     endif()
 
     find_program(NVIM_EXECUTABLE nvim)

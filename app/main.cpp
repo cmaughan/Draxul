@@ -250,6 +250,61 @@ int report_server_startup_failure(
     return 1;
 }
 
+std::optional<std::string> create_plugin_launch_tab(
+    const std::filesystem::path& runtime_directory,
+    const std::string& client_id, const std::string& session_id,
+    const std::shared_ptr<draxul::ClientRecoveryState>& recovery,
+    std::string_view plugin_id, std::string_view plugin_config_json,
+    std::string_view display_name, std::string& error)
+{
+    draxul::TopologyClient client({
+        .runtime_directory = runtime_directory,
+        .client_id = client_id,
+        .session_id = session_id,
+        .recovery = recovery,
+    });
+    if (!client.refresh(error))
+        return std::nullopt;
+    if (client.snapshot().spaces.empty())
+    {
+        error = "The server Session has no Space for the plugin tab.";
+        return std::nullopt;
+    }
+
+    draxul::TopologyCommand command{
+        .client_id = client_id,
+        .command_id = draxul::make_server_client_id(),
+        .kind = draxul::TopologyCommandKind::CreateTab,
+        .space_id = client.snapshot().spaces.front().space_id,
+        .name = display_name.empty() ? std::string(plugin_id)
+                                     : std::string(display_name),
+        .pane_domain = draxul::TopologyPaneDomain::ClientLocal,
+        .client_host_kind = "plugin",
+        .client_plugin_id = std::string(plugin_id),
+        .client_plugin_config_json = plugin_config_json.empty()
+            ? "{}"
+            : std::string(plugin_config_json),
+    };
+    draxul::TopologyCommandResult result;
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        command.expected_revision = client.snapshot().revision;
+        if (client.execute(command, result, error))
+        {
+            if (!result.applied || result.created_id.empty())
+            {
+                error = "The server did not create the requested plugin tab.";
+                return std::nullopt;
+            }
+            return result.created_id;
+        }
+        if (client.last_error_code() != "revision_conflict"
+            || !client.refresh(error))
+            break;
+    }
+    return std::nullopt;
+}
+
 int run_server_mode(const draxul::ParsedArgs& parsed,
     const std::filesystem::path& current_executable)
 {
@@ -752,6 +807,7 @@ static int draxul_main(std::vector<std::string> args)
     std::optional<draxul::ServerWelcome> server_connection;
     std::filesystem::path connected_server_runtime;
     std::string connected_server_client_id;
+    std::string launched_plugin_tab_id;
     std::shared_ptr<draxul::ClientRecoveryState>
         connected_client_recovery;
     const bool fake_remote_terminal
@@ -905,6 +961,16 @@ static int draxul_main(std::vector<std::string> args)
                 "The running Draxul server does not support "
                 "managed Agents. Stop it and retry.");
         }
+        if (!parsed.plugin_id.empty()
+            && std::ranges::find(
+                   server_result.welcome->capabilities,
+                   "client-plugin-pane-v1")
+                == server_result.welcome->capabilities.end())
+        {
+            return report_server_startup_failure(
+                "The running Draxul server does not support plugin panes. "
+                "Stop it and retry with this Draxul build.");
+        }
         server_connection = std::move(server_result.welcome);
         connected_client_recovery->set_server_identity(
             server_connection->server_epoch,
@@ -984,6 +1050,26 @@ static int draxul_main(std::vector<std::string> args)
                     + create_error);
             }
         }
+
+        if (!parsed.plugin_id.empty())
+        {
+            const auto* manifest = plugin_manager->find(parsed.plugin_id);
+            std::string launch_error;
+            auto created = create_plugin_launch_tab(
+                connected_server_runtime, connected_server_client_id,
+                parsed.session_id, connected_client_recovery,
+                parsed.plugin_id, parsed.plugin_config_json,
+                manifest ? std::string_view(manifest->name)
+                         : std::string_view(parsed.plugin_id),
+                launch_error);
+            if (!created)
+            {
+                return report_server_startup_failure(
+                    "Could not create the plugin tab in the shared Session: "
+                    + launch_error);
+            }
+            launched_plugin_tab_id = std::move(*created);
+        }
     }
 
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
@@ -994,6 +1080,7 @@ static int draxul_main(std::vector<std::string> args)
     options.enable_remote_topology = real_remote_terminal;
     options.server_runtime_directory = connected_server_runtime;
     options.server_client_id = connected_server_client_id;
+    options.startup_remote_tab_id = launched_plugin_tab_id;
     if (shared_server)
     {
         options.client_recovery = connected_client_recovery;

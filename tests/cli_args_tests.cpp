@@ -428,7 +428,7 @@ TEST_CASE("cli: --plugin launches the plugin host with optional config",
     REQUIRE_FALSE(plugin.error.has_value());
     REQUIRE(plugin.args.plugin_id == "dev.draxul.scoreview");
     REQUIRE(plugin.args.host_kind == HostKind::Plugin);
-    REQUIRE_FALSE(should_use_shared_server(plugin.args));
+    REQUIRE(should_use_shared_server(plugin.args));
 
     auto configured = parse({ "--plugin", "dev.draxul.scoreview",
         "--plugin-config", R"({"source":"a.musicxml","mode":"paged"})" });
