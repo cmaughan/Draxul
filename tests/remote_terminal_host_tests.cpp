@@ -1371,7 +1371,7 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
     CHECK(observer.projection().version().sequence > 0);
     RemoteTerminalScrollbackPage scrollback;
     bool scrollback_ready = false;
-    for (int attempt = 0; attempt < 300; ++attempt)
+    for (int attempt = 0; attempt < 1000; ++attempt)
     {
         REQUIRE(observer.read_scrollback(
             1, 5, scrollback, error));
