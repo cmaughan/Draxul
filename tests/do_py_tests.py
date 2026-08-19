@@ -476,6 +476,7 @@ class TestCommandTests(unittest.TestCase):
         )
         for product in ("megacity", "satview", "scoreview", "rezonality"):
             self.assertIn(f"draxul-test-{product}-shard", ctest_filter[1])
+        self.assertIn("draxul-render-rezonality-pbr-robot", ctest_filter[1])
         self.assertEqual(
             "core + megacity, satview, scoreview, rezonality", label
         )

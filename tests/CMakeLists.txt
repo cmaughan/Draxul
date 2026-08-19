@@ -493,8 +493,8 @@ if(TARGET draxul-test-scoreview AND TARGET draxul-test-scoreview-runtime)
         draxul-test-scoreview-runtime
     )
 endif()
+add_custom_target(draxul-tests-rezonality)
 if(TARGET draxul-test-rezonality)
-    add_custom_target(draxul-tests-rezonality)
     add_dependencies(draxul-tests-rezonality draxul-test-rezonality)
 endif()
 

@@ -548,6 +548,8 @@ def _test_scope_selection(
             patterns.append(r"draxul-satview-catalog-py-tests")
         elif scope == "scoreview":
             patterns.append(r"draxul-test-scoreview-runtime-shard-[0-9]+")
+        elif scope == "rezonality":
+            patterns.append(r"draxul-render-rezonality-pbr-robot")
 
     scope_label = "core" if not product_scopes else "core + " + ", ".join(
         scope for scope in _TEST_PRODUCT_SCOPES if scope in product_scopes
@@ -762,7 +764,7 @@ def scenario_path(root: pathlib.Path, name: str) -> pathlib.Path:
     return root / "tests" / "render" / f"{name}.toml"
 
 
-RENDER_SCENARIO_FIELDS = {
+RENDER_SCENARIO_REQUIRED_FIELDS = {
     "name",
     "purpose",
     "status",
@@ -774,6 +776,13 @@ RENDER_SCENARIO_FIELDS = {
     "compare_command",
     "bless_command",
 }
+RENDER_SCENARIO_OPTIONAL_FIELDS = {
+    "requires_target",
+    "test_scope",
+}
+RENDER_SCENARIO_FIELDS = (
+    RENDER_SCENARIO_REQUIRED_FIELDS | RENDER_SCENARIO_OPTIONAL_FIELDS
+)
 
 
 def load_render_manifest(root: pathlib.Path, *, validate_files: bool = True) -> list[dict]:
@@ -795,7 +804,7 @@ def load_render_manifest(root: pathlib.Path, *, validate_files: bool = True) -> 
         if not isinstance(scenario, dict):
             raise ValueError(f"render scenario #{index} must be an object")
         unknown = set(scenario) - RENDER_SCENARIO_FIELDS
-        missing = RENDER_SCENARIO_FIELDS - set(scenario)
+        missing = RENDER_SCENARIO_REQUIRED_FIELDS - set(scenario)
         if unknown or missing:
             raise ValueError(
                 f"render scenario #{index} fields invalid; unknown={sorted(unknown)}, missing={sorted(missing)}"
@@ -817,6 +826,13 @@ def load_render_manifest(root: pathlib.Path, *, validate_files: bool = True) -> 
         for field in ("purpose", "compare_command", "bless_command"):
             if not isinstance(scenario[field], str):
                 raise ValueError(f"render scenario {name} field {field} must be a string")
+        for field in RENDER_SCENARIO_OPTIONAL_FIELDS:
+            if field in scenario and (
+                not isinstance(scenario[field], str) or not scenario[field]
+            ):
+                raise ValueError(
+                    f"render scenario {name} field {field} must be a non-empty string"
+                )
         if scenario["ctest"] and not scenario["reference_required"]:
             raise ValueError(f"CTest render scenario {name} must require references")
         if scenario["renderall"] != scenario["ctest"]:
