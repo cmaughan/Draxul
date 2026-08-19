@@ -478,6 +478,7 @@ class TestCommandTests(unittest.TestCase):
             self.assertIn(f"draxul-test-{product}-shard", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-pbr-robot", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-ray-tracer", ctest_filter[1])
+        self.assertIn("draxul-render-rezonality-audio-spectrum", ctest_filter[1])
         self.assertEqual(
             "core + megacity, satview, scoreview, rezonality", label
         )

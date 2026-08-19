@@ -158,6 +158,20 @@
       "bless_command": "blessrezonalityray"
     },
     {
+      "name": "rezonality-audio-spectrum",
+      "purpose": "Rezonality deterministic stereo waveform and FFT texture upload",
+      "status": "regression",
+      "requires_target": "draxul-rezonality-plugin",
+      "test_scope": "rezonality",
+      "platforms": ["windows"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "rezonalityaudio",
+      "bless_command": "blessrezonalityaudio"
+    },
+    {
       "name": "satview-plugin",
       "purpose": "Dynamic SatView GPU pane composition at a fixed simulation angle",
       "status": "developer",
