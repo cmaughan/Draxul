@@ -1,0 +1,11 @@
+name = "rezonality-ray-tracer"
+host = "plugin"
+plugin_id = "dev.draxul.rezonality"
+plugin_config_json = '{"project_path":"examples/ray_tracer","auto_reload":false,"paused":true}'
+width = 960
+height = 640
+settle_ms = 5000
+timeout_ms = 60000
+pixel_tolerance = 4
+changed_pixels_threshold_pct = 0.05
+commands = [""]

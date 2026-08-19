@@ -550,6 +550,7 @@ def _test_scope_selection(
             patterns.append(r"draxul-test-scoreview-runtime-shard-[0-9]+")
         elif scope == "rezonality":
             patterns.append(r"draxul-render-rezonality-pbr-robot")
+            patterns.append(r"draxul-render-rezonality-ray-tracer")
 
     scope_label = "core" if not product_scopes else "core + " + ", ".join(
         scope for scope in _TEST_PRODUCT_SCOPES if scope in product_scopes

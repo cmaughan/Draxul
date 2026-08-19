@@ -144,6 +144,20 @@
       "bless_command": "blessrezonalityrobot"
     },
     {
+      "name": "rezonality-ray-tracer",
+      "purpose": "Rezonality Cornell-box acceleration structures and native ray dispatch",
+      "status": "regression",
+      "requires_target": "draxul-rezonality-plugin",
+      "test_scope": "rezonality",
+      "platforms": ["windows"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "rezonalityray",
+      "bless_command": "blessrezonalityray"
+    },
+    {
       "name": "satview-plugin",
       "purpose": "Dynamic SatView GPU pane composition at a fixed simulation angle",
       "status": "developer",
