@@ -30,6 +30,7 @@
 #include <windows.h>
 #else
 #include <sys/stat.h>
+#include <sys/un.h>
 #endif
 
 using namespace draxul;
@@ -39,6 +40,7 @@ TEST_CASE("async framed stream exchanges frames and close interrupts a reader",
     "[control][transport][session-stream]")
 {
     const auto runtime = unique_control_runtime_directory();
+    REQUIRE(std::filesystem::create_directories(runtime));
     AsyncFrameStreamListener listener;
     AsyncFrameStreamError error;
     REQUIRE(listener.start("framed-stream-test", runtime, error));
@@ -83,6 +85,36 @@ TEST_CASE("async framed stream exchanges frames and close interrupts a reader",
     std::error_code ignored;
     std::filesystem::remove_all(runtime, ignored);
 }
+
+#ifndef _WIN32
+TEST_CASE("async framed stream keeps Unix endpoint paths compact",
+    "[control][transport][session-stream]")
+{
+    const auto root = unique_control_runtime_directory();
+    auto runtime = root;
+    constexpr size_t target_runtime_length = 75;
+    const size_t root_length = root.string().size();
+    REQUIRE(root_length + 1 < target_runtime_length);
+    runtime /= std::string(target_runtime_length - root_length - 1, 'x');
+    REQUIRE(std::filesystem::create_directories(runtime));
+
+    AsyncFrameStreamListener listener;
+    AsyncFrameStreamError error;
+    REQUIRE(listener.start("compact-endpoint-test", runtime, error));
+
+    sockaddr_un address{};
+    CHECK(listener.endpoint().size() < sizeof(address.sun_path));
+    CHECK(std::filesystem::path(listener.endpoint())
+            .filename()
+            .string()
+            .size()
+        <= 21);
+
+    listener.stop();
+    std::error_code ignored;
+    std::filesystem::remove_all(root, ignored);
+}
+#endif
 
 namespace
 {

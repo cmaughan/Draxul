@@ -105,9 +105,10 @@ TEST_CASE("a successful start clears the failure marker and binds a short socket
 
     REQUIRE_FALSE(std::filesystem::exists(temp.path / "server-failed.json"));
 
-    // The bound socket keeps the hash-only name: sockaddr_un::sun_path is 104
-    // bytes on macOS and the old <hash>-<slug> key overflowed it under a
-    // normal home directory. The readable slug stays on the metadata file.
+    // The bound control and Session stream sockets keep hash-only names:
+    // sockaddr_un::sun_path is 104 bytes on macOS and readable prefixes can
+    // overflow it under a normal home directory. Readable identity stays in
+    // the metadata files.
     size_t sockets = 0;
     for (const auto& entry : std::filesystem::directory_iterator(temp.path))
     {
@@ -117,7 +118,7 @@ TEST_CASE("a successful start clears the failure marker and binds a short socket
         REQUIRE(entry.path().filename().string().size() <= 21);
     }
 #ifndef _WIN32
-    REQUIRE(sockets == 1);
+    REQUIRE(sockets == 2);
 #endif
 
     std::string shutdown_error;

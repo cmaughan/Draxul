@@ -49,9 +49,10 @@ std::string stream_endpoint(std::string_view stream_id,
     char suffix[32]{};
     std::snprintf(suffix, sizeof(suffix), "%016llx",
         static_cast<unsigned long long>(fnv1a(key)));
-    return (runtime_directory
-        / (std::string("session-stream-") + suffix + ".sock"))
-        .string();
+    // sockaddr_un::sun_path is only 104 bytes on macOS. Keep the socket name
+    // compact so the normal per-user Application Support runtime directory
+    // still fits, while the hash preserves stream identity.
+    return (runtime_directory / (std::string(suffix) + ".sock")).string();
 }
 
 bool set_nonblocking(int descriptor)
