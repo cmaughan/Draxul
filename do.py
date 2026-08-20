@@ -550,6 +550,7 @@ def _test_scope_selection(
             patterns.append(r"draxul-test-scoreview-runtime-shard-[0-9]+")
         elif scope == "rezonality":
             patterns.append(r"draxul-rezonality-agent-layout")
+            patterns.append(r"draxul-rezonality-neovim")
             patterns.append(r"draxul-render-rezonality-plugin")
             patterns.append(r"draxul-render-rezonality-blend-waves")
             patterns.append(r"draxul-render-rezonality-deferred-shading")
