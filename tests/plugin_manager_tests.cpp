@@ -743,6 +743,42 @@ TEST_CASE("plugin discovery follows the atomic publication pointer",
     CHECK(manifest->package_generation == "build-2");
 }
 
+TEST_CASE("plugin first load refreshes a pruned publication generation",
+    "[plugin][reload][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    const auto package = bundled / "fixture";
+    install_plugin(package / "generations", "build-1",
+        "dev.draxul.fixture", DRAXUL_FIXTURE_VALID_PATH);
+    {
+        std::ofstream pointer(package / "current.json");
+        pointer << R"({"schema_version":1,"generation":"build-1"})";
+    }
+
+    const auto manager = draxul::PluginManager::discover(
+        bundled, user, temp.root / "runtime");
+    REQUIRE(manager->find("dev.draxul.fixture"));
+    CHECK(manager->find("dev.draxul.fixture")->package_generation
+        == "build-1");
+
+    install_plugin(package / "generations", "build-2",
+        "dev.draxul.fixture", DRAXUL_FIXTURE_VALID_PATH);
+    std::filesystem::remove_all(package / "generations" / "build-1");
+    {
+        std::ofstream pointer(package / "current.json");
+        pointer << R"({"schema_version":1,"generation":"build-2"})";
+    }
+
+    std::string error;
+    REQUIRE(manager->load("dev.draxul.fixture", error));
+    CHECK(error.empty());
+    REQUIRE(manager->find("dev.draxul.fixture"));
+    CHECK(manager->find("dev.draxul.fixture")->package_generation
+        == "build-2");
+}
+
 TEST_CASE("PluginHost reloads a prepared generation and restores transient state",
     "[plugin][reload][integration]")
 {

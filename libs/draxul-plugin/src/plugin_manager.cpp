@@ -339,8 +339,20 @@ const PluginManifest* PluginManager::find(std::string_view id) const
 std::shared_ptr<LoadedPlugin> PluginManager::load(std::string_view id, std::string& error)
 {
     PERF_MEASURE();
-    std::scoped_lock lock(mutex_);
     const std::string key(id);
+    {
+        std::scoped_lock lock(mutex_);
+        if (const auto loaded = loaded_.find(key); loaded != loaded_.end())
+            return loaded->second;
+    }
+
+    // A build can atomically publish and eventually prune plugin package
+    // generations while this UI remains open. Refresh before the first load so
+    // a command-palette launch does not retain a path to a pruned generation.
+    if (!refresh(error))
+        return {};
+
+    std::scoped_lock lock(mutex_);
     if (const auto loaded = loaded_.find(key); loaded != loaded_.end())
         return loaded->second;
     const PluginManifest* manifest = find(id);
