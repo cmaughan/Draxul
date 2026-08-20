@@ -16,12 +16,22 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace draxul
 {
 
 class AgentController;
+
+struct ChromePaneStatus
+{
+    std::string text;
+    bool attention = false;
+};
+
+ChromePaneStatus resolve_chrome_pane_status(std::string_view display_name,
+    std::string_view host_status, bool show_status, bool running);
 
 // ChromeHost renders the application chrome from App's authoritative shell
 // geometry. Each tab retains its own independent SplitTree for pane layout.

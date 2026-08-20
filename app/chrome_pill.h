@@ -20,6 +20,7 @@ enum class ChromePillRole
     Agent,
     Tab,
     Pane,
+    PaneAttention,
 };
 
 struct ChromePillPalette

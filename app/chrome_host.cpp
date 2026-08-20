@@ -12,6 +12,31 @@
 namespace draxul
 {
 
+ChromePaneStatus resolve_chrome_pane_status(std::string_view display_name,
+    std::string_view host_status, bool show_status, bool running)
+{
+    ChromePaneStatus result;
+    constexpr std::string_view kBuildFailure = "BUILD FAILED";
+    const size_t failure_offset = host_status.find(kBuildFailure);
+    result.attention = failure_offset != std::string_view::npos;
+    if (result.attention)
+    {
+        result.text = host_status.substr(failure_offset);
+        return result;
+    }
+    if (!show_status)
+        return result;
+
+    result.text = display_name;
+    if (!running && result.text.find("[exited]") == std::string::npos)
+    {
+        if (!result.text.empty())
+            result.text += " ";
+        result.text += "[exited]";
+    }
+    return result;
+}
+
 ChromeHost::ChromeHost(Deps deps)
     : deps_(std::move(deps))
     , text_layer_(deps_.grid_renderer, deps_.text_service)
@@ -189,22 +214,17 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
                 IHost* host = manager->host_for(leaf);
                 if (!host || descriptor.pixel_size.x <= 0 || descriptor.pixel_size.y <= 0)
                     return;
-                std::string text;
-                if (input.show_status)
-                {
-                    if (deps_.get_pane_display_name)
-                        text = deps_.get_pane_display_name(leaf);
-                    if (!host->is_running() && text.find("[exited]") == std::string::npos)
-                    {
-                        if (!text.empty())
-                            text += " ";
-                        text += "[exited]";
-                    }
-                }
+                std::string display_name;
+                if (deps_.get_pane_display_name)
+                    display_name = deps_.get_pane_display_name(leaf);
+                auto status = resolve_chrome_pane_status(display_name,
+                    host->status_text(), input.show_status, host->is_running());
                 const HostDebugState debug = host->debug_state();
                 input.panes.push_back({ descriptor.pixel_pos.x, descriptor.pixel_pos.y,
-                    descriptor.pixel_size.x, descriptor.pixel_size.y, index++, std::move(text),
-                    leaf == focused, leaf, host->default_background(), debug.grid_rows });
+                    descriptor.pixel_size.x, descriptor.pixel_size.y, index++,
+                    std::move(status.text),
+                    leaf == focused, leaf, host->default_background(), debug.grid_rows,
+                    status.attention });
             });
         }
     }

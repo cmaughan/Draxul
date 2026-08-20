@@ -216,6 +216,11 @@ failures keep the last valid GPU generation. Bundled projects include
 projects request approximately 60 FPS only while visible; Space toggles pause,
 left-drag orbits the active camera, and the mouse wheel dollies.
 
+The bundled `nyx_flight_deck` example is a multi-project 5-by-2 dashboard
+launcher rather than a single project root. Run its `launch.ps1` from the
+Rezonality examples tree to create the complete shader, glTF, and terminal
+layout.
+
 Create an atomic agent workspace with the checked-in generator:
 
 ```text

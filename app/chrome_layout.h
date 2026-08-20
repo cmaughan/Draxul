@@ -76,6 +76,8 @@ struct ChromePaneInput
     LeafId leaf = kInvalidLeaf;
     Color background{};
     int grid_rows = 0;
+    // Attention status remains visible even when ordinary pane status is hidden.
+    bool attention = false;
 };
 
 struct ChromeDivider
@@ -172,6 +174,7 @@ struct ChromePaneLayout : ChromePillLayout
     bool focused = false;
     bool editing = false;
     bool number_only = false;
+    bool attention = false;
 };
 
 struct ChromeCaretLayout

@@ -243,7 +243,7 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             std::max(0.0f, static_cast<float>(pane.pane_w) - frame_left - frame_right),
             std::max(0.0f, static_cast<float>(pane.pane_h) - frame_top - frame_bottom)
         };
-        if (input.show_status && pane.grid_rows > 0 && ch > 0)
+        if ((input.show_status || pane.attention) && pane.grid_rows > 0 && ch > 0)
         {
             const float content_x = static_cast<float>(pane.pane_x + content_left);
             const float content_y = static_cast<float>(pane.pane_y + content_top);
@@ -583,10 +583,12 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
         }
     }
 
-    if (input.show_status && cw > 0 && ch > 0)
+    if (cw > 0 && ch > 0)
     {
         for (const auto& pane : input.panes)
         {
+            if (!input.show_status && !pane.attention)
+                continue;
             const bool window_left = pane.pane_x <= shell.pane_root.x;
             const bool window_top = pane.pane_y <= shell.pane_root.y;
             const bool window_right = pane.pane_x + pane.pane_w
@@ -617,6 +619,7 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             status.focused = pane.focused;
             status.editing = editing;
             status.number_only = size.number_only;
+            status.attention = pane.attention;
             std::string label;
             if (size.number_only)
                 label = number + ":";
@@ -642,7 +645,9 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                 .accent_fills_pill = size.number_only,
                 .label = std::move(label),
                 .palette = chrome_pill_palette(
-                    input.theme, ChromePillRole::Pane, status.focused, status.editing),
+                    input.theme, status.attention ? ChromePillRole::PaneAttention
+                                                  : ChromePillRole::Pane,
+                    status.attention || status.focused, status.editing),
             });
             const int logical_x_i = static_cast<int>(logical_x);
             status.viewport_x = logical_x_i - input.grid_padding;

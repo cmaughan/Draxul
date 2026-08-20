@@ -56,6 +56,12 @@ TEST_CASE("Chrome pills retain a dim role color across each collection",
     check_family(ChromePillRole::Tab, theme.tab_active_bg);
     check_family(ChromePillRole::Pane, theme.status_focused_accent_bg);
 
+    const auto failure = chrome_pill_palette(theme, ChromePillRole::PaneAttention, false);
+    CHECK(failure.accent_bg == failure.body_bg);
+    const auto active_failure = chrome_pill_palette(
+        theme, ChromePillRole::PaneAttention, true);
+    CHECK(active_failure.accent_bg == theme.resource_pill_hot_bg);
+
     CHECK(theme.agent_active_bg.r != Catch::Approx(theme.status_focused_accent_bg.r));
     CHECK(theme.agent_active_bg.b != Catch::Approx(theme.status_focused_accent_bg.b));
 }
@@ -263,6 +269,26 @@ TEST_CASE("ChromeLayout pane status structure degrades and keeps stable leaf hit
     CHECK(hit.kind == ChromeHitKind::PaneStatus);
     CHECK(hit.stable_id == 42);
     CHECK(hit.rect.w <= 50.0f);
+}
+
+TEST_CASE("ChromeLayout keeps an attention pane pill visible when pane status is hidden",
+    "[chrome][layout][pane][attention]")
+{
+    auto input = base_input();
+    input.show_status = false;
+    input.panes = {
+        { 0, 22, 300, 200, 1, "BUILD FAILED g3 | bridge.glsl:435", false, 41,
+            Color{ 0.05f, 0.06f, 0.07f, 1.0f }, 7, true },
+        { 305, 22, 300, 200, 2, "", false, 42,
+            Color{ 0.05f, 0.06f, 0.07f, 1.0f }, 7, false },
+    };
+
+    const auto layout = compute_chrome_layout(input);
+    REQUIRE(layout.panes.size() == 1);
+    CHECK(layout.panes[0].leaf == 41);
+    CHECK(layout.panes[0].attention);
+    CHECK(layout.panes[0].label.find("BUILD FAILED g3") != std::string::npos);
+    CHECK(layout.panes[0].palette.accent_bg == input.theme.resource_pill_hot_bg);
 }
 
 TEST_CASE("ChromeLayout Space rename uses the shared pill editor",

@@ -101,6 +101,22 @@ struct TabBarFixture
 };
 } // namespace
 
+TEST_CASE("Chrome pane failures override custom names while ordinary status is hidden",
+    "[chrome_host][pane][attention]")
+{
+    const auto failure = resolve_chrome_pane_status("NYX // BRIDGE",
+        "shaders | BUILD FAILED g1 | nyx_bridge.glsl:435 | undeclared identifier",
+        false, true);
+    CHECK(failure.attention);
+    CHECK(failure.text.starts_with("BUILD FAILED g1"));
+    CHECK(failure.text.find("nyx_bridge.glsl:435") != std::string::npos);
+
+    const auto healthy = resolve_chrome_pane_status(
+        "NYX // BRIDGE", "rendering g1", false, true);
+    CHECK_FALSE(healthy.attention);
+    CHECK(healthy.text.empty());
+}
+
 TEST_CASE("Supplied shell tab bar follows renderer cell height", "[chrome_host][tabbar]")
 {
     TabBarFixture f{ { 1, "alpha" } };

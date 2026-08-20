@@ -87,6 +87,10 @@ ChromePillPalette chrome_pill_palette(const ChromeTheme& theme,
             ? chrome_pill_text_color(theme.status_editing_bg)
             : theme.status_bar_fg;
         break;
+    case ChromePillRole::PaneAttention:
+        family_accent = theme.resource_pill_hot_bg;
+        palette.body_fg = chrome_pill_text_color(faded_family_color(family_accent));
+        break;
     }
 
     const Color faded = faded_family_color(family_accent);
