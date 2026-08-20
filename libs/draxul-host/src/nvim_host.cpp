@@ -138,6 +138,8 @@ bool NvimHost::initialize_host()
     apply_grid_size(viewport().grid_size.x, viewport().grid_size.y);
     if (!attach_ui())
         return false;
+    if (!apply_environment())
+        return false;
     if (!execute_startup_commands())
         return false;
     setup_clipboard_provider();
@@ -402,6 +404,37 @@ bool NvimHost::execute_startup_commands()
             init_error_ = "A startup command failed while initializing Neovim.";
             return false;
         }
+    }
+    return true;
+}
+
+bool NvimHost::apply_environment()
+{
+    PERF_MEASURE();
+    if (launch_options().environment.empty())
+        return true;
+
+    std::vector<MpackValue> values;
+    values.reserve(launch_options().environment.size() * 2);
+    for (const auto& [name, value] : launch_options().environment)
+    {
+        values.push_back(NvimRpc::make_str(name));
+        values.push_back(NvimRpc::make_str(value));
+    }
+    constexpr std::string_view script
+        = "local values = ...; for index = 1, #values, 2 do "
+          "vim.fn.setenv(values[index], values[index + 1]) end";
+    auto response = rpc_.request("nvim_exec_lua", {
+        NvimRpc::make_str(std::string(script)),
+        NvimRpc::make_array({ NvimRpc::make_array(std::move(values)) }),
+    });
+    if (!response.has_value())
+    {
+        DRAXUL_LOG_ERROR(LogCategory::App,
+            "Could not apply embedded Neovim environment: %s",
+            response.error().message.c_str());
+        init_error_ = "Could not configure the embedded Neovim environment.";
+        return false;
     }
     return true;
 }

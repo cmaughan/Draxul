@@ -170,6 +170,10 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         command.method = "agent.wait";
     else if (noun == "pane" && verb == "read")
         command.method = "pane.read";
+    else if (noun == "pane" && verb == "focus")
+        command.method = "pane.focus";
+    else if (noun == "pane" && verb == "action")
+        command.method = "pane.action";
     else if (noun == "pane" && verb == "report-agent-session")
         command.method = "pane.report_agent_session";
     else if (noun == "plugin" && verb == "reload")
@@ -186,6 +190,7 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         || command.method == "agent.send_text"
         || command.method == "agent.send_keys" || command.method == "agent.wait"
         || command.method == "agent.explain" || command.method == "pane.read"
+        || command.method == "pane.focus" || command.method == "pane.action"
         || command.method == "pane.report_agent_session"
         || command.method == "plugin.reload";
     if (needs_value)
@@ -325,6 +330,15 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
                 return parsed;
             }
             command.text = args[position++];
+        }
+        else if (args[position] == "--action")
+        {
+            if (++position >= args.size() || args[position].empty())
+            {
+                parsed.error = "--action requires a value.";
+                return parsed;
+            }
+            command.action = args[position++];
         }
         else if (args[position] == "--until")
         {
@@ -470,6 +484,16 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         parsed.error = "agent send requires --text.";
         return parsed;
     }
+    if (command.method == "pane.action" && command.action.empty())
+    {
+        parsed.error = "pane action requires --action.";
+        return parsed;
+    }
+    if (command.method != "pane.action" && !command.action.empty())
+    {
+        parsed.error = "--action is only valid for pane action.";
+        return parsed;
+    }
     if (command.method == "agent.send_keys" && command.values.empty())
     {
         parsed.error = "agent keys requires at least one key.";
@@ -532,6 +556,13 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
             value && *value)
             command.session_id = value;
     }
+    if (const char* value = std::getenv("DRAXUL_CONTROL_ID");
+        value && *value)
+    {
+        command.control_id = value;
+    }
+    if (command.control_id.empty())
+        command.control_id = command.session_id;
     parsed.command = std::move(command);
     return parsed;
 }
@@ -547,6 +578,13 @@ int run_control_cli(const ControlCliCommand& command)
     {
         params["pane_id"] = command.value;
         params["lines"] = command.lines;
+    }
+    else if (command.method == "pane.focus")
+        params["pane_id"] = command.value;
+    else if (command.method == "pane.action")
+    {
+        params["pane_id"] = command.value;
+        params["action"] = command.action;
     }
     else if (command.method == "plugin.reload")
         params["plugin_id"] = command.value;
@@ -722,7 +760,7 @@ int run_control_cli(const ControlCliCommand& command)
               if (!using_global_server)
               {
                   auto local = ControlClient::request(
-                      command.session_id, runtime,
+                      command.control_id, runtime,
                       command.method, request_params);
                   if (local.ok
                       || !supports_headless_server

@@ -81,6 +81,23 @@ TEST_CASE("control CLI recognizes read-only Space and pane commands", "[control]
     CHECK(reload.command->method == "plugin.reload");
     CHECK(reload.command->value == "dev.draxul.fixture");
     CHECK(reload.command->json);
+
+    auto focus = parse_control_cli(
+        { "draxul", "pane", "focus", "pane-9", "--session", "work" });
+    REQUIRE(focus.command);
+    CHECK(focus.command->method == "pane.focus");
+    CHECK(focus.command->value == "pane-9");
+
+    auto action = parse_control_cli({ "draxul", "pane", "action", "pane-9",
+        "--action", "rezonality_reload", "--json" });
+    REQUIRE(action.command);
+    CHECK(action.command->method == "pane.action");
+    CHECK(action.command->action == "rezonality_reload");
+    CHECK(action.command->json);
+
+    auto missing_action = parse_control_cli(
+        { "draxul", "pane", "action", "pane-9" });
+    CHECK(missing_action.error);
 }
 
 TEST_CASE("control CLI keeps agent argv structured and parses wait policy", "[control][cli]")
@@ -335,6 +352,9 @@ TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[con
         return host;
     };
     options.session_id = "ctl-app";
+    options.control_id = "ctl-ui-17";
+    options.executable_path = "D:/build/draxul.exe";
+    options.server_runtime_directory = "D:/runtime/server";
     options.enable_control_server = true;
 
     App app(std::move(options));
@@ -342,7 +362,7 @@ TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[con
     const auto runtime = control_runtime_directory(
         ConfigDocument::default_path().parent_path());
 
-    auto started = request_while_pumping(app, "ctl-app", runtime,
+    auto started = request_while_pumping(app, "ctl-ui-17", runtime,
         "agent.start", { { "profile_id", "codex" }, { "args", nlohmann::json::array() } });
     REQUIRE(started.ok);
     const std::string instance_id = started.result.value("instance_id", "");
@@ -350,7 +370,37 @@ TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[con
     REQUIRE_FALSE(instance_id.empty());
     REQUIRE(hosts.size() == 2);
 
-    auto reported = request_while_pumping(app, "ctl-app", runtime,
+    const auto has_environment = [](const HostLaunchOptions& launch,
+                                     std::string_view name,
+                                     std::string_view value) {
+        return std::ranges::any_of(launch.environment,
+            [=](const auto& entry) {
+                return entry.first == name && entry.second == value;
+            });
+    };
+    CHECK(has_environment(hosts.front()->captured_launch,
+        "DRAXUL_SESSION_ID", "ctl-app"));
+    CHECK(has_environment(hosts.front()->captured_launch,
+        "DRAXUL_CONTROL_ID", "ctl-ui-17"));
+    CHECK(has_environment(hosts.front()->captured_launch,
+        "DRAXUL_EXECUTABLE", "D:/build/draxul.exe"));
+    CHECK(has_environment(hosts.front()->captured_launch,
+        "DRAXUL_SERVER_RUNTIME_DIR", "D:/runtime/server"));
+
+    auto action = request_while_pumping(app, "ctl-ui-17", runtime,
+        "pane.action", { { "pane_id", pane_id },
+                           { "action", "rezonality_reload" } });
+    REQUIRE(action.ok);
+    REQUIRE(hosts.back()->dispatched_actions.size() == 1);
+    CHECK(hosts.back()->dispatched_actions.back() == "rezonality_reload");
+
+    auto focused = request_while_pumping(app, "ctl-ui-17", runtime,
+        "pane.focus", { { "pane_id", pane_id } });
+    REQUIRE(focused.ok);
+    CHECK(focused.result["pane_id"] == pane_id);
+    CHECK(focused.result["active"] == true);
+
+    auto reported = request_while_pumping(app, "ctl-ui-17", runtime,
         "pane.report_agent_session",
         { { "pane_id", pane_id }, { "agent_instance_id", instance_id },
             { "source", "draxul:codex" }, { "agent", "codex" },
@@ -359,14 +409,14 @@ TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[con
     REQUIRE(reported.ok);
     CHECK(reported.result["native_session"]["source"] == "draxul:codex");
 
-    auto sent = request_while_pumping(app, "ctl-app", runtime,
+    auto sent = request_while_pumping(app, "ctl-ui-17", runtime,
         "agent.send_text",
         { { "instance_id", instance_id }, { "text", "Review this" } });
     REQUIRE(sent.ok);
     REQUIRE(hosts.back()->sent_agent_input.size() == 1);
     CHECK(hosts.back()->sent_agent_input.back() == "Review this");
 
-    auto waiting = request_while_pumping(app, "ctl-app", runtime,
+    auto waiting = request_while_pumping(app, "ctl-ui-17", runtime,
         "agent.wait",
         { { "instance_id", instance_id }, { "until", { "done" } } });
     REQUIRE(waiting.ok);
@@ -374,7 +424,7 @@ TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[con
     CHECK(waiting.result["agent"]["runtime_generation"].get<uint64_t>() > 0);
 
     auto events = request_while_pumping(
-        app, "ctl-app", runtime, "event.subscribe",
+        app, "ctl-ui-17", runtime, "event.subscribe",
         nlohmann::json::object());
     INFO(events.error_code << ": " << events.error_message);
     REQUIRE(events.ok);
@@ -382,5 +432,5 @@ TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[con
 
     app.shutdown();
     CHECK_FALSE(std::filesystem::exists(
-        control_metadata_path(runtime, "ctl-app")));
+        control_metadata_path(runtime, "ctl-ui-17")));
 }

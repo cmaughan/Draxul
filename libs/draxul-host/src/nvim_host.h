@@ -43,6 +43,7 @@ protected:
 
 private:
     bool attach_ui();
+    bool apply_environment();
     bool execute_startup_commands();
     bool setup_clipboard_provider();
     void queue_resize_request(int cols, int rows, const char* reason);

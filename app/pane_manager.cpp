@@ -1304,6 +1304,31 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
             pane_env->second = pane_ids_[id];
     }
 
+    const auto upsert_environment = [&launch](std::string name, std::string value) {
+        if (value.empty())
+            return;
+        const auto existing = std::find_if(launch.environment.begin(),
+            launch.environment.end(), [&name](const auto& entry) {
+                return entry.first == name;
+            });
+        if (existing == launch.environment.end())
+            launch.environment.emplace_back(std::move(name), std::move(value));
+        else
+            existing->second = std::move(value);
+    };
+    upsert_environment("DRAXUL_PANE_ID", pane_ids_[id]);
+    if (deps_.options)
+    {
+        upsert_environment("DRAXUL_SESSION_ID", deps_.options->session_id);
+        upsert_environment("DRAXUL_CONTROL_ID", deps_.options->control_id.empty()
+                ? deps_.options->session_id
+                : deps_.options->control_id);
+        upsert_environment("DRAXUL_SERVER_RUNTIME_DIR",
+            deps_.options->server_runtime_directory.string());
+        upsert_environment("DRAXUL_EXECUTABLE",
+            deps_.options->executable_path.string());
+    }
+
     std::unique_ptr<IHost> new_host;
 
     const bool projected_client_host

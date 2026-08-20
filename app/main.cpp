@@ -1181,6 +1181,7 @@ static int draxul_main(std::vector<std::string> args)
     }
 
     const auto exe_dir = executable_dir();
+    options.executable_path = current_executable;
     if (!options.config_overrides.font_path.has_value() && !exe_dir.empty())
     {
         const auto bundled_font = exe_dir / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
@@ -1188,6 +1189,9 @@ static int draxul_main(std::vector<std::string> args)
             options.config_overrides.font_path = bundled_font.string();
     }
     options.session_id = parsed.session_id;
+    options.control_id = shared_server
+        ? connected_server_client_id
+        : parsed.session_id;
     if (!parsed.session_name.empty())
         options.session_name = parsed.session_name;
     options.new_session_requested = parsed.new_session;
@@ -1201,8 +1205,7 @@ static int draxul_main(std::vector<std::string> args)
 #endif
     options.enable_session_restore
         = allow_session_restore && !shared_server;
-    options.enable_control_server
-        = allow_session_restore && !shared_server;
+    options.enable_control_server = allow_session_restore;
 
     draxul::App app(std::move(options));
 

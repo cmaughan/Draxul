@@ -288,6 +288,8 @@ nlohmann::json pane_json(
     encoded["id"] = located.pane->pane_id;
     encoded["space_id"] = located.space->space_id;
     encoded["tab_id"] = located.tab->tab_id;
+    encoded["space_name"] = located.space->name;
+    encoded["tab_name"] = located.tab->name;
     encoded["node_id"] = located.leaf
         ? nlohmann::json(located.leaf->node_id)
         : nlohmann::json(nullptr);

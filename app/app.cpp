@@ -476,7 +476,11 @@ bool App::initialize()
         std::string control_error;
         const auto runtime_directory = control_runtime_directory(
             ConfigDocument::default_path().parent_path());
-        if (!control_server_->start(options_.session_id, runtime_directory, [this]() { wake_window(); }, &control_error))
+        const std::string control_id = options_.control_id.empty()
+            ? options_.session_id
+            : options_.control_id;
+        if (!control_server_->start(control_id, runtime_directory,
+                [this]() { wake_window(); }, &control_error))
         {
             if (control_server_->endpoint_in_use())
             {
@@ -5399,6 +5403,103 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
             });
         return it == agents.end() ? std::nullopt : std::optional(*it);
     };
+    struct LocatedLocalPane
+    {
+        Space* space = nullptr;
+        Tab* tab = nullptr;
+        LeafId leaf = kInvalidLeaf;
+        IHost* host = nullptr;
+    };
+    auto find_local_pane = [&](std::string_view pane_id)
+        -> std::optional<LocatedLocalPane> {
+        std::optional<LocatedLocalPane> found;
+        for (const auto& space : space_controller_.spaces())
+        {
+            for (const auto& tab : space->tab_controller.tabs())
+            {
+                tab->pane_manager.tree().for_each_leaf(
+                    [&](LeafId leaf, const PaneDescriptor&) {
+                        if (tab->pane_manager.pane_id(leaf) != pane_id)
+                            return;
+                        if (found)
+                        {
+                            found.reset();
+                            return;
+                        }
+                        found = LocatedLocalPane{
+                            space.get(), tab.get(), leaf,
+                            tab->pane_manager.host_for(leaf),
+                        };
+                    });
+                if (found)
+                    return found;
+            }
+        }
+        return std::nullopt;
+    };
+
+    if (request.method == "pane.focus" || request.method == "pane.action")
+    {
+        if (!request.params.is_object()
+            || !request.params.contains("pane_id")
+            || !request.params["pane_id"].is_string()
+            || request.params["pane_id"].get_ref<const std::string&>().empty())
+        {
+            return ControlMethodResult::error("invalid_params",
+                request.method + " requires a non-empty string 'pane_id'.");
+        }
+        const std::string pane_id
+            = request.params["pane_id"].get<std::string>();
+        const auto located = find_local_pane(pane_id);
+        if (!located)
+            return ControlMethodResult::error(
+                "not_found", "The pane is not attached to this Draxul UI.");
+
+        if (request.method == "pane.action")
+        {
+            if (!request.params.contains("action")
+                || !request.params["action"].is_string()
+                || request.params["action"].get_ref<const std::string&>().empty())
+            {
+                return ControlMethodResult::error("invalid_params",
+                    "pane.action requires a non-empty string 'action'.");
+            }
+            if (!located->host)
+                return ControlMethodResult::error(
+                    "not_running", "The pane has no live host.");
+            const std::string action
+                = request.params["action"].get<std::string>();
+            if (!located->host->dispatch_action(action))
+            {
+                return ControlMethodResult::error(
+                    "action_rejected", "The pane host rejected the action.");
+            }
+            request_frame();
+            return ControlMethodResult::success({
+                { "pane_id", pane_id },
+                { "action", action },
+                { "dispatched", true },
+            });
+        }
+
+        if (!space_controller_.activate_space(located->space->id)
+            || !located->space->tab_controller.activate_tab(located->tab->id))
+        {
+            return ControlMethodResult::error(
+                "focus_failed", "The pane's Space or tab could not be activated.");
+        }
+        located->tab->pane_manager.set_focused(located->leaf);
+        refresh_app_shell_layout();
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
+        mark_session_dirty();
+        request_frame();
+        return ControlMethodResult::success({
+            { "pane_id", pane_id },
+            { "space_id", located->space->id },
+            { "tab_id", located->tab->id },
+            { "active", true },
+        });
+    }
 
     if (request.method == "plugin.reload")
     {

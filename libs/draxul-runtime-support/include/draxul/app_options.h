@@ -48,6 +48,10 @@ struct AppOptions
     // desktop launches enable this alongside file-backed Session restore;
     // tests and embedded front-ends opt in explicitly.
     bool enable_control_server = false;
+    // UI-local control identity. Shared-server windows use their unique
+    // server client id so multiple attached UIs never contend for one Session
+    // endpoint; standalone windows use the Session id.
+    std::string control_id;
     // Slice 2 only records the experimental server connection. Terminal
     // ownership remains local until the later terminal-runtime slices.
     std::optional<ServerWelcome> server_connection;
@@ -57,6 +61,7 @@ struct AppOptions
     // Slice 6 experimental topology projection. The server owns structural
     // Space/tab/pane values; the UI keeps its active route and presentation.
     bool enable_remote_topology = false;
+    std::filesystem::path executable_path;
     std::filesystem::path server_runtime_directory;
     std::string server_client_id;
     // A normal `--plugin` launch creates a server-topology tab before the UI

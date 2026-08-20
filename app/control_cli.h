@@ -11,8 +11,10 @@ namespace draxul
 struct ControlCliCommand
 {
     std::string session_id = "default";
+    std::string control_id;
     std::string method;
     std::string value;
+    std::string action;
     std::string text;
     std::string working_directory;
     std::vector<std::string> values;

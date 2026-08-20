@@ -71,6 +71,7 @@ public:
     {
         ++initialize_calls;
         last_context_ = &ctx;
+        captured_launch = ctx.launch_options;
         callbacks_ = &callbacks;
         if (fail_initialize)
         {
@@ -288,6 +289,7 @@ public:
 
     HostViewport last_viewport{};
     HostReloadConfig last_reload_config{};
+    HostLaunchOptions captured_launch{};
 
     std::vector<KeyEvent> key_events;
     std::vector<TextInputEvent> text_input_events;
