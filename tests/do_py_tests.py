@@ -17,6 +17,20 @@ from unittest import mock
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
+def load_publish_plugin_module():
+    spec = importlib.util.spec_from_file_location(
+        "draxul_publish_plugin", ROOT / "tools" / "publish_plugin.py"
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("failed to load tools/publish_plugin.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+publish_plugin = load_publish_plugin_module()
+
+
 class PluginPublisherTests(unittest.TestCase):
     def test_publish_moves_complete_generation_then_updates_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -44,6 +58,21 @@ class PluginPublisherTests(unittest.TestCase):
             package = json.loads((generation / "package.json").read_text())
             self.assertEqual(pointer["generation"], package["build_id"])
             self.assertIn("plugin.dll", package["files"])
+
+    def test_atomic_replace_retries_transient_permission_error(self) -> None:
+        denied = PermissionError(13, "temporarily locked")
+        with (
+            mock.patch.object(
+                publish_plugin.os, "replace", side_effect=[denied, denied, None]
+            ) as replace,
+            mock.patch.object(publish_plugin.time, "sleep") as sleep,
+        ):
+            publish_plugin.replace_with_retry(
+                pathlib.Path("incoming"), pathlib.Path("published")
+            )
+
+        self.assertEqual(3, replace.call_count)
+        self.assertEqual(2, sleep.call_count)
 
 
 def load_do_module():

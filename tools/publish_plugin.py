@@ -13,6 +13,23 @@ import time
 import uuid
 
 
+def replace_with_retry(source: Path, destination: Path) -> None:
+    """Atomically replace a path, tolerating short-lived Windows file handles."""
+    attempts = 60
+    for attempt in range(attempts):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError:
+            if attempt + 1 == attempts:
+                raise
+            # Virus scanners and directory indexers can briefly open newly
+            # written plugin payloads without FILE_SHARE_DELETE. The package
+            # remains entirely under .incoming while we wait, so retrying the
+            # atomic directory move cannot expose a partial generation.
+            time.sleep(min(0.05 * (attempt + 1), 0.25))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, type=Path)
@@ -45,7 +62,7 @@ def main() -> int:
     generations = root / "generations"
     generations.mkdir(parents=True, exist_ok=True)
     published = generations / build_id
-    os.replace(incoming, published)
+    replace_with_retry(incoming, published)
 
     pointer = root / "current.json"
     temporary = root / f"current.json.tmp-{uuid.uuid4().hex}"
@@ -54,7 +71,7 @@ def main() -> int:
         + "\n",
         encoding="utf-8",
     )
-    os.replace(temporary, pointer)
+    replace_with_retry(temporary, pointer)
     retained = sorted(
         (path for path in generations.iterdir() if path.is_dir()),
         key=lambda path: path.name,
