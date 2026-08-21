@@ -591,6 +591,7 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             "topology-v1",
             "topology-control-v2",
             "client-plugin-pane-v1",
+            "ui-control-routing-v1",
         },
     };
     const auto response = ControlClient::request(

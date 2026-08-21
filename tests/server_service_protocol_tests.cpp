@@ -562,6 +562,85 @@ TEST_CASE("server rejects an incompatible protocol major", "[server][protocol]")
     run_guard.join();
 }
 
+TEST_CASE("server publishes authenticated UI control routes by Session",
+    "[server][ui-routing][control]")
+{
+    TempDir temp("draxul-server-ui-routing");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "ui-routing-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+    const auto request = [&](std::string_view method,
+                             nlohmann::json params) {
+        return ControlClient::request(
+            namespaced_control_id(kServerControlId, temp.path),
+            temp.path, method, std::move(params));
+    };
+    const auto connect = [&](std::string client_id) {
+        return ServerClient::probe({
+            .runtime_directory = temp.path,
+            .client_id = std::move(client_id),
+            .launch_if_missing = false,
+        });
+    };
+
+    const auto second = connect("ui-route-b");
+    REQUIRE(second.ready());
+    REQUIRE(request("ui.register",
+        {
+            { "client_id", "ui-route-b" },
+            { "connection_token",
+                second.welcome->connection_token },
+            { "session_id", "default" },
+            { "control_id", "ui-route-b" },
+            { "control_runtime_directory", "D:/control/b" },
+        }).ok);
+    const auto first = connect("ui-route-a");
+    REQUIRE(first.ready());
+    REQUIRE(request("ui.register",
+        {
+            { "client_id", "ui-route-a" },
+            { "connection_token", first.welcome->connection_token },
+            { "session_id", "default" },
+            { "control_id", "ui-route-a" },
+            { "control_runtime_directory", "D:/control/a" },
+        }).ok);
+
+    const auto routes = request(
+        "ui.list", { { "session_id", "default" } });
+    REQUIRE(routes.ok);
+    REQUIRE(routes.result.size() == 2);
+    CHECK(routes.result[0]["control_id"] == "ui-route-a");
+    CHECK(routes.result[0]["control_runtime_directory"]
+        == "D:/control/a");
+    CHECK(routes.result[1]["control_id"] == "ui-route-b");
+
+    const auto spoofed = request("ui.register",
+        {
+            { "client_id", "ui-route-a" },
+            { "connection_token", first.welcome->connection_token },
+            { "session_id", "default" },
+            { "control_id", "ui-route-b" },
+            { "control_runtime_directory", "D:/control/forged" },
+        });
+    CHECK_FALSE(spoofed.ok);
+    CHECK(spoofed.error_code == "invalid_params");
+
+    std::string disconnect_error;
+    REQUIRE(ServerClient::disconnect(temp.path, "ui-route-a",
+        disconnect_error, first.welcome->connection_token));
+    const auto remaining = request(
+        "ui.list", { { "session_id", "default" } });
+    REQUIRE(remaining.ok);
+    REQUIRE(remaining.result.size() == 1);
+    CHECK(remaining.result[0]["control_id"] == "ui-route-b");
+
+    run_guard.join();
+}
+
 TEST_CASE("slow remote observer resyncs without delaying the controller",
     "[server][remote-terminal]")
 {

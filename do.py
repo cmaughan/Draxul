@@ -632,8 +632,8 @@ def cmd_run(root: pathlib.Path, args: list[str]) -> int:
     is_win = sys.platform.startswith("win")
     cmd: list[str] = [str(exe)] + app_args
     if is_win and not use_console:
-        print(f"\n> start /wait {' '.join(cmd)}")
-        proc = subprocess.run(["cmd", "/c", "start", "", "/wait"] + cmd, cwd=root, check=False, env=env)
+        print(f"\n> start {' '.join(cmd)}")
+        proc = subprocess.run(["cmd", "/c", "start", ""] + cmd, cwd=root, check=False, env=env)
         return proc.returncode
     else:
         return run(cmd, root, env=env)

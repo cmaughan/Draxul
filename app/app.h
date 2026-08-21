@@ -256,6 +256,7 @@ private:
     std::optional<std::string> remote_tab_id(
         SpaceId local_space_id, int local_tab_id) const;
     ServerControlChannel server_control_channel() const;
+    void register_ui_control_route();
     ControlClientResult attached_ui_command(
         std::string_view method, nlohmann::json params) const;
 

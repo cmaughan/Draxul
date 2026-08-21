@@ -296,6 +296,7 @@ ServerStartResult ServerKernel::Impl::start()
         { "server_protocol_major", options.protocol_major },
         { "server_protocol_minor", options.protocol_minor },
         { "build_version", options.build_version },
+        { "client_executable", options.client_executable.string() },
         { "state", "ready" },
     };
     if (!control.start(

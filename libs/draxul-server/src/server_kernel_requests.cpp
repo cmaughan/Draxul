@@ -19,7 +19,16 @@ bool is_session_scoped_method(std::string_view method)
         || method.starts_with("session.")
         || method.starts_with("topology.")
         || method.starts_with("agent.")
-        || method.starts_with("pane.");
+        || method.starts_with("pane.")
+        || method.starts_with("ui.");
+}
+
+bool valid_ui_control_runtime_directory(std::string_view value)
+{
+    return !value.empty() && value.size() <= 4096
+        && std::ranges::none_of(value, [](unsigned char byte) {
+               return byte == 0 || byte == '\r' || byte == '\n';
+           });
 }
 
 bool is_session_stream_command(std::string_view method)
@@ -68,6 +77,7 @@ const std::vector<std::string>& server_capabilities()
         "topology-v1",
         "topology-control-v2",
         "client-plugin-pane-v1",
+        "ui-control-routing-v1",
     };
     return capabilities;
 }
@@ -316,6 +326,89 @@ ControlMethodResult ServerKernel::Impl::handle_request(
     }
     if (request.method == "server.status")
         return ControlMethodResult::success(server_status_to_json(status_snapshot()));
+    if (request.method == "ui.register")
+    {
+        if (request_client_id.empty())
+        {
+            return ControlMethodResult::error("invalid_client",
+                "UI registration requires an authenticated client identity.");
+        }
+        if (!request.params.contains("control_id")
+            || !request.params["control_id"].is_string()
+            || request.params["control_id"].get_ref<const std::string&>()
+                != request_client_id
+            || !request.params.contains("control_runtime_directory")
+            || !request.params["control_runtime_directory"].is_string()
+            || !valid_ui_control_runtime_directory(
+                request.params["control_runtime_directory"]
+                    .get_ref<const std::string&>()))
+        {
+            return ControlMethodResult::error("invalid_params",
+                "ui.register requires this client's control_id and a bounded control_runtime_directory.");
+        }
+        ControlMethodResult failure;
+        ServerSession* session = resolve_session(request.params,
+            SessionServiceNeed::None, {}, failure);
+        if (!session)
+            return failure;
+        {
+            std::lock_guard guard(mutex);
+            const auto client = clients.find(request_client_id);
+            if (client == clients.end())
+            {
+                return ControlMethodResult::error(
+                    "invalid_client", "The UI client is no longer registered.");
+            }
+            client->second.ui_control_id = request_client_id;
+            client->second.ui_control_runtime_directory
+                = request.params["control_runtime_directory"]
+                      .get<std::string>();
+            client_sessions[request_client_id].insert(session->session_id);
+        }
+        return ControlMethodResult::success({
+            { "client_id", request_client_id },
+            { "control_id", request_client_id },
+            { "session_id", session->session_id },
+            { "registered", true },
+        });
+    }
+    if (request.method == "ui.list")
+    {
+        ControlMethodResult failure;
+        ServerSession* session = resolve_session(request.params,
+            SessionServiceNeed::None, {}, failure);
+        if (!session)
+            return failure;
+        prune_inactive_clients(std::chrono::steady_clock::now());
+        std::vector<nlohmann::json> routes;
+        {
+            std::lock_guard guard(mutex);
+            for (const auto& [client_id, registration] : clients)
+            {
+                const auto attached = client_sessions.find(client_id);
+                if (registration.ui_control_id.empty()
+                    || attached == client_sessions.end()
+                    || !attached->second.contains(session->session_id))
+                {
+                    continue;
+                }
+                routes.push_back({
+                    { "client_id", client_id },
+                    { "control_id", registration.ui_control_id },
+                    { "control_runtime_directory",
+                        registration.ui_control_runtime_directory },
+                    { "session_id", session->session_id },
+                });
+            }
+        }
+        std::ranges::sort(routes,
+            [](const auto& lhs, const auto& rhs) {
+                return lhs.value("control_id", std::string{})
+                    < rhs.value("control_id", std::string{});
+            });
+        return ControlMethodResult::success(
+            nlohmann::json(std::move(routes)));
+    }
     if (request.method == "server.delete_session")
         return delete_session(request.params);
     if (request.method == "server.delete_all_sessions")

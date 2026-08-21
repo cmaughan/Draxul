@@ -40,6 +40,9 @@ struct ServerStartResult
 struct ServerKernelOptions
 {
     std::filesystem::path runtime_directory;
+    // Absolute CLI path matching this server build. Published in the secured
+    // control metadata so tools can bootstrap without relying on PATH.
+    std::filesystem::path client_executable;
     std::filesystem::path session_state_file;
     std::chrono::milliseconds session_checkpoint_interval{
         std::chrono::seconds(30)

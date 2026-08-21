@@ -504,6 +504,8 @@ bool App::initialize()
         }
     }
 
+    register_ui_control_route();
+
     if (!time_step("Host", [this]() { return initialize_chrome_host(); }))
         return false;
 
@@ -3333,6 +3335,12 @@ void App::consume_remote_session_state()
             options_.server_connection->server_epoch
                 = published->recovery->server_epoch;
         }
+        if (published->recovery
+            && published->recovery->phase
+                == ClientConnectionPhase::Connected)
+        {
+            register_ui_control_route();
+        }
     }
 
     const bool session_transport_unavailable
@@ -4568,6 +4576,35 @@ ServerControlChannel App::server_control_channel() const
         .session_id = options_.session_id,
         .recovery = options_.client_recovery,
     });
+}
+
+void App::register_ui_control_route()
+{
+    if (!control_server_ || !options_.server_connection
+        || options_.server_client_id.empty()
+        || options_.server_runtime_directory.empty()
+        || std::ranges::find(options_.server_connection->capabilities,
+               "ui-control-routing-v1")
+            == options_.server_connection->capabilities.end())
+    {
+        return;
+    }
+
+    const auto control_runtime = control_runtime_directory(
+        ConfigDocument::default_path().parent_path());
+    const auto registered = server_control_channel().request_with_recovery(
+        "ui.register",
+        {
+            { "control_id", options_.server_client_id },
+            { "control_runtime_directory", control_runtime.string() },
+        });
+    if (!registered.ok)
+    {
+        DRAXUL_LOG_WARN(LogCategory::App,
+            "Could not register the UI control route (%s: %s)",
+            registered.error_code.c_str(),
+            registered.error_message.c_str());
+    }
 }
 
 PluginReloadSummary App::reload_plugin(std::string_view plugin_id)

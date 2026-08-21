@@ -75,6 +75,8 @@ public:
         std::chrono::steady_clock::time_point last_activity{};
         std::string connection_token;
         std::string registration_nonce;
+        std::string ui_control_id;
+        std::string ui_control_runtime_directory;
         bool token_required = false;
     };
 

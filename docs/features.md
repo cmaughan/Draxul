@@ -19,7 +19,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | BioView | `--plugin dev.draxul.megacity` with `{"mode":"biology"}` | Biology mode of the same dynamic plugin: modules become tissues, classes become cells, and dependencies become blood vessels; semantic model, procedural geometry, UI, assets, and Vulkan/Metal renderer are plugin-owned |
 | ScoreView | `--plugin dev.draxul.scoreview` at launch or on pane/tab commands | Dynamically loaded music score viewer + adaptive learning runner ([docs/features/scoreview.md](features/scoreview.md)); launch JSON accepts `source`, `mode`, and `background_playback` |
 | SatView | `--plugin dev.draxul.satview` at launch or on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and plugin-owned ImGui controls. Full narrative: [docs/features/satview.md](features/satview.md) |
-| Rezonality | `--plugin dev.draxul.rezonality` at launch or on pane/tab commands | Fault-tolerant Vulkan/Metal live graphics viewer ported from VkLive. Direct launch creates and focuses a server-topology plugin tab while preserving terminal access. It watches external edits, compiles complete GLSL candidates off the UI thread, renders named surfaces plus OBJ/glTF models with cameras, PBR/HDR materials, and the Cornell-box ray project through Vulkan ray shader groups or a native Metal kernel, retains the last valid GPU generation when a candidate fails, and publishes bounded agent-readable generation diagnostics. Its explicitly installed native Neovim package joins the live Draxul pane registry with compile records, merges every active pane's errors into inline diagnostics and a cross-file quickfix list, and can focus or reload an exact contributing pane. |
+| Rezonality | `--plugin dev.draxul.rezonality` at launch or on pane/tab commands | Fault-tolerant Vulkan/Metal live graphics viewer ported from VkLive. Direct launch creates and focuses a server-topology plugin tab while preserving terminal access. It watches external edits, compiles complete GLSL candidates off the UI thread, renders named surfaces plus OBJ/glTF models with cameras, PBR/HDR materials, and the Cornell-box ray project through Vulkan ray shader groups or a native Metal kernel, retains the last valid GPU generation when a candidate fails, and publishes bounded agent-readable generation diagnostics. Its explicitly installed native Neovim package joins the live Draxul pane registry with compile records, merges every active pane's errors into inline diagnostics and a cross-file quickfix list, can focus or reload an exact contributing pane, and provides `:RezFiles` to open the deduplicated scenegraphs, shader entrypoints, and quoted includes from every current valid generation, including hidden panes whose compiled candidate is ready but not yet GPU-active. In a listed source buffer, `Ctrl+Enter` saves, chooses the contributing pane when ambiguous, flashes the visible text orange, and requests a rebuild; `:help rezonality` documents the complete command and multi-pane behavior. All editor commands use the short `:Rez*` prefix, with the former `:Rezonality*` forms retained as compatibility aliases. |
 
 Shell Session splits use the server's platform default shell (Zsh on macOS,
 PowerShell on Windows). Explicit self-contained product windows advertise only
@@ -613,6 +613,21 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
   negotiated as `agent-control-v1`; terminal text is returned only by the
   explicit bounded pane-read operation and is never included in the Agents
   projection.
+- Attached UIs publish authenticated, Session-scoped control routes to the
+  shared server (`ui-control-routing-v1`). External tools can inspect them with
+  `draxul ui list --json`; `pane focus` routes automatically when exactly one UI
+  is attached and accepts `--ui <control-id>` when several are present.
+  UI-local `pane action` calls stay local when launched from an embedded pane,
+  while an external call is fanned out to every attached UI projection so live
+  plugin reloads converge across windows. Routes disappear on client goodbye or
+  activity-lease expiry and are republished after server recovery.
+- The server's current-user-only control metadata publishes the absolute
+  `client_executable` matching that server build. External integrations can
+  therefore bootstrap through the selected runtime directory without guessing
+  between Debug, Release, or custom builds and without requiring `draxul` on
+  `PATH`. Server-owned terminals also inherit this path as
+  `DRAXUL_EXECUTABLE`; when no server exists, integrations remain cache-only
+  unless given an explicit command.
 - Official native-session reports for managed agents are owned by the
   global server. A report must match the current server epoch, Session, pane,
   declared agent instance, kind, and runtime generation; stale, duplicate, or
@@ -913,6 +928,7 @@ and `draxul integration status` do not pass through the launch-option parser.
 - `do run relwithdebinfo` / `do build relwithdebinfo` use `RelWithDebInfo` on Windows for optimized builds with PDB symbols
 - `do run --vs` falls back to the Visual Studio generator if you want the existing `build/` workflow
 - `do run --ninja` forces the Ninja local-iteration path explicitly
+- On Windows, `do run` launches the GUI and immediately returns the calling console prompt. Pass `--console` when the launcher must stay attached for diagnostic output and the application's exit code
 - `do test` builds `draxul-tests-core` and its helper/dependency targets in the selected `do.py` cache, then runs the core, app, Markdown/Kanban, and Python workflow unit entries through CTest with bounded parallelism. It does not launch the app or run smoke/render snapshots
 - Product suites are opt-in and additive: `do test --megacity`, `--satview`, `--scoreview`, or `--rezonality` adds only that product's aggregate and CTest entries; `--products` adds all four for shared plugin SDK/support/renderer changes; `--all` builds the historical `draxul-tests` aggregate and runs the complete unit inventory
 - `do clean` recursively removes repository-root build directories named `build/` or `build-*`, covering Visual Studio, Ninja, tooling, and custom build trees. It succeeds when none exist and preserves deploy packages, render outputs and references, databases, source files, and similarly named regular files

@@ -347,8 +347,18 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
                             ResumeIfAvailable),
             });
         }
+#ifdef __APPLE__
+        const auto client_executable
+            = draxul::macos_client_executable(current_executable);
+#elif defined(_WIN32)
+        const auto client_executable
+            = draxul::windows_client_executable(current_executable);
+#else
+        const auto client_executable = current_executable;
+#endif
         draxul::ServerKernel kernel({
             .runtime_directory = runtime_dir,
+            .client_executable = client_executable,
             .protocol_major = draxul::kServerProtocolMajor,
             .protocol_minor = draxul::kServerProtocolMinor,
             .build_version = draxul::server_build_version(),
@@ -387,17 +397,7 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
         });
         draxul::ServerStatusSurface surface({
             .runtime_directory = runtime_dir,
-#ifdef __APPLE__
-            .executable_path
-            = draxul::macos_client_executable(
-                current_executable),
-#elif defined(_WIN32)
-            .executable_path
-            = draxul::windows_client_executable(
-                current_executable),
-#else
-            .executable_path = current_executable,
-#endif
+            .executable_path = client_executable,
             .log_path = server_log,
         });
         std::string surface_error;

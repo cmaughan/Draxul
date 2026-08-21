@@ -19,6 +19,7 @@ draxul --list-sessions --json
 draxul --rename-session --session <id> --session-name <name>
 draxul --delete-session --session <id> --yes
 draxul --shutdown-server --yes [--server-runtime-dir <path>]
+draxul ui list [--session <id>] --json
 draxul space list --session <session-id> --json
 ```
 
@@ -27,7 +28,8 @@ draxul space list --session <session-id> --json
 - Inside a server-owned pane, omit those options when its injected environment
   is correct. Draxul supplies `DRAXUL_SESSION_ID`, `DRAXUL_SPACE_ID`,
   `DRAXUL_TAB_ID`, `DRAXUL_PANE_ID`, `DRAXUL_TERMINAL_ID`,
-  `DRAXUL_SERVER_RUNTIME_DIR`, `DRAXUL_SERVER_EPOCH`, and
+  `DRAXUL_SERVER_RUNTIME_DIR`, `DRAXUL_EXECUTABLE`,
+  `DRAXUL_SERVER_EPOCH`, and
   `DRAXUL_RUNTIME_GENERATION`.
 - Put `--current` where a pane target ID belongs, for example
   `draxul pane get --current --json`.
@@ -38,8 +40,10 @@ draxul space list --session <session-id> --json
 - For tests, always use a unique `--server-runtime-dir` and shut that exact
   server down in cleanup.
 
-If `draxul` is not on `PATH`, locate the repository build explicitly. On a
-standard Windows checkout, prefer `build/Release/draxul.exe`.
+If `draxul` is not on `PATH`, same-user tools can bootstrap from the running
+server's secured `*.control.json`, whose `client_executable` names the matching
+Debug, Release, or custom CLI. A non-default runtime must still be supplied
+explicitly so the tool knows which metadata directory to inspect.
 
 ## Orchestrate a workspace
 
@@ -89,6 +93,8 @@ and re-check exact targets before closing them.
 ```text
 draxul pane list [--space <id>] [--tab <id>] --json
 draxul pane get <pane-id|--current> --json
+draxul pane focus <pane-id> [--ui <control-id>] --json
+draxul pane action <pane-id> --action <action> [--ui <control-id>] --json
 draxul pane split <pane-id|--current> \
   --direction <left|right|up|down> [--ratio <0.1..0.9>] [--cwd <path>] --json
 draxul pane split <pane-id|--current> \
@@ -105,6 +111,12 @@ draxul split list --tab <tab-id> --json
 draxul split set <node-id> --ratio <0.1..0.9> --json
 draxul split equalize --tab <tab-id> --json
 ```
+
+Embedded Draxul panes receive `DRAXUL_CONTROL_ID`, so UI-local commands target
+their own window. External tools discover authenticated live routes through the
+server. With one attached UI, `pane focus` routes automatically; with several,
+use the control id from `ui list`. External `pane action` calls fan out to every
+attached UI unless `--ui` selects one route.
 
 `left`/`up` place the new or moved pane before the target; `right`/`down` place
 it after. `pane swap` exchanges two pane positions. `pane move` currently

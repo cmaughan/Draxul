@@ -95,6 +95,18 @@ TEST_CASE("control CLI recognizes read-only Space and pane commands", "[control]
     CHECK(action.command->action == "rezonality_reload");
     CHECK(action.command->json);
 
+    auto routed_focus = parse_control_cli({ "draxul", "pane", "focus",
+        "pane-9", "--ui", "ui-window-2", "--json" });
+    REQUIRE(routed_focus.command);
+    CHECK(routed_focus.command->control_id == "ui-window-2");
+    CHECK(routed_focus.command->control_id_explicit);
+
+    auto uis = parse_control_cli(
+        { "draxul", "ui", "list", "--session", "work", "--json" });
+    REQUIRE(uis.command);
+    CHECK(uis.command->method == "ui.list");
+    CHECK(uis.command->session_id == "work");
+
     auto missing_action = parse_control_cli(
         { "draxul", "pane", "action", "pane-9" });
     CHECK(missing_action.error);

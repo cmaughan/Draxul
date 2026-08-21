@@ -97,6 +97,7 @@ TEST_CASE("a successful start clears the failure marker and binds a short socket
     }
     ServerKernel server({
         .runtime_directory = temp.path,
+        .client_executable = "D:/build/draxul.exe",
         .build_version = "unit-test",
         .epoch_override = "fixed-epoch",
     });
@@ -104,6 +105,12 @@ TEST_CASE("a successful start clears the failure marker and binds a short socket
     ServerRunGuard run_guard(server);
 
     REQUIRE_FALSE(std::filesystem::exists(temp.path / "server-failed.json"));
+
+    {
+        std::ifstream input(server_metadata_path(temp.path));
+        const auto metadata = nlohmann::json::parse(input);
+        CHECK(metadata["client_executable"] == "D:/build/draxul.exe");
+    }
 
     // The bound control and Session stream sockets keep hash-only names:
     // sockaddr_un::sun_path is 104 bytes on macOS and readable prefixes can

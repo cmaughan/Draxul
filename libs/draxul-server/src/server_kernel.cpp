@@ -1457,6 +1457,11 @@ ServerKernel::Impl::server_terminal_runtime_options(
     set_environment("DRAXUL_RUNTIME_GENERATION", "1");
     set_environment("DRAXUL_SERVER_RUNTIME_DIR",
         options.runtime_directory.string());
+    if (!options.client_executable.empty())
+    {
+        set_environment("DRAXUL_EXECUTABLE",
+            options.client_executable.string());
+    }
     return {
         .shell_kind = options.terminal_shell_kind,
         .command = options.terminal_command,
@@ -1583,6 +1588,11 @@ ServerKernel::Impl::managed_agent_runtime_options(
         "DRAXUL_RUNTIME_GENERATION", "1");
     set_environment("DRAXUL_SERVER_RUNTIME_DIR",
         options.runtime_directory.string());
+    if (!options.client_executable.empty())
+    {
+        set_environment("DRAXUL_EXECUTABLE",
+            options.client_executable.string());
+    }
 
     return ServerTerminalRuntimeOptions{
         .command = definition->executable,

@@ -308,9 +308,42 @@ class BuildCacheTests(unittest.TestCase):
             )
 
             (bd / "build-Release.ninja").write_text("")
+            self.assertIsNone(
+                draxul_do._missing_generated_build_file(cache_file, bd, "Release")
+            )
 
-            self.assertIsNone(draxul_do._missing_generated_build_file(cache_file, bd, "Release"))
 
+class RunCommandTests(unittest.TestCase):
+    def test_windows_gui_launch_returns_after_starting_app(self) -> None:
+        executable = ROOT / "build-ninja-release" / "draxul.exe"
+        build_env = {"DRAXUL_TEST_ENV": "1"}
+        completed = subprocess.CompletedProcess([], 0)
+        with (
+            mock.patch.object(draxul_do.sys, "platform", "win32"),
+            mock.patch.object(
+                draxul_do,
+                "_configure_and_build",
+                return_value=(
+                    0,
+                    ROOT / "build-ninja-release",
+                    "Release",
+                    build_env,
+                ),
+            ),
+            mock.patch.object(draxul_do, "draxul_exe", return_value=executable),
+            mock.patch.object(pathlib.Path, "exists", return_value=True),
+            mock.patch.object(
+                draxul_do.subprocess, "run", return_value=completed
+            ) as run_mock,
+        ):
+            self.assertEqual(0, draxul_do.cmd_run(ROOT, ["release"]))
+
+        run_mock.assert_called_once_with(
+            ["cmd", "/c", "start", "", str(executable)],
+            cwd=ROOT,
+            check=False,
+            env=build_env,
+        )
 
 class CleanCommandTests(unittest.TestCase):
     def test_help_lists_clean_command(self) -> None:

@@ -12,6 +12,7 @@ struct ControlCliCommand
 {
     std::string session_id = "default";
     std::string control_id;
+    bool control_id_explicit = false;
     std::string method;
     std::string value;
     std::string action;

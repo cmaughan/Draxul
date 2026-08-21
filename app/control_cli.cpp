@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <filesystem>
+#include <future>
 #include <nlohmann/json.hpp>
 #include <thread>
 
@@ -40,7 +41,7 @@ std::optional<uint64_t> parse_uint64(std::string_view text)
 
 std::string usage()
 {
-    return "Usage: draxul <space|agent|pane|plugin> <command> [value] "
+    return "Usage: draxul <space|agent|pane|plugin|ui> <command> [value] "
            "[--session <id>] [--json] [--lines <1-200>]";
 }
 
@@ -118,6 +119,16 @@ void print_human(const ControlCliCommand& command, const nlohmann::json& result)
             std::printf("%s\n", line.get<std::string>().c_str());
         return;
     }
+    if (command.method == "ui.list")
+    {
+        for (const auto& ui : result)
+        {
+            std::printf("%s  %s\n",
+                ui.value("control_id", "").c_str(),
+                ui.value("control_runtime_directory", "").c_str());
+        }
+        return;
+    }
     std::printf("%s\n", result.dump(2).c_str());
 }
 
@@ -128,7 +139,8 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
     ParseControlCliResult parsed;
     if (args.size() < 2
         || (args[1] != "space" && args[1] != "agent"
-            && args[1] != "pane" && args[1] != "plugin"))
+            && args[1] != "pane" && args[1] != "plugin"
+            && args[1] != "ui"))
         return parsed;
     parsed.recognized = true;
     if (args.size() < 3)
@@ -178,6 +190,8 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         command.method = "pane.report_agent_session";
     else if (noun == "plugin" && verb == "reload")
         command.method = "plugin.reload";
+    else if (noun == "ui" && verb == "list")
+        command.method = "ui.list";
     else
     {
         parsed.error = usage();
@@ -241,6 +255,16 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
                 return parsed;
             }
             command.server_epoch = args[position++];
+        }
+        else if (args[position] == "--ui")
+        {
+            if (++position >= args.size() || args[position].empty())
+            {
+                parsed.error = "--ui requires a control id.";
+                return parsed;
+            }
+            command.control_id = args[position++];
+            command.control_id_explicit = true;
         }
         else if (args[position] == "--runtime-generation")
         {
@@ -515,6 +539,13 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         parsed.error = "--replace is only valid for agent start.";
         return parsed;
     }
+    if (command.control_id_explicit
+        && command.method != "pane.focus"
+        && command.method != "pane.action")
+    {
+        parsed.error = "--ui is only valid for pane focus and pane action.";
+        return parsed;
+    }
     if (command.method == "agent.start")
     {
         if (command.route_space_id.empty())
@@ -556,10 +587,14 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
             value && *value)
             command.session_id = value;
     }
-    if (const char* value = std::getenv("DRAXUL_CONTROL_ID");
-        value && *value)
+    if (!command.control_id_explicit)
     {
-        command.control_id = value;
+        if (const char* value = std::getenv("DRAXUL_CONTROL_ID");
+            value && *value)
+        {
+            command.control_id = value;
+            command.control_id_explicit = true;
+        }
     }
     if (command.control_id.empty())
         command.control_id = command.session_id;
@@ -664,7 +699,8 @@ int run_control_cli(const ControlCliCommand& command)
         : std::filesystem::path(
               command.server_runtime_directory);
     const bool supports_headless_server
-        = command.method == "agent.list"
+        = command.method == "ui.list"
+        || command.method == "agent.list"
         || command.method == "agent.get"
         || command.method == "agent.explain"
         || command.method == "agent.start"
@@ -752,9 +788,10 @@ int run_control_cli(const ControlCliCommand& command)
             probe.welcome->connection_token);
     }
     bool using_global_server
-        = supports_headless_server
+        = command.method == "ui.list"
+        || (supports_headless_server
         && (!command.server_runtime_directory.empty()
-            || command.replace_pane);
+            || command.replace_pane));
     const auto request
         = [&](const nlohmann::json& request_params) {
               if (!using_global_server)
@@ -786,7 +823,96 @@ int run_control_cli(const ControlCliCommand& command)
                   server_runtime, command.method,
                   std::move(global_params));
           };
-    auto result = request(params);
+    const auto route_ui_request = [&]() -> ControlClientResult {
+        auto local = ControlClient::request(command.control_id,
+            runtime, command.method, params);
+        if (local.ok || command.control_id_explicit
+            || (local.error_code != "endpoint_unavailable"
+                && local.error_code != "io_error"))
+        {
+            return local;
+        }
+
+        auto routes = ControlClient::request(
+            namespaced_control_id(kServerControlId, server_runtime),
+            server_runtime, "ui.list",
+            { { "session_id", command.session_id.empty()
+                                    ? "default"
+                                    : command.session_id } });
+        if (!routes.ok)
+            return routes;
+        if (!routes.result.is_array() || routes.result.empty())
+        {
+            return { false, nullptr, "ui_unavailable",
+                "No attached Draxul UI has published a control route for this Session." };
+        }
+        if (command.method == "pane.focus" && routes.result.size() > 1)
+        {
+            return { false, routes.result, "ambiguous_ui",
+                "More than one Draxul UI is attached; choose one with --ui <control-id> (see 'draxul ui list --json')." };
+        }
+
+        const auto dispatch = [&](const nlohmann::json& route) {
+            if (!route.is_object()
+                || !route.contains("control_id")
+                || !route["control_id"].is_string()
+                || !route.contains("control_runtime_directory")
+                || !route["control_runtime_directory"].is_string())
+            {
+                return ControlClientResult{ false, nullptr,
+                    "invalid_ui_route",
+                    "The server returned an invalid UI control route." };
+            }
+            return ControlClient::request(
+                route["control_id"].get<std::string>(),
+                route["control_runtime_directory"].get<std::string>(),
+                command.method, params);
+        };
+        if (command.method == "pane.focus")
+            return dispatch(routes.result.front());
+
+        std::vector<std::future<ControlClientResult>> pending;
+        pending.reserve(routes.result.size());
+        for (const auto& route : routes.result)
+        {
+            pending.push_back(std::async(std::launch::async,
+                [&, route] { return dispatch(route); }));
+        }
+        nlohmann::json dispatched = nlohmann::json::array();
+        std::optional<ControlClientResult> first_failure;
+        for (size_t index = 0; index < pending.size(); ++index)
+        {
+            auto routed = pending[index].get();
+            if (routed.ok)
+            {
+                dispatched.push_back({
+                    { "control_id",
+                        routes.result[index].value(
+                            "control_id", std::string{}) },
+                    { "result", std::move(routed.result) },
+                });
+            }
+            else if (!first_failure)
+                first_failure = std::move(routed);
+        }
+        if (dispatched.empty())
+        {
+            return first_failure.value_or(ControlClientResult{
+                false, nullptr, "ui_unavailable",
+                "No attached Draxul UI accepted the pane action." });
+        }
+        return { true,
+            {
+                { "pane_id", command.value },
+                { "action", command.action },
+                { "dispatched_routes", std::move(dispatched) },
+            },
+            {}, {} };
+    };
+    auto result = (command.method == "pane.focus"
+                      || command.method == "pane.action")
+        ? route_ui_request()
+        : request(params);
     if (result.ok && command.method == "agent.wait")
     {
         const auto deadline = command.timeout_ms > 0
