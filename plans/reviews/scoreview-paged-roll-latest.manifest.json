@@ -1,0 +1,58 @@
+{
+  "finished_at": "2026-08-22T16:20:46.326996+00:00",
+  "kind": "review",
+  "name": "scoreview-paged-roll",
+  "prompt": "D:\\dev\\Draxul\\.codex-scoreview-review-prompt.md",
+  "reviewers": [
+    {
+      "company": "openai",
+      "duration_seconds": 188.797,
+      "error": "",
+      "fallback_reason": "",
+      "model": "gpt-5.6-sol",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs\\20260822T161146Z-scoreview-paged-roll-b3e53654\\reports\\openai.codex.gpt-5-6-sol.md",
+      "requested": "codex",
+      "sandbox_fallback": "",
+      "sha256": "511b126cce68a69716c4df7ffcb3d366c6f26baed86c3273067ff48efb8061fc",
+      "status": "passed",
+      "transport": "codex",
+      "version": "codex-cli 0.146.1"
+    },
+    {
+      "company": "anthropic",
+      "duration_seconds": 494.547,
+      "error": "",
+      "fallback_reason": "",
+      "model": "opus",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs\\20260822T161146Z-scoreview-paged-roll-b3e53654\\reports\\anthropic.claude.opus.md",
+      "requested": "claude",
+      "sandbox_fallback": "",
+      "sha256": "c06b0674e381532c095e31e70747fd5486ef4fbd6a1f6d626ac80c113a48dbe8",
+      "status": "passed",
+      "transport": "claude",
+      "version": "2.1.234 (Claude Code)"
+    },
+    {
+      "company": "xai",
+      "duration_seconds": 279.657,
+      "error": "xai/grok:grok-4.5 returned progress text instead of a final Markdown report.",
+      "fallback_reason": "",
+      "model": "grok-4.5",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "requested": "grok",
+      "sandbox_fallback": "",
+      "status": "failed",
+      "transport": "grok",
+      "version": "grok 1.0.4 (d846eb93d9) [stable]"
+    }
+  ],
+  "run_id": "20260822T161146Z-scoreview-paged-roll-b3e53654",
+  "schema_version": 1,
+  "started_at": "2026-08-22T16:11:46.680640+00:00",
+  "status": "partial"
+}

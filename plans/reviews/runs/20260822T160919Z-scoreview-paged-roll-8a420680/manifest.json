@@ -1,0 +1,54 @@
+{
+  "finished_at": "2026-08-22T16:10:07.015413+00:00",
+  "kind": "review",
+  "name": "scoreview-paged-roll",
+  "prompt": "D:\\dev\\Draxul\\.codex-scoreview-review-prompt.md",
+  "reviewers": [
+    {
+      "company": "openai",
+      "duration_seconds": null,
+      "error": "",
+      "fallback_reason": "",
+      "model": "gpt-5.6-sol",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "requested": "codex",
+      "sandbox_fallback": "",
+      "status": "not-run",
+      "transport": "codex",
+      "version": "codex-cli 0.146.1"
+    },
+    {
+      "company": "anthropic",
+      "duration_seconds": null,
+      "error": "",
+      "fallback_reason": "",
+      "model": "opus",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "requested": "claude",
+      "sandbox_fallback": "",
+      "status": "not-run",
+      "transport": "claude",
+      "version": "2.1.234 (Claude Code)"
+    },
+    {
+      "company": "google",
+      "duration_seconds": null,
+      "error": "",
+      "fallback_reason": "",
+      "model": null,
+      "preflight": "failed",
+      "preflight_message": "Agy failed: Fetching available models...\nError: Please sign in to view available models. Launch the CLI without arguments to sign in.; Gemini failed: Warning: Basic terminal detected (TERM=dumb). Visual rendering will be limited. For the best experience, use a terminal emulator with truecolor support.\nWarning: 256-color support not detected. Using a terminal with at least 256-color support is recommended for a better visual experience.\nError authenticating: IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google\n    at throwIneligibleOrProjectIdError (file:///C:/Users/cmaughan/AppData/Local/nvm/v25.6.1/node_modules/@google/gemini-cli/bundle/chunk-7VVHSNDQ.js:273244:11)\n    at _doSetupUser (file:///C:/Users/cmaughan/AppData/Local/nvm/v25.6.1/node_modules/@google/gemini-cli/bundle/chunk-7VVHSNDQ.js:273233:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {\n  ineligibleTiers: [\n    {\n      reasonCode: 'UNSUPPORTED_CLIENT',\n      reasonMessage: 'This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google',\n      tierId: 'free-tier',\n      tierName: 'Gemini Code Assist for individuals'\n    }\n  ]\n}\nRipgrep is not available. Falling back to GrepTool.\nAn unexpected critical error occurred:IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google\n    at throwIneligibleOrProjectIdError (file:///C:/Users/cmaughan/AppData/Local/nvm/v25.6.1/node_modules/@google/gemini-cli/bundle/chunk-7VVHSNDQ.js:273244:11)\n    at _doSetupUser (file:///C:/Users/cmaughan/AppData/Local/nvm/v25.6.1/node_modules/@google/gemini-cli/bundle/chunk-7VVHSNDQ.js:273233:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+      "requested": "google",
+      "sandbox_fallback": "",
+      "status": "not-run",
+      "transport": null,
+      "version": ""
+    }
+  ],
+  "run_id": "20260822T160919Z-scoreview-paged-roll-8a420680",
+  "schema_version": 1,
+  "started_at": "2026-08-22T16:09:19.885668+00:00",
+  "status": "partial"
+}
