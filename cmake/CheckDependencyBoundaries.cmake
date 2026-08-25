@@ -70,7 +70,7 @@ function(draxul_check_dependency_boundaries)
         draxul-nvim draxul-gui draxul-ui SDL3::SDL3)
 
     set(_product_target_pattern
-        "draxul-(markdown|kanban|megacity|codeviz|satview|scoreview|score-|notation)")
+        "draxul-(markdown|kanban|megacity|codeviz|satview|scoreview|pcbview|score-|notation)")
     foreach(_foundation_target
         draxul-performance
         draxul-host-identity
@@ -97,7 +97,7 @@ function(draxul_check_core_product_isolation)
     # Kanban and Markdown are intentionally core. Everything in this expression
     # is an optional external product and must remain downstream of Draxul.
     set(_external_product_target_pattern
-        "draxul-(megacity|codeviz|satview|scoreview|score-|notation|geometry|treesitter|code-semantics)")
+        "draxul-(megacity|codeviz|satview|scoreview|pcbview|score-|notation|geometry|treesitter|code-semantics)")
     foreach(_core_target
         draxul-performance
         draxul-host-identity
@@ -165,7 +165,7 @@ function(draxul_check_core_source_product_isolation source_root)
     endforeach()
 
     set(_external_product_include_pattern
-        "^[ \t]*#[ \t]*include[ \t]*[<\"][^>\"]*(megacity|codeviz|satview|scoreview|bioview|notation|code_semantics|treesitter)")
+        "^[ \t]*#[ \t]*include[ \t]*[<\"][^>\"]*(megacity|codeviz|satview|scoreview|pcbview|bioview|notation|code_semantics|treesitter)")
     foreach(_source IN LISTS _core_sources)
         file(STRINGS "${_source}" _forbidden_includes
             REGEX "${_external_product_include_pattern}")

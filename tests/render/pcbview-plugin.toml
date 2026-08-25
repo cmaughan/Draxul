@@ -1,0 +1,10 @@
+name = "pcbview-plugin"
+host = "plugin"
+plugin_id = "dev.draxul.pcbview"
+width = 960
+height = 700
+settle_ms = 150
+timeout_ms = 30000
+pixel_tolerance = 4
+changed_pixels_threshold_pct = 0.05
+commands = [""]

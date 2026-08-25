@@ -10,3 +10,6 @@
 [submodule "plugins/rezonality"]
 	path = plugins/rezonality
 	url = https://github.com/cmaughan/draxul-rezonality.git
+[submodule "plugins/pcbview"]
+	path = plugins/pcbview
+	url = https://github.com/cmaughan/draxul-pcbview.git

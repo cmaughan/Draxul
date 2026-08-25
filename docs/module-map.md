@@ -32,7 +32,7 @@ draxul executable
 ├── draxul-client / draxul-server
 ├── draxul-markdown-host
 ├── draxul-kanban
-└── optional products: draxul-megacity / SatView + ScoreView plugins
+└── optional products: draxul-megacity / SatView + ScoreView + PCBView plugins
         │
         ├── product-specific model, scene, service, and renderer targets
         └── shared host / renderer / UI infrastructure
@@ -270,6 +270,7 @@ Good place for:
 | `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Submodule → [draxul-megacity](https://github.com/cmaughan/draxul-megacity). Self-contained MegaCity/BioView product: code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic module |
 | `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Submodule → [draxul-satview](https://github.com/cmaughan/draxul-satview). Self-contained satellite product: core, scene, services, runtime, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |
 | `plugins/scoreview/` | `DRAXUL_ENABLE_SCOREVIEW` | Submodule → [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview). Self-contained notation, learning, transport, worker, MIDI/audio/microphone, UI, NanoVG Vulkan/Metal rendering, assets, tests, and dynamic module |
+| `plugins/pcbview/` | `DRAXUL_ENABLE_PCBVIEW` | Submodule → [draxul-pcbview](https://github.com/cmaughan/draxul-pcbview). Self-contained millimetre board model, strict JSON loader, VKLive-derived 2D viewport, NanoVG Vulkan/Metal rendering, ImGui layer controls, deterministic prototype asset, tests, and dynamic module |
 | `plugins/rezonality/` | `DRAXUL_ENABLE_REZONALITY` | Submodule → [draxul-rezonality](https://github.com/cmaughan/draxul-rezonality). Fault-tolerant live graphics product ported from VkLive; owns its watched project loader, compiler tools, immutable raster/ray candidates, Assimp, cameras, PBR/HDR resources, Vulkan ray pipelines and acceleration structures, native Metal ray kernels, examples, bounded agent diagnostics, transient-state handoff, layout tooling, and tests |
 
 All optional product directories own their third-party dependency
@@ -328,7 +329,7 @@ Use this when:
 ### Fast confidence
 
 - `python do.py test debug` — build and run core unit shards in the shared Debug cache
-- `python do.py test debug --megacity|--satview|--scoreview` — add only an affected product suite
+- `python do.py test debug --megacity|--satview|--scoreview|--pcbview` — add only an affected product suite
 - `python do.py test debug --products` — add every product suite for shared plugin seams
 - `python do.py test debug --all` — explicit complete unit inventory
 - `python do.py smoke --skip-build` — startup-check that already-built app

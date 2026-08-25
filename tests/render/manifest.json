@@ -184,6 +184,20 @@
       "bless_command": ""
     },
     {
+      "name": "pcbview-plugin",
+      "purpose": "Dynamic PCBView NanoVG board, through holes, airwires, and ImGui layer controls",
+      "status": "developer",
+      "requires_target": "draxul-pcbview-plugin",
+      "test_scope": "pcbview",
+      "platforms": ["windows"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "pcbviewplugin",
+      "bless_command": "blesspcbviewplugin"
+    },
+    {
       "name": "megacity-plugin",
       "purpose": "Dynamic MegaCity Vulkan composition using a deterministic semantic-city fixture",
       "status": "regression",

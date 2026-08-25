@@ -432,6 +432,7 @@ class TestCommandTests(unittest.TestCase):
         self.assertIn("run core unit tests in parallel", help_output.lower())
         self.assertIn("--satview", help_output)
         self.assertIn("--scoreview", help_output)
+        self.assertIn("--pcbview", help_output)
         self.assertIn("--rezonality", help_output)
         self.assertIn("--products", help_output)
         self.assertIn("--all", help_output)
@@ -532,16 +533,18 @@ class TestCommandTests(unittest.TestCase):
                 "draxul-tests-megacity",
                 "draxul-tests-satview",
                 "draxul-tests-scoreview",
+                "draxul-tests-pcbview",
                 "draxul-tests-rezonality",
             ),
             targets,
         )
-        for product in ("megacity", "satview", "scoreview", "rezonality"):
+        for product in ("megacity", "satview", "scoreview", "pcbview", "rezonality"):
             self.assertIn(f"draxul-test-{product}-shard", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-pbr-robot", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-ray-tracer", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-audio-spectrum", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-plugin", ctest_filter[1])
+        self.assertIn("draxul-render-pcbview-plugin", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-blend-waves", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-deferred-shading", ctest_filter[1])
         self.assertIn(
@@ -549,7 +552,7 @@ class TestCommandTests(unittest.TestCase):
         )
         self.assertIn("draxul-rezonality-agent-layout", ctest_filter[1])
         self.assertEqual(
-            "core + megacity, satview, scoreview, rezonality", label
+            "core + megacity, satview, scoreview, pcbview, rezonality", label
         )
 
     def test_all_scope_uses_complete_unit_aggregate(self) -> None:

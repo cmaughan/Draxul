@@ -485,7 +485,7 @@ def cmd_build(root: pathlib.Path, args: list[str]) -> int:
     return rc
 
 
-_TEST_PRODUCT_SCOPES = ("megacity", "satview", "scoreview", "rezonality")
+_TEST_PRODUCT_SCOPES = ("megacity", "satview", "scoreview", "pcbview", "rezonality")
 
 
 def _parse_test_args(args: list[str]) -> tuple[str, bool, str, bool, set[str], bool]:
@@ -502,6 +502,8 @@ def _parse_test_args(args: list[str]) -> tuple[str, bool, str, bool, set[str], b
             product_scopes.add("satview")
         elif arg == "--scoreview":
             product_scopes.add("scoreview")
+        elif arg == "--pcbview":
+            product_scopes.add("pcbview")
         elif arg == "--rezonality":
             product_scopes.add("rezonality")
         elif arg == "--products":
@@ -520,7 +522,7 @@ def _parse_test_args(args: list[str]) -> tuple[str, bool, str, bool, set[str], b
         raise ValueError(
             "test accepts [debug|release|relwithdebinfo] "
             "[--reconfigure] [--vs|--ninja] [--verbose] "
-            "[--megacity|--satview|--scoreview|--rezonality|--products|--all]"
+            "[--megacity|--satview|--scoreview|--pcbview|--rezonality|--products|--all]"
         )
     return mode, force_reconfigure, build_system, verbose, product_scopes, all_tests
 
@@ -548,6 +550,8 @@ def _test_scope_selection(
             patterns.append(r"draxul-satview-catalog-py-tests")
         elif scope == "scoreview":
             patterns.append(r"draxul-test-scoreview-runtime-shard-[0-9]+")
+        elif scope == "pcbview":
+            patterns.append(r"draxul-render-pcbview-plugin")
         elif scope == "rezonality":
             patterns.append(r"draxul-rezonality-agent-layout")
             patterns.append(r"draxul-rezonality-neovim")
@@ -1287,7 +1291,7 @@ Single-word shortcuts:
                Run the app smoke test (default: debug, ninja on Windows)
   score-shot-check  Regression guard (kanban 74): ScoreView plugin --screenshot-size + .musicxml
   test [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--verbose]
-       [--megacity|--satview|--scoreview|--rezonality|--products|--all]
+       [--megacity|--satview|--scoreview|--pcbview|--rezonality|--products|--all]
                Build and run core unit tests in parallel (default: debug, ninja)
                Product flags add their suites; --products adds all products;
                --all builds and runs the complete unit inventory
@@ -1320,6 +1324,7 @@ Examples:
   do clean
   do test                  # Core tests in the Debug development cache
   do test --satview        # Core + SatView tests
+  do test --pcbview        # Core + PCBView tests
   do test --rezonality     # Core + Rezonality tests
   do test --products       # Core + every product test suite
   do test --all            # Complete unit inventory
@@ -1435,6 +1440,7 @@ def main() -> int:
                 "draxul-test-satview",
                 "draxul-test-scoreview",
                 "draxul-test-scoreview-runtime",
+                "draxul-test-pcbview",
                 "draxul-test-rezonality",
             )
             if (test_dir / name).is_file()
