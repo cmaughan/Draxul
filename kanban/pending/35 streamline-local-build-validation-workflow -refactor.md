@@ -90,6 +90,12 @@ loop, and helper-lock failures were avoidable workflow cost.
 
 ## Focused validation
 
+- [ ] Include each new focused executable in both its aggregate target dependencies
+      and `do.py` scope-selection patterns, with runner selection coverage.
+      `_test_scope_selection()` currently enumerates exact patterns; CTest
+      registration alone does not include a new suite. Coordinate the proposed
+      Rezonality project/runtime/audio and MegaCity parser suites from the accepted
+      refactor cards, preserving the Catch/label selection and zero-match checks below.
 - [ ] Add a supported command for building the smallest owning test target and running
       a Catch2 name/tag or CTest label without rebuilding the complete product closure
       unnecessarily.

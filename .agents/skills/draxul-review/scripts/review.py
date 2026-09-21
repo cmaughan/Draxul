@@ -20,7 +20,7 @@ import uuid
 from collections.abc import Callable, Iterable, Sequence
 
 
-DEFAULT_REVIEW_TIMEOUT = 1800
+DEFAULT_REVIEW_TIMEOUT = 5400
 DEFAULT_PREFLIGHT_TIMEOUT = 60
 REPOMIX_OUTPUT = "repomix-output.xml"
 FAILURE_PATTERNS = (
@@ -306,6 +306,14 @@ def agent_command(
             else []
         )
         session_args = [] if persist_session else ["--ephemeral"]
+        delegation_args = (
+            ["--enable", "multi_agent", "--config", "agents.enabled=true",
+             "--config", "agents.max_concurrent_threads_per_session=4",
+             "--config", f"agents.default_subagent_model={json.dumps(reviewer.model)}",
+             "--config", 'agents.default_subagent_reasoning_effort="high"']
+            if persist_session else
+            ["--disable", "multi_agent", "--config", "agents.enabled=false"]
+        )
         command = [
             *prefix,
             "--disable",
@@ -316,8 +324,7 @@ def agent_command(
             "browser_use_external",
             "--disable",
             "plugins",
-            "--disable",
-            "multi_agent",
+            *delegation_args,
             "--config",
             "mcp_servers={}",
             "--config",
@@ -749,7 +756,13 @@ def review_bootstrap(summary: bool = False) -> str:
         f"Read {task} and follow it exactly. {extra}"
         "This is a review-only task in a disposable workspace. "
         "Inspect files but do not edit, create, delete, format, build, install, or run project binaries. "
-        "Return the complete result as minimal Markdown in your final response. "
+        "Return the complete result as Markdown in your final response. "
+        "Keep each finding concise, but report every distinct, substantiated finding; "
+        "do not cap the count or stop after finding a few serious issues. "
+        "When the prompt requests delegation, use at most four read-only subagents, "
+        "with no nested delegation. Each must use the same source inputs, model and high "
+        "reasoning effort for Codex/Claude, and obey this review-only contract. "
+        "Wait for all delegated work and verify its evidence before accepting findings. "
         "Do not write the report to a file."
     )
 

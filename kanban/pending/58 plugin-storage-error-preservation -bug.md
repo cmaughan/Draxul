@@ -8,6 +8,7 @@
 **Investigation**
 
 - [ ] Inject open, write, flush, and replacement failures followed by successful cleanup.
+- [ ] Coordinate `kanban/pending/94 plugin-storage-private-owner -refactor.md`: use its private filesystem-operation seam for deterministic failures if extraction lands first; otherwise extract the already-fixed implementation. This bug card retains ownership of primary-error capture and separate cleanup errors.
 
 **Fix strategy**
 

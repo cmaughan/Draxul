@@ -20,6 +20,13 @@ plugin repository rather than deleted `modules/*` paths.
       and deleted `modules/{megacity,satview,score}` paths.
 - [ ] Audit current root and nested guidance for named files/targets that no longer
       exist, using CMake and `tests/CMakeLists.txt` as authority.
+- [ ] Track the ownership and focused-test mappings accepted in
+      `plans/reviews/runs/20260921T112827Z-review-refactor-summary-f86ba609/summary.md`
+      as those boundaries land; distinguish proposed targets from current ones.
+- [ ] Replace the hardcoded `build-ninja-release` development example in
+      `plugins/megacity/product/AGENTS.md` with the canonical selected Debug cache.
+      Keep root `AGENTS.md` a pointer to `CLAUDE.md` and update product guidance in
+      its owning repository.
 - [ ] Decide the remaining exact-label/Catch selection interface together with
       `kanban/pending/35 streamline-local-build-validation-workflow -refactor.md`;
       do not add a second competing test runner here.

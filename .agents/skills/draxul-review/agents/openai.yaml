@@ -1,4 +1,4 @@
 interface:
   display_name: "Draxul Multi-AI Review"
   short_description: "Run and synthesize independent AI code reviews"
-  default_prompt: "Use $draxul-review to run high-effort reviews with GPT-6 Astra and Claude Fable 5.1, first packing the repository and submodules with Repomix, then reviewing that single file in one session per reviewer without batches, saving each report immediately and producing consensus by default. Create validated Kanban cards by default; use --no-kanban when the user requests a report only."
+  default_prompt: "Use $draxul-review to run high-effort reviews with GPT-6 Astra and Claude Fable 5.1, first packing the repository and submodules with Repomix, then reviewing that single file in one coordinating run per reviewer with bounded subsystem subagents, architecture mapping, coordinator verification, and a coverage table, without batches, saving each report immediately and producing consensus by default. Create validated Kanban cards by default; use --no-kanban when the user requests a report only."

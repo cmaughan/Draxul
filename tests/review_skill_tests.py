@@ -106,6 +106,11 @@ class ReviewerSelectionTests(unittest.TestCase):
                 self.assertNotIn("--no-session-persistence", command)
                 if transport == "codex":
                     self.assertIn('model_reasoning_effort="high"', command)
+                    self.assertEqual("multi_agent", command[command.index("--enable") + 1])
+                    self.assertIn("agents.enabled=true", command)
+                    self.assertIn("agents.max_concurrent_threads_per_session=4", command)
+                    self.assertIn('agents.default_subagent_model="future-model"', command)
+                    self.assertIn('agents.default_subagent_reasoning_effort="high"', command)
                 if transport == "claude":
                     self.assertEqual("high", command[command.index("--effort") + 1])
 
@@ -130,6 +135,8 @@ class ReviewerSelectionTests(unittest.TestCase):
                 persist_session=False,
             )
         self.assertIn("--ephemeral", codex_command)
+        self.assertNotIn("--enable", codex_command)
+        self.assertIn("agents.enabled=false", codex_command)
         self.assertIn("--no-session-persistence", claude_command)
 
     def test_duplicate_company_is_rejected(self) -> None:
@@ -144,6 +151,8 @@ class ReviewerSelectionTests(unittest.TestCase):
         parser = review.build_parser()
         for command in (["review", "--prompt-file", "prompt.md"],
                         ["summarize", "--prompt-file", "prompt.md", "--run", "run-id"]):
+            self.assertEqual(5400, parser.parse_args(command).timeout)
+            self.assertEqual(120, parser.parse_args([*command, "--timeout", "120"]).timeout)
             self.assertTrue(parser.parse_args(command).kanban)
             self.assertFalse(parser.parse_args([*command, "--no-kanban"]).kanban)
         args = parser.parse_args(["review", "--prompt-file", "prompt.md", "--no-consensus"])

@@ -1,0 +1,77 @@
+{
+  "consensus": {
+    "run_id": "20260921T112827Z-review-refactor-summary-f86ba609",
+    "status": "complete",
+    "summary": "runs/20260921T112827Z-review-refactor-summary-f86ba609/summary.md",
+    "work_items": [
+      {
+        "path": "kanban/pending/90 client-stream-policy -refactor.md",
+        "sha256": "baf2f71b51dd4fd3662216786dade7e2d1311e6177c807120a824b11bd1513b3"
+      },
+      {
+        "path": "kanban/pending/91 app-control-request-boundary -refactor.md",
+        "sha256": "61db38ad1abc770b6c475fd0432252cadeca398d7753ab65db0ad438d8744bd4"
+      },
+      {
+        "path": "kanban/pending/92 session-config-leaf-dependency -refactor.md",
+        "sha256": "b0761b0f124265bc20b9faaf14f81facf6ee46ffa8ea7201183aa240d7708576"
+      },
+      {
+        "path": "kanban/pending/93 rezonality-audio-capture-boundary -refactor.md",
+        "sha256": "091d660ad526356fc0e9a485fa533a752f27460c330ef5c0c9b5965e37e67197"
+      },
+      {
+        "path": "kanban/pending/94 plugin-storage-private-owner -refactor.md",
+        "sha256": "4641f311d091fa50fe55eedb3ed93cbc3d9ec890af9dea780e894f4971c9a4c3"
+      },
+      {
+        "path": "kanban/pending/95 treesitter-source-parser -refactor.md",
+        "sha256": "896dc573585a14a3821c9beaa3d0ff44c208c0d156c9b4dd203a87f372cb2694"
+      },
+      {
+        "path": "kanban/pending/96 satview-csv-tokenizer -refactor.md",
+        "sha256": "4b5ee3a9037fddea78ab42a03d8f4cfa54515f58e244b1aad098a86d6558f556"
+      },
+      {
+        "path": "kanban/pending/97 font-native-dependency-visibility -refactor.md",
+        "sha256": "edc7658cd123f3e55747b1745d6dbb242cb33bc08da7e1e02b327a415654b6d4"
+      }
+    ]
+  },
+  "finished_at": "2026-09-21T11:28:21.203929+00:00",
+  "input": {
+    "bytes": 23252933,
+    "kind": "repomix",
+    "log": "logs/repomix.log",
+    "path": "repomix-output.xml",
+    "scope": "Tracked and non-ignored untracked files, including initialized submodules; Git metadata, review archives and previous Repomix outputs excluded. Repomix filters binary and security-sensitive files; see its log for exclusions. Input provenance does not certify exhaustive model review.",
+    "sha256": "0af4256cfe5f5e328955b8063a797c358093fff4a90ce9089c5555603ef287c6",
+    "source_files": 1990
+  },
+  "kind": "review",
+  "name": "review-refactor",
+  "prompt": "/Users/cmaughan/dev/draxul/plans/prompts/review_refactor.md",
+  "reviewers": [
+    {
+      "company": "openai",
+      "duration_seconds": 566.537,
+      "effort": "high",
+      "error": "",
+      "fallback_reason": "",
+      "model": "gpt-6-astra",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs/20260921T111844Z-review-refactor-89863ca0/reports/openai.codex.gpt-6-astra.md",
+      "requested": "codex",
+      "sandbox_fallback": "",
+      "sha256": "eec3ba230aced890aaba25081eb3be3f234303de61447e29e76fd8a97f3cb885",
+      "status": "passed",
+      "transport": "codex",
+      "version": "codex-cli 0.155.1"
+    }
+  ],
+  "run_id": "20260921T111844Z-review-refactor-89863ca0",
+  "schema_version": 1,
+  "started_at": "2026-09-21T11:18:44.499372+00:00",
+  "status": "complete"
+}

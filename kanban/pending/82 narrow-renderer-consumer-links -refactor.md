@@ -1,0 +1,48 @@
+# Replace unnecessary concrete renderer dependencies
+
+**Priority:** P2 — small dependency changes improve link isolation with limited implementation churn.  
+**Proposed by:** OpenAI Codex GPT-6 Astra, finding 3.  
+**Owner:** One core dependency/build agent.  
+**Dependencies:** `kanban/pending/00 internal-target-build-policy -refactor.md` for focused test targets. No dependency on another accepted refactor; coordinate NanoVG CMake edits.
+
+**Evidence:** Concrete renderer links remain in `libs/draxul-gui/CMakeLists.txt:20–25`, `libs/draxul-ui/CMakeLists.txt:17–20`, and `libs/draxul-nanovg/CMakeLists.txt:89–90`. UI uses `IImGuiHost`/`IFrameContext`; NanoVG uses render contracts already provided by `draxul-plugin-render-support`. The renderer adds window/SDL/ImGui closure.
+
+**Boundary:** Remove GUI’s renderer link. Replace UI’s private renderer edge and core NanoVG’s public renderer edge with existing render support, retaining explicitly required font, tooltip, ImGui, SDL, backend, and native dependencies. No new production library or public API.
+
+#### Boundary verification
+
+- [ ] Inventory includes and symbols used by all three consumers; capture direct and transitive links.
+- [ ] Confirm public headers receive their contracts directly rather than through unrelated consumers.
+- [ ] Verify Vulkan’s VMA implementation currently arrives transitively and must remain supplied explicitly.
+
+#### Implementation and migration
+
+- [ ] Remove GUI’s renderer edge and validate that consumer first.
+- [ ] Replace UI’s renderer link with private render support, retaining explicit ImGui/SDL requirements.
+- [ ] Replace NanoVG’s renderer link with public render support and explicitly retain `draxul-vulkan-resources` on Vulkan.
+- [ ] Preserve Metal frameworks/ARC and existing native source selection.
+
+#### Unit tests
+
+- [ ] Create narrowly linked contract consumers/focused tests, including `ui_panel_backend_tests.cpp` and relevant overlay/layout cases.
+- [ ] Ensure the test closure does not reintroduce the concrete renderer indirectly.
+- [ ] Enable `cmake --build <cache> --config Debug --target draxul-gui draxul-ui draxul-nanovg draxul-test-render-contracts --parallel`.
+- [ ] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-render-contracts-shard-' --parallel 4 --output-on-failure`.
+
+#### Cross-platform validation
+
+- [ ] Verify Windows Vulkan linking has one VMA implementation and macOS retains its framework/ARC behavior.
+- [ ] Build the platform app and verify panel/NanoVG rendering on both backends.
+- [ ] Run `python3 do.py test debug --products`, then `python3 do.py smoke debug --skip-build`; run affected registered render cases not included in that aggregate.
+
+#### Agent documentation/tooling
+
+- [ ] Register focused tests in core aggregates, `do.py`, and selection tests.
+- [ ] Correct dependency comments in GUI/UI documentation, NanoVG CMake, and the module map.
+- [ ] Document reduced target closure without claiming GPU-independent root configuration.
+
+#### Acceptance criteria
+
+- [ ] None of the three libraries directly or transitively depends on the concrete renderer.
+- [ ] Contract tests do not rely on the broad core test target to mask missing links.
+- [ ] Existing interfaces, visuals, and platform linkage remain compatible.
