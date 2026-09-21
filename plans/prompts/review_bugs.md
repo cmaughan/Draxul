@@ -1,4 +1,4 @@
-Explore the repository source files directly — use Glob and Read (or equivalent file-reading tools) to scan all source files under `app/`, `libs/`, `shaders/`, `tests/`, and `scripts/`. Read the actual files as they exist on disk; do not rely on any pre-generated combined file.
+Review the repository through the supplied repomix-output.xml file in one coherent review session. This packed source includes repository paths, line numbers, directory structure, and source from initialized submodules. Use the packed file as your source of truth: read the architecture and guidance, follow callers and dependencies across its embedded file sections, and check relevant tests and tracker entries. Use bounded reads and searches within the file and continue after tool-output truncation. Return one findings report, with no batches, segment acknowledgments, or coverage JSON. State any scope or context limitations honestly.
 
 Your sole focus is **finding bugs, defects, and correctness issues**. Ignore style, naming, architecture, and feature ideas — only report things that are **wrong or will break at runtime**.
 

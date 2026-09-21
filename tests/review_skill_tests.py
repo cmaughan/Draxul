@@ -3,9 +3,11 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -20,18 +22,40 @@ SPEC.loader.exec_module(review)
 
 
 class ReviewerSelectionTests(unittest.TestCase):
-    def test_default_panel_uses_three_companies(self) -> None:
+    def test_default_panel_uses_astra_and_fable(self) -> None:
         panel = review.requested_panel([], False)
-        self.assertEqual([("codex", ""), ("claude", ""), ("google", "")], panel)
+        self.assertEqual([("codex", ""), ("claude", "")], panel)
         self.assertEqual(
-            {"openai", "anthropic", "google"},
-            {review.company_for_requested(transport) for transport, _ in panel},
+            ["gpt-6-astra", "claude-fable-5-1"],
+            [review.ADAPTERS[transport].default_model for transport, _ in panel],
         )
 
-    def test_all_panel_adds_xai(self) -> None:
+    def test_all_panel_adds_google_and_xai(self) -> None:
         panel = review.requested_panel([], True)
         self.assertEqual(4, len(panel))
+        self.assertIn(("google", ""), panel)
         self.assertIn(("grok", ""), panel)
+
+    def test_default_preflight_checks_only_the_review_panel(self) -> None:
+        args = review.build_parser().parse_args(["preflight"])
+
+        def probe(request, timeout):
+            transport, model = request
+            adapter = review.ADAPTERS[transport]
+            result = review.ProbeResult(
+                requested=transport, ok=True, message="ready",
+                reviewer=review.Reviewer(
+                    transport, adapter.company, model or adapter.default_model, transport
+                ),
+            )
+            return result, [result]
+
+        with mock.patch.object(review, "resolve_and_probe", side_effect=probe) as resolve:
+            self.assertEqual(0, review.command_preflight(args))
+        self.assertEqual(
+            [("codex", ""), ("claude", "")],
+            [call.args[0] for call in resolve.call_args_list],
+        )
 
     def test_models_are_passed_through(self) -> None:
         self.assertEqual(("codex", "future-model"), review.parse_reviewer("codex:future-model"))
@@ -41,6 +65,7 @@ class ReviewerSelectionTests(unittest.TestCase):
                 reviewer, pathlib.Path("D:/snapshot"), "prompt", pathlib.Path("D:/out.md"), 42
             )
         self.assertIn("future-model", command)
+        self.assertIn("--json", command)
         self.assertIn("read-only", command)
         self.assertNotIn("danger-full-access", command)
 
@@ -79,6 +104,10 @@ class ReviewerSelectionTests(unittest.TestCase):
                 self.assertIn("future-model", command)
                 self.assertNotIn("--ephemeral", command)
                 self.assertNotIn("--no-session-persistence", command)
+                if transport == "codex":
+                    self.assertIn('model_reasoning_effort="high"', command)
+                if transport == "claude":
+                    self.assertEqual("high", command[command.index("--effort") + 1])
 
     def test_preflight_commands_disable_session_persistence(self) -> None:
         with mock.patch.object(review, "executable_prefix", side_effect=lambda command: [command]):
@@ -110,6 +139,15 @@ class ReviewerSelectionTests(unittest.TestCase):
     def test_panel_is_limited_to_four_reviewers(self) -> None:
         with self.assertRaisesRegex(review.ReviewError, "between one and four"):
             review.requested_panel(["codex", "claude", "agy", "grok", "codex"], False)
+
+    def test_kanban_defaults_on_and_can_be_disabled(self) -> None:
+        parser = review.build_parser()
+        for command in (["review", "--prompt-file", "prompt.md"],
+                        ["summarize", "--prompt-file", "prompt.md", "--run", "run-id"]):
+            self.assertTrue(parser.parse_args(command).kanban)
+            self.assertFalse(parser.parse_args([*command, "--no-kanban"]).kanban)
+        args = parser.parse_args(["review", "--prompt-file", "prompt.md", "--no-consensus"])
+        self.assertTrue(args.no_consensus)
 
     def test_summarize_requires_one_input_mode(self) -> None:
         parser = review.build_parser()
@@ -174,6 +212,238 @@ class SnapshotTests(unittest.TestCase):
             self.assertFalse((snapshot / "plans" / "reviews" / "old.md").exists())
             self.assertTrue((snapshot / "REPO_STATE.md").exists())
 
+    def test_snapshot_recurses_gitlinks_and_preserves_dirty_submodule_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp) / "repo"
+            root.mkdir()
+            self.init_repo(root)
+            product = root / "plugins" / "product"
+            product.mkdir(parents=True)
+            self.init_repo(product)
+            nested = product / "nested"
+            nested.mkdir()
+            self.init_repo(nested)
+            subprocess.run(["git", "-C", str(product), "add", "nested"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(root), "add", "plugins/product"], check=True, capture_output=True)
+            (nested / "source.txt").write_text("dirty nested source\n")
+            (product / "new.cpp").write_text("untracked source\n")
+            (product / "ignored.txt").write_text("ignored\n")
+            (product / "plans" / "reviews").mkdir(parents=True)
+            (product / "plans" / "reviews" / "old.md").write_text("old review")
+            snapshot = pathlib.Path(temp) / "snapshot"
+            files = review.copy_source_snapshot(root, snapshot)
+            self.assertEqual("dirty nested source\n", (snapshot / "plugins/product/nested/source.txt").read_text())
+            self.assertIn(pathlib.Path("plugins/product/new.cpp"), files)
+            self.assertNotIn(pathlib.Path("plugins/product/ignored.txt"), files)
+            self.assertNotIn(pathlib.Path("plugins/product/plans/reviews/old.md"), files)
+            self.assertFalse((snapshot / "plugins/product/.git").exists())
+            shutil.rmtree(nested / ".git")
+            with self.assertRaisesRegex(review.ReviewError, "not initialized"):
+                review.snapshot_file_list(root)
+
+    def test_repomix_runs_once_then_each_reviewer_gets_one_private_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp) / "repo"
+            root.mkdir()
+            self.init_repo(root)
+            (root / "prompt.md").write_text("Find bugs across component boundaries.")
+            (root / "repomix-output.xml").write_text("stale generated output")
+            product = root / "plugins" / "product"
+            product.mkdir(parents=True)
+            self.init_repo(product)
+            subprocess.run(["git", "-C", str(root), "add", "plugins/product"], check=True, capture_output=True)
+            (product / "source.txt").write_text("dirty product source")
+            output = pathlib.Path(temp) / "output"
+            packed = '<repomix><file path="source.txt">original</file></repomix>'
+            calls = []
+            workspaces = []
+
+            def fake_run(command, cwd, **kwargs):
+                calls.append(command[0])
+                if command[0] == "repomix":
+                    paths = kwargs["input_text"].splitlines()
+                    self.assertIn("plugins/product/source.txt", paths)
+                    self.assertNotIn("repomix-output.xml", paths)
+                    self.assertNotIn("REPO_STATE.md", paths)
+                    self.assertEqual("dirty product source", (cwd / "plugins/product/source.txt").read_text())
+                    pathlib.Path(command[command.index("--output") + 1]).write_text(packed)
+                    return subprocess.CompletedProcess(command, 0, "Packed source files", "")
+                workspaces.append(cwd)
+                self.assertEqual({"repomix-output.xml", "REVIEW_PROMPT.md"}, {p.name for p in cwd.iterdir()})
+                self.assertEqual(packed, (cwd / "repomix-output.xml").read_text())
+                self.assertIn("sole source input", kwargs["input_text"])
+                self.assertNotIn("SOURCE SEGMENTS", kwargs["input_text"])
+                report = "# Review\n\n- A cross-component finding."
+                if "--output-last-message" in command:
+                    pathlib.Path(command[command.index("--output-last-message") + 1]).write_text(report)
+                return subprocess.CompletedProcess(command, 0, report, "")
+
+            def probe(request, timeout):
+                transport, model = request
+                adapter = review.ADAPTERS[transport]
+                result = review.ProbeResult(transport, True,
+                    review.Reviewer(transport, adapter.company, model or adapter.default_model, transport))
+                return result, [result]
+
+            with (
+                mock.patch.object(review, "executable_prefix", side_effect=lambda name: [name]),
+                mock.patch.object(review, "run_process", side_effect=fake_run),
+                mock.patch.object(review, "resolve_and_probe", side_effect=probe),
+            ):
+                self.assertEqual(0, review.main(["review", "--repo-root", str(root),
+                    "--output-root", str(output), "--prompt-file", "prompt.md", "--no-consensus"]))
+            self.assertEqual("repomix", calls[0])
+            self.assertCountEqual(["repomix", "codex", "claude"], calls)
+            self.assertEqual(2, len(set(workspaces)))
+            run = next((output / "runs").iterdir())
+            manifest = json.loads((run / "manifest.json").read_text())
+            self.assertEqual("complete", manifest["status"])
+            self.assertEqual(review.hashlib.sha256(packed.encode()).hexdigest(), manifest["input"]["sha256"])
+            self.assertEqual(2, len(list((run / "reports").glob("*.md"))))
+            self.assertFalse((run / "batches").exists())
+            self.assertFalse((run / "coverage").exists())
+            self.assertEqual("stale generated output", (root / "repomix-output.xml").read_text())
+
+    def test_immediate_publication_then_consensus_and_optional_cards(self) -> None:
+        for kanban, failed_review, failed_summary in (
+            (False, False, False), (True, False, False),
+            (False, True, False), (False, False, True),
+        ):
+            with self.subTest(kanban=kanban, failed_review=failed_review,
+                              failed_summary=failed_summary), tempfile.TemporaryDirectory() as temp:
+                root = pathlib.Path(temp) / "repo"
+                root.mkdir()
+                self.init_repo(root)
+                (root / "review_bugs.md").write_text("Find bugs.")
+                prompts = root / "plans/prompts"
+                prompts.mkdir(parents=True)
+                (prompts / "consensus_review_bugs.md").write_text(
+                    "Saved bug triage criteria. Create cards in kanban/pending/."
+                )
+                output = pathlib.Path(temp) / "output"
+                durable = threading.Event()
+                calls = []
+                original_publish = review.publish_review_artifacts
+
+                def publish(*args, **kwargs):
+                    manifest = original_publish(*args, **kwargs)
+                    if any(e["status"] == "passed" for e in manifest["reviewers"]):
+                        durable.set()
+                    return manifest
+
+                def pack(snapshot, files, run, timeout):
+                    target = run / review.REPOMIX_OUTPUT
+                    target.write_text("<repomix>source</repomix>")
+                    return target
+
+                def probe(request, timeout):
+                    transport, model = request
+                    adapter = review.ADAPTERS[transport]
+                    result = review.ProbeResult(transport, True,
+                        review.Reviewer(transport, adapter.company, model or adapter.default_model, transport))
+                    return result, [result]
+
+                def provider(reviewer, repo, prompt, timeout, **kwargs):
+                    if kwargs.get("summary"):
+                        calls.append("consensus")
+                        self.assertIn("Saved bug triage criteria", prompt)
+                        self.assertIn("not latest-file globs", prompt)
+                        inputs = kwargs["summary_inputs"]
+                        self.assertEqual(1 if failed_review else 2, len(inputs))
+                        self.assertEqual(1, len({p.parent.parent for p in inputs}))
+                        review_run = inputs[0].parent.parent
+                        manifest = json.loads((review_run / "manifest.json").read_text())
+                        self.assertNotEqual("running", manifest["status"])
+                        self.assertTrue(all(p.is_file() for p in inputs))
+                        if failed_summary:
+                            return review.AgentResult(reviewer, False, error="synthesis unavailable")
+                        # Even an unwanted provider card must not be materialized by default.
+                        return review.AgentResult(reviewer, True,
+                            "# Consensus\n\nConfirmed bug.\n\n"
+                            "### kanban/pending/00 confirmed -bug.md\n"
+                            "# Confirmed bug\n\n- [ ] Fix and verify.\n")
+                    calls.append(reviewer.transport)
+                    if reviewer.transport == "claude":
+                        self.assertTrue(durable.wait(5), "Astra report was not published while Fable was running")
+                        run = next((output / "runs").iterdir())
+                        self.assertTrue(list((run / "reports").glob("openai.*.md")))
+                        manifest = json.loads((run / "manifest.json").read_text())
+                        self.assertEqual("running", manifest["status"])
+                        self.assertIsNone(manifest["finished_at"])
+                        self.assertEqual("running", manifest["reviewers"][1]["status"])
+                        if failed_review:
+                            return review.AgentResult(reviewer, False, error="review unavailable")
+                    return review.AgentResult(reviewer, True, "# Review\n\n- A real finding.", stderr="diagnostics")
+
+                argv = ["review", "--repo-root", str(root), "--output-root", str(output),
+                        "--prompt-file", "review_bugs.md"] + ([] if kanban else ["--no-kanban"])
+                with (
+                    mock.patch.object(review, "pack_repository", side_effect=pack),
+                    mock.patch.object(review, "resolve_and_probe", side_effect=probe),
+                    mock.patch.object(review, "execute_agent", side_effect=provider),
+                    mock.patch.object(review, "publish_review_artifacts", side_effect=publish),
+                ):
+                    self.assertEqual(int(failed_review or failed_summary), review.main(argv))
+                self.assertCountEqual(["codex", "claude", "consensus"], calls)
+                manifest = json.loads((output / "review-bugs-latest.manifest.json").read_text())
+                state = "failed" if failed_summary else "partial" if failed_review else "complete"
+                self.assertEqual(state, manifest["consensus"]["status"])
+                review_run = output / "runs" / manifest["run_id"]
+                self.assertTrue(list((review_run / "reports").glob("openai.*.md")))
+                self.assertTrue((review_run / "logs/codex.stderr.log").exists())
+                self.assertEqual(kanban, (root / "kanban/pending/00 confirmed -bug.md").exists())
+                if not failed_summary:
+                    summary = json.loads((output / "review-bugs-latest.summary.manifest.json").read_text())
+                    self.assertEqual(1 if kanban else 0, len(summary["work_items"]))
+                    self.assertEqual(bool(failed_review), bool(summary["missing_reviewers"]))
+
+    def test_repomix_failure_prevents_provider_calls(self) -> None:
+        for failure in ("exit", "empty", "missing-cli"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp:
+                root = pathlib.Path(temp) / "repo"
+                root.mkdir()
+                self.init_repo(root)
+                (root / "prompt.md").write_text("Find bugs.")
+                output = pathlib.Path(temp) / "output"
+                with (
+                    mock.patch.object(review, "executable_prefix", return_value=["repomix"]) as prefix,
+                    mock.patch.object(review, "run_process", return_value=
+                        subprocess.CompletedProcess([], 1 if failure == "exit" else 0, "", "pack failed")),
+                    mock.patch.object(review, "resolve_and_probe") as probe,
+                ):
+                    if failure == "missing-cli":
+                        prefix.side_effect = review.ReviewError("repomix CLI is not on PATH.")
+                    self.assertEqual(1, review.main(["review", "--repo-root", str(root),
+                        "--output-root", str(output), "--prompt-file", "prompt.md"]))
+                    probe.assert_not_called()
+                run = next((output / "runs").iterdir())
+                self.assertEqual("failed", json.loads((run / "manifest.json").read_text())["status"])
+
+    def test_plan_only_packs_without_invoking_providers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp) / "repo"
+            root.mkdir()
+            self.init_repo(root)
+            (root / "prompt.md").write_text("Review all files.")
+            output = pathlib.Path(temp) / "output"
+
+            def pack(command, cwd, **kwargs):
+                pathlib.Path(command[command.index("--output") + 1]).write_text("<repomix>source</repomix>")
+                return subprocess.CompletedProcess(command, 0, "packed", "")
+
+            with (
+                mock.patch.object(review, "resolve_and_probe") as probe,
+                mock.patch.object(review, "executable_prefix", return_value=["repomix"]),
+                mock.patch.object(review, "run_process", side_effect=pack) as run_process,
+            ):
+                self.assertEqual(0, review.main(["review", "--repo-root", str(root),
+                    "--output-root", str(output), "--prompt-file", "prompt.md", "--plan-only"]))
+                probe.assert_not_called()
+                run_process.assert_called_once()
+            run = next((output / "runs").iterdir())
+            self.assertEqual("planned", json.loads((run / "manifest.json").read_text())["status"])
+            self.assertTrue((run / "repomix-output.xml").exists())
+
     def test_malicious_agent_only_changes_disposable_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp) / "repo"
@@ -196,6 +466,68 @@ class SnapshotTests(unittest.TestCase):
             self.assertTrue(result.ok, result.error)
             self.assertEqual("original\n", (root / "source.txt").read_text(encoding="utf-8"))
             self.assertIn("disposable snapshot", result.output)
+
+    def test_codex_reviewed_error_strings_do_not_fail_or_trigger_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp) / "repo"
+            root.mkdir()
+            self.init_repo(root)
+            reviewer = review.Reviewer("codex", "openai", "fake", "codex")
+            quoted = "CreateProcessAsUserW failed: 1312 (A specified logon session does not exist.)"
+            report = "# Review\n\n- Source contains the diagnostic: " + quoted
+            events = [
+                {"type": "item.completed", "item": {"type": "command_execution", "aggregated_output": quoted}},
+                {"type": "item.completed", "item": {"type": "agent_message", "text": report}},
+                {"type": "turn.completed", "usage": {}},
+            ]
+
+            def fake_run_process(command, cwd, **kwargs):
+                pathlib.Path(command[command.index("--output-last-message") + 1]).write_text(report)
+                return subprocess.CompletedProcess(command, 0, "\n".join(map(json.dumps, events)), "")
+
+            windows_os = mock.Mock(wraps=review.os)
+            windows_os.name = "nt"
+            with (
+                mock.patch.object(review, "executable_prefix", return_value=["codex"]),
+                mock.patch.object(review, "run_process", side_effect=fake_run_process) as run,
+                mock.patch.object(review, "os", windows_os),
+            ):
+                result = review.execute_agent(reviewer, root, quoted, 20)
+            self.assertTrue(result.ok, result.error)
+            self.assertEqual(1, run.call_count)
+            self.assertFalse(result.sandbox_fallback)
+            self.assertIn(quoted, result.output)
+
+    def test_codex_structured_runtime_errors_reject_plausible_report(self) -> None:
+        message = "windows sandbox: runner failed during SpawnChild: CreateProcessAsUserW failed: 1312"
+        events = [
+            {"type": "error", "message": message},
+            {"type": "turn.failed", "error": {"message": message}},
+            {"type": "item.completed", "item": {"type": "error", "message": message}},
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp) / "repo"
+            root.mkdir()
+            self.init_repo(root)
+            reviewer = review.Reviewer("codex", "openai", "fake", "codex")
+            for event in events:
+                with self.subTest(event=event):
+                    def fake_run_process(command, cwd, **kwargs):
+                        pathlib.Path(command[command.index("--output-last-message") + 1]).write_text(
+                            "# Review\n\nPlausible but uninspected output."
+                        )
+                        return subprocess.CompletedProcess(command, 0, json.dumps(event), "")
+
+                    posix_os = mock.Mock(wraps=review.os)
+                    posix_os.name = "posix"
+                    with (
+                        mock.patch.object(review, "executable_prefix", return_value=["codex"]),
+                        mock.patch.object(review, "run_process", side_effect=fake_run_process),
+                        mock.patch.object(review, "os", posix_os),
+                    ):
+                        result = review.execute_agent(reviewer, root, "review prompt", 20)
+                    self.assertFalse(result.ok)
+                    self.assertIn("runtime failure", result.error)
 
     def test_codex_error_1312_retries_in_disposable_snapshot_with_remaining_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

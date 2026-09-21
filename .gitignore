@@ -12,6 +12,7 @@ docs/deps/deps.dot.*
 *.sqlite3
 Testing/
 *.user
+repomix*
 # Compiler/link objects only ever appear under the already-ignored build dirs
 # (build*/, out/, deploy/). Root-anchor the object rule so the only stray objects
 # it catches are at the repo root — notably Windows' reserved-device NUL.obj —
@@ -21,6 +22,7 @@ CMakeUserPresets.json
 out/
 /plans/prompts/history/
 /plans/reviews/all_code.md
+/plans/reviews/runs/
 __pycache__/
 /tests/render/out/
 /docs/api/

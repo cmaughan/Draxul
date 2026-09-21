@@ -1,159 +1,101 @@
-I reviewed the source under `app/`, `libs/`, `shaders/`, `tests/`, and `scripts/` by reading files directly. Findings below, ranked by severity.
+All findings are verified or attributed. Here is the consolidated report.
 
----
+# Draxul repository review: correctness findings
 
-# Bug review — Draxul
+**Scope and limitations.** Source of truth was `repomix-output.xml` only. I split the pack into nine regions and reviewed each with a read-only agent, then re-read the source for the items marked [verified] myself. Items marked [reviewer] rest on the region reviewer's reading and were not independently re-checked. Implementation files under `app/`, `libs/`, `modules/`, `sdk/`, and the five product plugins were read in full or near-full. Shaders, tests, docs, CMake, Python tooling, third-party `imgui_impl_vulkan.cpp`, and declaration-only headers were skipped or only grepped. Coverage is broad but not exhaustive. Nothing below duplicates a card in `kanban/pending`, `kanban/ice-box`, or `kanban/done`; where a finding sits near a tracked card, that is noted.
 
 ## CRITICAL
 
-### 1. `libs/draxul-terminal-process/src/conpty_process.cpp:644–651` — PTY output handle closed while the reader thread is still using it
+1. **`libs/draxul-control/src/control_codec.cpp:180`** [verified]. `envelope.value("version", 0)` calls `get<int>()` and throws `json::type_error` when `version` is a string or null. `handle_frame` runs on the transport listener `std::jthread` (`control_transport_posix.cpp:425`, `control_transport_win32.cpp:555`) with no handler, so the process terminates. Trigger: any same-user process sends `{"version":"1"}` to the control socket. No token is needed because the version check precedes authentication. Fix: check `contains("version") && is_number_integer()` before comparing, and wrap `handle_frame` in the transports with a catch that returns `invalid_frame`.
 
-`ConPtyProcess::shutdown()` closes `output_read_` and nulls the member **before** joining the reader thread:
+2. **`libs/draxul-server/src/topology_service.cpp:208` and `:333`** [verified]. `params.value("dry_run", false)` and `pane_value.value("direction", "right")` throw on wrong JSON types. The `is_boolean()` guard at line 209 runs after the throwing call. `topology.layout_apply` is a whitelisted stream command (`server_kernel_requests.cpp:45`), and `SessionStreamService::pump` at `server_kernel_lifecycle.cpp:552` has no try/catch, unlike the agent-refresh block at line 582. The server thread is a bare `std::jthread` (`app/main.cpp:395`), so one authenticated client with `"dry_run":"yes"` kills every session's shells. Fix: type-check before `.value()`, and wrap the stream dispatch like `control.process_pending`.
 
-```cpp
-if (output_read_ != INVALID_HANDLE_VALUE) {
-    CancelIoEx(output_read_, nullptr);
-    CloseHandle(output_read_);          // closed here
-    output_read_ = INVALID_HANDLE_VALUE;
-}
-if (reader_thread_.joinable())
-    reader_thread_.join();              // joined only afterwards
-```
+3. **`plugins/rezonality/src/rezonality_plugin.cpp:3191-3195` and `:3494-3498`** [verified]. `desired` aliases the `ShaderBuild` inside `std::optional pending_build`. Line 3191 calls `pending_build.reset()`, then lines 3194-3195 read `desired->passes.size()` and `desired->surfaces.size()` from the destroyed object. Use-after-free on every successful shader reload, both backends. Fix: build the status string before `reset()`, or read from `*instance->active_build`.
 
-`reader_main()` (line 875) loops `while (reader_running_) { ReadFile(output_read_, …) }`. `output_read_` is a plain non-atomic `HANDLE` member (`conpty_process.h:68`).
+4. **`plugins/rezonality/src/live_project.cpp:1237`, throw sites at `:568-569`, `:375-413`, `:753`, `:764`, `:1055`, `:1100`, `:1107`** [verified]. `LiveProject::run` on a `std::jthread` calls `build()` with no exception barrier. The scale regex `[-+.0-9]+` matches `-`, and `std::stof("-")` throws `invalid_argument`. Throwing filesystem overloads in `project_fingerprint()` run every 100 ms. Trigger: with auto-reload on, type `scale : (1, -` in a surface block and let the editor autosave. The whole Draxul process terminates. Fix: try/catch around `build()` and `project_fingerprint()` bodies, use `std::from_chars` and `error_code` filesystem overloads.
 
-**What goes wrong:** close any pane / restart any server terminal while the shell is producing output. The reader can evaluate `reader_running_` as `true`, then be descheduled while `shutdown()` runs to completion, then call `ReadFile` on a handle that was just closed. This is (a) a data race on a non-atomic `HANDLE` read concurrently with a write, and (b) a use of a closed handle — Windows recycles handle values aggressively, and Draxul opens pipes/files/sockets continuously, so the value can already refer to an unrelated kernel object whose bytes then get fed into the VT parser.
+5. **`plugins/satview/src/services/satview_catalog_service.cpp:602`, `satview_cloud_service.cpp:233`** [verified]. The worker clears `refresh_in_flight_` (line 734) before anyone joins it; joining happens later in `pump()` when `completion_ready_` is seen. `request_refresh()` calls `pump()` then re-locks, and `start_refresh()` only checks `refresh_in_flight_`. If the worker finishes in that gap, `worker_ = std::thread(...)` assigns over a joinable thread, which is `std::terminate`. The cloud service has the same gap between its two lock scopes in `pump()` (lines 143-168) and `refresh_due` stays true throughout a download, so it can fire on any tick. Fix: bail from `start_refresh()` when `completion_ready_` is set, or join a joinable `worker_` before assignment.
 
-The POSIX sibling documents exactly this invariant and does the opposite (`unix_pty_process.cpp:462–466`): *"Do NOT close master_fd_ here — the reader thread may still be polling it. shutdown() will close fds after joining the reader thread."* This is a Windows/macOS divergence where only one side is correct.
-
-**Fix:** join before closing.
-
-```cpp
-if (reader_thread_.joinable()) {
-    CancelIoEx(output_read_, nullptr);   // unblock the pending ReadFile
-    reader_thread_.join();
-}
-if (output_read_ != INVALID_HANDLE_VALUE) { CloseHandle(output_read_); output_read_ = INVALID_HANDLE_VALUE; }
-```
-
----
+6. **`libs/draxul-nanovg/backend/src/nanovg_mtl.mm:1105`** [verified against upstream nanovg semantics]. When `nvgCreateInternal` fails, upstream nanovg calls `nvgDeleteInternal`, which invokes `params.renderDelete(userPtr)`. `mtlnvg__renderDelete` (line 1072) already does `delete mtl`, so line 1105 deletes it a second time. The Vulkan backend avoids this by having `vknvg__renderDelete` not free the context (`nanovg_vk.cpp:1934`, `:2031`). Trigger: Metal shader or pipeline creation failure, or font atlas texture creation failure. Fix: mirror the Vulkan backend and delete `mtl` only in `nvgDeleteMtl`.
 
 ## HIGH
 
-### 2. `libs/draxul-renderer/src/vulkan/vk_renderer.cpp:275–278` — `flush_submit_chunk()` failure is discarded, leaving an ended/submitted command buffer active
+7. **`libs/draxul-renderer/src/vulkan/vk_renderer.cpp:1345-1350`** [verified]. The frame fence is reset before `vkQueueSubmit`. On submit failure the function returns false, `current_frame_` is not advanced (that happens at line 1373 after present), and the next `begin_frame` waits on the never-signaled fence with `UINT64_MAX` at line 884. Permanent UI hang after a device-lost. Fix: reset the fence only after a successful submit, or re-signal and clear `images_in_flight_[current_image_]` on failure. This is adjacent to but distinct from `kanban/pending/21 vulkan-chunk-flush-failure-state -bug.md`, which covers mid-frame chunk state.
 
-```cpp
-void flush_submit_chunk() override {
-    renderer_.flush_submit_chunk(false);   // bool result dropped
-}
-```
+8. **`libs/draxul-terminal-core/src/terminal_core_csi.cpp:129-149`, `:330-334`, `:592-606`** [verified]. Only a leading `?` is recognised as a private marker. `>`, `=`, `<` fail `from_chars` and become parameter `0`. So `CSI ? u`, `CSI = 5 u`, `CSI < u` (kitty keyboard protocol, sent by Neovim 0.10+, fish 4, Helix) execute SCORC and jump the cursor. `CSI > 4;2 m` (Vim modifyOtherKeys) resets SGR. `CSI > c` (DA2) is answered with the DA1 string. Fix: strip and record any leading byte in `<=>?` plus intermediates, dispatch only known combinations, and ignore the rest. Distinct from `pending/22 csi-parameter-bounds`, which is about arithmetic overflow.
 
-`VkRenderer::flush_submit_chunk(false)` (line 1247) ends and submits `active_cmd_buffer_`, then returns `start_new_chunk_command_buffer()`. It returns `false` — leaving `active_cmd_buffer_` pointing at an **already-ended, already-submitted** buffer — when `vkEndCommandBuffer` fails (1349), `vkQueueSubmit` fails (1361, e.g. `VK_ERROR_DEVICE_LOST` after a TDR), or `vkAllocateCommandBuffers` fails (967).
+9. **`libs/draxul-terminal-process/src/unix_pty_process.cpp:298-299` vs `:744-748`; `conpty_process.cpp:854-856` vs `:1177-1181`** [verified on Unix]. `shutdown()` flips `reader_running_` and calls `notify_all()` without holding `output_mutex_`. If the reader has evaluated the back-pressure predicate but not yet blocked, the wake is lost and the reader sleeps forever while the UI thread sits in `join()`. Trigger: 1 MiB output cap reached while a pane is not drained, then shutdown. Fix: set the flag under the mutex before notifying. `request_close()` (lines 407-413) has the same pattern.
 
-**What goes wrong:** a render pass calls `IRenderContext::flush_submit_chunk()` mid-frame; the submit fails; the caller keeps recording. Every subsequent `vkCmdBeginRenderPass` / `vkCmdDraw` targets a command buffer that is not in the recording state, and is concurrently in flight on the queue — undefined behaviour, validation errors, GPU hangs.
+10. **`libs/draxul-client/src/remote_session_client.cpp:57-64`, `:808-811`** [verified]. Same lost wake-up: `stop()` sets `stopping_` and notifies without `mutex_`, and the worker uses an untimed `wait` in externally-fed mode. `~Impl` then blocks the UI on `join()` at exit or server switch. `enable_legacy_polling()` at line 289 has the same defect and can leave legacy polling never starting. Fix: take `mutex_` around the flag writes.
 
-There is a second-order defect in the same path: `start_new_chunk_command_buffer` (952) increments `current_chunk_index_` **before** it can fail, and on `vkAllocateCommandBuffers` failure does `extra.pop_back()` without rolling the index back. The next call computes `extra_index = extra.size() + 1`, appends one element, and then reads `extra[extra_index]` — one past the end of the vector — producing a garbage `VkCommandBuffer` that is immediately passed to `vkResetCommandBuffer`.
+11. **`libs/draxul-host/src/remote_terminal_host.cpp:459-466` vs `:626-633`** [verified]. On re-show, `presentation_visible_.exchange(true)` and `notify_one()` happen without `mutex_`, while the suspended worker waits untimed. Lost wake leaves a re-shown pane blank until another command arrives. This is a defect in the implementation behind `pending/34 hidden-remote-terminal-suspension`, not the card's subject. Fix: flip the flag under `mutex_` as the enqueue paths do.
 
-**Fix:** propagate the failure and roll back the index.
+12. **`app/pane_manager.cpp:400-416`** [verified]. `restart_leaf` destroys and erases the old host before `create_host_for_leaf`. On failure, that function erases `pane_ids_` (lines 1360, 1405) and returns, leaving a leaf in `tree_` with no host. `close_leaf` then returns false at line 319, a second restart fails with no `error_` set, and `has_restorable_shell_session()` sees the orphan in `launch_options_` and blocks every checkpoint with a misleading toast. Trigger: restart a pane whose executable or plugin has disappeared. Fix: install an `UnavailableHost` placeholder on failure, or roll back `pane_ids_`, `launch_options_`, and the tree leaf.
 
-```cpp
-void flush_submit_chunk() override {
-    if (!renderer_.flush_submit_chunk(false))
-        renderer_.abort_frame();   // stop recording for the rest of this frame
-}
-// in start_new_chunk_command_buffer, on every failure path:
---current_chunk_index_;
-return false;
-```
+13. **`plugins/scoreview/product/draxul-score-learn/src/player_model.cpp:537`, `:554`, `:556`, `:620`** [verified]. `deserialize` only returns false for syntactically invalid JSON. `std::stoi`/`std::stod` on non-numeric keys and `get<double>()` on non-numbers throw. The call chain `attach_source` to `ScoreRuntime::initialize` to `create_instance` has no handler, and `plugin_host.cpp:238` calls the C entry point bare. A hand-edited or partially migrated progress file crashes the pane every launch. Fix: wrap the body after the syntactic check and reset on failure.
 
-### 3. `libs/draxul-terminal-process/src/conpty_process.cpp:124–176, 546–549` — every spawn hides *desktop-wide* console windows for 8 seconds
+14. **`plugins/scoreview/product/draxul-scoreview/src/score_runtime.cpp:336-354`** [verified]. Hiding calls `release_input_device()`, which clears the rig to `Kind::None`. On show, the rig is re-armed only when the requested input is not Keyboard (line 347), yet `flow_.play()` still runs. Default Roll mode uses Keyboard, so `pump()` at line 1534 never polls, every onset is judged Missed and persisted, and `handle_gate_key` at line 1341 rejects all keys. Fix: always call `set_gate_input(gate_input_requested_, ...)` on show when not in Clock mode.
 
-`console_window_snapshot()` uses `EnumWindows`, which enumerates every top-level window on the desktop, not just this process's. `spawn()` then detaches a thread that re-enumerates every 1 ms for 8 s and calls `ShowWindowAsync(hwnd, SW_HIDE)` + `SetWindowPos(..., SWP_HIDEWINDOW)` on **any** `ConsoleWindowClass` window not present in the pre-spawn snapshot.
+15. **`plugins/satview/src/render/satview_render_vk.cpp:798-834`** [reviewer]. One `BufferResource` per marker/track stream, no per-frame ring. `memcpy` at line 833 overwrites host-visible memory the previous in-flight frame reads, and lines 800-801 `vmaDestroyBuffer` a buffer still referenced by a submitted command buffer when instance counts grow. Texture uploads wait idle; vertex uploads do not. Fix: per-frame copies or a retire list keyed on the frame fence.
 
-**What goes wrong:** open a pane (or let a pane restart) in Draxul, then within 8 seconds double-click `cmd.exe` from Explorer, or have any other application open a console. That unrelated window is hidden and never restored — from the user's point of view the app silently vanished. Restarting several panes also leaves several 8-second 1 ms-polling threads running concurrently.
+16. **`plugins/rezonality/src/live_project.cpp:553-562`, `:1142`** [verified]. A `format: rgba16f` override survives for an LDR PNG. Vulkan stages `w*h*4` bytes (`rezonality_plugin.cpp:1187-1189`) but copies into a 16F image with full extent (`:2512-2515`), a GPU over-read. Metal passes `bytesPerRow: w*4` to a 16F texture. Fix: set `surface.format` from the loader result or reject the mismatch.
 
-**Fix:** filter to the spawned child's own process. After `CreateProcessW`, only hide windows whose `GetWindowThreadProcessId` matches `proc_info_.dwProcessId` (or a descendant), and stop the loop as soon as one is hidden.
+17. **`plugins/rezonality/src/diagnostics.cpp:180`** [reviewer]. `document.dump(2)` uses strict UTF-8 handling and throws on invalid bytes. Messages come from glslang stdout echoing shader tokens and are byte-truncated at fixed lengths, which can split a multi-byte sequence. Nothing between `publish` and the `tick` entry point catches. Fix: `error_handler_t::replace` and truncate on UTF-8 boundaries.
 
-### 4. `libs/draxul-terminal-core/src/terminal_core_csi.cpp:303–321` — CHT/CBT loop bounded only by the untrusted CSI parameter
+18. **`libs/draxul-server/src/server_terminal_runtime.cpp:264-267`** [reviewer]. Throwing `std::filesystem::current_path()` runs when `working_directory` is empty, reachable from the unguarded stream poll path in finding 2. A detached server whose cwd was deleted terminates. Fix: the `error_code` overload with a fallback, plus the stream-dispatch handler.
 
-```cpp
-case 'I': { // CHT
-    const int n = param_or(params, 0, 1);
-    for (int i = 0; i < n; ++i)
-        vt_.col = std::min(std::max(0, grid_cols() - 1), ((vt_.col / 8) + 1) * 8);
-    …
-case 'Z': { // CBT
-    const int n = param_or(params, 0, 1);
-    for (int i = 0; i < n; ++i) { … }
-```
-
-`handle_csi` parses parameters with `std::from_chars` into an `int` with no upper clamp, and the CSI buffer cap (`vt_parser.cpp`, `kMaxCsiBuffer`) is far larger than the 10 digits needed. Both loops saturate `vt_.col` on the first iteration but still run `n` times.
-
-**What goes wrong:** any program in a pane emitting `printf '\033[2000000000I'` (or a corrupt/hostile stream) spins the loop ~2×10⁹ times. On a local pane that freezes the UI thread; on the shared server this runs inside `ServerTerminalRuntime::pump()` on the single event loop, stalling every session and the control plane. Repeating the sequence extends the stall arbitrarily.
-
-**Fix:** clamp the repeat to the number of reachable tab stops.
-
-```cpp
-const int n = std::min(param_or(params, 0, 1), std::max(1, grid_cols() / 8 + 1));
-```
-
----
+19. **`libs/draxul-terminal-process/src/unix_pty_process.cpp:666-678`, `conpty_process.cpp:1113-1134`** [reviewer, medium-high confidence]. Local PTY input writes are synchronous on the UI thread. The `poll` timeout at line 676 is not a deadline, and the ConPTY path is a plain blocking `WriteFile`. `kanban/done/13` fixed the server path only. Trigger: paste a few KB into a pane whose raw-mode foreground process has stopped reading. Fix: reuse the bounded queue and writer pattern from `ServerTerminalRuntime::send_input`.
 
 ## MEDIUM
 
-### 5. `libs/draxul-grid/src/grid.cpp:255–288` — overwriting the left half of a double-width pair orphans the old continuation cell
+20. **`app/agent_integration.cpp:420-421`** [verified]. `saw_features` is computed on trimmed lines but `std::find` compares untrimmed lines. An indented `  [features]` header with no `hooks` key yields `lines.insert(end() + 1, ...)`, undefined behaviour during `draxul integration install codex`. Fix: record the header index in the first loop.
 
-`set_cell` clears the right neighbour only when that neighbour is itself a *continuation*:
+21. **`libs/draxul-host/src/plugin_host.cpp:187-201`** [verified]. The `ofstream` failure branch never sets `error`, and both branches pass `error` to `remove()`, which clears it on success. Storage-write failures during hot reload report "Success". Fix: capture the real failure first and use a separate `error_code` for cleanup.
 
-```cpp
-if (col + 1 < cols_) {
-    auto& next = cells_[index + 1];
-    if (next.double_width_cont) { clear_continuation(next); … }   // handles cont
-}
-…
-if (double_width && col + 1 < cols_) { next.double_width_cont = true; … }
-```
+22. **`libs/draxul-config/src/config_schema.cpp:538-553`** [verified]. `ClampMin` bounds int64 only from below, then `static_cast<int>` wraps. `chord_timeout_ms = 2147483648` becomes `INT_MIN`. Fix: clamp to `INT_MAX` before the cast.
 
-It never handles the case where the neighbour is a double-width **leader**.
+23. **`modules/kanban/draxul-kanban/src/kanban_store.cpp:289-295`, `:315-321`** [verified]. If `directory_iterator(root, ec)` fails at construction, the loop body never runs, so the `ec` check inside it is dead and an empty board is returned as success. The range-for increment is the throwing overload, so mid-scan errors throw out of the `R` key handler. Fix: check `ec` after construction and use `increment(ec)`.
 
-**What goes wrong:** a wide glyph occupies columns 5–6 (`cells_[5].double_width == true`, `cells_[6].double_width_cont == true`). A redraw writes a new wide glyph at column 4. Column 5 is converted into a continuation of column 4, but column 6 keeps `double_width_cont == true` with no leader at column 5. The orphan renders as an empty cell carrying the stale `hl_attr_id` (a mis-coloured blank), and `capture_agent_observation` / snapshot capture skip it (`server_terminal_runtime.cpp:605`, `local_terminal_host.cpp:658`), silently dropping a column from agent text reads. `Grid::scroll` has an explicit fix-up loop for exactly this orphan condition (line 507–531); `set_cell` does not.
+24. **`plugins/megacity/product/draxul-codeviz-renderer/src/codeviz_render_vk.cpp:3667`, `:3799`, `:3953`** [verified]. `frame_res.descriptor_set` is bound at lines 3667 and 3827, then binding 3 is rewritten with `vkUpdateDescriptorSets` while the same command buffer is still recording. The layout has no update-after-bind flag (line 514-517), so the command buffer is invalidated per spec, and in practice both passes see the last write, making the raw AO debug view identical to the denoised one. Metal chooses at encode time. Fix: write binding 3 once before any bind.
 
-**Fix:** in `set_cell`, when the new cell is double-width, also clear the far side of a pair it is about to truncate.
+25. **`plugins/megacity/product/draxul-megacity/src/semantic_city_layout.cpp:1172-1176`, `:1258`** [verified]. `routes` is a compacted copy of `route_results`, but `ri` then indexes the uncompacted `route_pairs`. After the first unroutable pair, every subsequent route takes its elevations from the wrong building. Fix: carry the pair index alongside each result.
 
-```cpp
-if (double_width && col + 2 < cols_ && cells_[index + 1].double_width
-    && cells_[index + 2].double_width_cont)
-{
-    clear_continuation(cells_[index + 2]);
-    mark_dirty_index(static_cast<int>(index + 2));
-}
-```
+26. **`plugins/pcbview/src/autorouter.cpp:224-230`, `board_model.cpp:115-118`, `pcbview_plugin.cpp:96`** [verified]. Board dimensions are only checked positive and finite. `columns * rows` is `int` multiplication and overflows for a 50 000 mm board; a 5 000 mm board allocates gigabytes and throws `bad_alloc`. `initialize` is called outside the `try` that guards only `u8path`, so the exception leaves the C entry point. Fix: cap the cell budget in the parser and wrap `create_instance`.
 
-### 6. `libs/draxul-terminal-process/src/conpty_process.cpp:705–713` — `is_running()` reports "exited with code 0" when the status query fails
+27. **`libs/draxul-client/src/remote_session_coordinator.cpp:184-188`, `:1066-1072`** [reviewer]. Same lost wake-up pattern as finding 10 on the legacy transport path. A missed wake makes `stop_until` time out and spawn a detached reaper that blocks in `join()` forever, leaking the `Entry` per closed pane.
 
-```cpp
-DWORD exit_code = 0;
-GetExitCodeProcess(proc_info_.hProcess, &exit_code);   // return value ignored
-if (exit_code != STILL_ACTIVE)
-    last_exit_code_ = static_cast<int>(exit_code);
-return exit_code == STILL_ACTIVE;
-```
+28. **`libs/draxul-host/src/plugin_host.cpp:713-718`** [reviewer]. `callback_host` reads the plain pointer `active_callback_context_` from plugin worker threads while the main thread writes it. The SDK documents `request_redraw` and `request_tick` as thread-safe. The retained `CallbackContext` also lets a late callback dereference `host` after `~PluginHost`. Fix: make the field atomic and validate via atomics owned by the context, not by dereferencing `host`.
 
-On failure `exit_code` keeps its initialiser `0`, which is indistinguishable from a clean exit.
+29. **`libs/draxul-server/src/server_kernel.cpp:297-298`** [reviewer]. Throwing `std::filesystem::exists` in `start()` with no handler in `main`; a permissions error aborts instead of publishing the failure marker. Fix: `error_code` overload.
 
-**What goes wrong:** a failed query caches `last_exit_code_ = 0` permanently (`exit_code()` short-circuits on `is_running()`, and nothing ever clears it outside `spawn`). `ServerKernel::Impl::run_until_stopped` (`server_kernel.cpp:3287–3312`) treats "not running + exit code 0" as a *clean* exit and calls `close_exited_terminal`, destroying a pane whose shell is still alive.
+30. **`libs/draxul-server/src/server_terminal_runtime.cpp:204-226`** [reviewer]. Runtime destruction spawns a detached thread that later calls `process->shutdown()`. Nothing joins these before `main` returns, and on Windows no `request_close()` precedes the detach, so ConPTY children can be orphaned at server exit. Fix: track and join within the shutdown budget, or `request_close()` on both platforms.
 
-**Fix:**
+31. **`libs/draxul-renderer/src/vulkan/vk_renderer.cpp:1360-1371`, `metal/metal_renderer.mm:702-759`** [reviewer]. Frame capture records the copy with the old extent, then `recreate_frame_resources()` runs, then the readback sizes and reads with the new extent. If the surface grew, the read exceeds the mapped buffer. Metal has the mirror issue between blit dimensions and `pixel_w_ x pixel_h_`. Fix: capture dimensions at record time, or drop the capture on recreate.
 
-```cpp
-if (!GetExitCodeProcess(proc_info_.hProcess, &exit_code))
-    return false;   // unknown state; do not synthesise a clean exit
-```
+32. **`libs/draxul-terminal-process/src/conpty_process.cpp:971-974`** [reviewer]. `process_id()` returns the retained `dwProcessId` after exit while `UnixPtyProcess::process_id()` returns 0. The value is published in `RemotePaneDescriptor`, so clients see a recyclable PID on Windows and 0 on POSIX. Fix: return 0 when not running and zero `proc_info_` in `shutdown()`.
 
----
+33. **`libs/draxul-window/src/sdl_window.cpp:174-175`** [reviewer]. SDL3 `SDL_RegisterEvents` returns 0 on failure, not `(Uint32)-1`. On failure `wake()` becomes a silent no-op. Fix: test `== 0`.
 
-## Checked and found sound
+34. **`libs/draxul-nvim/src/nvim_process.cpp:231-240`** [reviewer]. Windows `shutdown()` performs two synchronous 2 s waits on the caller thread, while POSIX offloads to a detached thread (lines 506-519) per the non-blocking shutdown rule. Closing a busy nvim pane freezes the UI up to 4 s on Windows only.
 
-For the record, these areas were read closely and no defect was confirmed: `remote_terminal_protocol.cpp` / `server_protocol.cpp` bounds and type validation (including the `std::vector<bool> seen` duplicate-cell guard and `read_bounded_integer`), `json_extract.h`, `unicode.h` UTF-8 decoding and `utf8_validated_prefix_length`, `CellText::assign` truncation, `ScrollbackBuffer` ring arithmetic and `resize`/`set_capacity` head recomputation, `split_tree.cpp` node lifetime during `close_leaf`, `ui_events.cpp` `grid_line` column/repeat clamping, `text_atlas_builder.cpp` `pack_labels` bounds, `rpc.cpp` reader-thread recovery and timed-out-msgid eviction, `unix_pty_process.cpp` post-`fork` async-signal-safety and fd-close ordering, `control_plane.cpp` `sun_path` length (guarded at `control_plane.cpp:1129`), and the detached checkpoint thread in `server_kernel.cpp:1724` (captures everything by value; `write_durable_session_state_file` is atomic).
+35. **`app/input_dispatcher.cpp:389-401`** [reviewer]. `action` is a `string_view` into `config_.keybindings`. When the action is `reload_config`, `App::reload_config` move-assigns the config at `app.cpp:686`, and the trace log then reads freed memory. Only with `--log-level trace`. Fix: copy the action before `execute`.
 
-Two items were deliberately excluded as already tracked in `kanban/ice-box/`: the child-side `close()` loop up to `_SC_OPEN_MAX` (`06 fd-close-loop-limit -bug.md`) and cursor-index signed overflow (`07 cursor-index-signed-overflow -bug.md`).
+36. **`app/app.cpp:3174-3177`** [reviewer, medium confidence]. Tab auto-naming assumes `/` separators. OSC 7 on Windows yields `/C:/Users/...` or `/C:\Users\...` because `extract_osc7_path` in `terminal_host_base_csi.cpp:676-692` does no normalization, so tab names and persisted `working_dir` values passed to `CreateProcessW` are wrong.
+
+37. **`plugins/megacity/product/draxul-codeviz-renderer/src/codeviz_render_vk.cpp:946-1025`** [reviewer, medium confidence]. Custom mesh pools are single persistent buffers rewritten in place every frame; the old buffer is retired only on growth. A rebuild that fits existing capacity overwrites data the previous in-flight frame reads.
+
+38. **`plugins/megacity/product/draxul-megacity/src/megacity_host.cpp:236-238`** [reviewer]. Throwing `current_path()` reachable from `create_instance` (`megacity_plugin.cpp:155`), which guards only JSON parsing. `fallback_scan_root()` at line 264 already uses the `error_code` overload.
+
+39. **`plugins/satview/src/render/satview_render_vk.cpp:1048-1054`, early returns at `:1076-1107`** [reviewer]. A partial failure leaves `hdr_targets` full-sized with `front().width()` set, so the next frame's validity check passes and begins a render pass on null framebuffers. Metal clears on failure. Fix: destroy targets before every `return false`.
+
+40. **`plugins/satview/src/core/satview_catalog.cpp:1352-1357`** [reviewer]. `ephemeris_source` and `ephemeris_frame` are written per row before the row is validated, so a rejected last row's frame label wins. Fix: assign after acceptance.
+
+41. **`plugins/satview/src/runtime/satview_runtime.cpp:861-875` vs `:4959-4992`** [reviewer]. Rendering applies the marker cap after horizon occlusion; click selection applies it before. Drawn markers past the cap cannot be clicked. Fix: share one enumeration order.
+
+42. **`plugins/satview/src/core/satview_catalog.cpp:691`** [reviewer]. Throwing `std::filesystem::exists` on the `create_instance` path and inside the refresh worker thread; its result is unused in both branches. Fix: remove the call.
+
+43. **`plugins/scoreview/product/draxul-score-learn/src/source_slicer.cpp:256`, `:286`, `:310-314`** [reviewer]. `bar_count()` uses the first part only, but the window loop indexes every part's `measures` and `state_before` with `source_bar`. A second part with fewer measures reads past its vector on the verbatim windowed path. Fix: per-part bounds check or reject mismatched parts at load.
+
+44. **`plugins/scoreview/product/draxul-score-learn/src/player_model.cpp:486`, `piece_analysis.cpp:1062`** [reviewer]. Strict `dump()` throws on a non-UTF-8 piece title (Latin-1 MusicXML) inside `flush_at_bar`, escaping `tick`. Fix: `error_handler_t::replace`.
+
+45. **`plugins/rezonality/src/rezonality_plugin.cpp:1000-1042`, `:1522-1525`, `:670-674`** [reviewer]. Three error-path defects: `ensure_vertex_buffer` leaves `vertex_buffer` non-null after a failed allocate/bind so the next frame binds an unbacked buffer; `create_model_texture` leaks the attachment when sampler or upload creation fails; `stringWithUTF8String:` returns nil for a non-UTF-8 `.metal` file and `newLibraryWithSource:nil` raises an Objective-C exception.
