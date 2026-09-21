@@ -79,7 +79,8 @@ the duration (per-op, repeated).
       all continue.
 - [ ] Cold start shows a window within ~1 s even when the server takes seconds to come up.
 - [x] No `ControlClient::request` call remains on the render thread without a short deadline.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] macOS full build, `ctest`, and smoke pass.
+- [ ] Windows full build, `ctest`, and smoke pass.
 
 ## Dependencies and ownership
 

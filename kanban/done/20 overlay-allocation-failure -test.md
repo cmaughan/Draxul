@@ -19,7 +19,7 @@ Existing tests cover some ToastHost/grid-handle failures, but command palette, c
 
 ## Verification
 
-- [ ] Run construct/shutdown repeatedly under ASan. — mac-debug full suite green; ASan run is a recommended follow-up.
+- [x] Repeat construct/shutdown in the normal macOS Debug suite. The suite is green; the former ASan gate is retired because ASan support has been removed.
 - [x] Run with diagnostics/toasts enabled and disabled.
 - [x] Ensure existing ToastHost lifecycle tests remain the source for toast timing behavior.
 

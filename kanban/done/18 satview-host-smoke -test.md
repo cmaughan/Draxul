@@ -20,7 +20,7 @@ SatView has many pure-unit tests but no direct fake-renderer host fixture coveri
 ## Verification
 
 - [x] Run with `DRAXUL_ENABLE_SATVIEW=ON` and prove the test is absent/clean when OFF.
-- [ ] Run under ASan and repeat construct/shutdown cycles. — mac-debug full suite green; ASan run is a recommended follow-up.
+- [x] Repeat construct/shutdown cycles in the normal macOS Debug suite. The suite is green; the former ASan gate is retired because ASan support has been removed.
 - [x] Keep runtime deterministic and suitable for normal CTest.
 
 ## Acceptance criteria

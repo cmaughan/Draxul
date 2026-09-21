@@ -76,7 +76,7 @@ Roughly 250 duplicated lines.
 - [x] `app/app.cpp` is materially smaller and holds orchestration rather than protocol
       mirroring.
 - [x] Windows Release/Ninja build, full `ctest`, smoke, and render snapshots pass.
-- [ ] macOS full build, `ctest`, smoke, and render snapshots pass.
+- [x] macOS full build, `ctest`, smoke, and render snapshots pass.
 
 ## Dependencies and ownership
 

@@ -124,7 +124,7 @@ collide on everything:
 
 ## Cross-platform validation
 
-- [ ] macOS: unix-socket path, `0600`/`0700` permissions preserved.
+- [x] macOS: unix-socket path, `0600`/`0700` permissions preserved.
 - [ ] Windows: named-pipe first-instance semantics and SDDL unchanged.
 - [ ] Note that `kanban/done/25` recorded Windows DACL assertions failing in
       Debug but passing in Release; re-check that path if touched.
@@ -135,7 +135,8 @@ collide on everything:
       control endpoint.
 - [ ] A failed control endpoint is always visible to the user or the log.
 - [ ] `draxul agent list` deterministically addresses one known instance.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] macOS full build, `ctest`, and smoke pass.
+- [ ] Windows full build, `ctest`, and smoke pass.
 
 ## Dependencies and ownership
 

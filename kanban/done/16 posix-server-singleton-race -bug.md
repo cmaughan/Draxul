@@ -73,7 +73,8 @@ misreported but benign outcome.
 - [x] Every "someone else owns this" outcome reports `AlreadyRunning`, never `Failed`.
 - [x] macOS: socket path, `0600`/`0700` permissions, and `sun_path` length handling preserved.
 - [x] Windows: named-pipe first-instance semantics and SDDL unchanged.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] macOS full build, `ctest`, and smoke pass.
+- [ ] Windows full build, `ctest`, and smoke pass.
 
 ## Dependencies and ownership
 

@@ -77,7 +77,8 @@ The local terminal path never JSON-encodes cells, so this is new to this branch.
       running.
 - [x] No JSON `dump()` on a path carrying terminal content can throw.
 - [x] The kernel loop survives an exception from any single Session's pump.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] macOS full build, `ctest`, and smoke pass.
+- [ ] Windows full build, `ctest`, and smoke pass.
 
 ## Dependencies and ownership
 

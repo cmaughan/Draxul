@@ -23,7 +23,8 @@ The `DXSTAR1`, `DXCLINE1`, and `DXCBND01` assets independently implement magic/v
 - [x] Golden-load every existing asset and compare record counts/selected values. (`tests/satview_catalog_container_tests.cpp` shipped-asset cases + `tests/satview_catalog_py_tests.py::ShippedAssetTests`.)
 - [x] Cover bad magic/version/sizes/count overflow/truncation/non-finite semantic data. (C++ negative-framing + non-finite cases and direct helper unit tests; Python `ValidateHelperTests` / `PackHelpersTests`.)
 - [x] Run generators twice and require byte-identical output. (`tests/satview_catalog_py_tests.py::GeneratorDeterminismTests`.)
-- [ ] Existing runtime assets remain loadable on Windows and macOS. (macOS verified via full `ctest` on Apple M4 Pro; Windows pending CI — container code is platform-neutral little-endian with no OS-specific paths.)
+- [x] Existing runtime assets remain loadable on macOS (verified via full `ctest` on Apple M4 Pro).
+- [ ] Existing runtime assets remain loadable on Windows.
 
 ## Dependencies and parallelism
 

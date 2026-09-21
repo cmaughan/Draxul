@@ -85,7 +85,8 @@ lockstep.
 - [x] No user keystroke is dropped without either delivery or a visible message.
 - [x] Server restart is recoverable without reopening the UI, closing the plan's known
       boundary on epoch migration.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] macOS full build, `ctest`, and smoke pass.
+- [ ] Windows full build, `ctest`, and smoke pass.
 
 ## Validation
 
@@ -95,7 +96,7 @@ lockstep.
       restart, existing/new pane attachment, ordered input retry, transport cancellation,
       terminal and agent mutation deduplication, malformed-event reattach, and bounded
       jittered backoff.
-- [ ] macOS/POSIX build and runtime validation.
+- [x] macOS/POSIX build and runtime validation.
 
 ## Dependencies and ownership
 

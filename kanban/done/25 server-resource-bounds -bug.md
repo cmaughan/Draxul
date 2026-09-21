@@ -92,7 +92,7 @@ On the client, every published update rebuilds the whole grid
 - [x] No legitimate terminal content produces an unsendable frame.
 - [x] Metrics report the new bounds and any degradation applied.
 - [x] Windows Release/Ninja build, full `ctest`, smoke, and render snapshots pass.
-- [ ] macOS full build, `ctest`, smoke, and render snapshots pass.
+- [x] macOS full build, `ctest`, smoke, and render snapshots pass.
 
 ## Dependencies and ownership
 

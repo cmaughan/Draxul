@@ -57,7 +57,8 @@ The same `ControlServer` is embedded in the UI's `App`, so this hits both proces
       minutes.
 - [x] `ServerKernel::stop()` does not block on listener threads waiting for a dead main loop.
 - [x] No teardown path makes an unbounded synchronous request.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] macOS full build, `ctest`, and smoke pass.
+- [ ] Windows full build, `ctest`, and smoke pass.
 
 ## Dependencies and ownership
 

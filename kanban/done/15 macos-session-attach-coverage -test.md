@@ -21,7 +21,7 @@
 
 - [x] Prove the suite compiles and runs on macOS (22 cases / 132 assertions under `[session_attach]`; note: `draxul-tests` is Catch2-sharded, so `ctest -N` lists shards rather than per-suite — coverage proven via the tag). Windows listing pending CI.
 - [x] Run focused session-attach tests repeatedly to expose path/cleanup flakiness. — 3× clean, no flakiness.
-- [ ] Run the macOS ASan preset and normal full suite. — Normal full suite green (ctest 12/12); **ASan run not yet performed** (recommended follow-up for the socket/thread paths).
+- [x] Run the normal macOS full suite. The suite is green; the former ASan gate is retired because ASan support has been removed.
 
 ## Acceptance criteria
 

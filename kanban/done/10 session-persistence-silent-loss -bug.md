@@ -116,7 +116,8 @@ propose making non-shell hosts restorable (still explicitly out of scope per
 - [ ] Window close and last-shell exit are consistent with one documented rule.
 - [ ] `docs/features.md` describes the persistence rules a user can actually
       predict.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] macOS full build, `ctest`, and smoke pass.
+- [ ] Windows full build, `ctest`, and smoke pass.
 
 ## Dependencies and ownership
 

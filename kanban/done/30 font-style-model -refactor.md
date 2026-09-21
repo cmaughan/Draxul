@@ -22,8 +22,8 @@ Replace repeated normal/bold/italic/bold-italic branches and parallel caches in 
 - [x] Table-test resolution/fallback/cache invalidation for every style and missing variant combination.
 - [x] Verify config round-trip paths remain mapped correctly.
 - [x] Render ligature/style references without blessing unrelated differences.
-- [ ] Build/font tests/ctest/smoke pass on both platform paths. — macOS/Metal validated
-      (build + ctest 11/11 + smoke all green); Windows/Vulkan validation pending CI.
+- [x] macOS/Metal build, font tests, `ctest`, and smoke pass (11/11 tests green).
+- [ ] Windows/Vulkan build, font tests, `ctest`, and smoke pass.
 
 ## Dependencies and parallelism
 

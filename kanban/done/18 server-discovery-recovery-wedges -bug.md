@@ -77,7 +77,8 @@ mixed-version rollout reports the wrong problem.
 - [x] No crashed-server state requires the user to delete files by hand to start Draxul.
 - [x] `--force-stop-server --yes` works against a wedged server.
 - [x] Version skew produces an accurate message immediately, not a 10 s hang.
-- [ ] Full build, `ctest`, and smoke pass on both platforms.
+- [x] macOS full build, `ctest`, and smoke pass.
+- [ ] Windows full build, `ctest`, and smoke pass.
 
 ## Validation
 
@@ -85,7 +86,7 @@ mixed-version rollout reports the wrong problem.
 - [x] Debug/Ninja smoke passes.
 - [x] Focused discovery, process-incarnation, incompatible-protocol, force-stop, and
       listener-failure lifecycle tests pass.
-- [ ] macOS/POSIX build and runtime validation.
+- [x] macOS/POSIX build and runtime validation.
 
 ## Dependencies and ownership
 

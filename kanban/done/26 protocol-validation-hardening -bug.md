@@ -112,7 +112,7 @@ it believes is authoritative, after which non-full deltas patch a wrong baseline
 - [x] A malformed peer response cannot corrupt client state or wedge a pane.
 - [x] Additive protocol changes are possible without a major version bump.
 - [x] Windows Release/Ninja build, full `ctest`, smoke, and render snapshots pass.
-- [ ] macOS full build, `ctest`, smoke, and render snapshots pass.
+- [x] macOS full build, `ctest`, smoke, and render snapshots pass.
 
 ## Dependencies and ownership
 
