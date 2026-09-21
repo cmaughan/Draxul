@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -536,7 +537,8 @@ int apply_int_parse(const ConfigFieldDesc& field, int64_t value, int default_val
         value = std::clamp(value, lo, hi);
         break;
     case RangeRule::ClampMin:
-        value = std::max(value, lo);
+        value = std::clamp(value, lo,
+            static_cast<int64_t>(std::numeric_limits<int>::max()));
         break;
     case RangeRule::UseDefault:
         if (value < lo || value > hi)
@@ -550,6 +552,9 @@ int apply_int_parse(const ConfigFieldDesc& field, int64_t value, int default_val
     case RangeRule::None:
         break;
     }
+    value = std::clamp(value,
+        static_cast<int64_t>(std::numeric_limits<int>::min()),
+        static_cast<int64_t>(std::numeric_limits<int>::max()));
     return static_cast<int>(value);
 }
 

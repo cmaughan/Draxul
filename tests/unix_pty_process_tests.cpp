@@ -50,6 +50,25 @@ TEST_CASE("UnixPtyProcess sets xterm-256color shell environment", "[unix_pty_pro
     std::filesystem::remove(dump_path);
 }
 
+TEST_CASE("UnixPtyProcess preserves dimensions above legacy PTY clamps", "[unix_pty_process][resize]")
+{
+    const auto dump_path
+        = std::filesystem::temp_directory_path() / "draxul-unix-pty-size-dump.txt";
+    std::filesystem::remove(dump_path);
+    UnixPtyProcess process;
+    const std::string script = "stty size > '" + dump_path.string() + "'";
+    REQUIRE(process.spawn("/bin/sh", { "-c", script }, "", [] {}, 401, 241));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (process.is_running() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    process.shutdown();
+    std::ifstream in(dump_path);
+    std::string size;
+    std::getline(in, size);
+    CHECK(size == "241 401");
+    std::filesystem::remove(dump_path);
+}
+
 TEST_CASE("UnixPtyProcess reports child process working directory changes", "[unix_pty_process]")
 {
     const auto root = std::filesystem::temp_directory_path() / "draxul-unix-pty-cwd";

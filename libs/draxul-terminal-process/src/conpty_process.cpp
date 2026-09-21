@@ -1,5 +1,6 @@
 #include <draxul/conpty_process.h>
 
+#include "agent_process_observer.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -7,6 +8,7 @@
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/process_util.h>
+#include <draxul/terminal_dimensions.h>
 #include <filesystem>
 #include <iterator>
 #include <mutex>
@@ -14,7 +16,6 @@
 #include <thread>
 #include <tlhelp32.h>
 #include <unordered_map>
-#include <unordered_set>
 #include <winternl.h>
 
 namespace draxul
@@ -70,7 +71,7 @@ std::vector<wchar_t> build_environment_block(
     if (raw)
     {
         for (const wchar_t* current = raw; *current != L'\0';
-             current += std::wcslen(current) + 1)
+            current += std::wcslen(current) + 1)
         {
             const std::wstring_view entry(current);
             const size_t key_start = entry.starts_with(L'=') ? 1 : 0;
@@ -88,8 +89,7 @@ std::vector<wchar_t> build_environment_block(
     for (const auto& [key, value] : wide_overrides)
         entries.push_back(key + L"=" + value);
 
-    std::sort(entries.begin(), entries.end(), [](const std::wstring& lhs,
-                                              const std::wstring& rhs) {
+    std::sort(entries.begin(), entries.end(), [](const std::wstring& lhs, const std::wstring& rhs) {
         return _wcsicmp(lhs.c_str(), rhs.c_str()) < 0;
     });
     std::vector<wchar_t> block;
@@ -120,60 +120,6 @@ bool path_looks_like_windows_apps_alias(std::wstring_view path)
         return true;
 
     return (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
-}
-
-BOOL CALLBACK collect_console_window(HWND hwnd, LPARAM context)
-{
-    auto* windows = reinterpret_cast<std::unordered_set<HWND>*>(context);
-    wchar_t class_name[64] = {};
-    if (GetClassNameW(hwnd, class_name, static_cast<int>(std::size(class_name)))
-        && wcscmp(class_name, L"ConsoleWindowClass") == 0)
-    {
-        windows->insert(hwnd);
-    }
-    return TRUE;
-}
-
-std::unordered_set<HWND> console_window_snapshot()
-{
-    std::unordered_set<HWND> windows;
-    EnumWindows(collect_console_window, reinterpret_cast<LPARAM>(&windows));
-    return windows;
-}
-
-struct ConsoleWindowHideContext
-{
-    const std::unordered_set<HWND>* existing = nullptr;
-};
-
-BOOL CALLBACK hide_new_console_window(HWND hwnd, LPARAM context)
-{
-    auto* hide_context = reinterpret_cast<ConsoleWindowHideContext*>(context);
-    if (hide_context && hide_context->existing && hide_context->existing->contains(hwnd))
-        return TRUE;
-
-    wchar_t class_name[64] = {};
-    if (!GetClassNameW(hwnd, class_name, static_cast<int>(std::size(class_name)))
-        || wcscmp(class_name, L"ConsoleWindowClass") != 0)
-    {
-        return TRUE;
-    }
-
-    ShowWindowAsync(hwnd, SW_HIDE);
-    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-        SWP_HIDEWINDOW | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-    return TRUE;
-}
-
-void hide_new_console_windows_for_startup(std::unordered_set<HWND> existing)
-{
-    ConsoleWindowHideContext context{ &existing };
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
-    while (std::chrono::steady_clock::now() < deadline)
-    {
-        EnumWindows(hide_new_console_window, reinterpret_cast<LPARAM>(&context));
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
 }
 
 std::wstring resolve_application_path(std::string_view command)
@@ -355,8 +301,7 @@ void read_process_arguments_and_hint(DWORD process_id,
         return;
     }
 
-    const std::wstring command_line =
-        read_remote_unicode(process, params.command_line, 64 * 1024);
+    const std::wstring command_line = read_remote_unicode(process, params.command_line, 64 * 1024);
     if (!command_line.empty() && arguments)
     {
         int count = 0;
@@ -375,8 +320,7 @@ void read_process_arguments_and_hint(DWORD process_id,
         if (VirtualQueryEx(process, params.environment, &region, sizeof(region))
             == sizeof(region))
         {
-            const size_t bytes =
-                std::min<size_t>(region.RegionSize, 64 * 1024);
+            const size_t bytes = std::min<size_t>(region.RegionSize, 64 * 1024);
             std::vector<wchar_t> environment(bytes / sizeof(wchar_t), L'\0');
             SIZE_T bytes_read = 0;
             if (ReadProcessMemory(process, params.environment,
@@ -422,14 +366,6 @@ std::string process_executable_name(DWORD process_id)
     path.resize(size);
     return narrow_utf8(path);
 }
-
-constexpr auto kAgentProcessChangeDebounce
-    = std::chrono::seconds(1);
-constexpr auto kAgentProcessPresentReconcile
-    = std::chrono::seconds(5);
-constexpr auto kAgentProcessMissingReconcile
-    = std::chrono::seconds(30);
-constexpr DWORD kAgentObserverPollCeilingMs = 1000;
 
 struct NativeProcessBasicInformation
 {
@@ -504,7 +440,7 @@ std::vector<DWORD> job_process_ids(HANDLE job)
             std::vector<DWORD> result;
             result.reserve(list->NumberOfProcessIdsInList);
             for (DWORD index = 0;
-                 index < list->NumberOfProcessIdsInList; ++index)
+                index < list->NumberOfProcessIdsInList; ++index)
             {
                 result.push_back(static_cast<DWORD>(
                     list->ProcessIdList[index]));
@@ -573,7 +509,7 @@ AgentProcessObservation capture_process_tree(DWORD root_process_id)
     const auto belongs_to_tree
         = [&](DWORD process_id) {
               for (size_t depth = 0;
-                   depth < 64 && process_id != 0; ++depth)
+                  depth < 64 && process_id != 0; ++depth)
               {
                   if (process_id == root_process_id)
                       return true;
@@ -627,6 +563,8 @@ AgentProcessObservation capture_agent_processes(
 
 } // namespace
 
+ConPtyProcess::ConPtyProcess() = default;
+
 ConPtyProcess::~ConPtyProcess()
 {
     shutdown();
@@ -677,9 +615,10 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
     SetHandleInformation(pty_input_write, HANDLE_FLAG_INHERIT, 0);
     SetHandleInformation(pty_output_read, HANDLE_FLAG_INHERIT, 0);
 
+    const auto initial_dimensions = normalize_terminal_dimensions(initial_cols, initial_rows);
     COORD size = {
-        static_cast<SHORT>(std::clamp(initial_cols, 1, 320)),
-        static_cast<SHORT>(std::clamp(initial_rows, 1, 200)),
+        static_cast<SHORT>(initial_dimensions.cols),
+        static_cast<SHORT>(initial_dimensions.rows),
     };
     if (FAILED(CreatePseudoConsole(size, pty_input_read, pty_output_write, 0, &pty_)))
     {
@@ -746,11 +685,6 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
             command.c_str(),
             application_path_utf8.c_str());
     }
-
-    auto existing_console_windows = console_window_snapshot();
-    std::thread([existing = std::move(existing_console_windows)]() mutable {
-        hide_new_console_windows_for_startup(std::move(existing));
-    }).detach();
 
     const bool created = CreateProcessW(
         nullptr,
@@ -842,7 +776,42 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
     output_read_ = pty_output_read;
     writes_stopping_ = false;
     on_output_available_ = std::move(on_output_available);
-    reader_running_ = true;
+
+    detail::AgentProcessObserver::WaitForChange native_wait;
+    detail::AgentProcessObserver::WakeNativeWait wake_native_wait;
+    if (agent_completion_port_)
+    {
+        native_wait = [this](std::chrono::milliseconds timeout) {
+            DWORD message = 0;
+            ULONG_PTR completion_key = 0;
+            LPOVERLAPPED process_id = nullptr;
+            const DWORD wait_ms = static_cast<DWORD>(
+                std::max<int64_t>(timeout.count(), 0));
+            return GetQueuedCompletionStatus(agent_completion_port_,
+                       &message, &completion_key, &process_id, wait_ms)
+                && completion_key == reinterpret_cast<ULONG_PTR>(this)
+                && (message == JOB_OBJECT_MSG_NEW_PROCESS
+                    || message == JOB_OBJECT_MSG_EXIT_PROCESS
+                    || message == JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS);
+        };
+        wake_native_wait = [this] {
+            PostQueuedCompletionStatus(
+                agent_completion_port_, 0, 0, nullptr);
+        };
+    }
+    agent_observer_ = std::make_unique<detail::AgentProcessObserver>(
+        [this] {
+            return std::optional<AgentProcessObservation>(
+                capture_agent_processes(job_, proc_info_.dwProcessId));
+        },
+        std::move(native_wait),
+        detail::AgentProcessObserver::PollForChange{},
+        std::move(wake_native_wait));
+    {
+        std::lock_guard output_lock(output_mutex_);
+        reader_running_ = true;
+        reader_finished_ = false;
+    }
     reader_thread_ = std::thread([this]() { reader_main(); });
     return true;
 }
@@ -850,13 +819,14 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
 void ConPtyProcess::shutdown()
 {
     PERF_MEASURE();
-    stop_agent_observer();
-    reader_running_ = false;
+    if (agent_observer_)
+        agent_observer_->stop();
+    {
+        std::lock_guard output_lock(output_mutex_);
+        reader_running_ = false;
+    }
     writes_stopping_ = true;
     output_space_.notify_all();
-
-    if (reader_thread_.joinable())
-        CancelSynchronousIo(static_cast<HANDLE>(reader_thread_.native_handle()));
 
     if (pty_)
     {
@@ -872,21 +842,41 @@ void ConPtyProcess::shutdown()
             input_write_ = INVALID_HANDLE_VALUE;
         }
     }
+    if (reader_thread_.joinable())
+    {
+        const HANDLE reader_handle = static_cast<HANDLE>(reader_thread_.native_handle());
+        // CancelSynchronousIo can run just before the reader enters ReadFile.
+        // Repeat cancellation until the reader acknowledges exit, closing the
+        // pseudoconsole first so no new output can keep the pipe alive.
+        std::unique_lock output_lock(output_mutex_);
+        while (!reader_finished_)
+        {
+            output_lock.unlock();
+            (void)CancelSynchronousIo(reader_handle);
+            output_lock.lock();
+            output_space_.wait_for(output_lock, std::chrono::milliseconds(2),
+                [this] { return reader_finished_; });
+        }
+        output_lock.unlock();
+        reader_thread_.join();
+    }
     if (output_read_ != INVALID_HANDLE_VALUE)
     {
-        CancelIoEx(output_read_, nullptr);
         CloseHandle(output_read_);
         output_read_ = INVALID_HANDLE_VALUE;
     }
-    if (reader_thread_.joinable())
-        reader_thread_.join();
 
-    if (proc_info_.hProcess)
+    HANDLE process_handle = nullptr;
+    {
+        std::lock_guard process_lock(process_mutex_);
+        process_handle = proc_info_.hProcess;
+        proc_info_.hProcess = nullptr;
+        proc_info_.dwProcessId = 0;
+    }
+    if (process_handle)
     {
         // Keep teardown synchronous and bounded: a detached reaper can be
         // destroyed during app exit before it terminates the shell process.
-        HANDLE process_handle = proc_info_.hProcess;
-        proc_info_.hProcess = nullptr;
         DWORD exit_code = 0;
         if (GetExitCodeProcess(process_handle, &exit_code))
         {
@@ -895,10 +885,14 @@ void ConPtyProcess::shutdown()
                 TerminateProcess(process_handle, 0);
                 WaitForSingleObject(process_handle, 2000);
                 if (GetExitCodeProcess(process_handle, &exit_code) && exit_code != STILL_ACTIVE)
+                {
+                    std::lock_guard process_lock(process_mutex_);
                     last_exit_code_ = static_cast<int>(exit_code);
+                }
             }
             else
             {
+                std::lock_guard process_lock(process_mutex_);
                 last_exit_code_ = static_cast<int>(exit_code);
             }
         }
@@ -919,11 +913,7 @@ void ConPtyProcess::shutdown()
         CloseHandle(agent_completion_port_);
         agent_completion_port_ = nullptr;
     }
-    {
-        std::lock_guard lock(agent_observation_mutex_);
-        cached_agent_process_observation_.reset();
-    }
-    agent_activity_generation_ = 0;
+    agent_observer_.reset();
     attribute_storage_.clear();
 
     std::scoped_lock lock(output_mutex_);
@@ -935,6 +925,11 @@ void ConPtyProcess::request_close()
 {
     PERF_MEASURE();
     writes_stopping_ = true;
+    {
+        std::lock_guard output_lock(output_mutex_);
+        reader_running_ = false;
+    }
+    output_space_.notify_all();
     std::unique_lock lock(input_mutex_, std::try_to_lock);
     if (lock.owns_lock() && input_write_ != INVALID_HANDLE_VALUE)
     {
@@ -945,10 +940,12 @@ void ConPtyProcess::request_close()
 
 bool ConPtyProcess::is_running() const
 {
+    std::lock_guard process_lock(process_mutex_);
     if (!proc_info_.hProcess)
         return false;
     DWORD exit_code = 0;
-    GetExitCodeProcess(proc_info_.hProcess, &exit_code);
+    if (!GetExitCodeProcess(proc_info_.hProcess, &exit_code))
+        return true; // unknown status must not retire a potentially live pane
     if (exit_code != STILL_ACTIVE)
         last_exit_code_ = static_cast<int>(exit_code);
     return exit_code == STILL_ACTIVE;
@@ -956,146 +953,65 @@ bool ConPtyProcess::is_running() const
 
 std::optional<int> ConPtyProcess::exit_code() const
 {
-    if (is_running())
+    std::lock_guard process_lock(process_mutex_);
+    if (!proc_info_.hProcess)
+        return last_exit_code_;
+
+    DWORD exit_code = 0;
+    if (!GetExitCodeProcess(proc_info_.hProcess, &exit_code)
+        || exit_code == STILL_ACTIVE)
         return std::nullopt;
+
+    last_exit_code_ = static_cast<int>(exit_code);
     return last_exit_code_;
 }
 
 std::string ConPtyProcess::current_working_directory() const
 {
-    if (!is_running() || !proc_info_.hProcess)
+    std::lock_guard process_lock(process_mutex_);
+    if (!proc_info_.hProcess)
+        return {};
+    DWORD exit_code = 0;
+    if (!GetExitCodeProcess(proc_info_.hProcess, &exit_code)
+        || exit_code != STILL_ACTIVE)
         return {};
     return read_remote_current_directory(proc_info_.hProcess);
 }
 
 uint64_t ConPtyProcess::process_id() const
 {
-    return static_cast<uint64_t>(proc_info_.dwProcessId);
+    std::lock_guard process_lock(process_mutex_);
+    if (!proc_info_.hProcess)
+        return 0;
+    DWORD exit_code = 0;
+    if (!GetExitCodeProcess(proc_info_.hProcess, &exit_code))
+        return static_cast<uint64_t>(proc_info_.dwProcessId);
+    if (exit_code == STILL_ACTIVE)
+        return static_cast<uint64_t>(proc_info_.dwProcessId);
+
+    last_exit_code_ = static_cast<int>(exit_code);
+    return 0;
 }
 
 std::optional<AgentProcessObservation>
 ConPtyProcess::foreground_process_observation() const
 {
-    if (!is_running() || proc_info_.dwProcessId == 0)
+    {
+        std::lock_guard process_lock(process_mutex_);
+        if (!proc_info_.hProcess || proc_info_.dwProcessId == 0)
+            return std::nullopt;
+        DWORD exit_code = 0;
+        if (GetExitCodeProcess(proc_info_.hProcess, &exit_code)
+            && exit_code != STILL_ACTIVE)
+        {
+            last_exit_code_ = static_cast<int>(exit_code);
+            return std::nullopt;
+        }
+    }
+    if (!agent_observer_)
         return std::nullopt;
-    ensure_agent_observer_started();
-    std::lock_guard lock(agent_observation_mutex_);
-    return cached_agent_process_observation_;
-}
-
-void ConPtyProcess::ensure_agent_observer_started() const
-{
-    std::lock_guard start_lock(agent_observer_start_mutex_);
-    if (agent_observer_thread_.joinable()
-        || proc_info_.dwProcessId == 0)
-        return;
-    agent_observer_running_ = true;
-    agent_observer_thread_
-        = std::thread([this] { agent_observer_main(); });
-}
-
-void ConPtyProcess::stop_agent_observer()
-{
-    std::lock_guard start_lock(agent_observer_start_mutex_);
-    agent_observer_running_ = false;
-    agent_observer_wake_.notify_all();
-    if (agent_completion_port_)
-    {
-        PostQueuedCompletionStatus(
-            agent_completion_port_, 0, 0, nullptr);
-    }
-    if (agent_observer_thread_.joinable())
-        agent_observer_thread_.join();
-}
-
-void ConPtyProcess::agent_observer_main() const
-{
-    bool dirty = true;
-    bool agent_present = false;
-    uint64_t observed_activity
-        = agent_activity_generation_.load();
-    auto refresh_at = std::chrono::steady_clock::now();
-    auto reconcile_at = refresh_at;
-    while (agent_observer_running_)
-    {
-        const auto now = std::chrono::steady_clock::now();
-        const auto deadline = dirty
-            ? std::min(refresh_at, reconcile_at)
-            : reconcile_at;
-        const auto remaining = deadline > now
-            ? std::chrono::duration_cast<std::chrono::milliseconds>(
-                  deadline - now)
-            : std::chrono::milliseconds::zero();
-        const DWORD wait_ms = static_cast<DWORD>(std::clamp<int64_t>(
-            remaining.count(), 0, kAgentObserverPollCeilingMs));
-
-        bool process_changed = false;
-        if (agent_completion_port_)
-        {
-            DWORD message = 0;
-            ULONG_PTR completion_key = 0;
-            LPOVERLAPPED process_id = nullptr;
-            if (GetQueuedCompletionStatus(agent_completion_port_,
-                    &message, &completion_key, &process_id, wait_ms)
-                && completion_key
-                    == reinterpret_cast<ULONG_PTR>(this))
-            {
-                process_changed
-                    = message == JOB_OBJECT_MSG_NEW_PROCESS
-                    || message == JOB_OBJECT_MSG_EXIT_PROCESS
-                    || message
-                        == JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS;
-            }
-        }
-        else
-        {
-            std::unique_lock lock(agent_observer_wait_mutex_);
-            agent_observer_wake_.wait_for(lock,
-                std::chrono::milliseconds(wait_ms), [this] {
-                    return !agent_observer_running_.load();
-                });
-        }
-        if (!agent_observer_running_)
-            break;
-
-        const auto after_wait = std::chrono::steady_clock::now();
-        const uint64_t activity
-            = agent_activity_generation_.load();
-        if (process_changed
-            || (!agent_present
-                && activity != observed_activity))
-        {
-            if (!dirty)
-            {
-                dirty = true;
-                refresh_at
-                    = after_wait + kAgentProcessChangeDebounce;
-            }
-            observed_activity = activity;
-        }
-        if ((!dirty || after_wait < refresh_at)
-            && after_wait < reconcile_at)
-        {
-            continue;
-        }
-
-        AgentProcessObservation observation
-            = capture_agent_processes(
-                job_, proc_info_.dwProcessId);
-        agent_present
-            = discover_agent_process(observation).has_value();
-        {
-            std::lock_guard lock(agent_observation_mutex_);
-            cached_agent_process_observation_
-                = std::move(observation);
-        }
-        dirty = false;
-        observed_activity = activity;
-        reconcile_at = after_wait
-            + (agent_present
-                    ? kAgentProcessPresentReconcile
-                    : kAgentProcessMissingReconcile);
-    }
+    agent_observer_->start();
+    return agent_observer_->latest();
 }
 
 bool ConPtyProcess::resize(int cols, int rows)
@@ -1103,9 +1019,10 @@ bool ConPtyProcess::resize(int cols, int rows)
     PERF_MEASURE();
     if (!pty_)
         return false;
+    const auto dimensions = normalize_terminal_dimensions(cols, rows);
     COORD size = {
-        static_cast<SHORT>(std::clamp(cols, 1, 320)),
-        static_cast<SHORT>(std::clamp(rows, 1, 200)),
+        static_cast<SHORT>(dimensions.cols),
+        static_cast<SHORT>(dimensions.rows),
     };
     return SUCCEEDED(ResizePseudoConsole(pty_, size));
 }
@@ -1177,19 +1094,25 @@ void ConPtyProcess::reader_main()
             output_space_.wait(lock, [this, bytes_read] {
                 return !reader_running_
                     || output_bytes_
-                        <= kMaxQueuedOutputBytes - bytes_read;
+                    <= kMaxQueuedOutputBytes - bytes_read;
             });
             if (!reader_running_)
                 break;
             output_chunks_.emplace_back(buffer, buffer + bytes_read);
             output_bytes_ += bytes_read;
         }
-        ++agent_activity_generation_;
-        agent_observer_wake_.notify_one();
+        if (agent_observer_)
+            agent_observer_->note_activity();
 
         if (on_output_available_)
             on_output_available_();
     }
+    {
+        std::lock_guard output_lock(output_mutex_);
+        reader_running_ = false;
+        reader_finished_ = true;
+    }
+    output_space_.notify_all();
 }
 
 } // namespace draxul

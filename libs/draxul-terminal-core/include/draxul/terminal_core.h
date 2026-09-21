@@ -237,13 +237,13 @@ private:
 
     void csi_cursor_move(char final_char, const std::vector<int>& params);
     void csi_erase(char final_char, const std::vector<int>& params);
-    void csi_scroll(char final_char, bool private_mode, const std::vector<int>& params);
+    void csi_scroll(char final_char, char private_marker, const std::vector<int>& params);
     void csi_insert_delete(char final_char, const std::vector<int>& params);
     void csi_sgr(const std::vector<int>& params);
-    void csi_mode(char final_char, bool private_mode, const std::vector<int>& params);
-    void csi_dsr(bool private_mode, const std::vector<int>& params);
-    void csi_da(bool private_mode, const std::vector<int>& params);
-    void csi_margins(bool private_mode, const std::vector<int>& params);
+    void csi_mode(char final_char, char private_marker, const std::vector<int>& params);
+    void csi_dsr(char private_marker, const std::vector<int>& params);
+    void csi_da(char private_marker, const std::vector<int>& params);
+    void csi_margins(char private_marker, const std::vector<int>& params);
     void begin_synchronized_output();
     void end_synchronized_output();
     void enter_alt_screen();

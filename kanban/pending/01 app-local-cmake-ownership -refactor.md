@@ -12,20 +12,20 @@ the executable, packaging, generic plugin staging, and assets root-owned.
 
 ## Boundary verification
 
-- [ ] Capture the current `draxul-app` source list, include directories, compile
+- [x] Capture the current `draxul-app` source list, include directories, compile
   definitions, PUBLIC/PRIVATE links, and platform sources from root CMake.
-- [ ] Separate library-only platform input (`macos_menu.mm`) from executable
+- [x] Separate library-only platform input (`macos_menu.mm`) from executable
   resources (`draxul.rc`, macOS icon/bundle assets).
 - [ ] Record generated target/link information for comparison after the move.
-- [ ] Confirm no existing card already owns this exact CMake relocation.
+- [x] Confirm no existing card already owns this exact CMake relocation.
 
 ## Implementation and migration
 
-- [ ] Add `app/CMakeLists.txt` defining only `draxul-app` and its local policy call.
-- [ ] Replace the root library block with `add_subdirectory(app)`.
-- [ ] Keep target name, source paths, include surface, compile definitions, and links unchanged.
-- [ ] Keep `draxul`, product registration links, install/copy rules, icons, and resources in root CMake.
-- [ ] Make the move mechanical; do not mix dependency cleanup or C++ source refactors.
+- [x] Add `app/CMakeLists.txt` defining only `draxul-app` and its local policy call.
+- [x] Replace the root library block with `add_subdirectory(app)`.
+- [x] Keep target name, source paths, include surface, compile definitions, and links unchanged.
+- [x] Keep `draxul`, product registration links, install/copy rules, icons, and resources in root CMake.
+- [x] Make the move mechanical; do not mix dependency cleanup or C++ source refactors.
 
 ## Unit and build tests
 
@@ -37,11 +37,11 @@ the executable, packaging, generic plugin staging, and assets root-owned.
 
 ## Cross-platform validation
 
-- [ ] Windows: verify `app/draxul.rc` remains attached to the executable.
-- [ ] macOS: verify `app/macos_menu.mm`, bundle properties, icon, and resources remain attached correctly.
+- [x] Windows: verify `app/draxul.rc` remains attached to the executable.
+- [x] macOS: verify `app/macos_menu.mm`, bundle properties, icon, and resources remain attached correctly.
 - [ ] Configure with each mounted plugin enabled, disabled, and absent; preserve generic
       registration/staging without product-specific app links.
-- [ ] Confirm Vulkan/Metal selection remains wholly owned by renderer CMake.
+- [x] Confirm Vulkan/Metal selection remains wholly owned by renderer CMake.
 
 ## Agent documentation and tooling
 
@@ -50,7 +50,7 @@ the executable, packaging, generic plugin staging, and assets root-owned.
 
 ## Acceptance criteria
 
-- [ ] Root CMake contains `add_subdirectory(app)` and no `draxul-app` source list.
+- [x] Root CMake contains `add_subdirectory(app)` and no `draxul-app` source list.
 - [ ] The generated target and executable payload are equivalent to the pre-move build.
 - [ ] Focused app tests, full build, and smoke pass.
 - [ ] No production source or behavior changes are included.

@@ -19,11 +19,14 @@ endif()
 target_link_libraries(draxul-render-test PUBLIC
     draxul-config
     draxul-font
-    draxul-host
+    draxul-host-api
     draxul-nanovg
     draxul-renderer
+    draxul-runtime-support
 )
 target_link_libraries(draxul-render-test PRIVATE
     draxul-bmp
     draxul-performance
 )
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

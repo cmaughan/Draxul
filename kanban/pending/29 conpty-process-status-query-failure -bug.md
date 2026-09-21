@@ -12,18 +12,18 @@
 ## Investigation
 
 - [ ] Add an injectable process-status seam covering active, exited, and query-failed states.
-- [ ] Trace all callers that currently interpret `false` or a missing exit code as clean exit.
-- [ ] Verify status checks cannot race process-handle retirement.
+- [x] Trace all callers that currently interpret `false` or a missing exit code as clean exit.
+- [x] Verify status checks cannot race process-handle retirement.
 
 ## Fix strategy
 
-- [ ] Do not update `last_exit_code_` when the Windows query fails.
-- [ ] Represent query failure as unknown or conservatively running.
-- [ ] Require a confirmed zero exit before automatic topology cleanup.
+- [x] Do not update `last_exit_code_` when the Windows query fails.
+- [x] Represent query failure as conservatively running.
+- [x] Require a confirmed zero exit before automatic topology cleanup.
 
 ## Acceptance criteria
 
-- [ ] Query failure cannot close or remove a live terminal.
-- [ ] Confirmed zero exits still receive normal cleanup.
-- [ ] Nonzero and unknown exits remain available for inspection or recovery.
+- [x] Query failure cannot close or remove a live terminal.
+- [x] Confirmed zero exits still receive normal cleanup.
+- [x] Nonzero and unknown exits remain available for inspection or recovery.
 - [ ] Server lifecycle and Windows terminal-process tests pass.

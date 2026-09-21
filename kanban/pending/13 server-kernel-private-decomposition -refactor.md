@@ -23,12 +23,12 @@ decomposition. This card does not implement Session streaming.
 ## Implementation and migration
 
 - [x] Add private `server_kernel_impl.h`.
-- [ ] Move member definitions mechanically into responsibility TUs.
+- [x] Move member definitions mechanically into responsibility TUs.
 - [x] Move `ServerAgentService` to `src/`.
 - [x] Add `draxul-server-test-internals`.
 - [x] Split tests by responsibility.
-- [ ] Introduce registry/store collaborators only after state ownership is proven.
-- [ ] Do not add service static libraries or another mutex.
+- [x] Keep registry/store collaborators deferred; the state thread retains ownership.
+- [x] Do not add service static libraries or another mutex.
 
 ### Delivered checkpoint — private implementation boundary
 
@@ -52,6 +52,11 @@ topology/terminal, agent-runtime, and process-integration suites sharing only
 every original case title and tag while making responsibility drift visible in the
 source layout.
 
+The final macOS Debug gate rebuilt the server and its public-header link-isolation
+target, preserved the configured static test inventory, passed the product-scoped
+aggregate (39/39), and passed the same-cache headless smoke (one scenario in
+6.55 seconds). Windows validation remains outstanding.
+
 ### Delivered checkpoint — responsibility translation units
 
 The private boundary now supports behavior-preserving compilation units for the
@@ -60,8 +65,11 @@ detachment (`server_kernel_clients.cpp`), startup/publication/state-loop/shutdow
 (`server_kernel_lifecycle.cpp`), and authenticated method dispatch
 (`server_kernel_requests.cpp`). These files share the existing `Impl` state and do
 not introduce collaborators, locks, protocol changes, or new runtime ownership.
-Session persistence and terminal/agent definitions remain in `server_kernel.cpp`;
-the test boundary and partition are now ready for their mechanical TU moves.
+Session restore, lookup, persistence, and status definitions now live in
+`server_kernel_sessions.cpp`. Terminal and managed-agent runtime ownership lives
+in `server_kernel_terminals.cpp`. The move preserves the existing `Impl` state,
+single kernel mutex boundary, public façade, and runtime behavior; it adds no
+service library or collaborator.
 
 ## Unit tests
 
@@ -73,7 +81,7 @@ the test boundary and partition are now ready for their mechanical TU moves.
 ## Cross-platform validation
 
 - [ ] Validate publication, process identity, eviction, signals, and terminal lifecycle on Windows and macOS.
-- [ ] Confirm the server remains renderer/window/host/product free.
+- [x] Confirm the server remains renderer/window/host/product free.
 
 ## Agent documentation/tooling
 
@@ -83,6 +91,6 @@ the test boundary and partition are now ready for their mechanical TU moves.
 ## Acceptance criteria
 
 - [x] `ServerKernel` public API is unchanged.
-- [ ] No implementation TU owns unrelated method families.
+- [x] No implementation TU owns unrelated method families.
 - [x] `ServerAgentService` is no longer production-public.
-- [ ] Focused/full tests and headless smoke remain green.
+- [x] Focused/full tests and headless smoke remain green.

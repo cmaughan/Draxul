@@ -1,6 +1,7 @@
 #include "support/test_support.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/benchmark/catch_benchmark.hpp>
 
 #include <draxul/nvim.h>
 #include <draxul/unicode.h>
@@ -87,6 +88,28 @@ int local_width(std::string_view text, AmbiWidth ambiwidth)
 }
 
 } // namespace
+
+TEST_CASE("unicode decoding and display-width hot paths", "[.unicode-benchmark]")
+{
+    constexpr std::string_view kCorpus
+        = "plain e\xCC\x81 \xE7\x95\x8C \xF0\x9F\x91\xA8\xE2\x80\x8D"
+          "\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x91\xA7";
+
+    BENCHMARK("decode codepoints")
+    {
+        size_t offset = 0;
+        uint32_t cp = 0;
+        uint32_t checksum = 0;
+        while (utf8_decode_next(kCorpus, offset, cp))
+            checksum ^= cp;
+        return checksum;
+    };
+
+    BENCHMARK("segment and measure display clusters")
+    {
+        return display_cell_width(kCorpus);
+    };
+}
 
 TEST_CASE("unicode helper matches current nvim-like cluster widths", "[unicode]")
 {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "chrome_layout.h"
+#include <draxul/chrome_layout.h>
 
 #include <draxul/renderer.h>
 #include <draxul/text_service.h>

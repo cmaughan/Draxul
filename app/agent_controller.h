@@ -1,7 +1,7 @@
 #pragma once
 
 #include "space_id.h"
-#include "split_tree.h"
+#include <draxul/split_tree.h>
 #include <draxul/agent_model.h>
 
 #include <chrono>

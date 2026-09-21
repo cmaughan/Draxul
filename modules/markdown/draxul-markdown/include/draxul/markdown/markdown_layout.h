@@ -5,6 +5,7 @@
 #include <draxul/rich_text_service.h>
 
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -77,10 +78,13 @@ struct VisibleRowRange
     size_t count = 0;
 };
 
+using FontMetricsLookup
+    = std::function<draxul::FontMetrics(const draxul::RichTextStyleKey&)>;
+
 LayoutDocument layout_markdown_document(
     const Document& document,
     const MarkdownTheme& theme,
-    draxul::RichTextService& rich_text,
+    const FontMetricsLookup& metrics_for,
     const LayoutOptions& options = {});
 
 VisibleRowRange visible_rows(

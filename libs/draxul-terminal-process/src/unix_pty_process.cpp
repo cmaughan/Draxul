@@ -1,5 +1,7 @@
 #include <draxul/unix_pty_process.h>
 
+#include "agent_process_observer.h"
+#include "unix_agent_process_probe.h"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -10,6 +12,7 @@
 #include <cstring>
 #include <draxul/perf_timing.h>
 #include <draxul/process_util.h>
+#include <draxul/terminal_dimensions.h>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
@@ -73,92 +76,9 @@ std::string process_working_directory(pid_t pid)
 #endif
 }
 
-#ifdef __linux__
-std::vector<std::string> read_null_separated_file(
-    const std::filesystem::path& path, size_t max_bytes)
-{
-    std::ifstream input(path, std::ios::binary);
-    if (!input)
-        return {};
-    std::string contents(max_bytes, '\0');
-    input.read(contents.data(), static_cast<std::streamsize>(contents.size()));
-    contents.resize(static_cast<size_t>(input.gcount()));
-    std::vector<std::string> values;
-    size_t offset = 0;
-    while (offset < contents.size() && values.size() < 64)
-    {
-        const size_t end = contents.find('\0', offset);
-        const size_t length = (end == std::string::npos ? contents.size() : end) - offset;
-        if (length != 0)
-            values.emplace_back(contents.substr(offset, length));
-        if (end == std::string::npos)
-            break;
-        offset = end + 1;
-    }
-    return values;
-}
-#endif
-
-#ifdef __APPLE__
-void read_macos_arguments_and_hint(pid_t process_id,
-    std::vector<std::string>* arguments, std::string* hint)
-{
-    int argument_max = 0;
-    size_t argument_max_size = sizeof(argument_max);
-    int argument_max_mib[] = { CTL_KERN, KERN_ARGMAX };
-    if (sysctl(argument_max_mib, 2, &argument_max, &argument_max_size,
-            nullptr, 0)
-            != 0
-        || argument_max <= 0)
-        return;
-    std::vector<char> buffer(
-        std::min<size_t>(static_cast<size_t>(argument_max), 64 * 1024));
-    size_t size = buffer.size();
-    int arguments_mib[] = { CTL_KERN, KERN_PROCARGS2, process_id };
-    if (sysctl(arguments_mib, 3, buffer.data(), &size, nullptr, 0) != 0
-        || size <= sizeof(int))
-        return;
-
-    int argument_count = 0;
-    std::memcpy(&argument_count, buffer.data(), sizeof(argument_count));
-    size_t offset = sizeof(argument_count);
-    while (offset < size && buffer[offset] != '\0')
-        ++offset;
-    while (offset < size && buffer[offset] == '\0')
-        ++offset;
-
-    for (int index = 0;
-        index < argument_count && index < 64 && offset < size; ++index)
-    {
-        const size_t end = std::find(buffer.begin() + static_cast<std::ptrdiff_t>(offset),
-                               buffer.begin() + static_cast<std::ptrdiff_t>(size), '\0')
-            - buffer.begin();
-        if (end > offset && arguments)
-            arguments->emplace_back(buffer.data() + offset, end - offset);
-        offset = end + 1;
-    }
-    while (offset < size)
-    {
-        while (offset < size && buffer[offset] == '\0')
-            ++offset;
-        if (offset >= size)
-            break;
-        const size_t end = std::find(buffer.begin() + static_cast<std::ptrdiff_t>(offset),
-                               buffer.begin() + static_cast<std::ptrdiff_t>(size), '\0')
-            - buffer.begin();
-        const std::string_view value(buffer.data() + offset, end - offset);
-        constexpr std::string_view prefix = "DRAXUL_AGENT=";
-        if (value.starts_with(prefix) && hint)
-        {
-            *hint = value.substr(prefix.size());
-            break;
-        }
-        offset = end + 1;
-    }
-}
-#endif
-
 } // namespace
+
+UnixPtyProcess::UnixPtyProcess() = default;
 
 UnixPtyProcess::~UnixPtyProcess()
 {
@@ -185,8 +105,9 @@ bool UnixPtyProcess::spawn(const std::string& command, const std::vector<std::st
     fcntl(shutdown_pipe_[1], F_SETFD, FD_CLOEXEC);
 
     struct winsize ws = {};
-    ws.ws_col = static_cast<unsigned short>(std::clamp(initial_cols, 1, 320));
-    ws.ws_row = static_cast<unsigned short>(std::clamp(initial_rows, 1, 200));
+    const auto initial_dimensions = normalize_terminal_dimensions(initial_cols, initial_rows);
+    ws.ws_col = static_cast<unsigned short>(initial_dimensions.cols);
+    ws.ws_row = static_cast<unsigned short>(initial_dimensions.rows);
     std::vector<std::string> child_env = build_terminal_child_environment(environment);
     std::vector<std::string> exec_paths = resolve_exec_paths(command);
     std::string login_argv0 = login_shell ? "-" : "";
@@ -286,7 +207,20 @@ bool UnixPtyProcess::spawn(const std::string& command, const std::vector<std::st
     if (master_flags >= 0)
         (void)fcntl(master_fd_, F_SETFL, master_flags | O_NONBLOCK);
     on_output_available_ = std::move(on_output_available);
-    reader_running_ = true;
+    agent_observer_ = std::make_unique<detail::AgentProcessObserver>(
+        [this] { return detail::capture_unix_agent_processes(master_fd_); },
+        detail::AgentProcessObserver::WaitForChange{},
+        [this, observed_group = pid_t{ -1 }]() mutable {
+            const pid_t current
+                = detail::unix_foreground_process_group(master_fd_);
+            const bool changed = current != observed_group;
+            observed_group = current;
+            return changed;
+        });
+    {
+        std::lock_guard output_lock(output_mutex_);
+        reader_running_ = true;
+    }
     reader_thread_ = std::thread([this]() { reader_main(); });
     return true;
 }
@@ -294,8 +228,12 @@ bool UnixPtyProcess::spawn(const std::string& command, const std::vector<std::st
 void UnixPtyProcess::shutdown()
 {
     PERF_MEASURE();
-    stop_agent_observer();
-    reader_running_ = false;
+    if (agent_observer_)
+        agent_observer_->stop();
+    {
+        std::lock_guard output_lock(output_mutex_);
+        reader_running_ = false;
+    }
     output_space_.notify_all();
 
     // Signal the reader thread to wake up immediately via the shutdown pipe.
@@ -393,18 +331,17 @@ void UnixPtyProcess::shutdown()
     std::scoped_lock lock(output_mutex_);
     output_chunks_.clear();
     output_bytes_ = 0;
-    {
-        std::lock_guard observation_lock(
-            agent_observation_mutex_);
-        cached_agent_process_observation_.reset();
-    }
-    agent_activity_generation_ = 0;
+    agent_observer_.reset();
 }
 
 void UnixPtyProcess::request_close()
 {
     PERF_MEASURE();
-    reader_running_ = false;
+    {
+        std::lock_guard output_lock(output_mutex_);
+        reader_running_ = false;
+    }
+    output_space_.notify_all();
 
     // Signal the reader thread via the shutdown pipe. Do NOT close master_fd_
     // here — the reader thread may still be polling it. shutdown() will close
@@ -443,206 +380,10 @@ std::optional<AgentProcessObservation>
 UnixPtyProcess::foreground_process_observation() const
 {
     update_exit_status();
-    if (pid_ <= 0 || master_fd_ < 0)
+    if (pid_ <= 0 || master_fd_ < 0 || !agent_observer_)
         return std::nullopt;
-    ensure_agent_observer_started();
-    std::lock_guard lock(agent_observation_mutex_);
-    return cached_agent_process_observation_;
-}
-
-std::optional<AgentProcessObservation>
-UnixPtyProcess::capture_agent_process_observation_now(
-    pid_t foreground_group) const
-{
-    if (foreground_group <= 0)
-        return std::nullopt;
-    AgentProcessObservation observation;
-    observation.captured_at = std::chrono::steady_clock::now();
-    observation.foreground_reliable = true;
-
-#ifdef __APPLE__
-    const int bytes = proc_listpids(PROC_PGRP_ONLY, static_cast<uint32_t>(foreground_group),
-        nullptr, 0);
-    if (bytes <= 0)
-        return observation;
-    std::vector<pid_t> process_ids(
-        static_cast<size_t>(bytes) / sizeof(pid_t) + 8, 0);
-    const int written = proc_listpids(PROC_PGRP_ONLY, static_cast<uint32_t>(foreground_group),
-        process_ids.data(),
-        static_cast<int>(process_ids.size() * sizeof(pid_t)));
-    const size_t count = written > 0 ? static_cast<size_t>(written) / sizeof(pid_t) : 0;
-    for (size_t index = 0;
-        index < count && observation.processes.size() < 128; ++index)
-    {
-        const pid_t process_id = process_ids[index];
-        if (process_id <= 0)
-            continue;
-        proc_bsdinfo info = {};
-        if (proc_pidinfo(process_id, PROC_PIDTBSDINFO, 0, &info, sizeof(info))
-            != static_cast<int>(sizeof(info)))
-            continue;
-        std::array<char, PROC_PIDPATHINFO_MAXSIZE> path = {};
-        const int path_length = proc_pidpath(process_id, path.data(), static_cast<uint32_t>(path.size()));
-        std::vector<std::string> arguments;
-        std::string hint;
-        read_macos_arguments_and_hint(process_id, &arguments, &hint);
-        observation.processes.push_back({
-            .process_id = static_cast<uint64_t>(process_id),
-            .parent_process_id = static_cast<uint64_t>(info.pbi_ppid),
-            .executable = path_length > 0 ? std::string(path.data())
-                                          : std::string(info.pbi_name),
-            .arguments = std::move(arguments),
-            .agent_hint = std::move(hint),
-        });
-    }
-#elif defined(__linux__)
-    std::error_code ec;
-    for (const auto& directory :
-        std::filesystem::directory_iterator("/proc", ec))
-    {
-        if (ec || observation.processes.size() >= 128)
-            break;
-        const std::string name = directory.path().filename().string();
-        if (name.empty()
-            || !std::all_of(name.begin(), name.end(),
-                [](unsigned char ch) { return std::isdigit(ch) != 0; }))
-            continue;
-        const pid_t process_id = static_cast<pid_t>(std::strtol(name.c_str(), nullptr, 10));
-        std::ifstream stat(directory.path() / "stat");
-        std::string stat_line;
-        std::getline(stat, stat_line);
-        const size_t close = stat_line.rfind(')');
-        if (close == std::string::npos || close + 2 >= stat_line.size())
-            continue;
-        std::istringstream fields(stat_line.substr(close + 2));
-        char state = '\0';
-        pid_t parent_process_id = 0;
-        pid_t process_group = 0;
-        fields >> state >> parent_process_id >> process_group;
-        if (!fields || process_group != foreground_group)
-            continue;
-
-        std::string executable;
-        const auto executable_path = std::filesystem::read_symlink(directory.path() / "exe", ec);
-        if (!ec)
-            executable = executable_path.string();
-        ec.clear();
-        auto arguments = read_null_separated_file(directory.path() / "cmdline", 16 * 1024);
-        std::string hint;
-        for (const auto& value :
-            read_null_separated_file(directory.path() / "environ", 64 * 1024))
-        {
-            constexpr std::string_view prefix = "DRAXUL_AGENT=";
-            if (value.starts_with(prefix))
-            {
-                hint = value.substr(prefix.size());
-                break;
-            }
-        }
-        observation.processes.push_back({
-            .process_id = static_cast<uint64_t>(process_id),
-            .parent_process_id = static_cast<uint64_t>(parent_process_id),
-            .executable = std::move(executable),
-            .arguments = std::move(arguments),
-            .agent_hint = std::move(hint),
-        });
-    }
-#endif
-    return observation;
-}
-
-void UnixPtyProcess::ensure_agent_observer_started() const
-{
-    std::lock_guard start_lock(agent_observer_start_mutex_);
-    if (agent_observer_thread_.joinable()
-        || pid_ <= 0 || master_fd_ < 0)
-        return;
-    agent_observer_running_ = true;
-    agent_observer_thread_
-        = std::thread([this] { agent_observer_main(); });
-}
-
-void UnixPtyProcess::stop_agent_observer()
-{
-    std::lock_guard start_lock(agent_observer_start_mutex_);
-    agent_observer_running_ = false;
-    agent_observer_wake_.notify_all();
-    if (agent_observer_thread_.joinable())
-        agent_observer_thread_.join();
-}
-
-void UnixPtyProcess::agent_observer_main() const
-{
-    constexpr auto change_debounce
-        = std::chrono::seconds(1);
-    constexpr auto present_reconcile
-        = std::chrono::seconds(5);
-    constexpr auto missing_reconcile
-        = std::chrono::seconds(30);
-    constexpr auto foreground_check
-        = std::chrono::seconds(1);
-
-    pid_t observed_group = -1;
-    uint64_t observed_activity
-        = agent_activity_generation_.load();
-    bool dirty = true;
-    bool agent_present = false;
-    auto refresh_at = std::chrono::steady_clock::now();
-    auto reconcile_at = refresh_at;
-    bool first_probe = true;
-    while (agent_observer_running_)
-    {
-        if (!first_probe)
-        {
-            std::unique_lock lock(agent_observer_wait_mutex_);
-            agent_observer_wake_.wait_for(
-                lock, foreground_check, [this] {
-                    return !agent_observer_running_.load();
-                });
-        }
-        first_probe = false;
-        if (!agent_observer_running_)
-            break;
-
-        const auto now = std::chrono::steady_clock::now();
-        const pid_t foreground_group
-            = master_fd_ >= 0 ? tcgetpgrp(master_fd_) : -1;
-        const uint64_t activity
-            = agent_activity_generation_.load();
-        if (foreground_group != observed_group
-            || (!agent_present && activity != observed_activity))
-        {
-            if (observed_group < 0)
-                refresh_at = now;
-            else if (!dirty)
-                refresh_at = now + change_debounce;
-            dirty = true;
-            observed_group = foreground_group;
-            observed_activity = activity;
-        }
-        if ((!dirty || now < refresh_at)
-            && now < reconcile_at)
-        {
-            continue;
-        }
-
-        auto observation
-            = capture_agent_process_observation_now(
-                foreground_group);
-        agent_present = observation
-            && discover_agent_process(*observation).has_value();
-        {
-            std::lock_guard lock(agent_observation_mutex_);
-            cached_agent_process_observation_
-                = std::move(observation);
-        }
-        dirty = false;
-        observed_activity = activity;
-        reconcile_at = now
-            + (agent_present
-                    ? present_reconcile
-                    : missing_reconcile);
-    }
+    agent_observer_->start();
+    return agent_observer_->latest();
 }
 
 bool UnixPtyProcess::resize(int cols, int rows) const
@@ -651,8 +392,9 @@ bool UnixPtyProcess::resize(int cols, int rows) const
     if (master_fd_ < 0)
         return false;
     struct winsize ws = {};
-    ws.ws_col = static_cast<unsigned short>(std::clamp(cols, 1, 320));
-    ws.ws_row = static_cast<unsigned short>(std::clamp(rows, 1, 200));
+    const auto dimensions = normalize_terminal_dimensions(cols, rows);
+    ws.ws_col = static_cast<unsigned short>(dimensions.cols);
+    ws.ws_row = static_cast<unsigned short>(dimensions.rows);
     return ioctl(master_fd_, TIOCSWINSZ, &ws) == 0;
 }
 
@@ -751,8 +493,8 @@ void UnixPtyProcess::reader_main()
                 output_chunks_.emplace_back(buffer.data(), buffer.data() + bytes_read);
                 output_bytes_ += chunk_bytes;
             }
-            ++agent_activity_generation_;
-            agent_observer_wake_.notify_one();
+            if (agent_observer_)
+                agent_observer_->note_activity();
 
             if (on_output_available_)
                 on_output_available_();
@@ -762,6 +504,11 @@ void UnixPtyProcess::reader_main()
             break;
         }
     }
+    {
+        std::lock_guard output_lock(output_mutex_);
+        reader_running_ = false;
+    }
+    output_space_.notify_all();
 }
 
 void UnixPtyProcess::update_exit_status() const

@@ -8,7 +8,7 @@
 #include <deque>
 #include <draxul/log.h>
 #include <draxul/mpack_codec.h>
-#include <draxul/nvim_rpc.h>
+#include <draxul/nvim_transport.h>
 #include <draxul/perf_timing.h>
 #include <mutex>
 #include <thread>
@@ -571,43 +571,31 @@ void NvimRpc::reply_to_request(uint32_t msgid, const MpackValue& error, const Mp
 
 MpackValue NvimRpc::make_int(int64_t v)
 {
-    MpackValue val;
-    val.storage = v;
-    return val;
+    return MpackValue::make_int(v);
 }
 MpackValue NvimRpc::make_uint(uint64_t v)
 {
-    MpackValue val;
-    val.storage = v;
-    return val;
+    return MpackValue::make_uint(v);
 }
 MpackValue NvimRpc::make_str(const std::string& v)
 {
-    MpackValue val;
-    val.storage = v;
-    return val;
+    return MpackValue::make_str(v);
 }
 MpackValue NvimRpc::make_bool(bool v)
 {
-    MpackValue val;
-    val.storage = v;
-    return val;
+    return MpackValue::make_bool(v);
 }
 MpackValue NvimRpc::make_array(std::vector<MpackValue> v)
 {
-    MpackValue val;
-    val.storage = std::move(v);
-    return val;
+    return MpackValue::make_array(std::move(v));
 }
 MpackValue NvimRpc::make_map(std::vector<std::pair<MpackValue, MpackValue>> v)
 {
-    MpackValue val;
-    val.storage = std::move(v);
-    return val;
+    return MpackValue::make_map(std::move(v));
 }
 MpackValue NvimRpc::make_nil()
 {
-    return MpackValue{};
+    return MpackValue::make_nil();
 }
 
 } // namespace draxul

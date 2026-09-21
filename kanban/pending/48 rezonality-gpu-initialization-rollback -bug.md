@@ -11,8 +11,8 @@
 
 **Fix strategy**
 
-- [ ] Construct resources transactionally with scoped ownership.
-- [ ] Publish readiness only after complete initialization; clear partial backend state.
+- [x] Construct vertex and model-texture resources transactionally with scoped ownership.
+- [x] Publish vertex-buffer readiness only after complete initialization and clear partial backend state.
 
 **Acceptance criteria**
 

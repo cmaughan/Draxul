@@ -11,40 +11,41 @@
 
 #### Boundary verification
 
-- [ ] Inventory lifecycle, display formatting, transport limits, cancellation, and reload callers.
-- [ ] Confirm no App/host/render dependency is required.
-- [ ] Keep offline/proxy/cache work in `kanban/ice-box/49 network-privacy-controls -feature.md`.
+- [x] Inventory lifecycle, display formatting, transport limits, cancellation, and reload callers.
+- [x] Confirm no App/host/render dependency is required.
+- [x] Keep offline/proxy/cache work in `kanban/ice-box/49 network-privacy-controls -feature.md`.
 
 #### Implementation and migration
 
-- [ ] Move the service and its single public header to the library; update callers without duplicate forwarding headers.
-- [ ] Link `draxul-app` to the new target and remove its direct service source.
-- [ ] Extract synchronous coordinate/geocoding/current-weather decoding while retaining request and refresh behavior.
-- [ ] Move HTTP/weather cases out of the app test source partition.
+- [x] Move the service and its single public header to the library; update callers without duplicate forwarding headers.
+- [x] Link `draxul-app` to the new target and remove its direct service source.
+- [x] Extract synchronous coordinate/geocoding/current-weather decoding while retaining request and refresh behavior.
+- [x] Move HTTP/weather cases out of the app test source partition.
 
 #### Unit tests
 
-- [ ] Add `draxul-test-weather` with deterministic malformed/wrong-type/range/provider-response cases.
-- [ ] Retain injected-transport URL encoding, response-size limits, cancellation, and restart coverage.
-- [ ] Retain `app_smoke_tests.cpp` weather add/change/clear integration coverage.
-- [ ] Enable `cmake --build <cache> --config Debug --target draxul-test-weather --parallel`.
-- [ ] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-weather-shard-' --parallel 4 --output-on-failure`.
+- [x] Add `draxul-test-weather` with deterministic malformed/wrong-type/range/provider-response cases.
+- [x] Retain injected-transport URL encoding, response-size limits, cancellation, and restart coverage.
+- [x] Retain `app_smoke_tests.cpp` weather add/change/clear integration coverage.
+- [x] Enable `cmake --build <cache> --config Debug --target draxul-test-weather --parallel`.
+- [x] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-weather-shard-' --parallel 4 --output-on-failure`.
 
 #### Cross-platform validation
 
-- [ ] Preserve Foundation/WinHTTP ownership in `draxul-http`, including cancellation and stop/join order.
-- [ ] Verify temperature/emoji formatting and configuration reload on Windows and macOS.
-- [ ] Run `python3 do.py test debug`, then `python3 do.py smoke debug --skip-build`.
-- [ ] Confirm the weather target has no Vulkan/Metal dependency and chrome presentation remains unchanged.
+- [x] Preserve Foundation/WinHTTP ownership in `draxul-http`, including cancellation and stop/join order.
+- [x] Verify temperature/emoji formatting and configuration reload on macOS.
+- [ ] Verify temperature/emoji formatting and configuration reload on Windows CI.
+- [x] Run `python3 do.py test debug`, then `python3 do.py smoke debug --skip-build`.
+- [x] Confirm the weather target has no Vulkan/Metal dependency and chrome presentation remains unchanged.
 
 #### Agent documentation/tooling
 
-- [ ] Register focused tests in core aggregates, `do.py`, and selection tests.
-- [ ] Update the module map and document service-versus-App ownership.
-- [ ] Preserve documented `weather_location` behavior.
+- [x] Register focused tests in core aggregates, `do.py`, and selection tests.
+- [x] Update the module map and document service-versus-App ownership.
+- [x] Preserve documented `weather_location` behavior.
 
 #### Acceptance criteria
 
-- [ ] Weather tests build without `draxul-app` or product targets.
-- [ ] Response parsing can be tested without worker polling.
-- [ ] Fetch cadence, transport policy, formatting, and reload behavior remain compatible.
+- [x] Weather tests build without `draxul-app` or product targets.
+- [x] Response parsing can be tested without worker polling.
+- [x] Fetch cadence, transport policy, formatting, and reload behavior remain compatible.

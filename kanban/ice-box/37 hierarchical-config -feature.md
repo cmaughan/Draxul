@@ -20,7 +20,7 @@ The three levels are:
 ## Implementation Plan
 
 ### Files to modify
-- `libs/draxul-app-support/` — update config loading logic to implement the three-level merge
+- `libs/draxul-config/` — update config loading logic to implement the three-level merge
 - Platform path resolution:
   - macOS/Linux: use `$XDG_CONFIG_HOME/draxul/config.toml` (defaulting to `~/.config/draxul/config.toml`)
   - Windows: use `%APPDATA%\draxul\config.toml`

@@ -18,3 +18,5 @@ if(APPLE)
 elseif(WIN32)
     target_link_libraries(draxul-window PRIVATE Shcore Dwmapi)
 endif()
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

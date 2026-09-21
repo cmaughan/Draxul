@@ -22,7 +22,7 @@ The 16-colour ANSI palette (colours 0–15) is the primary tool by which termina
   until the client resolves them; do not bake one UI's palette into shared state
 - `RemoteTerminalHost` / grid presentation — resolve semantic palette indices
   from the active client configuration
-- `libs/draxul-app-support/` — extend `AppConfig` struct with `ansi_colors` field (array of 16 `Color`)
+- `libs/draxul-config/` — extend `AppConfig` struct with `ansi_colors` field (array of 16 `Color`)
 - Config parsing code — parse `[terminal] ansi_colors` from `config.toml` as an array of 16 hex colour strings or RGB triples
 
 ### Steps

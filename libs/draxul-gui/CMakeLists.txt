@@ -13,15 +13,14 @@ target_include_directories(draxul-gui PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-# Dependency contract: types (CellUpdate/Color/AtlasRegion), font
-# (TextService glyph resolution), renderer (renderer-facing types).
+# Dependency contract: types (CellUpdate/Color/AtlasRegion) and font
+# (TextService glyph resolution). The public API has no renderer dependency.
 # Deliberately nothing else — this library must stay usable from pure unit
 # tests without a window, GPU, or ImGui context.
 target_link_libraries(draxul-gui PUBLIC
     draxul-plugin-tooltip-support
     draxul-types
     draxul-font
-    draxul-renderer
 )
 target_link_libraries(draxul-gui PRIVATE draxul-performance)
 
@@ -29,3 +28,5 @@ set_target_properties(draxul-gui PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
 )
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

@@ -61,7 +61,7 @@ void restore_grid_snapshot(Grid& grid, int dst_cols, int dst_rows, const GridSna
                 continue;
             if (cell.double_width && col + 1 >= copy_cols)
                 continue;
-            grid.set_cell(col, dst_row_offset + row, std::string(cell.text.view()), cell.hl_attr_id, cell.double_width);
+            grid.restore_cell(col, dst_row_offset + row, cell);
         }
     }
 }
@@ -79,7 +79,7 @@ LocalTerminalHost::LocalTerminalHost()
         cbs.grid_rows = [this]() { return grid_rows(); };
         cbs.get_cell = [this](int col, int row) { return grid().get_cell(col, row); };
         cbs.set_cell = [this](int col, int row, const Cell& c) {
-            grid().set_cell(col, row, std::string(c.text.view()), c.hl_attr_id, c.double_width);
+            grid().restore_cell(col, row, c);
         };
         cbs.force_full_redraw = [this]() { force_full_redraw(); };
         cbs.flush_grid = [this]() { flush_grid(); };
@@ -191,7 +191,7 @@ void LocalTerminalHost::pump()
                 for (int c = 0; c < cols; ++c)
                 {
                     const auto& src = resize_snapshot_.cells[snap_offset + c];
-                    grid().set_cell(c, r, std::string(src.text.view()), src.hl_attr_id, src.double_width);
+                    grid().restore_cell(c, r, src);
                 }
             }
         }
@@ -455,7 +455,7 @@ void LocalTerminalHost::on_viewport_changed()
             for (int c = 0; c < grid_cols(); ++c)
             {
                 const auto& src = grid().get_cell(c, r - pull);
-                grid().set_cell(c, r, std::string(src.text.view()), src.hl_attr_id, src.double_width);
+                grid().restore_cell(c, r, src);
             }
         }
 
@@ -466,7 +466,7 @@ void LocalTerminalHost::on_viewport_changed()
             for (int c = 0; c < copy_cols; ++c)
             {
                 const auto& src = pulled_rows[r][c];
-                grid().set_cell(c, r, std::string(src.text.view()), src.hl_attr_id, src.double_width);
+                grid().restore_cell(c, r, src);
             }
             for (int c = copy_cols; c < grid_cols(); ++c)
                 grid().set_cell(c, r, " ", 0, false);

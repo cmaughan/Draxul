@@ -1,0 +1,47 @@
+cmake_minimum_required(VERSION 3.25)
+project(draxul_internal_target_policy_fixture LANGUAGES CXX)
+
+if(NOT DEFINED DRAXUL_SOURCE_ROOT OR NOT DEFINED CASE)
+    message(FATAL_ERROR "DRAXUL_SOURCE_ROOT and CASE are required")
+endif()
+
+function(draxul_apply_sanitizers target)
+    set_property(TARGET "${target}" PROPERTY FIXTURE_SANITIZERS TRUE)
+endfunction()
+function(draxul_apply_coverage target)
+    set_property(TARGET "${target}" PROPERTY FIXTURE_COVERAGE TRUE)
+endfunction()
+function(draxul_apply_msvc_parallel_pdb_fix target)
+    set_property(TARGET "${target}" PROPERTY FIXTURE_MSVC_POLICY TRUE)
+endfunction()
+
+include("${DRAXUL_SOURCE_ROOT}/cmake/InternalTargetPolicy.cmake")
+
+add_library(fixture_static STATIC fixture.cpp)
+add_library(fixture_object OBJECT fixture.cpp)
+add_library(fixture_interface INTERFACE)
+add_executable(fixture_executable fixture.cpp)
+
+if(CASE STREQUAL "positive")
+    draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")
+    foreach(target fixture_static fixture_object fixture_executable)
+        foreach(property
+            DRAXUL_INTERNAL_POLICY_CONFIGURED
+            FIXTURE_SANITIZERS FIXTURE_COVERAGE FIXTURE_MSVC_POLICY)
+            get_target_property(value "${target}" "${property}")
+            if(NOT value)
+                message(FATAL_ERROR "${target} missing ${property}")
+            endif()
+        endforeach()
+    endforeach()
+    get_target_property(interface_policy fixture_interface
+        DRAXUL_INTERNAL_POLICY_CONFIGURED)
+    if(NOT interface_policy STREQUAL "SKIPPED_INTERFACE_LIBRARY")
+        message(FATAL_ERROR "Unexpected interface policy: ${interface_policy}")
+    endif()
+    draxul_audit_internal_targets("${CMAKE_CURRENT_SOURCE_DIR}")
+elseif(CASE STREQUAL "negative")
+    draxul_audit_internal_targets("${CMAKE_CURRENT_SOURCE_DIR}")
+else()
+    message(FATAL_ERROR "Unknown CASE=${CASE}")
+endif()

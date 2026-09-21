@@ -7,15 +7,31 @@
 
 **Investigation**
 
-- [ ] Evaluate extreme board dimensions, fine grid spacing, and layer counts.
+- [x] Evaluate extreme board dimensions, fine grid spacing, and layer counts.
 
 **Fix strategy**
 
-- [ ] Check conversions and multiplication before narrowing.
-- [ ] Enforce a documented total routing-memory/cell budget.
-- [ ] Contain initialization failures at the plugin boundary.
+- [x] Check conversions and multiplication before narrowing.
+- [x] Enforce a documented total routing-memory/cell budget.
+- [x] Contain initialization failures at the plugin boundary.
 
 **Acceptance criteria**
 
-- [ ] Oversized inputs fail diagnostically before overflow or excessive allocation.
-- [ ] Supported boards still route, and a rejected board cannot terminate Draxul.
+- [x] Oversized inputs fail diagnostically before overflow or excessive allocation.
+- [x] Supported boards still route, and a rejected board cannot terminate Draxul.
+
+**Validation follow-up**
+
+- [ ] Pass the same-cache smoke and confirm the plugin boundary on Windows/Vulkan.
+
+Implementation note: the router now validates columns, rows, and their
+layer-multiplied total against a 2,000,000-cell budget before narrowing or any
+grid-sized allocation. JSON loading reuses the same check, and the plugin ABI
+creation boundary logs and rejects both standard and unknown initialization
+exceptions. Source and regression tests are prepared in the PCBView repository;
+the plugin creation boundary compiles with exception containment. The focused
+PCBView build and test shard passed, as did the 11-test core + PCBView aggregate.
+The same-cache smoke remains unsuccessful: Metal initialized, then the smoke
+client hung for more than three minutes despite its 3-second deadline and had
+to be stopped by exact PID. The clientless server it spawned was shut down
+gracefully. Cross-platform validation remains pending.

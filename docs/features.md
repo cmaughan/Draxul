@@ -80,7 +80,11 @@ SDL-scancode→ImGuiKey table plus the `IImGuiHost` backend interface in
 NanoVG (the NanoVG core plus Draxul's custom Vulkan/Metal backends with a
 settable shader root, exported as `Draxul::PluginSupport::NanoVG` from
 `libs/draxul-nanovg`; a standalone extraction builds the same directory with
-`DRAXUL_NANOVG_BACKEND_ONLY=ON`), and Vulkan resource ownership. The Vulkan leaf
+`DRAXUL_NANOVG_BACKEND_ONLY=ON`), the shared SDK-frame NanoVG adapter
+(`Draxul::PluginSupport::NanoVGPass`) used by native 2D products, and Vulkan
+resource ownership. The NanoVG backend keeps paint/scissor transform packing,
+color premultiplication, image flipping, and texture classification in one
+device-free CPU conversion path shared by Metal and Vulkan. The Vulkan leaf
 owns the whole HDR/MSAA scene
 scaffolding both 3D products render with: attachment creation, a per-format MSAA
 sample-count probe that walks 4x/2x/1x against the real colour and depth formats
@@ -404,15 +408,19 @@ filename drift and dynamic-loader or ABI failures are caught on both platforms.
   server-authoritative topology projected by every attached UI. Commands accept
   `--session <id>`, `--server-runtime-dir <path>`, and `--json`. Server shells
   inherit `DRAXUL_SESSION_ID`, `DRAXUL_SPACE_ID`, `DRAXUL_TAB_ID`,
-  `DRAXUL_PANE_ID`, `DRAXUL_TERMINAL_ID`, and `DRAXUL_SERVER_RUNTIME_DIR`, so an
-  agent inside a pane can use `--current` and can omit its inherited Session and
-  runtime route.
+  `DRAXUL_PANE_ID`, `DRAXUL_TERMINAL_ID`, and `DRAXUL_SERVER_RUNTIME_DIR`.
+  Pane and terminal IDs remain authoritative for live routing. Space/tab values
+  describe the launch route and are advisory after a live cross-tab move; the
+  server cannot rewrite an existing process environment. Consequently
+  `--current`, pane reads/writes, and managed-agent reports resolve the stable
+  pane ID against current topology, while a move across Space roots preserves
+  the process's actual cwd and recorded working directory.
 
   | Area | Commands |
   |------|----------|
   | Spaces | `space list`, `space get/create/rename/close` |
   | Tabs | `tab list/get/create/rename/close`, `tab move --delta -1|1` |
-  | Panes | `pane list/get/split/rename/close/restart/swap`, `pane move --target <pane> --direction <left|right|up|down>` |
+  | Panes | `pane list/get/split/rename/close/restart/swap`, `pane move --target <pane> [--space <destination-space>] [--tab <destination-tab>] --direction <left|right|up|down>`; server terminals and managed agents move live with stable pane/terminal identity, while client-local panes are rejected |
   | Splits | `split list`, `split set --ratio <0.1..0.9>`, `split equalize` |
   | Terminal processes | `pane run --command <text>`, `pane send --text <text>`, `pane keys <keys...>`, `pane read`, `pane wait-output --text <text> --timeout <duration>` |
   | Managed agents | `agent start <profile> --space/--tab/--pane [--replace]`, `agent prompt`, `agent keys`, `agent get/list/explain/wait/restart`; `--replace` converts the selected server-terminal pane in place and preserves its pane ID |
@@ -577,6 +585,9 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
   `draxul integration install codex|claude`; each hook reports the official
   native conversation ID to the owning server pane. Bare
   `draxul integration status` inspects both integrations without modifying configuration.
+  The installer library operates on explicit paths and preserves unrelated provider
+  configuration; the CLI alone resolves `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and the
+  user home and presents typed status as text or JSON.
 - `focus_agent`, `restart_agent`, and `clear_agent_identity` are also available in the command palette. Runtime generations and process exit codes are kept in memory, so restarting an agent cannot make an earlier process look current and failed/exited agents remain visible and inspectable in the rail.
 - Server terminal runtimes expose bounded bottom-of-screen and process evidence
   to the server agent tracker. Bundled Codex and Claude manifests conservatively
@@ -927,17 +938,19 @@ and `draxul integration status` do not pass through the launch-option parser.
 ### Convenience Scripts
 
 - `do build`, `do run`, and `do test` use one shared build-selection path. They default to Debug and Ninja on Windows, reuse `build-ninja-debug/`, and accept `debug` / `release` plus `--vs` / `--ninja` without silently switching generators between commands
+- Configure/build work takes an inspectable per-tree ownership lock. A competing command exits with the owning PID and command, stale ownership is reclaimed only after the process exits, and `.draxul-build-result.json` retains the last return code and timestamps for timeout recovery. `do clean` refuses to delete a live-owned tree
 - `do run relwithdebinfo` / `do build relwithdebinfo` use `RelWithDebInfo` on Windows for optimized builds with PDB symbols
 - `do run --vs` falls back to the Visual Studio generator if you want the existing `build/` workflow
 - `do run --ninja` forces the Ninja local-iteration path explicitly
 - On Windows, `do run` launches the GUI and immediately returns the calling console prompt. Pass `--console` when the launcher must stay attached for diagnostic output and the application's exit code
 - `do test` builds `draxul-tests-core` and its helper/dependency targets in the selected `do.py` cache, then runs the core, app, Markdown/Kanban, and Python workflow unit entries through CTest with bounded parallelism. It does not launch the app or run smoke/render snapshots
+- `do test --target <draxul-test-*> [--catch <name-or-tag>]` builds one owning Catch2 executable and validates the filter with `--list-tests` before running it, so a malformed or zero-match filter fails clearly. `--repeat N [--seed N]` reuses that build, chooses a new reported seed for each run, and prints a compact target/selection/result/duration summary. Build, test, and smoke subprocesses are placed in an owned process tree so timeout or cancellation cleans up descendants and leaves the per-tree result record inspectable
 - Product suites are opt-in and additive: `do test --megacity`, `--satview`, `--scoreview`, `--pcbview`, or `--rezonality` adds only that product's aggregate and CTest entries; `--products` adds all five for shared plugin SDK/support/renderer changes; `--all` builds the historical `draxul-tests` aggregate and runs the complete unit inventory
 - `do clean` recursively removes repository-root build directories named `build/` or `build-*`, covering Visual Studio, Ninja, tooling, and custom build trees. It succeeds when none exist and preserves deploy packages, render outputs and references, databases, source files, and similarly named regular files
 - `do hygiene` fails (exit 1) if a forbidden artifact is tracked — OS/coverage temps (`.DS_Store`, partial-transfer `.!*`, `*.profraw`, `*.profdata`) anywhere, or `key.txt` / `NUL.obj` / `megacity-linux-drivers-mesh.bmp` / stray `*.log`, `*.obj`, `*.bmp` at the repo root — or if the feature docs have duplicated (`docs/features.md` must exist and root `FEATURES.md` must stay a short pointer, not a second inventory). Legitimate nested assets (mesh `*.obj`, render-reference `*.bmp`) are allowed
 - `do kanban-report` reads `kanban/` as the authoritative tracker and prints lane counts, flags `kanban/done` cards that still carry unchecked task boxes, and lists fully-ticked `kanban/pending` cards as move candidates. It is strictly read-only — it never edits, ticks, or moves a card
 - Normal Debug/Release presets explicitly disable coverage and sanitizers, and the test scripts reject an instrumented shared cache before running. This prevents a prior coverage/ASan/TSan configure from silently slowing or changing the ordinary unit workflow
-- `do smoke --skip-build` runs the explicit startup check from an already-built selected cache, avoiding a second compile/plugin-staging pass after `do test`; omitting `--skip-build` still configures/builds when needed. The normal completion path is Debug iteration, one parallel `do test debug`, smoke from that cache, relevant render checks only, then `do run release` for the final Release startup confirmation
+- `do smoke --skip-build` runs the explicit startup check from an already-built selected cache, avoiding a second compile/plugin-staging pass after `do test`; omitting `--skip-build` still configures/builds when needed. Smoke runs in an owned process group with a 30-second outer timeout so a startup deadlock is terminated and reported instead of blocking the workflow indefinitely. The normal completion path is Debug iteration, one parallel `do test debug`, smoke from that cache, relevant render checks only, then `do run release` for the final Release startup confirmation
 - `t.sh`, `t.bat`, and `scripts/run_tests.*` retain the broad unit + smoke + available render-snapshot workflow for explicitly requested full/multi-configuration or CI validation; they are not stacked onto the normal `do.py` completion path
 - `do deploy` creates a Release build, stages the runtime payload into `deploy/YYYY_MM_DD/mac` or `deploy/YYYY_MM_DD/win`, and writes a matching `draxul-YYYY_MM_DD-mac|win.zip` archive under the date folder. Windows packages contain only `draxul.exe`, its Microsoft C++ and adjacent runtime DLLs, compiled shaders, bundled fonts, and runtime assets; CMake metadata, object files, static libraries, tests, and source/build directories are excluded
 - The repo-scoped `$draxul-review` skill runs isolated, read-only multi-AI reviews through installed Codex, Claude, Agy/Gemini, and Grok CLIs. Its default review and preflight panel uses OpenAI GPT-6 Astra (`gpt-6-astra`) and Claude Fable 5.1 (`claude-fable-5-1`); synthesis also defaults to Astra. Explicit panels reject duplicate companies, and `--all` includes Google and xAI. When a synthesis prompt requests Kanban work items, the trusted parent runner validates the returned card paths/content and atomically creates them under `kanban/pending/`; providers never receive repository write access

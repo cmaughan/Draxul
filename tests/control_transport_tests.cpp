@@ -19,6 +19,7 @@
 #include <fstream>
 #include <future>
 #include <iterator>
+#include <limits>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -247,6 +248,22 @@ TEST_CASE("control request and response codecs retain public validation",
     CHECK_FALSE(unauthenticated.ok);
     CHECK(unauthenticated.error_code == "authentication_failed");
     CHECK(correlated.id == "correlate-me");
+
+    for (const auto& bad_version : {
+             nlohmann::json("1"), nlohmann::json(nullptr),
+             nlohmann::json::array({ 1 }),
+             nlohmann::json(std::numeric_limits<uint64_t>::max()) })
+    {
+        nlohmann::json envelope{
+            { "version", bad_version }, { "id", "bad-version" },
+            { "token", token }, { "method", "system.hello" },
+            { "params", nlohmann::json::object() },
+        };
+        ControlRequest rejected;
+        const auto result = parse_request(envelope.dump(), token, rejected);
+        CHECK_FALSE(result.ok);
+        CHECK(result.error_code == "unsupported_version");
+    }
 
     const auto malformed = parse_response("{broken", "request-1");
     CHECK_FALSE(malformed.ok);
@@ -587,6 +604,62 @@ TEST_CASE("control transport authenticates and dispatches on the caller thread",
     const auto metadata = server.metadata_path();
     server.stop();
     CHECK_FALSE(std::filesystem::exists(metadata));
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
+TEST_CASE("control transport contains malformed protocol versions",
+    "[control][transport][validation]")
+{
+    const auto runtime = unique_control_runtime_directory();
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(
+        "version-validation", runtime, [] {}, &start_error));
+
+    std::ifstream metadata_input(server.metadata_path());
+    const auto metadata = nlohmann::json::parse(metadata_input);
+    const std::string endpoint = metadata.at("endpoint").get<std::string>();
+    const std::string token = metadata.at("token").get<std::string>();
+    for (const auto& bad_version : {
+             nlohmann::json("1"), nlohmann::json(nullptr),
+             nlohmann::json::array({ 1 }),
+             nlohmann::json(std::numeric_limits<uint64_t>::max()) })
+    {
+        const nlohmann::json envelope{
+            { "version", bad_version }, { "id", "bad-version" },
+            { "token", token }, { "method", "system.hello" },
+            { "params", nlohmann::json::object() },
+        };
+        const auto exchange = control_detail::client_exchange(endpoint,
+            envelope.dump(),
+            std::chrono::steady_clock::now() + std::chrono::seconds(2));
+        REQUIRE(exchange.ok);
+        const auto response = nlohmann::json::parse(exchange.response_bytes);
+        CHECK(response.at("ok") == false);
+        CHECK(response.at("error").at("code") == "unsupported_version");
+    }
+
+    auto healthy = std::async(std::launch::async, [&] {
+        return ControlClient::request("version-validation", runtime,
+            "system.hello", nlohmann::json::object());
+    });
+    const auto deadline
+        = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (healthy.wait_for(std::chrono::milliseconds(0))
+            != std::future_status::ready
+        && std::chrono::steady_clock::now() < deadline)
+    {
+        server.process_pending([](const ControlRequest&) {
+            return ControlMethodResult::success(true);
+        });
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE(healthy.wait_for(std::chrono::milliseconds(0))
+        == std::future_status::ready);
+    CHECK(healthy.get().ok);
+
+    server.stop();
     std::error_code ignored;
     std::filesystem::remove_all(runtime, ignored);
 }

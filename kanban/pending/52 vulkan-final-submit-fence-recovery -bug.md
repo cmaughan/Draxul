@@ -11,8 +11,15 @@
 
 **Fix strategy**
 
-- [ ] Enter a defined renderer-failure or recovery state that never waits on nonexistent work.
-- [ ] Repair or retire associated synchronization objects safely; do not reset a fence after submitting it.
+- [x] Enter a defined renderer-failure or recovery state that never waits on nonexistent work.
+- [x] Repair or retire associated synchronization objects safely; do not reset a fence after submitting it.
+
+**Implementation note (2026-09-21):** The image-to-fence association now occurs
+only after final submit succeeds. A failed submission retires the unsignaled
+frame fence and image-available semaphore after the device is idle, replaces
+them with a signaled fence and fresh semaphore, and aborts the frame before the
+next acquire. Focused Vulkan source-contract tests passed on macOS (75 cases,
+635 assertions). Failure injection and Windows Vulkan validation remain pending.
 
 **Acceptance criteria**
 

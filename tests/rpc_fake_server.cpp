@@ -86,9 +86,9 @@ bool send_notification(const std::string& method, const std::vector<MpackValue>&
 bool send_response(uint32_t msgid, const MpackValue& error, const MpackValue& result)
 {
     std::vector<char> encoded;
-    if (!encode_mpack_value(NvimRpc::make_array({
-                                NvimRpc::make_uint(1),
-                                NvimRpc::make_uint(msgid),
+    if (!encode_mpack_value(MpackValue::make_array({
+                                MpackValue::make_uint(1),
+                                MpackValue::make_uint(msgid),
                                 error,
                                 result,
                             }),
@@ -102,8 +102,8 @@ bool send_response(uint32_t msgid, const MpackValue& error, const MpackValue& re
 bool send_response_with_raw_msgid(const MpackValue& raw_msgid, const MpackValue& error, const MpackValue& result)
 {
     std::vector<char> encoded;
-    if (!encode_mpack_value(NvimRpc::make_array({
-                                NvimRpc::make_uint(1),
+    if (!encode_mpack_value(MpackValue::make_array({
+                                MpackValue::make_uint(1),
                                 raw_msgid,
                                 error,
                                 result,
@@ -181,11 +181,11 @@ int main()
         // survive this and still deliver the real response that follows.
         std::vector<char> malformed_encoded;
         if (!encode_mpack_value(
-                NvimRpc::make_array({
-                    NvimRpc::make_uint(1),
-                    NvimRpc::make_str("oops"),
-                    NvimRpc::make_nil(),
-                    NvimRpc::make_int(0),
+                MpackValue::make_array({
+                    MpackValue::make_uint(1),
+                    MpackValue::make_str("oops"),
+                    MpackValue::make_nil(),
+                    MpackValue::make_int(0),
                 }),
                 malformed_encoded))
         {
@@ -193,12 +193,12 @@ int main()
         }
         if (!write_all(malformed_encoded))
             return 8;
-        return send_response(msgid, NvimRpc::make_nil(), NvimRpc::make_str("ok")) ? 0 : 9;
+        return send_response(msgid, MpackValue::make_nil(), MpackValue::make_str("ok")) ? 0 : 9;
     }
 
     if (current_mode == "notify_then_success")
     {
-        if (!send_notification("redraw", { NvimRpc::make_array({}) }))
+        if (!send_notification("redraw", { MpackValue::make_array({}) }))
             return 4;
     }
 
@@ -209,14 +209,14 @@ int main()
         // queued items without losing any under concurrent push+drain.
         for (int i = 0; i < 100; ++i)
         {
-            if (!send_notification("redraw", { NvimRpc::make_int(static_cast<int64_t>(i)) }))
+            if (!send_notification("redraw", { MpackValue::make_int(static_cast<int64_t>(i)) }))
                 return 4;
         }
     }
 
     if (current_mode == "error")
     {
-        return send_response(msgid, NvimRpc::make_str("boom"), NvimRpc::make_nil()) ? 0 : 5;
+        return send_response(msgid, MpackValue::make_str("boom"), MpackValue::make_nil()) ? 0 : 5;
     }
 
     if (current_mode == "out_of_range_msgid_then_success")
@@ -224,13 +224,13 @@ int main()
         // First emit a response whose msgid is a negative int64; the client
         // must discard this (with a warning) rather than silently truncating
         // it to a uint32_t that could collide with an in-flight request.
-        if (!send_response_with_raw_msgid(NvimRpc::make_int(-1), NvimRpc::make_nil(), NvimRpc::make_str("poison")))
+        if (!send_response_with_raw_msgid(MpackValue::make_int(-1), MpackValue::make_nil(), MpackValue::make_str("poison")))
             return 7;
         // Then emit a well-formed response for the real msgid so the request
         // completes successfully and the test does not need to wait for the
         // 5-second request timeout.
-        return send_response(msgid, NvimRpc::make_nil(), NvimRpc::make_str("ok")) ? 0 : 8;
+        return send_response(msgid, MpackValue::make_nil(), MpackValue::make_str("ok")) ? 0 : 8;
     }
 
-    return send_response(msgid, NvimRpc::make_nil(), NvimRpc::make_str("ok")) ? 0 : 6;
+    return send_response(msgid, MpackValue::make_nil(), MpackValue::make_str("ok")) ? 0 : 6;
 }

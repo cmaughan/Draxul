@@ -48,6 +48,7 @@ const char* cli_help_text() noexcept
            "  draxul pane rename <pane-id> --name <name>\n"
            "  draxul pane swap <pane-id> <pane-id>\n"
            "  draxul pane move <pane-id> --target <pane-id>\n"
+           "                   [--space <destination-space-id>] [--tab <destination-tab-id>]\n"
            "                   --direction <left|right|up|down> [--ratio <value>]\n"
            "  draxul pane restart|close <pane-id>\n"
            "  draxul pane run <pane-id|--current> --command <command>\n"

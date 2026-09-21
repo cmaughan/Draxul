@@ -11,41 +11,51 @@
 
 #### Boundary verification
 
-- [ ] Inventory command IDs versus mutation IDs, queue limits, visibility generations, acknowledgement state, fairness, and fallback order.
-- [ ] Preserve the separate recovery/projection owners and stream → poll → legacy negotiation.
-- [ ] Characterize transport-success-dependent transitions; acknowledgement must clear only after a successful Update write.
+- [x] Inventory command IDs versus mutation IDs, queue limits, visibility generations, acknowledgement state, fairness, and fallback order.
+- [x] Preserve the separate recovery/projection owners and stream → poll → legacy negotiation.
+- [x] Characterize transport-success-dependent transitions; acknowledgement must clear only after a successful Update write.
 
 #### Implementation and migration
 
-- [ ] Extract command bookkeeping, correlation, one-retry policy, and fallback decisions first.
-- [ ] Extract frame admission, acknowledgement requirements, fairness, and heartbeat decisions next.
-- [ ] Keep side effects in coordinator adapters and preserve their order after each migration.
-- [ ] Use opaque identities rather than owning `Entry`, connection, host, or renderer pointers.
-- [ ] Preserve send-order fallback and reverse terminal requeue behavior.
+- [x] Extract command bookkeeping, correlation, one-retry policy, and fallback decisions first.
+- [x] Extract frame admission, acknowledgement requirements, fairness, and heartbeat decisions next.
+- [x] Keep side effects in coordinator adapters and preserve their order after each migration.
+- [x] Use opaque identities rather than owning `Entry`, connection, host, or renderer pointers.
+- [x] Preserve send-order fallback and reverse terminal requeue behavior.
 
 #### Unit tests
 
-- [ ] Add direct private-policy cases for stale epochs, skipped/duplicate serials, invalid response IDs, explicit-time heartbeat expiry, and obsolete registrations.
-- [ ] Cover every Events batch requiring acknowledgement, failed acknowledgement writes, external/terminal fairness, and retry only after a newer revision.
-- [ ] Retain native stream/poll/fallback integration tests.
-- [ ] Build `cmake --build <cache> --config Debug --target draxul-client draxul-test-core --parallel`.
-- [ ] During iteration run `ctest --test-dir <cache> -C Debug -R '^draxul-test-core-shard-' --parallel 4 --output-on-failure`; document a focused Catch tag for direct cases.
+- [x] Add direct private-policy cases for stale epochs, skipped/duplicate serials, invalid response IDs, explicit-time heartbeat expiry, and obsolete registrations.
+- [x] Cover every Events batch requiring acknowledgement, failed acknowledgement writes, external/terminal fairness, and retry only after a newer revision.
+- [x] Retain native stream/poll/fallback integration tests.
+- [x] Build `cmake --build <cache> --config Debug --target draxul-client draxul-test-core --parallel`.
+- [x] During iteration run `ctest --test-dir <cache> -C Debug -R '^draxul-test-core-shard-' --parallel 4 --output-on-failure`; document a focused Catch tag for direct cases.
 
 #### Cross-platform validation
 
-- [ ] Exercise named-pipe and Unix-socket integration on Windows/macOS without changing transport ownership.
-- [ ] Verify unchanged UI consumption on Vulkan/Metal and no graphics dependency enters policy.
-- [ ] Run `python3 do.py test debug`, then `python3 do.py smoke debug --skip-build`.
+- [x] Exercise Unix-socket integration on macOS without changing transport ownership.
+- [ ] Exercise named-pipe integration on Windows in remote CI.
+- [x] Verify unchanged Metal UI consumption and no graphics dependency enters policy.
+- [ ] Verify unchanged Vulkan UI consumption in remote CI.
+- [x] Run `python3 do.py test debug`, then `python3 do.py smoke --skip-build`.
 
 #### Agent documentation/tooling
 
-- [ ] Document private policy versus coordinator I/O/publication ownership and test-only access.
-- [ ] Classify new tests once; keep headers private.
-- [ ] Keep wakeup bug fixes in their existing card rather than silently combining them with extraction.
+- [x] Document private policy versus coordinator I/O/publication ownership and test-only access.
+- [x] Classify new tests once; keep headers private.
+- [x] Keep wakeup bug fixes in their existing card rather than silently combining them with extraction.
 
 #### Acceptance criteria
 
-- [ ] Ordering, fairness, retry, and acknowledgement decisions are testable without live listeners or sleeps.
-- [ ] Public registration behavior, boundedness, worker ownership, and fallback ordering remain compatible.
-- [ ] Each migration step builds; native integration coverage remains intact.
-- [ ] No claim is made that the existing broad core test executable has become graphics-free.
+- [x] Ordering, fairness, retry, and acknowledgement decisions are testable without live listeners or sleeps.
+- [x] Public registration behavior, boundedness, worker ownership, and fallback ordering remain compatible.
+- [x] Each migration step builds; native integration coverage remains intact.
+- [x] No claim is made that the existing broad core test executable has become graphics-free.
+
+#### Delivered checkpoint (2026-09-21)
+
+- The private header is `libs/draxul-client/src/session_stream_policy.h`; the coordinator retains transport, decoded-payload application, waiter notification, recovery, projection, and publication side effects.
+- Direct policy coverage is tagged `[client][session-stream-policy]` and runs in the default core classification: 6 cases and 63 assertions.
+- Native macOS coverage passed `[remote-session-coordinator][session-stream]` (3 cases, 90 assertions) and `[remote-session-coordinator]` (8 cases, 191 assertions).
+- The required aggregate passed 22/22 tests (40.23 s CTest real time), and the same-cache Metal smoke passed on Apple M5.
+- Windows named-pipe integration and Vulkan smoke remain remote-CI evidence before this card moves to done.

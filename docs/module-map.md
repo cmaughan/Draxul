@@ -31,17 +31,20 @@ draxul executable
 ├── draxul-app
 ├── draxul-client / draxul-server
 ├── draxul-markdown-host
-├── draxul-kanban
+├── draxul-kanban-host → draxul-kanban
 └── optional products: draxul-megacity / SatView + ScoreView + PCBView plugins
         │
         ├── product-specific model, scene, service, and renderer targets
         └── shared host / renderer / UI infrastructure
                 │
-                ├── draxul-host (including RemoteTerminalHost) /
-                │   draxul-runtime-support / draxul-render-test
+                ├── draxul-host-api / draxul-grid-host /
+                │   draxul-terminal-host / draxul-nvim-host / draxul-plugin-host
+                ├── draxul-app-shell / draxul-runtime-support / draxul-render-test
                 ├── draxul-config / draxul-gui / draxul-ui / draxul-nanovg
-                └── draxul-http / draxul-font / draxul-grid / draxul-nvim /
-                    draxul-renderer / draxul-window / draxul-imgui-core
+                ├── draxul-weather → draxul-http
+                └── draxul-font / draxul-grid / draxul-nvim-protocol /
+                    draxul-nvim-transport / draxul-renderer / draxul-window /
+                    draxul-imgui-core
                             │
                             └── narrow foundations: draxul-types / draxul-performance /
                                 draxul-agent / draxul-session-model / draxul-bmp / draxul-host-identity /
@@ -76,6 +79,26 @@ Bad place for:
 - low-level font logic
 - grid mutation rules
 
+Pure split-tree, root-shell, chrome/pill, rename-editor, and fuzzy-match behavior
+lives in `libs/draxul-app-shell/`. Its public headers use `<draxul/...>` paths and
+depend only on neutral configuration, Session-layout, and value records; drawing,
+host ownership, windows, and renderer integration stay in `app/`.
+
+The local UI control endpoint separates request policy from application effects.
+`ControlRequestRouter` projects read-only Space, pane, and agent state.
+`ControlRequestPolicy` owns mutation/input/wait/event JSON validation, bounds,
+error codes, and response mapping through typed operation callbacks. `App` supplies
+the callbacks on the main thread and retains Space/tab/pane lookup, host/plugin
+ownership, focus/layout/input routing, Session persistence, and frame ordering.
+Direct policy tests use fake operations without initializing App; the existing App
+test executable still links the graphics-capable application target.
+
+Weather configuration, reload stop/start ordering, and chrome presentation also
+stay in App. The periodic fetch worker, coordinate/geocoder parsing, provider
+decoding, transport limits, and temperature/emoji formatting live in
+`libs/draxul-weather/`; that library depends on the injectable `draxul-http`
+contract and has no window, host, renderer, or product dependency.
+
 ### libs/draxul-types/
 
 Shared low-level data types and cross-module contracts.
@@ -84,6 +107,7 @@ Owns:
 - shared structs
 - event types
 - highlight/logging/support types
+- neutral `PaneDescriptor` and `SystemResourceSnapshot` value records
 - canonical small helpers shared across the tree: `string_util.h`
   (`trim`/`trim_view`/`ascii_lower`/`describe_text_for_log`), `input_types.h`
   modifier normalization (`normalize_modifiers`/`has_only_modifiers`, lock-key
@@ -110,24 +134,32 @@ does not rebuild or extend the universal value-type archive.
 |---|---|
 | `sdk/` | Installable, versioned native plugin C ABI and the dependency-free `Draxul::PluginSDK` CMake target |
 | `plugins/support/imgui/` | Product-owned optional ImGui Vulkan/Metal encoder, the shared `PluginImGuiContext` lifecycle and `ImGuiInputBridge` event routing, and public UI-style service client, linked inside native plugin modules and never exposed across the ABI |
+| `plugins/support/nanovg/` | SDK-frame-to-NanoVG adapter shared by PCBView and ScoreView (`Draxul::PluginSupport::NanoVGPass`); owns lazy native context lifecycle, viewport/scissor conversion, callback consumption, and Vulkan shader-root selection while products retain their drawing code |
 | `libs/draxul-imgui-core/` | The single SDL-scancode-to-ImGuiKey table and `IImGuiHost` backend interface; leaf-narrow (links only ImGui + SDL headers) so core UI, the renderer, and plugin support all consume the same definitions (`Draxul::PluginSupport::ImGuiCore`) |
 | `libs/draxul-plugin-support/` | Same-build plugin leaves: C-ABI path/storage wrappers, the plugin adapter shell (`Draxul::PluginSupport::Adapter` — result factories, config parse, pane-state persistence, action registrar, `kApi` assembly; its header-only core `draxul/plugin_adapter.h` ships with the SDK install component), product lifecycle/viewport vocabulary, backend-neutral render contracts, Vulkan resource ownership incl. the shared adapter VMA allocator, the HDR/MSAA scene scaffolding (`Draxul::PluginSupport::VulkanResources` — attachments, the per-format MSAA probe, shader loading, immediate image upload, and `HdrScenePipeline`, which owns the one set of scene/tone-map subpass dependency masks both 3D products use), the camera key-latch and drag-inertia layer (`Draxul::PluginSupport::CameraInput`), explicit-path TOML documents, and tooltip layout; exports only `Draxul::PluginSupport::*` targets |
 | `libs/draxul-performance/` | Runtime timing collection and the `PERF_MEASURE` instrumentation API |
+| `libs/draxul-types/` | Shared renderer-neutral values plus the single compiled Unicode decoding, width-policy, and display-cluster implementation used across grids, fonts, terminals, overlays, and products |
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
 | `libs/draxul-plugin/` | Refreshable manifest discovery, immutable generation shadow staging, platform dynamic loading, ABI/identity validation, and active/retired module residency; consumes the public SDK but does not own it |
 | `libs/draxul-agent/` | Neutral agent identity/profile/runtime values plus bundled, versioned terminal-status and process-discovery evaluators |
-| `libs/draxul-session-model/` | Renderer-free durable Session/Space/tab/pane snapshot values, validation, versioned TOML codec, and transactional file replacement shared by the app and server |
+| `libs/draxul-agent-integration/` | Explicit-path, typed Codex/Claude native-session hook inspection, installation, and removal; owns generated scripts, provider-specific JSON/TOML preservation, atomic persistence, and executable permissions while app owns environment resolution and CLI presentation |
+| `libs/draxul-session-model/` | Renderer-free durable Session/Space/tab/pane snapshot values, validation, versioned TOML codec, and transactional file replacement shared by the app and server; persistence consumes the leaf `draxul-plugin-config-support` document/path contract and does not depend on application configuration or SDL |
 | `libs/draxul-control/` | Versioned, authenticated local Session control transport and client, plus the cancellable framed local-stream primitive used by persistent Session delivery. Its public facade owns request dispatch, compatibility error mapping, and bounded diagnostic snapshots; private common sources own framing, absolute deadlines, metadata caching, and typed stage/native failures, while CMake selects exactly one current-user-only backend (Windows named pipes or POSIX Unix-domain sockets). Diagnostics retain attempts, listener occupancy, bounded method/failure buckets, and queue/dispatch/response timing without exposing backend handles or native error types; white-box access is limited to the test-only `draxul-control-test-internals` target. |
 | `libs/draxul-protocol/` | Renderer- and transport-neutral server hello/status, versioned topology and sanitized agent-projection values, terminal pane/snapshot/delta/controller/clipboard/scrollback values, the bounded `session.poll` request/response contract, and the `session-stream-v1` open/update/event/heartbeat envelopes and negotiated budgets; also the single topology→session layout conversion (`topology_tab_to_layout` in `topology_layout.h`, agent identity preserved), the shared topology traversal (`find_space`/`find_tab`/`find_pane`/`find_node`), `topology_id_serial`, and the split-ratio bounds constants used by both the server (reject) and app (clamp) sides |
-| `libs/draxul-client/` | Singleton discovery/launch/status/shutdown plus renderer-free remote-terminal and sanitized-agent delivery, and `TopologyProjection`, which owns remote/local Space-tab-pane identities, stable leaf/split projection, structural signatures, divider-node mapping, and topology command activation bookkeeping behind the app's thin controller/PaneManager adapters. `RemoteSessionCoordinator` owns terminal registrations, commands, recovery, visibility generations, projection mailboxes, and coalesced UI wakes; it prefers one `session-stream-v1` connection, falls back to one recurring `session.poll` worker, and uses the Phase-1 per-channel workers only for older servers. Stream/poll batches externally feed topology and agents while one coordinator thread owns terminal cursors and projections. The library also owns the scrollback-page client, attach-latency metric, headless probe API, `ServerControlChannel` (the one control-plane envelope + transient-error/epoch-refresh retry policy), and the `RevisionPolledClient` base shared by `AgentClient`/`TopologyClient` |
+| `libs/draxul-client/` | Singleton discovery/launch/status/shutdown plus renderer-free remote-terminal and sanitized-agent delivery, and `TopologyProjection`, which owns remote/local Space-tab-pane identities, stable leaf/split projection, structural signatures, divider-node mapping, and topology command activation bookkeeping behind the app's thin controller/PaneManager adapters. `RemoteSessionCoordinator` owns connections, threads, terminal registrations, projection cursors, recovery, visibility generations, publication mailboxes, and UI wakes; its private worker-owned `SessionStreamPolicy` owns value-only frame ordering, event acknowledgements, command correlation/retry/fallback decisions, heartbeat deadlines, and terminal write fairness. The coordinator prefers one `session-stream-v1` connection, falls back to one recurring `session.poll` worker, and uses the Phase-1 per-channel workers only for older servers. Stream/poll batches externally feed topology and agents while one coordinator thread owns terminal cursors and projections. The library also owns the scrollback-page client, attach-latency metric, headless probe API, `ServerControlChannel` (the one control-plane envelope + transient-error/epoch-refresh retry policy), and the `RevisionPolledClient` base shared by `AgentClient`/`TopologyClient` |
 | `libs/draxul-server/` | Headless server kernel, authoritative revisioned/idempotent topology service, Session-scoped agent discovery, sanitized status projection, profile-resolved managed-agent launch/restore, headless agent inspection/input/restart control, and epoch/runtime-pinned native-session reporting, server-owned periodic/graceful v4 Session checkpoint and cold restore, deterministic fake terminal plus a stable-ID registry of lazy real server-owned shell runtimes, semantic scrollback, per-terminal controller leases, sanitized transport metrics, bounded per-client terminal event queues, a bounded fair per-Session batch scheduler, and one kernel-wide asynchronous Session-stream listener with authenticated tickets, heartbeats, bounded per-UI writers, and off-state-thread connection reaping. `server_kernel.h` is the stable public façade; the grouped state/method inventory and state-thread, mutex, task, lease, generation, cache, and shutdown invariants live in private `src/server_kernel_impl.h`. Façade, client-lease, lifecycle/state-loop, and authenticated request-routing definitions are isolated in responsibility TUs without changing runtime ownership. `ServerAgentService` and other white-box collaborators remain private under `src/`; tests opt into them through `draxul-server-test-internals`. The target deliberately has no window, renderer, host, or product dependency. |
 | `libs/draxul-terminal-core/` | Renderer-, window-, and process-free VT state machine, semantic full/dirty/cell snapshots (including the shared `full_grid_update` snapshot→dirty expansion), terminal identity/limits, alternate-screen state, attributes, and reusable scrollback storage |
-| `libs/draxul-terminal-process/` | UI-free PTY/ConPTY process adapters owned by server terminal runtimes |
+| `libs/draxul-terminal-process/` | UI-free PTY/ConPTY process adapters owned by server terminal runtimes. Private agent-process observers borrow native PTY/process/job handles only while their transport is alive; pure timestamp scheduling owns debounce/reconciliation decisions, and shutdown stops and joins observers before releasing those borrowed resources. |
 
 These targets must not depend on product modules. Configure-time checks in
-`cmake/CheckDependencyBoundaries.cmake` enforce that direction and the direct
-`draxul-host` dependencies needed by its public and implementation headers.
+`cmake/CheckDependencyBoundaries.cmake` enforces that direction, checks the
+transitive Session/protocol/client/server closure for UI/application leaks, and
+checks the direct host-leaf dependencies needed by their public and
+implementation headers.
+GUI overlays, diagnostics UI, and the in-process NanoVG pass consume the
+backend-neutral render-support contracts directly; configure-time closure checks
+prevent those libraries from regaining a concrete `draxul-renderer` dependency.
 Mounted native products register their module, manifest, runtime payload,
 product targets, and focused test targets through `cmake/DraxulPlugins.cmake`.
 That file owns platform-neutral staging and accepts shared C++ dependencies only
@@ -137,8 +169,21 @@ a mounted plugin without knowing its shader names or packaging layout; removing
 the plugin directory therefore cannot leave reverse product dependencies in
 core. The shared C++ support is statically linked into a same-build plugin and
 does not change the runtime boundary, which remains `Draxul::PluginSDK`'s C ABI.
-`draxul-host` privately consumes `draxul-client` for the `RemoteTerminalHost`
-renderer adapter, including client-local viewport/selection/mouse/paste behavior.
+`draxul-host-api` owns `IHost`, launch/callback records, provider metadata, and
+the registry without grid, client, Nvim, window, or renderer dependencies.
+`draxul-grid-host` owns `GridHostBase` and the unavailable-pane renderer;
+`draxul-terminal-host` privately consumes `draxul-client` for the
+`RemoteTerminalHost` adapter and owns client-local viewport/selection/mouse/paste
+behavior. `draxul-nvim-host` privately consumes the Neovim protocol and transport
+leaves and keeps that concrete integration behind the host API, while
+`draxul-plugin-host` owns the native-plugin adapter and its
+platform render pass. Its private `PluginStorage` collaborator owns service-path
+layout, JSON persistence, atomic single-file replacement, and reload overlays;
+`PluginHost` retains callback/thread/generation validation and reload activation.
+Overlay commit intentionally preserves best-effort partial publication: files
+published before the first failure remain published, with no multi-file rollback.
+`draxul-host` is an interface-only compatibility aggregate over those static
+leaves during consumer migration.
 The client-local terminal surface (selection, copy-on-select, copy mode, mouse
 reporting hand-off, hyperlink activation, pixel→cell mapping) lives once in
 `TerminalSurfaceHostBase`, which sits between `GridHostBase` and both
@@ -206,6 +251,11 @@ grid, capture, or presentation dependencies.
 
 Text pipeline and atlas management.
 
+The public target exposes Draxul text/value contracts only. FreeType and
+HarfBuzz are private compile dependencies; white-box tests opt into the explicit
+`draxul-font-test-internals` interface, while final static links still retain the
+native libraries required by the implementation.
+
 Owns:
 - primary/fallback font loading
 - shaping
@@ -234,40 +284,48 @@ Good place for:
 
 ### libs/draxul-nvim/
 
-Embedded Neovim process, RPC, redraw parsing, and input encoding.
+The Neovim integration is split into two static leaves. `draxul-nvim-protocol`
+owns `MpackValue`, the `IRpcChannel` seam, MPack encoding/decoding, redraw event
+parsing, and keyboard/mouse/text input encoding. It has no child process or
+reader-thread implementation. `draxul-nvim-transport` owns `NvimProcess`, pipe
+I/O, `NvimRpc`, the reader thread, notification queuing, and request tracking.
+
+`draxul-nvim` and `<draxul/nvim_rpc.h>` remain compatibility aggregates during
+consumer migration. New code should include `<draxul/nvim_protocol.h>`,
+`<draxul/nvim_ui.h>`, or `<draxul/nvim_transport.h>` according to the behavior it
+uses. MPack, SDL, and performance instrumentation are implementation-only
+dependencies of the owning leaves.
 
 Owns:
-- child process lifecycle
-- msgpack-RPC transport
-- UI event parsing
-- keyboard/mouse/text input encoding
+- protocol: values, codec, UI event parsing, and input encoding
+- transport: child process lifecycle, msgpack-RPC pipes, and reader-thread state
 
 Good place for:
-- Neovim API/event handling
-- transport behavior
-- input fidelity
+- protocol decoding and input fidelity in the protocol leaf
+- process, pipe, request, queue, and shutdown behavior in the transport leaf
 
 ### Remaining core libraries
 
 | Directory | Ownership |
 |---|---|
 | `libs/draxul-http/` | Cross-platform HTTP transport (WinHTTP on Windows, Foundation on macOS) |
+| `libs/draxul-weather/` | Renderer-free Open-Meteo service, coordinate/geocoder and current-weather decoding, fetch cadence/cancellation, and chrome-ready temperature/emoji formatting; App retains configuration and lifetime ownership |
 | `libs/draxul-config/` | Config schema, TOML document I/O, and keybinding parsing |
 | `libs/draxul-gui/` | GPU-grid-native overlays such as palettes, tooltips, and toasts; no ImGui frame loop |
 | `libs/draxul-ui/` | ImGui diagnostics and developer-facing UI (key translation lives in `libs/draxul-imgui-core`) |
 | `libs/draxul-runtime-support/` | Shared grid-render pipeline, printing, resource monitoring, and background UI requests |
-| `libs/draxul-host/` | UI/process host adapters, terminal/Neovim hosts, PTY/ConPTY behavior, selection, copy mode, and client-side terminal presentation |
-| `libs/draxul-nanovg/` | Two targets: `draxul-nanovg-backend` (NanoVG core + custom Vulkan/Metal backends and their GLSL shaders; leaf-narrow, exported as `Draxul::PluginSupport::NanoVG` with a settable shader root for plugin hosts) and `draxul-nanovg` (the in-process `INanoVGPass` render-pass integration) |
+| `libs/draxul-host/` | Five static leaves: neutral `draxul-host-api`, renderer-backed `draxul-grid-host`, process-free client presentation in `draxul-terminal-host`, concrete `draxul-nvim-host`, and `draxul-plugin-host`; `draxul-host` is the compatibility aggregate |
+| `libs/draxul-app-shell/` | Renderer/window/host-free split-tree, root-shell, chrome/pill, rename, and fuzzy-match behavior |
+| `libs/draxul-nanovg/` | Two targets: `draxul-nanovg-backend` (NanoVG core + custom Vulkan/Metal backends and their GLSL shaders; leaf-narrow, exported as `Draxul::PluginSupport::NanoVG` with a settable shader root for plugin hosts; its device-free paint conversion is shared by both native backends) and `draxul-nanovg` (the in-process `INanoVGPass` render-pass integration) |
 | `libs/draxul-render-test/` | Render-test driver and reusable render-test hosts |
-| `libs/draxul-app-support/` | Interface target bundling reusable config/runtime/render-test dependencies |
 
 ## Product Modules
 
 | Directory | CMake gate | Main targets and responsibility |
 |---|---|---|
-| `modules/markdown/` | Always built | `draxul-markdown` parses/layouts documents; `draxul-markdown-host` integrates the native pane and platform render pass |
-| `modules/kanban/` | Always built | `draxul-kanban` owns board storage, layout/navigation, and the native Kanban host |
-| `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Submodule → [draxul-megacity](https://github.com/cmaughan/draxul-megacity). Self-contained MegaCity/BioView product: code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic module |
+| `modules/markdown/` | Always built | `draxul-markdown` parses documents and lays them out from an immutable font-metrics lookup (device/font loading is outside layout); `draxul-markdown-host` adapts the live rich-text metrics and integrates the native pane and platform render pass |
+| `modules/kanban/` | Always built | `draxul-kanban` owns board storage and layout/navigation; `draxul-kanban-host` owns the native grid-host adapter and provider registration |
+| `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Submodule → [draxul-megacity](https://github.com/cmaughan/draxul-megacity). Self-contained MegaCity/BioView product: the backend-neutral `draxul-megacity-model` boundary owns semantic model/layout/grid/routing records and algorithms; separate code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic-module targets consume it. |
 | `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Submodule → [draxul-satview](https://github.com/cmaughan/draxul-satview). Self-contained satellite product: core, scene, services, runtime, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |
 | `plugins/scoreview/` | `DRAXUL_ENABLE_SCOREVIEW` | Submodule → [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview). Self-contained notation, learning, transport, worker, MIDI/audio/microphone, UI, NanoVG Vulkan/Metal rendering, assets, tests, and dynamic module |
 | `plugins/pcbview/` | `DRAXUL_ENABLE_PCBVIEW` | Submodule → [draxul-pcbview](https://github.com/cmaughan/draxul-pcbview). Self-contained millimetre board/routing model, strict JSON loader, bounded multilayer autorouter, VKLive-derived 2D viewport, back-to-front NanoVG Vulkan/Metal rendering, route inspection and ImGui layer/failure controls, deterministic prototype asset, tests, and dynamic module |
@@ -355,7 +413,9 @@ Use this when:
 
 ## Practical Heuristics
 
-- If the issue is about what Neovim sent or how input is encoded, start in `draxul-nvim`.
+- If the issue is about what Neovim sent or how input is encoded, start in
+  `draxul-nvim-protocol`; for process, pipe, reader-thread, or request tracking
+  behavior, start in `draxul-nvim-transport`.
 - If the issue is about what the screen should contain, start in `draxul-grid`.
 - If the issue is about how the screen is drawn, start in `draxul-renderer`.
 - If the issue is about glyph choice, shaping, emoji, tofu, or atlas behavior, start in `draxul-font`.
@@ -364,7 +424,9 @@ Use this when:
 - If the issue is about VT parsing, terminal modes, semantic cells, alternate-screen
   behavior, or reusable scrollback storage, start in `draxul-terminal-core`.
 - If it is about a shell process, PTY/ConPTY lifecycle, selection, copy mode, or
-  client presentation, start in `draxul-host`.
+  client presentation, start in `draxul-terminal-host`; for lifecycle/provider
+  contracts start in `draxul-host-api`, and for shared grid presentation start
+  in `draxul-grid-host`.
 - If the issue belongs to SatView, MegaCity/BioView, or ScoreView, start in its
   directory under `plugins/`. Markdown and Kanban remain under `modules/`.
 - If the issue crosses several modules, start in `app/` to trace orchestration, then move reusable logic downward. Shared Session identity/split projection belongs in `draxul-client::TopologyProjection`; `app/` only adapts it to controllers and pane hosts.

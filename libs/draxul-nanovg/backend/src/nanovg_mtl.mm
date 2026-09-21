@@ -3,11 +3,13 @@
 
 // nanovg.h must come before our backend header so NVGparams etc. are defined.
 #include "nanovg.h"
+#include "nanovg_paint.h"
 #import "nanovg_mtl_shaders.h"
 #import <draxul/nanovg_mtl.h>
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include <vector>
 
 namespace draxul
@@ -62,28 +64,7 @@ struct MtlNVGpath
     int strokeCount = 0;
 };
 
-// Per-draw-call uniform block (matches shader FragUniforms).
-// Padded to 256-byte alignment for Metal argument buffer offsets.
-struct MtlNVGfragUniforms
-{
-    // mat3 stored as 3 float4 columns (column-major for Metal float3x3)
-    float scissorMat[12]; // 3 x float4
-    float paintMat[12]; // 3 x float4
-    float innerCol[4];
-    float outerCol[4];
-    float scissorExt[2];
-    float scissorScale[2];
-    float extent[2];
-    float radius;
-    float feather;
-    float strokeMult;
-    float strokeThr;
-    int texType;
-    int type;
-    // Pad to 256 bytes for Metal uniform buffer offset alignment.
-    uint8_t _pad[256 - (12 + 12 + 4 + 4 + 2 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 1) * 4];
-};
-static_assert(sizeof(MtlNVGfragUniforms) == 256);
+using MtlNVGfragUniforms = nanovg_detail::PaintUniforms;
 
 struct MtlNVGtexture
 {
@@ -98,8 +79,13 @@ struct MtlNVGtexture
 // ---------------------------------------------------------------------------
 // Metal NanoVG context — the userPtr for NVGparams
 // ---------------------------------------------------------------------------
+struct MtlNVGCreation;
+
 struct MtlNVGcontext
 {
+    // Set only while nvgCreateInternal() is running. Its renderDelete callback
+    // releases this temporary owner before deleting the backend itself.
+    MtlNVGCreation* creation = nullptr;
     // Non-owning: the device belongs to the hosting renderer (or, for plugin
     // dylibs, to the host process). Never retain host-owned Metal objects in
     // this context — the context can outlive its last frame but must not
@@ -143,6 +129,11 @@ struct MtlNVGcontext
     // Texture management
     std::vector<MtlNVGtexture> textures;
     int textureIdCounter = 0;
+};
+
+struct MtlNVGCreation
+{
+    std::unique_ptr<MtlNVGcontext> backend;
 };
 
 // ---------------------------------------------------------------------------
@@ -212,23 +203,6 @@ static int mtlnvg__maxVertCount(const NVGpath* paths, int npaths)
     return count;
 }
 
-// Convert mat3 stored as float[12] (3 x float4, column major with padding)
-static void mtlnvg__xformToMat3x4(float* m3, const float* t)
-{
-    m3[0] = t[0];
-    m3[1] = t[1];
-    m3[2] = 0.0f;
-    m3[3] = 0.0f;
-    m3[4] = t[2];
-    m3[5] = t[3];
-    m3[6] = 0.0f;
-    m3[7] = 0.0f;
-    m3[8] = t[4];
-    m3[9] = t[5];
-    m3[10] = 1.0f;
-    m3[11] = 0.0f;
-}
-
 static MtlNVGfragUniforms* mtlnvg__fragUniformPtr(MtlNVGcontext* mtl, int offset)
 {
     return reinterpret_cast<MtlNVGfragUniforms*>(mtl->uniforms.data() + offset);
@@ -245,80 +219,14 @@ static int mtlnvg__allocFragUniforms(MtlNVGcontext* mtl, int n)
 static void mtlnvg__convertPaint(MtlNVGcontext* mtl, MtlNVGfragUniforms* frag,
     NVGpaint* paint, NVGscissor* scissor, float width, float fringe, float strokeThr)
 {
-    memset(frag, 0, sizeof(*frag));
-
-    frag->innerCol[0] = paint->innerColor.r * paint->innerColor.a;
-    frag->innerCol[1] = paint->innerColor.g * paint->innerColor.a;
-    frag->innerCol[2] = paint->innerColor.b * paint->innerColor.a;
-    frag->innerCol[3] = paint->innerColor.a;
-    frag->outerCol[0] = paint->outerColor.r * paint->outerColor.a;
-    frag->outerCol[1] = paint->outerColor.g * paint->outerColor.a;
-    frag->outerCol[2] = paint->outerColor.b * paint->outerColor.a;
-    frag->outerCol[3] = paint->outerColor.a;
-
-    if (scissor->extent[0] < -0.5f || scissor->extent[1] < -0.5f)
-    {
-        memset(frag->scissorMat, 0, sizeof(frag->scissorMat));
-        frag->scissorExt[0] = 1.0f;
-        frag->scissorExt[1] = 1.0f;
-        frag->scissorScale[0] = 1.0f;
-        frag->scissorScale[1] = 1.0f;
-    }
-    else
-    {
-        float invxform[6];
-        nvgTransformInverse(invxform, scissor->xform);
-        mtlnvg__xformToMat3x4(frag->scissorMat, invxform);
-        frag->scissorExt[0] = scissor->extent[0];
-        frag->scissorExt[1] = scissor->extent[1];
-        frag->scissorScale[0] = sqrtf(scissor->xform[0] * scissor->xform[0] + scissor->xform[2] * scissor->xform[2]) / fringe;
-        frag->scissorScale[1] = sqrtf(scissor->xform[1] * scissor->xform[1] + scissor->xform[3] * scissor->xform[3]) / fringe;
-    }
-
-    frag->extent[0] = paint->extent[0];
-    frag->extent[1] = paint->extent[1];
-    frag->strokeMult = (width * 0.5f + fringe * 0.5f) / fringe;
-    frag->strokeThr = strokeThr;
-
-    if (paint->image != 0)
-    {
-        MtlNVGtexture* tex = mtlnvg__findTexture(mtl, paint->image);
-        if (tex == nullptr)
-            return;
-        if ((tex->flags & NVG_IMAGE_FLIPY) != 0)
-        {
-            float m1[6], m2[6];
-            nvgTransformTranslate(m1, 0.0f, frag->extent[1] * 0.5f);
-            nvgTransformMultiply(m1, paint->xform);
-            nvgTransformScale(m2, 1.0f, -1.0f);
-            nvgTransformMultiply(m2, m1);
-            nvgTransformTranslate(m1, 0.0f, -frag->extent[1] * 0.5f);
-            nvgTransformMultiply(m1, m2);
-            float invxform[6];
-            nvgTransformInverse(invxform, m1);
-            mtlnvg__xformToMat3x4(frag->paintMat, invxform);
-        }
-        else
-        {
-            float invxform[6];
-            nvgTransformInverse(invxform, paint->xform);
-            mtlnvg__xformToMat3x4(frag->paintMat, invxform);
-        }
-        frag->type = MNVG_SHADER_FILLIMG;
-        if (tex->type == NVG_TEXTURE_RGBA)
-            frag->texType = (tex->flags & NVG_IMAGE_PREMULTIPLIED) ? 0 : 1;
-        else
-            frag->texType = 2; // alpha
-    }
-    else
-    {
-        frag->type = MNVG_SHADER_FILLGRAD;
-        frag->radius = paint->radius;
-        frag->feather = paint->feather;
-        float invxform[6];
-        nvgTransformInverse(invxform, paint->xform);
-        mtlnvg__xformToMat3x4(frag->paintMat, invxform);
-    }
+    const MtlNVGtexture* texture
+        = paint->image == 0 ? nullptr : mtlnvg__findTexture(mtl, paint->image);
+    const auto metadata = texture
+        ? std::optional<nanovg_detail::TextureMetadata>(
+              { texture->type, texture->flags })
+        : std::nullopt;
+    (void)nanovg_detail::convert_paint(
+        *frag, *paint, *scissor, width, fringe, strokeThr, metadata);
 }
 
 // ---------------------------------------------------------------------------
@@ -1069,6 +977,8 @@ static void mtlnvg__renderFlush(void* uptr)
 static void mtlnvg__renderDelete(void* uptr)
 {
     MtlNVGcontext* mtl = static_cast<MtlNVGcontext*>(uptr);
+    if (mtl->creation)
+        mtl->creation->backend.release();
     delete mtl;
 }
 
@@ -1078,7 +988,10 @@ static void mtlnvg__renderDelete(void* uptr)
 
 NVGcontext* nvgCreateMtl(id<MTLDevice> device, int flags)
 {
-    auto* mtl = new MtlNVGcontext();
+    MtlNVGCreation creation;
+    creation.backend = std::make_unique<MtlNVGcontext>();
+    auto* mtl = creation.backend.get();
+    mtl->creation = &creation;
     mtl->device = device;
     mtl->flags = flags;
 
@@ -1102,9 +1015,15 @@ NVGcontext* nvgCreateMtl(id<MTLDevice> device, int flags)
     NVGcontext* ctx = nvgCreateInternal(&params);
     if (!ctx)
     {
-        delete mtl;
+        // When NanoVG allocated its context, its error path calls renderDelete,
+        // which releases creation.backend before deleting the backend. If it
+        // failed before allocating that context, creation still owns it.
         return nullptr;
     }
+
+    // NanoVG now owns the backend through renderDelete for normal teardown.
+    mtl->creation = nullptr;
+    creation.backend.release();
     return ctx;
 }
 

@@ -12,29 +12,29 @@ MSVC `/FS` with one target-local helper plus a configure-time completeness audit
 
 ## Boundary verification
 
-- [ ] Inventory every project-owned compiled, OBJECT, executable, INTERFACE,
+- [x] Inventory every project-owned compiled, OBJECT, executable, INTERFACE,
   imported, alias, and third-party target after all optional subdirectories load.
-- [ ] Re-inventory current core/plugin-support targets, including NanoVG, renderer OBJECT
+- [x] Re-inventory current core/plugin-support targets, including NanoVG, renderer OBJECT
       targets, Vulkan resources, and test-support leaves; external product-owned targets
       must be explicitly outside core policy.
 - [ ] Record the existing ASan/TSan/coverage and `/FS` behavior before changing it.
-- [ ] Define explicit skip rules for imported, alias, INTERFACE, and third-party targets.
+- [x] Define explicit skip rules for imported, alias, INTERFACE, and third-party targets.
 
 ## Implementation and migration
 
-- [ ] Add `draxul_configure_internal_target(target)` in project-owned CMake infrastructure.
-- [ ] Apply compile options to STATIC/OBJECT/executable targets and link options only
+- [x] Add `draxul_configure_internal_target(target)` in project-owned CMake infrastructure.
+- [x] Apply compile options to STATIC/OBJECT/executable targets and link options only
   to target types that link.
-- [ ] Mark every considered target with a property suitable for a final audit.
-- [ ] Prove the helper on one STATIC, OBJECT, executable, and INTERFACE target.
-- [ ] Adopt the helper beside each internal target definition, directory by directory.
-- [ ] Add the end-of-configure audit and remove root enumerations only after it passes.
+- [x] Mark every considered target with a property suitable for a final audit.
+- [x] Prove the helper on one STATIC, OBJECT, executable, and INTERFACE target.
+- [x] Adopt the helper beside each internal target definition, directory by directory.
+- [x] Add the end-of-configure audit and remove root enumerations only after it passes.
 - [ ] Keep every intermediate commit configurable and buildable.
 
 ## Unit and configure tests
 
-- [ ] Add a configure-time negative fixture for an unconfigured internal compiled target.
-- [ ] Add positive coverage for STATIC, OBJECT, executable, INTERFACE, and explicit skip cases.
+- [x] Add a configure-time negative fixture for an unconfigured internal compiled target.
+- [x] Add positive coverage for STATIC, OBJECT, executable, INTERFACE, and explicit skip cases.
 - [ ] Run `python -m unittest tests.do_py_tests` if Python drives any audit fixture.
 - [ ] Build `draxul-renderer-core` and `draxul-tests` under the normal preset.
 
@@ -50,14 +50,14 @@ MSVC `/FS` with one target-local helper plus a configure-time completeness audit
 
 ## Agent documentation and tooling
 
-- [ ] Document the one-line requirement for adding a new internal compiled target.
-- [ ] Update CMake comments so the audit, not a prose target list, is authoritative.
+- [x] Document the one-line requirement for adding a new internal compiled target.
+- [x] Update CMake comments so the audit, not a prose target list, is authoritative.
 
 ## Acceptance criteria
 
-- [ ] No manually maintained global list determines which internal targets receive policy.
-- [ ] Every internal compiled target is configured or explicitly exempted with a reason.
-- [ ] Third-party/FetchContent targets receive no project flags accidentally.
+- [x] No manually maintained global list determines which internal targets receive policy.
+- [x] Every internal compiled target is configured or explicitly exempted with a reason.
+- [x] Third-party/FetchContent targets receive no project flags accidentally.
 - [ ] Configure, focused builds, full `draxul-tests`, and smoke remain green.
 
 ## Dependencies and ownership

@@ -1,6 +1,6 @@
 #include "command_palette.h"
 
-#include "fuzzy_match.h"
+#include <draxul/fuzzy_match.h>
 #include "gui_action_handler.h"
 #include <SDL3/SDL.h>
 #include <algorithm>

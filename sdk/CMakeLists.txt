@@ -38,3 +38,5 @@ install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/DraxulPluginSDKConfigVersion.cmake"
     DESTINATION "${DRAXUL_PLUGIN_SDK_CMAKE_DIR}"
     COMPONENT draxul-plugin-sdk)
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

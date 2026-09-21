@@ -3,7 +3,7 @@
 
 #include <draxul/grid.h>
 #include <draxul/log.h>
-#include <draxul/nvim.h>
+#include <draxul/nvim_ui.h>
 
 #include <catch2/catch_all.hpp>
 

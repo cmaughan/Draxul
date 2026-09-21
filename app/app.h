@@ -1,6 +1,6 @@
 #pragma once
 #include "agent_controller.h"
-#include "app_shell_layout.h"
+#include <draxul/app_shell_layout.h>
 #include "command_palette_host.h"
 #include "diagnostics_panel_host.h"
 #include "frame_timer.h"
@@ -24,9 +24,8 @@
 #include <draxul/system_resource_monitor.h>
 #include <draxul/topology_projection.h>
 #include <draxul/topology_protocol.h>
-
-#include "weather_service.h"
 #include <draxul/text_service.h>
+#include <draxul/weather_service.h>
 #include <draxul/window.h>
 #include <memory>
 #include <optional>

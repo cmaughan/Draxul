@@ -5,12 +5,16 @@ import json
 import os
 import pathlib
 import re
+import signal
 import shlex
 import shutil
 import stat
 import subprocess
 import tempfile
 import sys
+import time
+import uuid
+from functools import wraps
 from datetime import datetime
 
 WINDOWS_CRT_RUNTIME_LIBRARIES = (
@@ -33,6 +37,192 @@ def build_dirs(root: pathlib.Path) -> list[pathlib.Path]:
     """Return repository-root build trees owned by Draxul's build workflows."""
     candidates = [build_dir(root), *sorted(root.glob("build-*"))]
     return [path for path in candidates if path.is_dir() and not path.is_symlink()]
+
+
+class BuildTreeBusyError(RuntimeError):
+    """Raised when another live Draxul workflow owns a build tree."""
+
+
+def _process_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if sys.platform.startswith("win"):
+        import ctypes
+
+        process_query_limited_information = 0x1000
+        still_active = 259
+        handle = ctypes.windll.kernel32.OpenProcess(
+            process_query_limited_information, False, pid
+        )
+        if not handle:
+            # Access denied means the process exists but is not queryable.
+            return ctypes.get_last_error() == 5
+        try:
+            exit_code = ctypes.c_ulong()
+            if not ctypes.windll.kernel32.GetExitCodeProcess(
+                handle, ctypes.byref(exit_code)
+            ):
+                return True
+            return exit_code.value == still_active
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+class BuildTreeLock:
+    """Exclusive, inspectable ownership for one generated build tree."""
+
+    def __init__(self, build_tree: pathlib.Path, command: list[str] | None = None):
+        self.build_tree = build_tree
+        self.path = build_tree / ".draxul-build.lock"
+        self.result_path = build_tree / ".draxul-build-result.json"
+        self.command = list(command or sys.argv)
+        self.token = uuid.uuid4().hex
+        self.started_at = datetime.now().astimezone().isoformat()
+        self.acquired = False
+
+    def _owner(self) -> dict[str, object]:
+        try:
+            owner = json.loads(self.path.read_text(encoding="utf-8"))
+            return owner if isinstance(owner, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def acquire(self) -> None:
+        self.build_tree.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "pid": os.getpid(),
+            "token": self.token,
+            "started_at": self.started_at,
+            "command": self.command,
+            "build_tree": str(self.build_tree.resolve()),
+        }
+        for _ in range(2):
+            try:
+                descriptor = os.open(
+                    self.path,
+                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                    0o600,
+                )
+            except FileExistsError:
+                owner = self._owner()
+                owner_pid = owner.get("pid")
+                if isinstance(owner_pid, int) and _process_is_running(owner_pid):
+                    started = owner.get("started_at", "unknown time")
+                    command = owner.get("command", [])
+                    shown_command = (
+                        shlex.join(str(part) for part in command)
+                        if isinstance(command, list)
+                        else str(command)
+                    )
+                    raise BuildTreeBusyError(
+                        f"build tree is owned by PID {owner_pid} since {started}: "
+                        f"{shown_command}\nlock: {self.path}\n"
+                        f"last result: {self.result_path}"
+                    )
+                try:
+                    age = time.time() - self.path.stat().st_mtime
+                except OSError:
+                    continue
+                if not owner and age < 10.0:
+                    raise BuildTreeBusyError(
+                        f"build ownership is being established: {self.path}"
+                    )
+                try:
+                    self.path.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump(payload, stream, indent=2)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            self.acquired = True
+            return
+        raise BuildTreeBusyError(f"could not acquire build ownership: {self.path}")
+
+    def finish(self, return_code: int, status: str = "completed") -> None:
+        result = {
+            "pid": os.getpid(),
+            "token": self.token,
+            "started_at": self.started_at,
+            "finished_at": datetime.now().astimezone().isoformat(),
+            "status": status,
+            "return_code": return_code,
+            "command": self.command,
+            "build_tree": str(self.build_tree.resolve()),
+        }
+        temporary = self.result_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        os.replace(temporary, self.result_path)
+
+    def release(self) -> None:
+        if not self.acquired:
+            return
+        owner = self._owner()
+        if owner.get("token") == self.token:
+            try:
+                self.path.unlink()
+            except FileNotFoundError:
+                pass
+        self.acquired = False
+
+
+def _selected_build_dir(
+    root: pathlib.Path, mode: str, build_system: str
+) -> pathlib.Path:
+    if sys.platform.startswith("win") and build_system == "ninja":
+        return root / f"build-ninja-{mode}"
+    return root / "build"
+
+
+def serialized_build(function):
+    """Guard configure/build workflows against concurrent writes to one tree."""
+
+    @wraps(function)
+    def wrapper(
+        root: pathlib.Path,
+        mode: str,
+        force_reconfigure: bool,
+        build_system: str,
+        targets: tuple[str, ...] = ("draxul",),
+    ) -> tuple[int, pathlib.Path, str, dict[str, str] | None]:
+        build_tree = _selected_build_dir(root, mode, build_system)
+        config = {
+            "debug": "Debug",
+            "release": "Release",
+            "relwithdebinfo": "RelWithDebInfo",
+        }[mode]
+        lock = BuildTreeLock(build_tree)
+        try:
+            lock.acquire()
+        except BuildTreeBusyError as error:
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 3, build_tree, config, None
+        try:
+            result = function(
+                root,
+                mode,
+                force_reconfigure,
+                build_system,
+                targets=targets,
+            )
+            lock.finish(result[0])
+            return result
+        except BaseException:
+            lock.finish(130, status="interrupted")
+            raise
+        finally:
+            lock.release()
+
+    return wrapper
 
 
 def _remove_tree(path: pathlib.Path) -> None:
@@ -401,6 +591,7 @@ def _test_parallel_jobs() -> str:
     return str(min(os.cpu_count() or 4, 4))
 
 
+@serialized_build
 def _configure_and_build(
     root: pathlib.Path, mode: str, force_reconfigure: bool, build_system: str,
     targets: tuple[str, ...] = ("draxul",),
@@ -488,14 +679,60 @@ def cmd_build(root: pathlib.Path, args: list[str]) -> int:
 _TEST_PRODUCT_SCOPES = ("megacity", "satview", "scoreview", "pcbview", "rezonality")
 
 
-def _parse_test_args(args: list[str]) -> tuple[str, bool, str, bool, set[str], bool]:
+def _parse_test_args(
+    args: list[str],
+) -> tuple[
+    str, bool, str, bool, set[str], bool, str | None,
+    str | None, str | None, int, int | None,
+]:
     verbose = False
     product_scopes: set[str] = set()
     all_tests = False
+    test_label: str | None = None
+    focused_target: str | None = None
+    catch_filter: str | None = None
+    repeat_count = 1
+    requested_seed: int | None = None
     build_args: list[str] = []
-    for arg in args:
+    index = 0
+    while index < len(args):
+        arg = args[index]
         if arg == "--verbose":
             verbose = True
+        elif arg == "--label":
+            if test_label is not None:
+                raise ValueError("--label may be specified only once")
+            index += 1
+            if index >= len(args) or not args[index] or args[index].startswith("--"):
+                raise ValueError("--label requires a label")
+            test_label = args[index]
+        elif arg in ("--target", "--catch", "--repeat", "--seed"):
+            index += 1
+            if index >= len(args) or not args[index] or args[index].startswith("--"):
+                raise ValueError(f"{arg} requires a value")
+            value = args[index]
+            if arg == "--target":
+                if focused_target is not None:
+                    raise ValueError("--target may be specified only once")
+                focused_target = value
+            elif arg == "--catch":
+                if catch_filter is not None:
+                    raise ValueError("--catch may be specified only once")
+                catch_filter = value
+            elif arg == "--repeat":
+                try:
+                    repeat_count = int(value)
+                except ValueError as error:
+                    raise ValueError("--repeat requires a positive integer") from error
+                if repeat_count < 1:
+                    raise ValueError("--repeat requires a positive integer")
+            else:
+                try:
+                    requested_seed = int(value)
+                except ValueError as error:
+                    raise ValueError("--seed requires an integer") from error
+                if requested_seed < 1 or requested_seed > 0xFFFFFFFF:
+                    raise ValueError("--seed must be between 1 and 4294967295")
         elif arg == "--megacity":
             product_scopes.add("megacity")
         elif arg == "--satview":
@@ -513,31 +750,62 @@ def _parse_test_args(args: list[str]) -> tuple[str, bool, str, bool, set[str], b
         elif arg == "--unit":
             # Compatibility with t.bat/scripts/run_tests.* terminology. `do test`
             # is intentionally the focused unit path by default.
-            continue
+            pass
         else:
             build_args.append(arg)
+        index += 1
 
     mode, force_reconfigure, build_system, use_console, extra_args = _parse_build_args(build_args)
     if use_console or extra_args:
         raise ValueError(
             "test accepts [debug|release|relwithdebinfo] "
             "[--reconfigure] [--vs|--ninja] [--verbose] "
+            "[--label <label>] "
+            "[--target <catch-target> [--catch <filter>] [--repeat N] [--seed N]] "
             "[--megacity|--satview|--scoreview|--pcbview|--rezonality|--products|--all]"
         )
-    return mode, force_reconfigure, build_system, verbose, product_scopes, all_tests
+    if focused_target is not None:
+        if not re.fullmatch(r"draxul-test-[A-Za-z0-9_-]+", focused_target):
+            raise ValueError("--target must name a draxul-test-* executable target")
+        if product_scopes or all_tests or test_label is not None:
+            raise ValueError(
+                "--target cannot be combined with product scopes, --all, or --label"
+            )
+    elif catch_filter is not None or repeat_count != 1 or requested_seed is not None:
+        raise ValueError("--catch, --repeat, and --seed require --target")
+    return (
+        mode, force_reconfigure, build_system, verbose, product_scopes,
+        all_tests, test_label, focused_target, catch_filter,
+        repeat_count, requested_seed,
+    )
 
 
 def _test_scope_selection(
-    product_scopes: set[str], all_tests: bool,
+    product_scopes: set[str], all_tests: bool, test_label: str | None = None,
 ) -> tuple[tuple[str, ...], list[str], str]:
     if all_tests:
+        if test_label:
+            return (
+                ("draxul-tests",),
+                ["--label-regex", f"^{re.escape(test_label)}$"],
+                f"all tests labeled {test_label}",
+            )
         return ("draxul-tests",), ["--label-regex", "unit"], "all unit tests"
 
     targets = ["draxul-tests-core"]
     patterns = [
         r"draxul-test-core-shard-[0-9]+",
         r"draxul-test-app-shard-[0-9]+",
+        r"draxul-test-agent-integration-shard-[0-9]+",
+        r"draxul-test-weather-shard-[0-9]+",
+        r"draxul-test-markdown-layout-shard-[0-9]+",
         r"draxul-test-markdown-kanban-shard-[0-9]+",
+        r"draxul-test-kanban-core-shard-[0-9]+",
+        r"draxul-test-kanban-host-shard-[0-9]+",
+        r"draxul-test-nanovg-paint-shard-[0-9]+",
+        r"draxul-test-nvim-protocol-shard-[0-9]+",
+        r"draxul-test-nvim-transport-shard-[0-9]+",
+        r"draxul-test-plugin-nanovg-shard-[0-9]+",
         r"draxul-do-py-tests",
         r"draxul-review-skill-py-tests",
     ]
@@ -546,13 +814,18 @@ def _test_scope_selection(
             continue
         targets.append(f"draxul-tests-{scope}")
         patterns.append(rf"draxul-test-{scope}-shard-[0-9]+")
-        if scope == "satview":
+        if scope == "megacity":
+            patterns.append(r"draxul-test-megacity-parser-shard-[0-9]+")
+        elif scope == "satview":
             patterns.append(r"draxul-satview-catalog-py-tests")
         elif scope == "scoreview":
             patterns.append(r"draxul-test-scoreview-runtime-shard-[0-9]+")
         elif scope == "pcbview":
             patterns.append(r"draxul-render-pcbview-plugin")
         elif scope == "rezonality":
+            patterns.append(r"draxul-test-rezonality-project-shard-[0-9]+")
+            patterns.append(r"draxul-test-rezonality-runtime-shard-[0-9]+")
+            patterns.append(r"draxul-test-rezonality-audio-shard-[0-9]+")
             patterns.append(r"draxul-rezonality-agent-layout")
             patterns.append(r"draxul-rezonality-neovim")
             patterns.append(r"draxul-render-rezonality-plugin")
@@ -567,7 +840,114 @@ def _test_scope_selection(
         scope for scope in _TEST_PRODUCT_SCOPES if scope in product_scopes
     )
     regex = "^(" + "|".join(patterns) + ")$"
-    return tuple(targets), ["--tests-regex", regex], scope_label
+    ctest_filter = ["--tests-regex", regex]
+    if test_label:
+        ctest_filter.extend(["--label-regex", f"^{re.escape(test_label)}$"])
+        scope_label += f" labeled {test_label}"
+    return tuple(targets), ctest_filter, scope_label
+
+
+def _focused_test_executable(
+    build_tree: pathlib.Path, config: str, target: str,
+) -> pathlib.Path:
+    suffix = ".exe" if sys.platform.startswith("win") else ""
+    candidates = [
+        build_tree / "tests" / config / f"{target}{suffix}",
+        build_tree / "tests" / f"{target}{suffix}",
+        build_tree / config / f"{target}{suffix}",
+        build_tree / f"{target}{suffix}",
+    ]
+    return next((path for path in candidates if path.is_file()), candidates[0])
+
+
+def _catch_selection_count(output: str) -> int | None:
+    match = re.search(r"(?m)^(\d+) (?:matching )?test cases?\s*$", output)
+    return int(match.group(1)) if match else None
+
+
+def _run_focused_test_target(
+    root: pathlib.Path,
+    build_tree: pathlib.Path,
+    config: str,
+    env: dict[str, str] | None,
+    target: str,
+    catch_filter: str | None,
+    repeat_count: int,
+    requested_seed: int | None,
+) -> int:
+    executable = _focused_test_executable(build_tree, config, target)
+    if not executable.is_file():
+        print(f"ERROR: focused test executable was not produced: {executable}", file=sys.stderr)
+        return 1
+    selection = catch_filter or "*"
+    list_command = [str(executable)]
+    if catch_filter:
+        list_command.append(catch_filter)
+    list_command.append("--list-tests")
+    selection_rc, selection_output = _capture_owned_process(
+        list_command, root, env=env
+    )
+    selected_count = _catch_selection_count(selection_output)
+    if selection_rc != 0 or selected_count is None:
+        print(selection_output, file=sys.stderr, end="")
+        print("ERROR: Catch2 selection could not be inspected", file=sys.stderr)
+        return selection_rc or 2
+    if selected_count == 0:
+        print(
+            f"ERROR: Catch2 filter matched zero tests: {shlex.join(list_command)}",
+            file=sys.stderr,
+        )
+        return 2
+
+    started = time.monotonic()
+    seeds: list[int] = []
+    passed = 0
+    base_seed = requested_seed
+    if repeat_count > 1 and base_seed is None:
+        base_seed = int.from_bytes(os.urandom(4), "big") or 1
+    for iteration in range(repeat_count):
+        command = [str(executable)]
+        if catch_filter:
+            command.append(catch_filter)
+        if base_seed is not None:
+            seed = ((base_seed - 1 + iteration) % 0xFFFFFFFF) + 1
+            seeds.append(seed)
+            command.extend(["--order", "rand", "--rng-seed", str(seed)])
+        rc = run(command, root, env=env)
+        if rc != 0:
+            break
+        passed += 1
+    duration = time.monotonic() - started
+    print("\n=== Validation summary ===")
+    print(f"target: {target}")
+    print(f"selection: {selection} ({selected_count} test cases)")
+    print(f"runs: {passed}/{repeat_count} passed; duration: {duration:.2f}s")
+    print("seeds: " + (", ".join(map(str, seeds)) if seeds else "Catch2 default"))
+    return 0 if passed == repeat_count else 1
+
+
+def _ctest_selection_count(
+    root: pathlib.Path,
+    build_tree: pathlib.Path,
+    config: str,
+    env: dict[str, str] | None,
+    ctest_filter: list[str],
+) -> tuple[int, int | None, str]:
+    command = [
+        "ctest", "--test-dir", str(build_tree),
+        "--build-config", config,
+        *ctest_filter,
+        "--show-only=json-v1",
+    ]
+    rc, output = _capture_owned_process(command, root, env=env)
+    if rc != 0:
+        return rc, None, output
+    try:
+        data = json.loads(output)
+        tests = data.get("tests")
+        return 0, len(tests) if isinstance(tests, list) else None, output
+    except (TypeError, ValueError):
+        return 2, None, output
 
 
 def cmd_test(root: pathlib.Path, args: list[str]) -> int:
@@ -580,14 +960,24 @@ def cmd_test(root: pathlib.Path, args: list[str]) -> int:
             verbose,
             product_scopes,
             all_tests,
+            test_label,
+            focused_target,
+            catch_filter,
+            repeat_count,
+            requested_seed,
         ) = _parse_test_args(args)
     except ValueError as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
 
-    targets, ctest_filter, scope_label = _test_scope_selection(
-        product_scopes, all_tests
-    )
+    if focused_target is not None:
+        targets = (focused_target,)
+        ctest_filter: list[str] = []
+        scope_label = f"focused target {focused_target}"
+    else:
+        targets, ctest_filter, scope_label = _test_scope_selection(
+            product_scopes, all_tests, test_label
+        )
     print(f"\n> test scope: {scope_label}")
     rc, bd, config, env = _configure_and_build(
         root,
@@ -599,16 +989,44 @@ def cmd_test(root: pathlib.Path, args: list[str]) -> int:
     if rc != 0:
         return rc
 
+    if focused_target is not None:
+        return _run_focused_test_target(
+            root, bd, config, env, focused_target, catch_filter,
+            repeat_count, requested_seed,
+        )
+
+    selection_rc, selected_count, selection_output = _ctest_selection_count(
+        root, bd, config, env, ctest_filter
+    )
+    if selection_rc != 0 or not selected_count:
+        if selection_output:
+            print(selection_output, file=sys.stderr, end="")
+        print(
+            "ERROR: CTest selection matched no tests or could not be inspected: "
+            + shlex.join(ctest_filter),
+            file=sys.stderr,
+        )
+        return selection_rc or 2
+
+    started = time.monotonic()
     command = [
         "ctest",
         "--test-dir", str(bd),
         "--build-config", config,
         "--parallel", _test_parallel_jobs(),
         "--timeout", "120",
+        "--no-tests=error",
     ]
     command.extend(ctest_filter)
     command.append("--verbose" if verbose else "--output-on-failure")
-    return run(command, root, env=env)
+    result = run(command, root, env=env)
+    duration = time.monotonic() - started
+    print("\n=== Validation summary ===")
+    print("targets: " + ", ".join(targets))
+    print(f"selection: {scope_label} ({selected_count} CTest entries)")
+    print(f"result: {'passed' if result == 0 else 'failed'}; duration: {duration:.2f}s")
+    print(f"build result: {bd / '.draxul-build-result.json'}")
+    return result
 
 
 def cmd_run(root: pathlib.Path, args: list[str]) -> int:
@@ -942,10 +1360,126 @@ def print_render_report(root: pathlib.Path, scenario_name: str) -> None:
         print(f"  [{scenario_name}] blessed ({data['width']}x{data['height']})")
 
 
+def _owned_process_options() -> dict[str, object]:
+    if sys.platform.startswith("win"):
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def _stop_owned_process_tree(
+    process: subprocess.Popen,
+    cwd: pathlib.Path,
+    *,
+    grace_seconds: float = 5,
+) -> None:
+    """Stop only the process tree created by this wrapper invocation."""
+    if sys.platform.startswith("win"):
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            cwd=cwd,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=grace_seconds)
+            return
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    try:
+        process.wait(timeout=grace_seconds)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def _run_owned_process(
+    command: list[str],
+    cwd: pathlib.Path,
+    *,
+    env: dict[str, str] | None = None,
+    timeout_seconds: float | None = None,
+) -> int:
+    print("> " + shlex.join(command))
+    process = subprocess.Popen(
+        command, cwd=cwd, env=env, **_owned_process_options()
+    )
+    try:
+        return process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        print(
+            f"ERROR: command exceeded {timeout_seconds:g}s; "
+            f"stopping owned process tree (PID {process.pid})",
+            file=sys.stderr,
+        )
+        _stop_owned_process_tree(process, cwd)
+        return 124
+    except KeyboardInterrupt:
+        print(
+            f"\nInterrupted; stopping owned process tree (PID {process.pid})",
+            file=sys.stderr,
+        )
+        _stop_owned_process_tree(process, cwd)
+        raise
+
+
 def run(command: list[str], cwd: pathlib.Path, *, env: dict[str, str] | None = None) -> int:
-    print("> " + " ".join(command))
-    completed = subprocess.run(command, cwd=cwd, check=False, env=env)
-    return completed.returncode
+    return _run_owned_process(command, cwd, env=env)
+
+
+def _capture_owned_process(
+    command: list[str],
+    cwd: pathlib.Path,
+    *,
+    env: dict[str, str] | None = None,
+    timeout_seconds: float = 30,
+) -> tuple[int, str]:
+    """Run an owned process tree and return its combined diagnostics."""
+    print("> " + shlex.join(command))
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as output:
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=env,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            text=True,
+            **_owned_process_options(),
+        )
+        try:
+            return_code = process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            _stop_owned_process_tree(process, cwd)
+            return_code = 124
+        except KeyboardInterrupt:
+            _stop_owned_process_tree(process, cwd)
+            raise
+        output.seek(0)
+        return return_code, output.read()
+
+
+def run_bounded_process_tree(
+    command: list[str],
+    cwd: pathlib.Path,
+    *,
+    env: dict[str, str] | None = None,
+    timeout_seconds: float,
+) -> int:
+    """Run an integration command with a bounded, owned process group."""
+    return _run_owned_process(
+        command,
+        cwd,
+        env=env,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 def _selected_build_context(
@@ -1032,7 +1566,12 @@ def cmd_smoke(root: pathlib.Path, args: list[str]) -> int:
     )
     if rc != 0 or exe is None:
         return rc if rc != 0 else 1
-    return run([str(exe), "--console", "--smoke-test"], root, env=env)
+    return run_bounded_process_tree(
+        [str(exe), "--console", "--smoke-test"],
+        root,
+        env=env,
+        timeout_seconds=30,
+    )
 
 
 def cmd_score_shot_check(root: pathlib.Path) -> int:
@@ -1070,13 +1609,14 @@ def cmd_score_shot_check(root: pathlib.Path) -> int:
                "--plugin-config", plugin_config,
                "--screenshot", str(out),
                "--screenshot-size", f"{width}x{height}"]
-        try:
-            proc = subprocess.run(cmd, cwd=root, env=env, timeout=90, check=False)
-        except subprocess.TimeoutExpired:
+        score_result = run_bounded_process_tree(
+            cmd, root, env=env, timeout_seconds=90
+        )
+        if score_result == 124:
             print("score-shot-check: FAILED — ScoreView hung (kanban 74 regression)")
             return 1
-        if proc.returncode != 0:
-            print(f"score-shot-check: FAILED — exit {proc.returncode}")
+        if score_result != 0:
+            print(f"score-shot-check: FAILED — exit {score_result}")
             return 1
         if not out.exists():
             print("score-shot-check: FAILED — no screenshot written")
@@ -1095,10 +1635,36 @@ def ensure_built(root: pathlib.Path) -> int:
     exe = draxul_path(root)
     if exe.exists():
         return 0
+    rc, _, _, _ = _configure_and_build(root, "release", False, "ninja")
+    return rc
 
-    if sys.platform.startswith("win"):
-        return run(["cmake", "--build", str(build_dir(root)), "--config", "Release", "--parallel", _parallel_jobs()], root)
-    return run(["cmake", "--build", str(build_dir(root)), "--parallel", _parallel_jobs()], root)
+
+def _configure_and_build_coverage(root: pathlib.Path) -> int:
+    """Configure/build the coverage cache under the normal build-tree lock."""
+    bd = build_dir(root)
+    lock = BuildTreeLock(bd)
+    try:
+        lock.acquire()
+    except BuildTreeBusyError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 3
+    try:
+        rc = run(["cmake", "--preset", "mac-coverage"], root)
+        if rc == 0:
+            rc = run(
+                [
+                    "cmake", "--build", str(bd), "--target",
+                    "draxul-tests", "draxul-rpc-fake",
+                ],
+                root,
+            )
+        lock.finish(rc)
+        return rc
+    except BaseException:
+        lock.finish(130, status="interrupted")
+        raise
+    finally:
+        lock.release()
 
 
 def cmd_clean(root: pathlib.Path) -> int:
@@ -1106,6 +1672,20 @@ def cmd_clean(root: pathlib.Path) -> int:
     if not directories:
         print(f"Build directories already absent under: {root}")
         return 0
+
+    for directory in directories:
+        lock = BuildTreeLock(directory)
+        if not lock.path.exists():
+            continue
+        owner = lock._owner()
+        owner_pid = owner.get("pid")
+        if isinstance(owner_pid, int) and _process_is_running(owner_pid):
+            print(
+                f"ERROR: refusing to remove active build tree {directory}; "
+                f"PID {owner_pid} owns {lock.path}",
+                file=sys.stderr,
+            )
+            return 3
 
     for directory in directories:
         print(f"Removing build directory: {directory}")
@@ -1291,8 +1871,13 @@ Single-word shortcuts:
                Run the app smoke test (default: debug, ninja on Windows)
   score-shot-check  Regression guard (kanban 74): ScoreView plugin --screenshot-size + .musicxml
   test [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--verbose]
+       [--label <label>]
+       [--target <draxul-test-*> [--catch <filter>] [--repeat N] [--seed N]]
        [--megacity|--satview|--scoreview|--pcbview|--rezonality|--products|--all]
                Build and run core unit tests in parallel (default: debug, ninja)
+               --label runs only that CTest label and fails when it matches no tests;
+               --target builds one Catch2 executable, preflights its filter, and
+               can repeat it with a new reported seed without another build;
                Product flags add their suites; --products adds all products;
                --all builds and runs the complete unit inventory
   shot         Regenerate the README hero screenshot
@@ -1323,6 +1908,9 @@ Examples:
   do run --reconfigure     # Force CMake reconfigure
   do clean
   do test                  # Core tests in the Debug development cache
+  do test --label kanban   # Core tests carrying the exact kanban label
+  do test --target draxul-test-core --catch "[server]" --repeat 3
+                             # Build once, preflight, then repeat with new seeds
   do test --satview        # Core + SatView tests
   do test --pcbview        # Core + PCBView tests
   do test --rezonality     # Core + Rezonality tests
@@ -1393,12 +1981,9 @@ def main() -> int:
             print("ERROR: coverage export is currently supported only on macOS; local coverage writes build/coverage.lcov and refreshes db/coverage.lcov.")
             return 1
         bd = build_dir(root)
-        # 1. Configure with coverage preset
-        rc = run(["cmake", "--preset", "mac-coverage"], root)
-        if rc != 0:
-            return rc
-        # 2. Build test binary
-        rc = run(["cmake", "--build", str(bd), "--target", "draxul-tests", "draxul-rpc-fake"], root)
+        # 1-2. Configure and build under the same per-tree ownership lock used
+        # by normal build/test/run workflows.
+        rc = _configure_and_build_coverage(root)
         if rc != 0:
             return rc
         # 3. Run tests under coverage instrumentation
@@ -1406,13 +1991,14 @@ def main() -> int:
         env = os.environ.copy()
         env["LLVM_PROFILE_FILE"] = str(bd / "coverage-%p.profraw")
         print(f"> ctest --test-dir {bd} --label-regex unit --parallel 4 --output-on-failure")
-        rc = subprocess.run(
+        rc = run(
             [
                 "ctest", "--test-dir", str(bd),
                 "--label-regex", "unit", "--parallel", "4", "--output-on-failure",
             ],
-            env=env, cwd=root, check=False,
-        ).returncode
+            root,
+            env=env,
+        )
         if rc != 0:
             return rc
         # 4. Merge raw profiles
@@ -1436,12 +2022,17 @@ def main() -> int:
                 "draxul-test-core",
                 "draxul-test-app",
                 "draxul-test-markdown-kanban",
+                "draxul-test-kanban-core",
+                "draxul-test-kanban-host",
                 "draxul-test-megacity",
                 "draxul-test-satview",
                 "draxul-test-scoreview",
                 "draxul-test-scoreview-runtime",
                 "draxul-test-pcbview",
                 "draxul-test-rezonality",
+                "draxul-test-rezonality-project",
+                "draxul-test-rezonality-runtime",
+                "draxul-test-rezonality-audio",
             )
             if (test_dir / name).is_file()
         ]

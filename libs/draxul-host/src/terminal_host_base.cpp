@@ -3,6 +3,7 @@
 #include <draxul/base64.h>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
+#include <draxul/terminal_dimensions.h>
 #include <draxul/string_util.h>
 #include <draxul/terminal_key_encoder.h>
 #include <draxul/window.h>
@@ -292,8 +293,10 @@ void TerminalHostBase::maybe_capture_pty_chunk(std::string_view bytes)
 void TerminalHostBase::on_viewport_changed()
 {
     PERF_MEASURE();
-    const int new_cols = std::max(1, viewport().grid_size.x);
-    const int new_rows = std::max(1, viewport().grid_size.y);
+    const auto dimensions = normalize_terminal_dimensions(
+        viewport().grid_size.x, viewport().grid_size.y);
+    const int new_cols = dimensions.cols;
+    const int new_rows = dimensions.rows;
     if (new_cols == grid_cols() && new_rows == grid_rows())
         return;
 
@@ -301,8 +304,14 @@ void TerminalHostBase::on_viewport_changed()
         "terminal: on_viewport_changed %dx%d -> %dx%d",
         grid_cols(), grid_rows(), new_cols, new_rows);
 
+    if (!do_process_resize(new_cols, new_rows))
+    {
+        DRAXUL_LOG_WARN(LogCategory::App,
+            "terminal: native PTY resize to %dx%d failed; preserving %dx%d grid",
+            new_cols, new_rows, grid_cols(), grid_rows());
+        return;
+    }
     core_.resize(new_cols, new_rows);
-    do_process_resize(new_cols, new_rows);
     force_full_redraw();
     flush_grid();
 }

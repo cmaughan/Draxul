@@ -16,3 +16,7 @@ target_link_libraries(draxul-imgui-core
     PUBLIC imgui
     PRIVATE SDL3::Headers
 )
+
+if(COMMAND draxul_configure_internal_targets_in_directory)
+    draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")
+endif()

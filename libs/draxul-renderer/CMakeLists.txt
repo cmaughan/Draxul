@@ -1,5 +1,6 @@
 set(DRAXUL_RENDERER_PUBLIC_DEPS
     draxul-plugin-render-support
+    draxul-types
     draxul-window
     draxul-imgui-core
     SDL3::SDL3
@@ -112,3 +113,5 @@ target_include_directories(draxul-renderer-test-internals INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_libraries(draxul-renderer-test-internals INTERFACE draxul-renderer)
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

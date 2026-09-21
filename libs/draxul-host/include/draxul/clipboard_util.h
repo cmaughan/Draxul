@@ -4,7 +4,7 @@
 // Keeping these as free functions ensures the tests exercise the same algorithm
 // that runs in production rather than a separately maintained copy.
 
-#include <draxul/nvim.h>
+#include <draxul/nvim_protocol.h>
 
 #include <string>
 #include <vector>
@@ -42,16 +42,16 @@ inline MpackValue clipboard_text_to_response(const std::string& text)
         auto nl = text.find('\n', pos);
         if (nl == std::string::npos)
         {
-            lines.push_back(NvimRpc::make_str(text.substr(pos)));
+            lines.push_back(MpackValue::make_str(text.substr(pos)));
             break;
         }
-        lines.push_back(NvimRpc::make_str(text.substr(pos, nl - pos)));
+        lines.push_back(MpackValue::make_str(text.substr(pos, nl - pos)));
         pos = nl + 1;
     }
     if (lines.empty())
-        lines.push_back(NvimRpc::make_str(""));
+        lines.push_back(MpackValue::make_str(""));
 
-    return NvimRpc::make_array({ NvimRpc::make_array(std::move(lines)), NvimRpc::make_str("v") });
+    return MpackValue::make_array({ MpackValue::make_array(std::move(lines)), MpackValue::make_str("v") });
 }
 
 } // namespace draxul

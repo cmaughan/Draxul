@@ -139,6 +139,10 @@ struct TopologyCommand
     TopologyCommandKind kind = TopologyCommandKind::CreateSpace;
     std::string space_id;
     std::string tab_id;
+    // MovePane keeps space_id/tab_id as the source route. Empty destination
+    // fields retain the legacy same-tab behavior.
+    std::string destination_space_id;
+    std::string destination_tab_id;
     std::string pane_id;
     std::string target_pane_id;
     std::string node_id;
@@ -168,6 +172,13 @@ struct TopologyCommandResult
     bool applied = false;
     bool duplicate = false;
     std::string created_id;
+    // Populated for MovePane so headless callers do not need to diff the
+    // returned snapshot to learn the authoritative route transition.
+    std::string moved_pane_id;
+    std::string source_space_id;
+    std::string source_tab_id;
+    std::string destination_space_id;
+    std::string destination_tab_id;
     TopologySnapshot snapshot;
 
     bool operator==(const TopologyCommandResult&) const = default;

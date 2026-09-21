@@ -199,4 +199,20 @@ HostProviderRegistry& HostProviderRegistry::global()
     return instance;
 }
 
+void register_server_shell_host_metadata(HostProviderRegistry& registry)
+{
+    PERF_MEASURE();
+    registry.register_metadata(HostKind::Bash);
+    registry.register_metadata(HostKind::Zsh);
+#ifdef _WIN32
+    registry.register_metadata(HostKind::PowerShell);
+    registry.register_metadata(HostKind::Wsl);
+#endif
+}
+
+std::unique_ptr<IHost> create_host(HostKind kind)
+{
+    return HostProviderRegistry::global().create(kind);
+}
+
 } // namespace draxul

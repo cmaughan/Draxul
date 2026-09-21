@@ -206,6 +206,40 @@ TEST_CASE("remote Session client publishes topology and command results",
     std::filesystem::remove_all(runtime, ignored);
 }
 
+TEST_CASE("externally fed Session clients stop and enter fallback promptly",
+    "[control][client-worker][wakeup]")
+{
+    const auto runtime = unique_control_runtime_directory();
+    RemoteSessionClient client({
+        .runtime_directory = runtime,
+        .client_id = "wakeup-ui",
+        .externally_fed = true,
+    });
+    REQUIRE(client.start());
+
+    const auto fallback_started = std::chrono::steady_clock::now();
+    client.enable_legacy_polling();
+    bool published_fallback = false;
+    while (std::chrono::steady_clock::now() - fallback_started
+        < std::chrono::seconds(2))
+    {
+        if (client.take_published_state())
+        {
+            published_fallback = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK(published_fallback);
+
+    const auto stop_started = std::chrono::steady_clock::now();
+    client.stop();
+    CHECK(std::chrono::steady_clock::now() - stop_started
+        < std::chrono::seconds(1));
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
 TEST_CASE("remote Session client republishes snapshots until epoch-aware acknowledgement",
     "[control][client-worker][topology][ack]")
 {

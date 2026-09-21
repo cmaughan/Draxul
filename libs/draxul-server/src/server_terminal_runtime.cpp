@@ -261,10 +261,19 @@ void ServerTerminalRuntime::reset_terminal_state()
 
 bool ServerTerminalRuntime::start_process(std::string& error)
 {
-    const std::string working_directory
-        = options_.working_directory.empty()
-        ? std::filesystem::current_path().string()
-        : options_.working_directory;
+    std::string working_directory = options_.working_directory;
+    if (working_directory.empty())
+    {
+        std::error_code cwd_error;
+        const auto cwd = std::filesystem::current_path(cwd_error);
+        if (cwd_error)
+        {
+            error = "Unable to resolve the server terminal working directory: "
+                + cwd_error.message();
+            return false;
+        }
+        working_directory = cwd.string();
+    }
     const size_t previous_reservation
         = reserved_scrollback_cells_;
     if (!replace_scrollback_reservation(grid_.cols(), &error))

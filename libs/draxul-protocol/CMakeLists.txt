@@ -19,3 +19,5 @@ target_link_libraries(draxul-protocol PUBLIC
     draxul-terminal-core
     nlohmann_json::nlohmann_json
 )
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

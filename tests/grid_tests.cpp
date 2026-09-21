@@ -174,6 +174,43 @@ TEST_CASE("grid clears stale leaders when overwriting a continuation cell", "[gr
     REQUIRE(grid.get_cell(2, 0).double_width_cont == false);
 }
 
+TEST_CASE("grid clears a displaced wide glyph continuation during an overlapping wide write", "[grid]")
+{
+    Grid grid;
+    grid.resize(7, 1);
+    grid.set_cell(5, 0, "old", 3, true);
+    grid.clear_dirty();
+
+    grid.set_cell(4, 0, "new", 4, true);
+
+    REQUIRE(grid.get_cell(4, 0).text == std::string("new"));
+    REQUIRE(grid.get_cell(4, 0).double_width);
+    REQUIRE(grid.get_cell(5, 0).double_width_cont);
+    CHECK_FALSE(grid.get_cell(6, 0).double_width_cont);
+    CHECK(grid.get_cell(6, 0).text == std::string());
+    CHECK(grid.is_dirty(4, 0));
+    CHECK(grid.is_dirty(5, 0));
+    CHECK(grid.is_dirty(6, 0));
+}
+
+TEST_CASE("grid clears the previous leader when an overlapping wide write starts at its continuation", "[grid]")
+{
+    Grid grid;
+    grid.resize(7, 1);
+    grid.set_cell(4, 0, "old", 3, true);
+    grid.clear_dirty();
+
+    grid.set_cell(5, 0, "new", 4, true);
+
+    CHECK_FALSE(grid.get_cell(4, 0).double_width);
+    CHECK(grid.get_cell(4, 0).text == std::string(" "));
+    REQUIRE(grid.get_cell(5, 0).double_width);
+    REQUIRE(grid.get_cell(6, 0).double_width_cont);
+    CHECK(grid.is_dirty(4, 0));
+    CHECK(grid.is_dirty(5, 0));
+    CHECK(grid.is_dirty(6, 0));
+}
+
 TEST_CASE("grid scroll preserves double-width cells and continuations together", "[grid]")
 {
     Grid grid;

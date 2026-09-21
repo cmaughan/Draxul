@@ -12,52 +12,64 @@ RPC and child-process transport while retaining compatibility during migration.
 
 ## Boundary verification
 
-- [ ] Classify `nvim_process.cpp`, `mpack_codec.cpp`, `rpc.cpp`, `ui_events.cpp`,
+- [x] Classify `nvim_process.cpp`, `mpack_codec.cpp`, `rpc.cpp`, `ui_events.cpp`,
   `input.cpp`, and all public headers by required dependencies and callers.
-- [ ] Verify `MpackValue`, RPC records, `IRpcChannel`, `UiEventHandler`, and
+- [x] Verify `MpackValue`, RPC records, `IRpcChannel`, `UiEventHandler`, and
   `NvimInput` can move without namespace or behavior changes.
-- [ ] Record protocol's real public grid/type requirements from `nvim_ui.h`.
-- [ ] Confirm `<mpack.h>` and SDL are implementation-only dependencies.
-- [ ] Map codec/UI/input tests separately from RPC/process/fragmentation/backpressure tests.
+- [x] Record protocol's real public grid/type requirements from `nvim_ui.h`.
+- [x] Confirm `<mpack.h>` and SDL are implementation-only dependencies.
+- [x] Map codec/UI/input tests separately from RPC/process/fragmentation/backpressure tests.
 
 ## Implementation and migration
 
-- [ ] Add `draxul-nvim-protocol` for values, channel contract, codec, UI decoder, and input encoder.
-- [ ] Make MPack, SDL, and performance PRIVATE to protocol implementation as applicable.
-- [ ] Add `draxul-nvim-transport` for `NvimProcess`, `NvimRpc`, reader thread, and request tracking.
-- [ ] Keep `draxul-nvim` as a compatibility aggregate/forwarding include surface.
-- [ ] Migrate fake channels and `UiRequestWorker` to protocol-only linkage.
-- [ ] Migrate RPC fake and `NvimHost` to transport plus protocol.
+- [x] Add `draxul-nvim-protocol` for values, channel contract, codec, UI decoder, and input encoder.
+- [x] Make MPack, SDL, and performance PRIVATE to protocol implementation as applicable.
+- [x] Add `draxul-nvim-transport` for `NvimProcess`, `NvimRpc`, reader thread, and request tracking.
+- [x] Keep `draxul-nvim` as a compatibility aggregate/forwarding include surface.
+- [x] Migrate fake channels and `UiRequestWorker` to protocol-only linkage.
+- [x] Migrate RPC fake and `NvimHost` to transport plus protocol.
 - [ ] Remove compatibility only after direct consumers and include paths are settled.
 
 ## Unit tests
 
-- [ ] Link codec, malformed/truncated MPack, redraw, and input tests to protocol only.
-- [ ] Link fragmentation, backpressure, request/response, crash, partial-init, and process tests to transport.
-- [ ] Add public-header/link-isolation consumers for both targets.
-- [ ] Preserve fake `IRpcChannel` as the standard UI/input seam.
-- [ ] Build the owning core test aggregate and `draxul-rpc-fake`; run the focused CTest selection.
+- [x] Link codec, malformed/truncated MPack, redraw, and input tests to protocol only.
+- [x] Link fragmentation, backpressure, request/response, crash, partial-init, and process tests to transport.
+- [x] Add public-header/link-isolation consumers for both targets.
+- [x] Preserve fake `IRpcChannel` as the standard UI/input seam.
+- [x] Build the owning core test aggregate and `draxul-rpc-fake`; run the focused CTest selection.
 
 ## Cross-platform validation
 
 - [ ] Windows: validate pipe reads/writes, process startup failure, and shutdown.
-- [ ] macOS: validate POSIX pipe/fork-exec startup failure and shutdown.
+- [x] macOS: validate POSIX pipe/fork-exec startup failure and shutdown.
 - [ ] Preserve MPack extension handling and partial-message accumulation on both platforms.
-- [ ] Verify reader-thread restrictions and callbacks remain unchanged.
-- [ ] Confirm no Vulkan/Metal dependency or behavior enters either boundary.
+- [x] Verify reader-thread restrictions and callbacks remain unchanged.
+- [x] Confirm no Vulkan/Metal dependency or behavior enters either boundary.
 
 ## Agent documentation and tooling
 
-- [ ] Update `docs/module-map.md` and canonical Nvim orientation guidance.
-- [ ] Add focused protocol/transport build targets to label-level validation where useful.
+- [x] Update `docs/module-map.md` and canonical Nvim orientation guidance.
+- [x] Add focused protocol/transport build targets to label-level validation where useful.
 
 ## Acceptance criteria
 
-- [ ] Protocol tests build without child-process or threaded RPC implementation.
-- [ ] Transport owns all OS process/pipe and reader-thread behavior.
-- [ ] MPack is no longer a PUBLIC dependency solely because of implementation use.
-- [ ] Existing Nvim host behavior, inputs, redraw decoding, and shutdown are preserved.
-- [ ] Full tests, smoke, and available cross-platform validation pass.
+- [x] Protocol tests build without child-process or threaded RPC implementation.
+- [x] Transport owns all OS process/pipe and reader-thread behavior.
+- [x] MPack is no longer a PUBLIC dependency solely because of implementation use.
+- [x] Existing Nvim host behavior, inputs, redraw decoding, and shutdown are preserved.
+- [x] Full tests, smoke, and available cross-platform validation pass.
+
+## Validation
+
+- 2026-09-21 macOS Debug: focused Nvim protocol/transport targets, both
+  public-header link-isolation consumers, and `draxul-rpc-fake` built; the Nvim
+  CTest label passed 5/5.
+- 2026-09-21 macOS Debug: the core aggregate passed 18/18 after stopping an
+  existing repo-built Draxul server that held the process singleton; the
+  same-cache Metal smoke passed.
+- Windows process/pipe validation and the cross-platform MPack accumulation
+  check remain open. Compatibility forwarding remains intentionally available
+  while direct consumers finish migrating.
 
 ## Dependencies and ownership
 

@@ -2,6 +2,7 @@ add_library(draxul-types
     src/log.cpp
     src/process_util.cpp
     src/runtime_path.cpp
+    src/unicode.cpp
 )
 target_include_directories(draxul-types PUBLIC include)
 target_link_libraries(draxul-types PUBLIC glm::glm)
@@ -17,3 +18,5 @@ install(TARGETS draxul-types
 install(DIRECTORY include/
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     COMPONENT draxul-plugin-sdk)
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

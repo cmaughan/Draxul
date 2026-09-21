@@ -5,12 +5,13 @@ add_library(draxul-server
     src/session_poll_service.cpp
     src/session_stream_service.cpp
     src/session_topology_bridge.cpp
-    src/server_kernel.cpp
     src/server_kernel_clients.cpp
     src/server_kernel_facade.cpp
     src/server_kernel_impl.h
     src/server_kernel_lifecycle.cpp
     src/server_kernel_requests.cpp
+    src/server_kernel_sessions.cpp
+    src/server_kernel_terminals.cpp
     src/server_terminal_runtime.cpp
     src/topology_service.cpp
 )
@@ -33,3 +34,5 @@ target_include_directories(draxul-server-test-internals INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_libraries(draxul-server-test-internals INTERFACE draxul-server)
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

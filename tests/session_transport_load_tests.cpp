@@ -1859,6 +1859,9 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
                       "The Session command binding changed.");
               }
               ++dispatched_commands;
+              if (command.method == "topology.layout_apply")
+                  return topology_service.handle(
+                      command.method, command.params);
               if (command.method == "topology.command")
               {
                   ++topology.revision;
@@ -1903,9 +1906,46 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
                           stream_service.connection_count() },
                   });
               }
+              if (request.method == "topology.layout_apply")
+              {
+                  return topology_service.handle(
+                      request.method, request.params);
+              }
               return ControlMethodResult::error(
                   "unknown_method", "Unexpected stream integration method.");
           };
+
+    const nlohmann::json malformed_layout_params{
+        { "layout",
+            {
+                { "name", "Malformed" },
+                { "tabs", nlohmann::json::array({ {
+                              { "name", "Main" },
+                              { "panes", nlohmann::json::array({
+                                    { { "alias", "first" } },
+                                    { { "alias", "second" },
+                                        { "direction", 7 } },
+                                }) },
+                          } }) },
+            } },
+        { "dry_run", "yes" },
+    };
+    const uint64_t topology_revision_before_rejections
+        = topology_service.snapshot().revision;
+    std::vector<std::future<ControlClientResult>> malformed_control;
+    malformed_control.push_back(std::async(std::launch::async,
+        [&] {
+            return ControlClient::request(control_id, temp.path,
+                "topology.layout_apply", malformed_layout_params);
+        }));
+    REQUIRE(pump_until_ready(control, control_handler,
+        malformed_control, std::chrono::seconds(3)));
+    const ControlClientResult malformed_control_result
+        = malformed_control.front().get();
+    CHECK_FALSE(malformed_control_result.ok);
+    CHECK(malformed_control_result.error_code == "invalid_layout");
+    CHECK(topology_service.snapshot().revision
+        == topology_revision_before_rejections);
 
     RawSessionStream stream{
         .ui = {
@@ -2001,8 +2041,26 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
     CHECK(rejected.error_code == "request_id_conflict");
     CHECK(dispatched_commands == 2);
 
-    const SessionStreamCommand topology_command{
+    const SessionStreamCommand malformed_layout_command{
         .request_id = 103,
+        .server_epoch = "stream-epoch",
+        .method = "topology.layout_apply",
+        .params = malformed_layout_params,
+    };
+    REQUIRE(write_stream_command(
+        stream, malformed_layout_command, error));
+    SessionStreamCommandResult malformed_layout_result;
+    REQUIRE(read_stream_command_result(stream, stream_service,
+        stream_poll, stream_dispatch, malformed_layout_result,
+        std::chrono::seconds(3), error));
+    REQUIRE(malformed_layout_result.request_id == 103);
+    CHECK_FALSE(malformed_layout_result.ok);
+    CHECK(malformed_layout_result.error_code == "invalid_layout");
+    CHECK(topology_service.snapshot().revision
+        == topology_revision_before_rejections);
+
+    const SessionStreamCommand topology_command{
+        .request_id = 104,
         .server_epoch = "stream-epoch",
         .method = "topology.command",
         .params = {
@@ -2022,7 +2080,7 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
     REQUIRE(command_frame.command_result);
     const SessionStreamCommandResult& topology_result
         = *command_frame.command_result;
-    REQUIRE(topology_result.request_id == 103);
+    REQUIRE(topology_result.request_id == 104);
     REQUIRE(topology_result.ok);
     CHECK(topology_result.result.value(
               "topology_revision", uint64_t{ 0 })
@@ -2046,8 +2104,8 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
         >= kSessionStreamMinControlReserveBytes);
     CHECK(command_stats.peak_control_bytes > 0);
     CHECK(command_stats.peak_event_bytes > 0);
-    CHECK(command_stats.completed_command_count == 3);
-    CHECK(command_stats.commands_dispatched == 3);
+    CHECK(command_stats.completed_command_count == 4);
+    CHECK(command_stats.commands_dispatched == 4);
     CHECK(command_stats.command_replays == 1);
     CHECK(command_stats.command_conflicts == 1);
 
@@ -2121,20 +2179,20 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
     CHECK(stream_poll_calls >= 3);
 
     const SessionStreamCommand lost_in_flight = terminal_command(
-        104, panes[0], "command-result-lost-during-reconnect");
+        105, panes[0], "command-result-lost-during-reconnect");
     REQUIRE(write_stream_command(stream, lost_in_flight, error));
     const auto dispatch_deadline
         = std::chrono::steady_clock::now()
         + std::chrono::seconds(2);
-    while (stream_service.stats().completed_command_count < 4
+    while (stream_service.stats().completed_command_count < 5
         && std::chrono::steady_clock::now() < dispatch_deadline)
     {
         stream_service.pump(
             stream_poll, {}, stream_dispatch);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    REQUIRE(stream_service.stats().completed_command_count == 4);
-    REQUIRE(dispatched_commands == 4);
+    REQUIRE(stream_service.stats().completed_command_count == 5);
+    REQUIRE(dispatched_commands == 5);
 
     RawSessionStream reconnected{
         .ui = stream.ui,
@@ -2155,10 +2213,10 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
     REQUIRE(read_stream_command_result(reconnected,
         stream_service, stream_poll, stream_dispatch,
         reconnect_replay, std::chrono::seconds(3), error));
-    REQUIRE(reconnect_replay.request_id == 104);
+    REQUIRE(reconnect_replay.request_id == 105);
     REQUIRE(reconnect_replay.ok);
     REQUIRE(reconnect_replay.replayed);
-    CHECK(dispatched_commands == 4);
+    CHECK(dispatched_commands == 5);
     CHECK(stream_service.stats().command_replays == 2);
 
     CHECK(control_requests["session.stream.open"] == 2);

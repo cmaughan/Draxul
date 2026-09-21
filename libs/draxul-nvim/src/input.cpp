@@ -18,7 +18,7 @@ void NvimInput::send_input(const std::string& keys)
     PERF_MEASURE();
     if (keys.empty())
         return;
-    rpc_->notify("nvim_input", { NvimRpc::make_str(keys) });
+    rpc_->notify("nvim_input", { MpackValue::make_str(keys) });
 }
 
 std::string NvimInput::mouse_modifiers(ModifierFlags mod) const
@@ -220,7 +220,7 @@ void NvimInput::paste_text(const std::string& text)
     if (text.empty())
         return;
 
-    rpc_->notify("nvim_paste", { NvimRpc::make_str(text), NvimRpc::make_bool(false), NvimRpc::make_int(-1) });
+    rpc_->notify("nvim_paste", { MpackValue::make_str(text), MpackValue::make_bool(false), MpackValue::make_int(-1) });
 }
 
 int NvimInput::pixel_to_col(int x) const
@@ -279,7 +279,7 @@ void NvimInput::on_mouse_button(const MouseButtonEvent& event)
     std::string action = event.pressed ? "press" : "release";
     std::string modifiers = mouse_modifiers(event.mod);
 
-    rpc_->notify("nvim_input_mouse", { NvimRpc::make_str(button), NvimRpc::make_str(action), NvimRpc::make_str(modifiers), NvimRpc::make_int(0), NvimRpc::make_int(grid_row), NvimRpc::make_int(grid_col) });
+    rpc_->notify("nvim_input_mouse", { MpackValue::make_str(button), MpackValue::make_str(action), MpackValue::make_str(modifiers), MpackValue::make_int(0), MpackValue::make_int(grid_row), MpackValue::make_int(grid_col) });
 }
 
 void NvimInput::on_mouse_move(const MouseMoveEvent& event)
@@ -292,7 +292,7 @@ void NvimInput::on_mouse_move(const MouseMoveEvent& event)
     int grid_row = pixel_to_row(event.pos.y);
     std::string modifiers = mouse_modifiers(event.mod);
 
-    rpc_->notify("nvim_input_mouse", { NvimRpc::make_str(mouse_button_), NvimRpc::make_str("drag"), NvimRpc::make_str(modifiers), NvimRpc::make_int(0), NvimRpc::make_int(grid_row), NvimRpc::make_int(grid_col) });
+    rpc_->notify("nvim_input_mouse", { MpackValue::make_str(mouse_button_), MpackValue::make_str("drag"), MpackValue::make_str(modifiers), MpackValue::make_int(0), MpackValue::make_int(grid_row), MpackValue::make_int(grid_col) });
 }
 
 void NvimInput::on_mouse_wheel(const MouseWheelEvent& event)
@@ -313,7 +313,7 @@ void NvimInput::on_mouse_wheel(const MouseWheelEvent& event)
     else
         return;
 
-    rpc_->notify("nvim_input_mouse", { NvimRpc::make_str("wheel"), NvimRpc::make_str(direction), NvimRpc::make_str(mouse_modifiers(event.mod)), NvimRpc::make_int(0), NvimRpc::make_int(grid_row), NvimRpc::make_int(grid_col) });
+    rpc_->notify("nvim_input_mouse", { MpackValue::make_str("wheel"), MpackValue::make_str(direction), MpackValue::make_str(mouse_modifiers(event.mod)), MpackValue::make_int(0), MpackValue::make_int(grid_row), MpackValue::make_int(grid_col) });
 }
 
 } // namespace draxul

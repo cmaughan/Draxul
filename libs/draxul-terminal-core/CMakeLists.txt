@@ -17,3 +17,5 @@ target_link_libraries(draxul-terminal-core
     PRIVATE
         draxul-performance
 )
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

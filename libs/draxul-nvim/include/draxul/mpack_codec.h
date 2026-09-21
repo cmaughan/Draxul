@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include <draxul/nvim_rpc.h>
+#include <draxul/nvim_protocol.h>
 
 namespace draxul
 {

@@ -386,20 +386,25 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
                 }
             }
             // Check single-key (non-chord) GUI bindings.
-            if (auto action = gui_action_for_key_event(event);
-                action && deps_.gui_action_handler && deps_.gui_action_handler->execute(*action))
+            if (auto action_view = gui_action_for_key_event(event);
+                action_view && deps_.gui_action_handler)
             {
-                if (key_event_may_produce_text_input(event))
-                    suppress_next_text_input_ = true;
-                if (log_would_emit(LogLevel::Trace, LogCategory::Input))
+                // Executing an action may reload configuration and replace the
+                // keybinding storage that owns action_view.
+                const std::string action(*action_view);
+                if (deps_.gui_action_handler->execute(action))
                 {
-                    log_printf(LogLevel::Trace, LogCategory::Input,
-                        "input trace: dispatcher gui action=%.*s consumed key and suppress_next_text_input=%d",
-                        static_cast<int>(action->size()),
-                        action->data(),
-                        suppress_next_text_input_ ? 1 : 0);
+                    if (key_event_may_produce_text_input(event))
+                        suppress_next_text_input_ = true;
+                    if (log_would_emit(LogLevel::Trace, LogCategory::Input))
+                    {
+                        log_printf(LogLevel::Trace, LogCategory::Input,
+                            "input trace: dispatcher gui action=%.*s consumed key and suppress_next_text_input=%d",
+                            static_cast<int>(action.size()), action.data(),
+                            suppress_next_text_input_ ? 1 : 0);
+                    }
+                    return;
                 }
-                return;
             }
         }
     }

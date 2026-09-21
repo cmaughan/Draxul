@@ -6,6 +6,7 @@ add_library(draxul-client
     src/remote_session_coordinator.cpp
     src/server_client.cpp
     src/server_control_channel.cpp
+    src/session_stream_policy.cpp
     src/topology_client.cpp
     src/topology_projection.cpp
 )
@@ -18,3 +19,5 @@ target_link_libraries(draxul-client PUBLIC
     draxul-session-model
 )
 target_link_libraries(draxul-client PRIVATE draxul-types)
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

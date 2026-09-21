@@ -1,6 +1,6 @@
 #include <catch2/catch_all.hpp>
 
-#include "chrome_layout.h"
+#include <draxul/chrome_layout.h>
 
 using namespace draxul;
 

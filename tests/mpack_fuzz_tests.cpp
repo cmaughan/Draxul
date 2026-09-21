@@ -244,11 +244,11 @@ TEST_CASE("mpack fuzz: all-0xff buffer length 100", "[rpc][fuzz]")
 TEST_CASE("mpack fuzz: valid well-formed msgpack value (positive control)", "[rpc][fuzz]")
 {
     // Encode a known value and then decode it; both must succeed.
-    MpackValue original = NvimRpc::make_array({
-        NvimRpc::make_str("redraw"),
-        NvimRpc::make_uint(1),
-        NvimRpc::make_bool(false),
-        NvimRpc::make_nil(),
+    MpackValue original = MpackValue::make_array({
+        MpackValue::make_str("redraw"),
+        MpackValue::make_uint(1),
+        MpackValue::make_bool(false),
+        MpackValue::make_nil(),
     });
 
     std::vector<char> encoded;

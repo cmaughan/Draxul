@@ -16,8 +16,9 @@ target_link_libraries(draxul-runtime-support PUBLIC
     draxul-font
     draxul-grid
     draxul-host-identity
-    draxul-nvim
+    draxul-nvim-protocol
     draxul-renderer
+    draxul-types
     draxul-protocol
     draxul-window
 )
@@ -36,3 +37,5 @@ if(APPLE)
     target_link_libraries(draxul-runtime-support PRIVATE
         ${COREGRAPHICS_FRAMEWORK} ${PDFKIT_FRAMEWORK} ${APPKIT_FRAMEWORK})
 endif()
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

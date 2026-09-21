@@ -5,7 +5,7 @@
 // by these tests rather than silently bypassing them.
 #include <draxul/clipboard_util.h>
 
-#include <draxul/nvim.h>
+#include <draxul/nvim_protocol.h>
 #include <string>
 #include <vector>
 
@@ -21,12 +21,12 @@ std::vector<MpackValue> make_clipboard_set_params(const std::string& reg,
 {
     std::vector<MpackValue> line_values;
     for (const auto& l : lines)
-        line_values.push_back(NvimRpc::make_str(l));
+        line_values.push_back(MpackValue::make_str(l));
 
     return {
-        NvimRpc::make_str(reg),
-        NvimRpc::make_array(std::move(line_values)),
-        NvimRpc::make_str(regtype),
+        MpackValue::make_str(reg),
+        MpackValue::make_array(std::move(line_values)),
+        MpackValue::make_str(regtype),
     };
 }
 
@@ -122,9 +122,9 @@ TEST_CASE("clipboard_set ignores malformed notifications", "[nvim]")
 
     // Second param is not an array.
     std::vector<MpackValue> bad_params = {
-        NvimRpc::make_str("+"),
-        NvimRpc::make_str("not-an-array"),
-        NvimRpc::make_str("v"),
+        MpackValue::make_str("+"),
+        MpackValue::make_str("not-an-array"),
+        MpackValue::make_str("v"),
     };
     text = clipboard_params_to_text(bad_params);
     INFO("non-array lines param yields empty string");

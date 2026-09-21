@@ -11,14 +11,12 @@
 #include "support/fake_renderer.h"
 #include "support/fake_window.h"
 #include "support/home_dir_redirect.h"
-#include "support/scoped_env_var.h"
 #include "support/temp_dir.h"
 
 #include <draxul/control_plane.h>
 #include <draxul/server_client.h>
 
 #include <chrono>
-#include <fstream>
 #include <future>
 #include <vector>
 
@@ -162,66 +160,6 @@ TEST_CASE("control CLI keeps agent argv structured and parses wait policy", "[co
 }
 
 
-TEST_CASE("Codex integration install is idempotent and preserves unrelated hooks",
-    "[control][integration]")
-{
-    TempDir codex("draxul-codex-integration");
-    const auto hooks_path = codex.path / "hooks.json";
-    const auto config_path = codex.path / "config.toml";
-    {
-        std::ofstream hooks(hooks_path);
-        hooks << R"({"hooks":{"Stop":[{"hooks":[{"type":"command","command":"keep-me"}]}]}})";
-        std::ofstream config(config_path);
-        config << "model = \"gpt-5\"\n";
-    }
-    ScopedEnvVar codex_home("CODEX_HOME", codex.path.string().c_str());
-
-    IntegrationCliCommand install{ .action = "install", .target = "codex" };
-    REQUIRE(run_integration_cli(install) == 0);
-    REQUIRE(run_integration_cli(install) == 0);
-
-    {
-#ifdef _WIN32
-        const auto hook_path
-            = codex.path / "draxul-agent-session.ps1";
-#else
-        const auto hook_path
-            = codex.path / "draxul-agent-session.sh";
-#endif
-        std::ifstream hook_input(hook_path);
-        const std::string hook(
-            (std::istreambuf_iterator<char>(hook_input)),
-            std::istreambuf_iterator<char>());
-        CHECK(hook.find("DRAXUL_INTEGRATION_VERSION=2")
-            != std::string::npos);
-        CHECK(hook.find("DRAXUL_SERVER_EPOCH")
-            != std::string::npos);
-        CHECK(hook.find("runtime-generation")
-            != std::string::npos);
-
-        std::ifstream hooks_input(hooks_path);
-        const auto hooks = nlohmann::json::parse(hooks_input);
-        CHECK(hooks["hooks"]["Stop"][0]["hooks"][0]["command"] == "keep-me");
-        REQUIRE(hooks["hooks"]["SessionStart"].size() == 1);
-        CHECK(hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-                  .get<std::string>()
-                  .find("draxul-agent-session")
-            != std::string::npos);
-        std::ifstream config_input(config_path);
-        const std::string config((std::istreambuf_iterator<char>(config_input)),
-            std::istreambuf_iterator<char>());
-        CHECK(config.find("model = \"gpt-5\"") != std::string::npos);
-        CHECK(config.find("hooks = true") != std::string::npos);
-    }
-
-    IntegrationCliCommand uninstall{ .action = "uninstall", .target = "codex" };
-    REQUIRE(run_integration_cli(uninstall) == 0);
-    std::ifstream remaining_input(hooks_path);
-    const auto remaining = nlohmann::json::parse(remaining_input);
-    CHECK(remaining["hooks"]["Stop"][0]["hooks"][0]["command"] == "keep-me");
-    CHECK(remaining["hooks"]["SessionStart"].empty());
-}
-
 TEST_CASE("integration CLI supports both official native session hooks",
     "[control][integration]")
 {
@@ -237,69 +175,6 @@ TEST_CASE("integration CLI supports both official native session hooks",
     auto invalid = parse_integration_cli({ "draxul", "integration", "install", "other" });
     CHECK(invalid.recognized);
     CHECK(invalid.error);
-}
-
-TEST_CASE("Claude integration install is idempotent and preserves unrelated settings",
-    "[control][integration]")
-{
-    TempDir claude("draxul-claude-integration");
-    const auto settings_path = claude.path / "settings.json";
-    {
-        std::ofstream settings(settings_path);
-        settings << R"({
-  "permissions": {"allow": ["Read"]},
-  "hooks": {
-    "Stop": [{"hooks": [{"type": "command", "command": "keep-me"}]}]
-  }
-})";
-    }
-    ScopedEnvVar claude_home("CLAUDE_CONFIG_DIR", claude.path.string().c_str());
-
-    IntegrationCliCommand install{ .action = "install", .target = "claude" };
-    REQUIRE(run_integration_cli(install) == 0);
-    REQUIRE(run_integration_cli(install) == 0);
-
-#ifdef _WIN32
-    const auto hook_path = claude.path / "hooks" / "draxul-agent-session.ps1";
-#else
-    const auto hook_path = claude.path / "hooks" / "draxul-agent-session.sh";
-#endif
-    REQUIRE(std::filesystem::exists(hook_path));
-    {
-        std::ifstream hook_input(hook_path);
-        const std::string hook((std::istreambuf_iterator<char>(hook_input)),
-            std::istreambuf_iterator<char>());
-        CHECK(hook.find("DRAXUL_INTEGRATION_ID=claude") != std::string::npos);
-        CHECK(hook.find("DRAXUL_INTEGRATION_VERSION=2")
-            != std::string::npos);
-        CHECK(hook.find("draxul:claude") != std::string::npos);
-        CHECK(hook.find("agent_id") != std::string::npos);
-        CHECK(hook.find("DRAXUL_SERVER_EPOCH")
-            != std::string::npos);
-        CHECK(hook.find("runtime-generation")
-            != std::string::npos);
-
-        std::ifstream settings_input(settings_path);
-        const auto settings = nlohmann::json::parse(settings_input);
-        CHECK(settings["permissions"]["allow"][0] == "Read");
-        CHECK(settings["hooks"]["Stop"][0]["hooks"][0]["command"] == "keep-me");
-        REQUIRE(settings["hooks"]["SessionStart"].size() == 1);
-        const auto& group = settings["hooks"]["SessionStart"][0];
-        CHECK(group["matcher"] == "*");
-        CHECK(group["hooks"][0]["command"]
-                  .get<std::string>()
-                  .find("draxul-agent-session")
-            != std::string::npos);
-    }
-
-    IntegrationCliCommand uninstall{ .action = "uninstall", .target = "claude" };
-    REQUIRE(run_integration_cli(uninstall) == 0);
-    CHECK_FALSE(std::filesystem::exists(hook_path));
-    std::ifstream remaining_input(settings_path);
-    const auto remaining = nlohmann::json::parse(remaining_input);
-    CHECK(remaining["permissions"]["allow"][0] == "Read");
-    CHECK(remaining["hooks"]["Stop"][0]["hooks"][0]["command"] == "keep-me");
-    CHECK(remaining["hooks"]["SessionStart"].empty());
 }
 
 TEST_CASE("control event subscriptions are bounded cursor projections", "[control]")

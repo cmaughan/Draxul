@@ -7,15 +7,15 @@
 
 **Investigation**
 
-- [ ] Follow PID publication through natural exit, abnormal exit, shutdown, and restart.
+- [x] Follow PID publication through natural exit, abnormal exit, shutdown, and restart.
 
 **Fix strategy**
 
-- [ ] Return zero after confirmed exit and clear retired process identity.
-- [ ] Keep unknown process-status handling distinct from confirmed exit.
+- [x] Return zero after confirmed exit and clear retired process identity.
+- [x] Keep unknown process-status handling distinct from confirmed exit.
 
 **Acceptance criteria**
 
-- [ ] Exited panes never advertise a stale live PID.
-- [ ] Restart publishes the new PID.
+- [x] Exited panes never advertise a stale live PID.
+- [x] Restart publishes the new PID.
 - [ ] Coordinate status semantics with `kanban/pending/29 conpty-process-status-query-failure -bug.md`.

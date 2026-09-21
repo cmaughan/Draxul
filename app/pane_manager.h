@@ -1,6 +1,6 @@
 #pragma once
 
-#include "split_tree.h"
+#include <draxul/split_tree.h>
 #include <chrono>
 #include <draxul/agent_model.h>
 #include <draxul/host.h>
@@ -277,7 +277,8 @@ public:
 
 private:
     bool create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
-        HostLaunchOptions launch, bool is_primary);
+        HostLaunchOptions launch, bool is_primary,
+        bool preserve_failed_leaf = false);
     void update_all_viewports();
     void update_focus(LeafId new_id);
 

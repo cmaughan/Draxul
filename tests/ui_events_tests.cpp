@@ -1,7 +1,7 @@
 #include "support/replay_fixture.h"
 
 #include <draxul/grid.h>
-#include <draxul/nvim.h>
+#include <draxul/nvim_ui.h>
 #include <draxul/unicode.h>
 
 #include <catch2/catch_all.hpp>
@@ -642,7 +642,7 @@ TEST_CASE("ui event handler rejects out-of-range integer redraw payloads", "[ui]
     REQUIRE(handler.current_mode() == 42);
 
     REQUIRE_NOTHROW(handler.process_redraw({
-        redraw_event("mode_change", { arr({ s("normal"), NvimRpc::make_uint(std::numeric_limits<uint64_t>::max()) }) }),
+        redraw_event("mode_change", { arr({ s("normal"), MpackValue::make_uint(std::numeric_limits<uint64_t>::max()) }) }),
         redraw_event("mode_change", { arr({ s("normal"), i(std::numeric_limits<int64_t>::max()) }) }),
     }));
 

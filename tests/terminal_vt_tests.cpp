@@ -182,6 +182,40 @@ TEST_CASE("terminal: CSI E and F cursor next/preceding line", "[terminal]")
     REQUIRE(ts.host.col() == 0);
 }
 
+TEST_CASE("terminal: hostile CSI counts saturate in constant time", "[terminal][csi]")
+{
+    VtTerminalSetup ts(20, 5);
+    REQUIRE(ts.ok);
+    const auto started = std::chrono::steady_clock::now();
+    ts.host.feed("\x1B[3;3H\x1B[2147483647B\x1B[2147483647C");
+    CHECK(ts.host.row() == 4);
+    CHECK(ts.host.col() == 19);
+    ts.host.feed("\x1B[2147483647Z");
+    CHECK(ts.host.col() == 0);
+    ts.host.feed("\x1B[999999999999999999999I");
+    CHECK(ts.host.col() == 19);
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::milliseconds(100));
+}
+
+TEST_CASE("terminal: CSI dispatch includes private markers and intermediates", "[terminal][csi]")
+{
+    VtTerminalSetup ts(20, 5);
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B[3;4H\x1B[?u");
+    CHECK(ts.host.row() == 2);
+    CHECK(ts.host.col() == 3);
+
+    ts.host.feed("\x1B[>4;2mA");
+    CHECK(ts.host.cell_hl(3, 2) == 0);
+
+    ts.host.written.clear();
+    ts.host.feed("\x1B[>c");
+    CHECK(ts.host.written == "\x1B[>1;10;0c");
+    ts.host.written.clear();
+    ts.host.feed("\x1B[?c");
+    CHECK(ts.host.written.empty());
+}
+
 TEST_CASE("terminal: cursor save and restore", "[terminal]")
 {
     VtTerminalSetup ts;
@@ -1181,6 +1215,20 @@ TEST_CASE("terminal: OSC 7 remote host URI updates CWD correctly", "[terminal]")
     REQUIRE(ts.callbacks.last_window_title == "work");
 }
 
+#ifdef _WIN32
+TEST_CASE("terminal: OSC 7 normalizes Windows drive and UNC paths", "[terminal][osc7]")
+{
+    VtTerminalSetup ts;
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B]7;file:///C:/Users/Test/My%20Project\x07");
+    CHECK(ts.host.snapshot().metadata.working_directory == "C:\\Users\\Test\\My Project");
+    CHECK(ts.callbacks.last_window_title == "My Project");
+    ts.host.feed("\x1B]7;file://server/share/worktree\x07");
+    CHECK(ts.host.snapshot().metadata.working_directory == "\\\\server\\share\\worktree");
+    CHECK(ts.callbacks.last_window_title == "worktree");
+}
+#endif
+
 TEST_CASE("terminal: OSC 8 assigns hyperlink ids to printed cells", "[terminal][osc8]")
 {
     VtTerminalSetup ts;
@@ -1194,6 +1242,19 @@ TEST_CASE("terminal: OSC 8 assigns hyperlink ids to printed cells", "[terminal][
         REQUIRE(ts.host.cell_link_uri(col, 0) == "https://example.com");
     }
     REQUIRE(ts.host.cell_link(5, 0) == 0);
+}
+
+TEST_CASE("terminal: alternate-screen restoration preserves OSC 8 hyperlinks", "[terminal][osc8]")
+{
+    VtTerminalSetup ts;
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B]8;;https://example.com/wide\x1B\\A\x1B]8;;\x1B\\");
+    const uint16_t link = ts.host.cell_link(0, 0);
+    REQUIRE(link != 0);
+    ts.host.feed("\x1B[?1049hreplacement\x1B[?1049l");
+    CHECK(ts.host.cell_text(0, 0) == "A");
+    CHECK(ts.host.cell_link(0, 0) == link);
+    CHECK(ts.host.cell_link_uri(0, 0) == "https://example.com/wide");
 }
 
 TEST_CASE("terminal: OSC 8 empty URI clears current hyperlink", "[terminal][osc8]")

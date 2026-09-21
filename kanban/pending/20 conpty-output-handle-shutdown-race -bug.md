@@ -11,18 +11,18 @@
 
 ## Investigation
 
-- [ ] Map ownership and mutation of `output_read_` across spawn, reader, shutdown, and failure cleanup.
-- [ ] Verify `CancelSynchronousIo` behavior when the reader has not yet entered `ReadFile`.
-- [ ] Add deterministic synchronization or stress coverage for the check-to-read shutdown window.
+- [x] Map ownership and mutation of `output_read_` across spawn, reader, shutdown, and failure cleanup.
+- [x] Verify `CancelSynchronousIo` behavior when the reader has not yet entered `ReadFile`.
+- [x] Add deterministic synchronization or stress coverage for the check-to-read shutdown window.
 
 ## Fix strategy
 
-- [ ] Set the stop flag and cancel any pending reader I/O.
-- [ ] Join the reader thread before closing or invalidating `output_read_`.
-- [ ] Ensure all spawn-failure and repeated-shutdown paths preserve the same lifetime invariant.
+- [x] Set the stop flag and cancel any pending reader I/O.
+- [x] Join the reader thread before closing or invalidating `output_read_`.
+- [x] Ensure all spawn-failure and repeated-shutdown paths preserve the same lifetime invariant.
 
 ## Acceptance criteria
 
-- [ ] The output handle is never closed or mutated while the reader can access it.
+- [x] The output handle is never closed or mutated while the reader can access it.
 - [ ] Repeated spawn, active-output shutdown, and restart stress tests complete without invalid-handle reads, crashes, or hangs.
 - [ ] Windows terminal-process tests and the full Windows validation gate pass.

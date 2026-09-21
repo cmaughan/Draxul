@@ -255,7 +255,25 @@ void Grid::set_cell(int col, int row, const std::string& text, uint16_t hl_id, b
     if (col + 1 < cols_)
     {
         auto& next = cells_[index + 1];
-        if (next.double_width_cont)
+        if (next.double_width)
+        {
+            // The new cell displaces a wide leader in the following column.
+            // Clear its continuation as well: otherwise writing a wide glyph
+            // over that leader creates a new continuation in this column and
+            // leaves the old one stranded one cell farther right.
+            if (col + 2 < cols_)
+            {
+                auto& displaced_continuation = cells_[index + 2];
+                if (displaced_continuation.double_width_cont)
+                {
+                    clear_continuation(displaced_continuation);
+                    mark_dirty_index(static_cast<int>(index + 2));
+                }
+            }
+            clear_continuation(next);
+            mark_dirty_index(static_cast<int>(index + 1));
+        }
+        else if (next.double_width_cont)
         {
             clear_continuation(next);
             mark_dirty_index(static_cast<int>(index + 1));
@@ -286,6 +304,45 @@ void Grid::set_cell(int col, int row, const std::string& text, uint16_t hl_id, b
         next.double_width_cont = true;
         mark_dirty_index(static_cast<int>(index + 1));
     }
+}
+
+void Grid::restore_cell(int col, int row, const Cell& source)
+{
+    PERF_MEASURE();
+    thread_checker_.assert_main_thread("Grid::restore_cell");
+    if (col < 0 || col >= cols_ || row < 0 || row >= rows_)
+        return;
+
+    const size_t index = static_cast<size_t>(row) * static_cast<size_t>(cols_)
+        + static_cast<size_t>(col);
+    if (source.double_width_cont)
+    {
+        // A continuation only has meaning beside a restored wide leader.
+        // Do not route it through set_cell(), which intentionally clears the
+        // leader when replacing half of a wide glyph.
+        if (col > 0 && cells_[index - 1].double_width)
+        {
+            auto& target = cells_[index];
+            target = source;
+            target.dirty = false;
+            mark_dirty_index(static_cast<int>(index));
+        }
+        return;
+    }
+
+    set_cell(col, row, std::string(source.text.view()), source.hl_attr_id,
+        source.double_width);
+    auto& target = cells_[index];
+    target.hyperlink_id = source.hyperlink_id;
+    target.detected_url_id = source.detected_url_id;
+    if (source.double_width && col + 1 < cols_)
+    {
+        auto& continuation = cells_[index + 1];
+        continuation.hyperlink_id = source.hyperlink_id;
+        continuation.detected_url_id = source.detected_url_id;
+        mark_dirty_index(static_cast<int>(index + 1));
+    }
+    mark_dirty_index(static_cast<int>(index));
 }
 
 const Cell& Grid::get_cell(int col, int row) const

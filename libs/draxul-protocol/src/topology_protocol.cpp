@@ -549,6 +549,8 @@ nlohmann::json topology_command_to_json(
         { "kind", to_string(command.kind) },
         { "space_id", command.space_id },
         { "tab_id", command.tab_id },
+        { "destination_space_id", command.destination_space_id },
+        { "destination_tab_id", command.destination_tab_id },
         { "pane_id", command.pane_id },
         { "target_pane_id", command.target_pane_id },
         { "node_id", command.node_id },
@@ -595,6 +597,10 @@ std::optional<TopologyCommand> topology_command_from_json(
           };
     if (!read_optional_string("space_id", command.space_id)
         || !read_optional_string("tab_id", command.tab_id)
+        || !read_optional_string(
+            "destination_space_id", command.destination_space_id)
+        || !read_optional_string(
+            "destination_tab_id", command.destination_tab_id)
         || !read_optional_string("pane_id", command.pane_id)
         || !read_optional_string(
             "target_pane_id", command.target_pane_id)
@@ -720,6 +726,11 @@ nlohmann::json topology_command_result_to_json(
         { "applied", result.applied },
         { "duplicate", result.duplicate },
         { "created_id", result.created_id },
+        { "moved_pane_id", result.moved_pane_id },
+        { "source_space_id", result.source_space_id },
+        { "source_tab_id", result.source_tab_id },
+        { "destination_space_id", result.destination_space_id },
+        { "destination_tab_id", result.destination_tab_id },
         { "snapshot", topology_snapshot_to_json(result.snapshot) },
     };
 }
@@ -738,9 +749,24 @@ topology_command_result_from_json(
         return std::nullopt;
     }
     std::string created_id;
-    if (value.contains("created_id")
-        && !read_string(
-            value, "created_id", created_id, true))
+    std::string moved_pane_id;
+    std::string source_space_id;
+    std::string source_tab_id;
+    std::string destination_space_id;
+    std::string destination_tab_id;
+    const auto read_optional_string
+        = [&value](std::string_view key, std::string& target) {
+              return !value.contains(key)
+                  || read_string(value, key, target, true);
+          };
+    if (!read_optional_string("created_id", created_id)
+        || !read_optional_string("moved_pane_id", moved_pane_id)
+        || !read_optional_string("source_space_id", source_space_id)
+        || !read_optional_string("source_tab_id", source_tab_id)
+        || !read_optional_string(
+            "destination_space_id", destination_space_id)
+        || !read_optional_string(
+            "destination_tab_id", destination_tab_id))
     {
         error = "Invalid topology command result.";
         return std::nullopt;
@@ -752,6 +778,11 @@ topology_command_result_from_json(
         .applied = value["applied"].get<bool>(),
         .duplicate = value["duplicate"].get<bool>(),
         .created_id = std::move(created_id),
+        .moved_pane_id = std::move(moved_pane_id),
+        .source_space_id = std::move(source_space_id),
+        .source_tab_id = std::move(source_tab_id),
+        .destination_space_id = std::move(destination_space_id),
+        .destination_tab_id = std::move(destination_tab_id),
         .snapshot = std::move(*snapshot),
     };
 }

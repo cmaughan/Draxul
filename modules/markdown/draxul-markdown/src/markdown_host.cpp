@@ -393,7 +393,10 @@ void MarkdownHost::rebuild_layout()
 {
     const float width = static_cast<float>(std::max(1, viewport_.pixel_size.x));
     const float height = static_cast<float>(std::max(1, viewport_.pixel_size.y));
-    layout_ = layout_markdown_document(document_, theme_, rich_text_,
+    const FontMetricsLookup metrics_for = [this](const draxul::RichTextStyleKey& style) {
+        return rich_text_.metrics_for(style);
+    };
+    layout_ = layout_markdown_document(document_, theme_, metrics_for,
         LayoutOptions{
             .viewport_width = width,
             .viewport_height = height,

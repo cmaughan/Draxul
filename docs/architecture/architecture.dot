@@ -116,10 +116,6 @@ digraph DraxulArchitecture {
       <b>IBaseRenderer</b>
     >, fillcolor="#dcecff", color="#4f83cc"];
 
-    I3DRenderer [label=<
-      <b>I3DRenderer</b>
-    >, fillcolor="#dcecff", color="#4f83cc"];
-
     IGridRenderer [label=<
       <b>IGridRenderer</b>
     >, fillcolor="#dcecff", color="#4f83cc"];
@@ -168,8 +164,7 @@ digraph DraxulArchitecture {
       <b>VkRenderContext</b>
     >, fillcolor="#d9f5dd", color="#3d8c50"];
 
-    IBaseRenderer -> I3DRenderer [style=invis, weight=30];
-    I3DRenderer -> IGridRenderer [style=invis, weight=30];
+    IBaseRenderer -> IGridRenderer [style=invis, weight=30];
     IGridRenderer -> IRenderPass [style=invis, weight=30];
     IRenderPass -> IRenderContext [style=invis, weight=30];
     IRenderContext -> IImGuiHost [style=invis, weight=30];
@@ -199,14 +194,6 @@ digraph DraxulArchitecture {
       <b>IHost</b>
     >, fillcolor="#dcecff", color="#4f83cc"];
 
-    I3DHost [label=<
-      <b>I3DHost</b>
-    >, fillcolor="#dcecff", color="#4f83cc"];
-
-    IGridHost [label=<
-      <b>IGridHost</b>
-    >, fillcolor="#dcecff", color="#4f83cc"];
-
     GridHostBase [label=<
       <b>GridHostBase</b><br/>
       common grid-host runtime
@@ -233,9 +220,7 @@ digraph DraxulArchitecture {
     >, fillcolor="#d9f5dd", color="#3d8c50"];
 
     IHostCallbacks -> IHost [style=invis, weight=30];
-    IHost -> I3DHost [style=invis, weight=30];
-    I3DHost -> IGridHost [style=invis, weight=30];
-    IGridHost -> GridHostBase [style=invis, weight=30];
+    IHost -> GridHostBase [style=invis, weight=30];
     GridHostBase -> TerminalHostBase [style=invis, weight=30];
     TerminalHostBase -> LocalTerminalHost [style=invis, weight=30];
     LocalTerminalHost -> NvimHost [style=invis, weight=30];
@@ -558,8 +543,7 @@ digraph DraxulArchitecture {
 
   // Renderer hierarchy
   SdlWindow -> IWindow [arrowhead=empty, label="implements"];
-  I3DRenderer -> IBaseRenderer [arrowhead=empty, label="extends"];
-  IGridRenderer -> I3DRenderer [arrowhead=empty, label="extends"];
+  IGridRenderer -> IBaseRenderer [arrowhead=empty, label="extends"];
   MetalRenderer -> IGridRenderer [arrowhead=empty, label="implements"];
   MetalRenderer -> IImGuiHost [arrowhead=empty, label="implements"];
   MetalRenderer -> ICaptureRenderer [arrowhead=empty, label="implements"];
@@ -572,13 +556,10 @@ digraph DraxulArchitecture {
   CubeRenderPass -> IRenderPass [arrowhead=empty, label="implements"];
 
   // Host hierarchy
-  I3DHost -> IHost [arrowhead=empty, label="extends"];
-  IGridHost -> I3DHost [arrowhead=empty, label="extends"];
-  GridHostBase -> IGridHost [arrowhead=empty, label="extends"];
+  GridHostBase -> IHost [arrowhead=empty, label="extends"];
   TerminalHostBase -> GridHostBase [arrowhead=empty, label="extends"];
   LocalTerminalHost -> TerminalHostBase [arrowhead=empty, label="extends"];
   NvimHost -> GridHostBase [arrowhead=empty, label="extends"];
-  MegaCityHost -> I3DHost [arrowhead=empty, label="implements"];
   App -> IHostCallbacks [arrowhead=empty, label="implements"];
 
   // ═════════════════════════════════════════════════
@@ -648,7 +629,6 @@ digraph DraxulArchitecture {
   RendererBundle -> IGridRenderer [label="grid()", constraint=false, color="#94a3b8"];
   RendererBundle -> IImGuiHost [label="imgui()", constraint=false, color="#94a3b8"];
   RendererBundle -> ICaptureRenderer [label="capture()", constraint=false, color="#94a3b8"];
-  RendererBundle -> I3DRenderer [label="threed()", constraint=false, color="#94a3b8"];
 
   GridRenderingPipeline -> TextService [label="shapes via", constraint=false, color="#94a3b8"];
   GridRenderingPipeline -> Grid [label="reads cells", constraint=false, color="#94a3b8"];
@@ -685,7 +665,7 @@ digraph DraxulArchitecture {
   UiRequestWorker -> NvimRpc [label="async requests", constraint=false, color="#94a3b8"];
 
   // MegaCity cross-links
-  MegaCityHost -> I3DRenderer [label="registers 3D pass", constraint=false, color="#94a3b8"];
+  MegaCityHost -> IRenderPass [label="owns render pass", constraint=false, color="#94a3b8"];
   MegaCityHost -> IImGuiHost [label="contributes ImGui", constraint=false, color="#94a3b8"];
   MegaCityHost -> TextService [label="sign label rendering", constraint=false, color="#94a3b8"];
   IsometricScenePass -> IRenderContext [label="records into", constraint=false, color="#94a3b8"];

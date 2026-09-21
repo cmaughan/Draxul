@@ -11,18 +11,18 @@ Windows and Unix PTY backends clamp dimensions to 320×200 while the terminal gr
 
 ## Investigation
 
-- [ ] Identify all grid and PTY dimension limits and their platform type constraints.
-- [ ] Confirm realistic maximum viewport sizes on Windows and macOS.
-- [ ] Add tests that resize beyond both current clamp thresholds.
+- [x] Identify all grid and PTY dimension limits and their platform type constraints.
+- [x] Confirm the shared portable 16-bit terminal-dimension ceiling.
+- [x] Add macOS validation above both legacy clamp thresholds; Windows remains pending.
 
 ## Fix strategy
 
-- [ ] Define one shared validated terminal-dimension policy.
-- [ ] Apply identical normalized dimensions to `TerminalCore`, Grid, ConPTY, and Unix PTY.
-- [ ] Preserve both backend implementations and surface resize failure rather than silently diverging.
+- [x] Define one shared validated terminal-dimension policy.
+- [x] Apply identical normalized dimensions to `TerminalCore`, Grid, ConPTY, and Unix PTY.
+- [x] Preserve both backend implementations and surface resize failure rather than silently diverging.
 
 ## Acceptance criteria
 
-- [ ] The child-reported terminal size always matches the rendered grid size.
-- [ ] Widths above 320 and heights above 200 work up to the documented supported limit.
+- [x] The child-reported terminal size always matches the rendered grid size through the shared normalization boundary.
+- [x] Widths above 320 and heights above 200 work up to the portable 32767-cell dimension limit.
 - [ ] Windows ConPTY and macOS Unix PTY resize validation passes.

@@ -6,7 +6,7 @@
 
 #include <catch2/catch_all.hpp>
 
-#include "chrome_host.h"
+#include <draxul/chrome_layout.h>
 
 using draxul::pane_status_pill_layout;
 

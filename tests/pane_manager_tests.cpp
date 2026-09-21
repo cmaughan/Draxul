@@ -12,7 +12,7 @@
 #include <draxul/unavailable_host.h>
 
 #include "pane_manager.h"
-#include "split_tree.h"
+#include <draxul/split_tree.h>
 #include <draxul/grid_host_base.h>
 #include <utility>
 
@@ -866,6 +866,32 @@ TEST_CASE("pane manager: projected host preserves typed initialization failure",
     CHECK_FALSE(harness.manager.reconcile_projected_layout(
         harness.callbacks, 800, 600, projected));
     CHECK(harness.manager.error_code() == "terminal_not_found");
+    CHECK(harness.manager.host_count() == 1);
+}
+
+TEST_CASE("pane manager: failed local restart leaves a retryable placeholder",
+    "[pane_manager][restart][recovery]")
+{
+    PaneManagerHarness harness;
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+    const LeafId leaf = harness.manager.focused_leaf();
+    harness.fail_next_initialize = true;
+    CHECK(harness.manager.restart_leaf(leaf, harness.callbacks));
+    REQUIRE(harness.manager.host_for(leaf) != nullptr);
+    CHECK(harness.manager.host_for(leaf)->is_running());
+    CHECK(harness.manager.host_count() == 1);
+    const auto unavailable_snapshot = harness.manager.snapshot_layout();
+    REQUIRE(unavailable_snapshot);
+    REQUIRE(unavailable_snapshot->panes.size() == 1);
+    CHECK(unavailable_snapshot->panes.front().leaf_id == leaf);
+    CHECK(unavailable_snapshot->panes.front().launch.kind
+        == HostKind::Nvim);
+
+    // The original launch options remain attached to the leaf, so a later
+    // retry can replace the placeholder after the transient failure clears.
+    CHECK(harness.manager.restart_leaf(leaf, harness.callbacks));
+    REQUIRE(harness.manager.host_for(leaf) != nullptr);
+    CHECK(harness.manager.host_for(leaf)->is_running());
     CHECK(harness.manager.host_count() == 1);
 }
 

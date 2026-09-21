@@ -1,6 +1,6 @@
 #pragma once
 
-#include "split_tree.h"
+#include <draxul/split_tree.h>
 
 #include <algorithm>
 #include <chrono>

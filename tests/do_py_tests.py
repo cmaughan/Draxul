@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import pathlib
+import signal
 import stat
 import subprocess
 import sys
@@ -95,8 +96,86 @@ def load_sdk_smoke_module():
     return module
 
 
+def load_script_module(name: str):
+    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / f"{name}.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"failed to load scripts/{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 draxul_do = load_do_module()
 sdk_smoke = load_sdk_smoke_module()
+draxul_paths = load_script_module("draxul_paths")
+
+
+class DeveloperHelperPathTests(unittest.TestCase):
+    def test_platform_executable_paths_cover_bundle_windows_and_unix(self) -> None:
+        root = pathlib.Path("workspace")
+        self.assertEqual(
+            root / "build" / "draxul.app" / "Contents" / "MacOS" / "draxul",
+            draxul_paths.executable_path(root, platform="darwin"),
+        )
+        self.assertEqual(
+            root / "build" / "draxul",
+            draxul_paths.executable_path(root, platform="linux"),
+        )
+        self.assertEqual(
+            root / "build" / "draxul.exe",
+            draxul_paths.executable_path(root, platform="win32"),
+        )
+
+    @unittest.skipUnless(sys.platform == "darwin", "macOS shell helper")
+    def test_store_logs_resolves_the_standard_bundle_executable(self) -> None:
+        completed = subprocess.run(
+            ["bash", str(ROOT / "scripts" / "store_logs.sh"), "--print-executable"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(
+            ROOT / "build" / "draxul.app" / "Contents" / "MacOS" / "draxul",
+            pathlib.Path(completed.stdout.strip()).resolve(),
+        )
+
+
+class AgentGuidanceReferenceTests(unittest.TestCase):
+    def test_current_guidance_avoids_retired_product_paths_and_interfaces(self) -> None:
+        guidance_paths = [
+            ROOT / "AGENTS.md",
+            ROOT / "CLAUDE.md",
+            ROOT / "README.md",
+            ROOT / "docs" / "module-map.md",
+            ROOT / "plugins" / "megacity" / "product" / "AGENTS.md",
+        ]
+        current_guidance = "\n".join(
+            path.read_text(encoding="utf-8") for path in guidance_paths
+        )
+        for retired in (
+            "modules/megacity/",
+            "modules/satview/",
+            "modules/score/",
+            "I3DRenderer",
+        ):
+            self.assertNotIn(retired, current_guidance)
+
+        megacity_guidance = guidance_paths[-1].read_text(encoding="utf-8")
+        self.assertNotIn("build-ninja-release", megacity_guidance)
+        self.assertIn("do.py test debug --megacity", megacity_guidance)
+
+    def test_named_aggregate_targets_exist_in_authoritative_cmake(self) -> None:
+        tests_cmake = (ROOT / "tests" / "CMakeLists.txt").read_text(encoding="utf-8")
+        for target in (
+            "draxul-tests-core",
+            "draxul-tests-megacity",
+            "draxul-tests-satview",
+            "draxul-tests-scoreview",
+            "draxul-tests-pcbview",
+            "draxul-tests-rezonality",
+        ):
+            self.assertIn(target, tests_cmake)
 
 
 class ExternalSdkSmokeCommandTests(unittest.TestCase):
@@ -313,6 +392,90 @@ class BuildCacheTests(unittest.TestCase):
             )
 
 
+class BuildTreeLockTests(unittest.TestCase):
+    def test_live_owner_blocks_second_build_and_records_inspectable_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            build_tree = pathlib.Path(tmp) / "build"
+            first = draxul_do.BuildTreeLock(build_tree, ["do.py", "test"])
+            second = draxul_do.BuildTreeLock(build_tree, ["do.py", "build"])
+
+            first.acquire()
+            try:
+                with self.assertRaisesRegex(
+                    draxul_do.BuildTreeBusyError, rf"PID {first._owner()['pid']}"
+                ):
+                    second.acquire()
+                first.finish(0)
+            finally:
+                first.release()
+
+            self.assertFalse(first.path.exists())
+            result = json.loads(first.result_path.read_text(encoding="utf-8"))
+            self.assertEqual("completed", result["status"])
+            self.assertEqual(0, result["return_code"])
+            self.assertEqual(["do.py", "test"], result["command"])
+
+    def test_stale_owner_is_recovered_without_touching_a_live_process(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            build_tree = pathlib.Path(tmp) / "build"
+            build_tree.mkdir()
+            lock_path = build_tree / ".draxul-build.lock"
+            lock_path.write_text(
+                json.dumps({"pid": 424242, "token": "stale"}), encoding="utf-8"
+            )
+            lock = draxul_do.BuildTreeLock(build_tree, ["do.py", "build"])
+
+            with mock.patch.object(
+                draxul_do, "_process_is_running", return_value=False
+            ) as process_is_running:
+                lock.acquire()
+            try:
+                self.assertEqual(lock.token, lock._owner()["token"])
+                process_is_running.assert_called_once_with(424242)
+            finally:
+                lock.release()
+
+    def test_serialized_build_exits_cleanly_when_tree_is_owned(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            build_tree = draxul_do._selected_build_dir(root, "debug", "ninja")
+            owner = draxul_do.BuildTreeLock(build_tree, ["do.py", "test"])
+            owner.acquire()
+
+            @draxul_do.serialized_build
+            def should_not_run(*_args, **_kwargs):
+                self.fail("contending build ran")
+
+            errors = io.StringIO()
+            try:
+                with contextlib.redirect_stderr(errors):
+                    result = should_not_run(root, "debug", False, "ninja")
+            finally:
+                owner.release()
+
+            self.assertEqual(3, result[0])
+            self.assertIn("build tree is owned by PID", errors.getvalue())
+
+    def test_interrupted_build_records_result_and_releases_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+
+            @draxul_do.serialized_build
+            def interrupted(*_args, **_kwargs):
+                raise KeyboardInterrupt
+
+            with self.assertRaises(KeyboardInterrupt):
+                interrupted(root, "debug", False, "ninja")
+
+            build_tree = draxul_do._selected_build_dir(root, "debug", "ninja")
+            self.assertFalse((build_tree / ".draxul-build.lock").exists())
+            result = json.loads(
+                (build_tree / ".draxul-build-result.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("interrupted", result["status"])
+            self.assertEqual(130, result["return_code"])
+
+
 class RunCommandTests(unittest.TestCase):
     def test_windows_gui_launch_returns_after_starting_app(self) -> None:
         executable = ROOT / "build-ninja-release" / "draxul.exe"
@@ -403,6 +566,20 @@ class CleanCommandTests(unittest.TestCase):
 
             self.assertIn("Build directories already absent", output.getvalue())
 
+    def test_clean_refuses_to_remove_a_live_owned_build_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            owner = draxul_do.BuildTreeLock(root / "build", ["do.py", "test"])
+            owner.acquire()
+            errors = io.StringIO()
+            try:
+                with contextlib.redirect_stderr(errors):
+                    self.assertEqual(3, draxul_do.cmd_clean(root))
+                self.assertTrue(owner.path.exists())
+                self.assertIn("refusing to remove active build tree", errors.getvalue())
+            finally:
+                owner.release()
+
     def test_clean_rejects_arguments_without_removing_build(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -449,6 +626,9 @@ class TestCommandTests(unittest.TestCase):
                 return_value=(0, build_dir, "Debug", build_env),
             ) as build_mock,
             mock.patch.object(draxul_do, "run", return_value=0) as run_mock,
+            mock.patch.object(
+                draxul_do, "_ctest_selection_count", return_value=(0, 14, "")
+            ),
         ):
             self.assertEqual(0, draxul_do.main())
 
@@ -460,6 +640,12 @@ class TestCommandTests(unittest.TestCase):
             targets=("draxul-tests-core",),
         )
         _, ctest_filter, _ = draxul_do._test_scope_selection(set(), False)
+        self.assertIn("draxul-test-weather-shard", ctest_filter[1])
+        self.assertIn("draxul-test-markdown-layout-shard", ctest_filter[1])
+        self.assertIn("draxul-test-kanban-core-shard", ctest_filter[1])
+        self.assertIn("draxul-test-kanban-host-shard", ctest_filter[1])
+        self.assertIn("draxul-test-nanovg-paint-shard", ctest_filter[1])
+        self.assertIn("draxul-test-plugin-nanovg-shard", ctest_filter[1])
         run_mock.assert_called_once_with(
             [
                 "ctest",
@@ -467,6 +653,7 @@ class TestCommandTests(unittest.TestCase):
                 "--build-config", "Debug",
                 "--parallel", draxul_do._test_parallel_jobs(),
                 "--timeout", "120",
+                "--no-tests=error",
                 *ctest_filter,
                 "--output-on-failure",
             ],
@@ -488,6 +675,9 @@ class TestCommandTests(unittest.TestCase):
                 return_value=(0, build_dir, "Release", None),
             ) as build_mock,
             mock.patch.object(draxul_do, "run", return_value=0) as run_mock,
+            mock.patch.object(
+                draxul_do, "_ctest_selection_count", return_value=(0, 14, "")
+            ),
         ):
             self.assertEqual(0, draxul_do.main())
 
@@ -519,7 +709,73 @@ class TestCommandTests(unittest.TestCase):
         self.assertIn("draxul-test-scoreview-shard", ctest_filter[1])
         self.assertIn("draxul-test-scoreview-runtime-shard", ctest_filter[1])
         self.assertNotIn("draxul-test-megacity-shard", ctest_filter[1])
+        self.assertNotIn("draxul-test-megacity-parser-shard", ctest_filter[1])
         self.assertEqual("core + satview, scoreview", label)
+
+    def test_label_filters_the_selected_scope_and_rejects_zero_matches(self) -> None:
+        build_dir = ROOT / "build-ninja-debug"
+        build_env = {"DRAXUL_TEST_ENV": "1"}
+        with (
+            mock.patch.object(
+                draxul_do,
+                "_configure_and_build",
+                return_value=(0, build_dir, "Debug", build_env),
+            ) as build_mock,
+            mock.patch.object(draxul_do, "run", return_value=0) as run_mock,
+            mock.patch.object(
+                draxul_do, "_ctest_selection_count", return_value=(0, 2, "")
+            ),
+        ):
+            self.assertEqual(
+                0,
+                draxul_do.cmd_test(ROOT, ["--satview", "--label", "kanban"]),
+            )
+
+        build_mock.assert_called_once_with(
+            ROOT,
+            "debug",
+            False,
+            "ninja",
+            targets=("draxul-tests-core", "draxul-tests-satview"),
+        )
+        command = run_mock.call_args.args[0]
+        self.assertIn("--tests-regex", command)
+        self.assertIn("--label-regex", command)
+        self.assertIn("^kanban$", command)
+        self.assertIn("--no-tests=error", command)
+
+    def test_label_requires_one_non_option_value(self) -> None:
+        for args in (["--label"], ["--label", "--satview"]):
+            with self.subTest(args=args):
+                with self.assertRaisesRegex(ValueError, "--label requires a label"):
+                    draxul_do._parse_test_args(args)
+
+        with self.assertRaisesRegex(ValueError, "--label may be specified only once"):
+            draxul_do._parse_test_args(["--label", "kanban", "--label", "unit"])
+
+    def test_agent_integration_label_selects_the_core_focused_target(self) -> None:
+        targets, ctest_filter, label = draxul_do._test_scope_selection(
+            set(), False, "agent-integration"
+        )
+
+        self.assertEqual(("draxul-tests-core",), targets)
+        self.assertEqual("--tests-regex", ctest_filter[0])
+        self.assertIn("draxul-test-agent-integration-shard", ctest_filter[1])
+        self.assertEqual(
+            ["--label-regex", "^agent\\-integration$"], ctest_filter[2:]
+        )
+        self.assertEqual("core labeled agent-integration", label)
+        tests_cmake = (ROOT / "tests" / "CMakeLists.txt").read_text(encoding="utf-8")
+        self.assertIn(
+            'draxul_add_test_target(draxul-test-agent-integration "agent-integration"',
+            tests_cmake,
+        )
+
+    def test_unit_compatibility_flag_keeps_the_default_scope(self) -> None:
+        parsed = draxul_do._parse_test_args(["--unit"])
+        self.assertEqual(set(), parsed[4])
+        self.assertFalse(parsed[5])
+        self.assertIsNone(parsed[6])
 
     def test_products_scope_selects_every_product(self) -> None:
         parsed = draxul_do._parse_test_args(["--products"])
@@ -540,10 +796,14 @@ class TestCommandTests(unittest.TestCase):
         )
         for product in ("megacity", "satview", "scoreview", "pcbview", "rezonality"):
             self.assertIn(f"draxul-test-{product}-shard", ctest_filter[1])
+        self.assertIn("draxul-test-megacity-parser-shard", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-pbr-robot", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-ray-tracer", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-audio-spectrum", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-plugin", ctest_filter[1])
+        self.assertIn("draxul-test-rezonality-project-shard", ctest_filter[1])
+        self.assertIn("draxul-test-rezonality-runtime-shard", ctest_filter[1])
+        self.assertIn("draxul-test-rezonality-audio-shard", ctest_filter[1])
         self.assertIn("draxul-render-pcbview-plugin", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-blend-waves", ctest_filter[1])
         self.assertIn("draxul-render-rezonality-deferred-shading", ctest_filter[1])
@@ -575,6 +835,79 @@ class TestCommandTests(unittest.TestCase):
         build_mock.assert_not_called()
         self.assertIn("test accepts", error.getvalue())
 
+    def test_focused_target_preflights_filter_and_repeats_with_new_seeds(self) -> None:
+        build_tree = ROOT / "build"
+        executable = build_tree / "tests" / "draxul-test-core"
+        with (
+            mock.patch.object(
+                draxul_do,
+                "_configure_and_build",
+                return_value=(0, build_tree, "Debug", None),
+            ) as build_mock,
+            mock.patch.object(
+                draxul_do, "_focused_test_executable", return_value=executable
+            ),
+            mock.patch.object(pathlib.Path, "is_file", return_value=True),
+            mock.patch.object(
+                draxul_do,
+                "_capture_owned_process",
+                return_value=(0, "3 matching test cases\n"),
+            ) as capture,
+            mock.patch.object(draxul_do, "run", return_value=0) as run_mock,
+        ):
+            self.assertEqual(
+                0,
+                draxul_do.cmd_test(
+                    ROOT,
+                    ["--target", "draxul-test-core", "--catch", "[server]",
+                     "--repeat", "2", "--seed", "41"],
+                ),
+            )
+
+        build_mock.assert_called_once_with(
+            ROOT, "debug", False, "ninja", targets=("draxul-test-core",)
+        )
+        self.assertEqual([str(executable), "[server]", "--list-tests"], capture.call_args.args[0])
+        self.assertEqual(2, run_mock.call_count)
+        self.assertIn("41", run_mock.call_args_list[0].args[0])
+        self.assertIn("42", run_mock.call_args_list[1].args[0])
+
+    def test_catch_inventory_count_accepts_filtered_and_unfiltered_output(self) -> None:
+        self.assertEqual(3, draxul_do._catch_selection_count("3 matching test cases\n"))
+        self.assertEqual(895, draxul_do._catch_selection_count("895 test cases\n"))
+
+    def test_focused_target_rejects_zero_match_before_test_execution(self) -> None:
+        executable = ROOT / "build" / "tests" / "draxul-test-core"
+        errors = io.StringIO()
+        with (
+            contextlib.redirect_stderr(errors),
+            mock.patch.object(
+                draxul_do,
+                "_configure_and_build",
+                return_value=(0, ROOT / "build", "Debug", None),
+            ),
+            mock.patch.object(
+                draxul_do, "_focused_test_executable", return_value=executable
+            ),
+            mock.patch.object(pathlib.Path, "is_file", return_value=True),
+            mock.patch.object(
+                draxul_do,
+                "_capture_owned_process",
+                return_value=(0, "0 matching test cases\n"),
+            ),
+            mock.patch.object(draxul_do, "run") as run_mock,
+        ):
+            self.assertEqual(
+                2,
+                draxul_do.cmd_test(
+                    ROOT,
+                    ["--target", "draxul-test-core", "--catch", "[missing]"],
+                ),
+            )
+
+        run_mock.assert_not_called()
+        self.assertIn("matched zero tests", errors.getvalue())
+
 
 class SmokeCommandTests(unittest.TestCase):
     def test_smoke_can_reuse_selected_debug_build_without_rebuilding(self) -> None:
@@ -591,7 +924,9 @@ class SmokeCommandTests(unittest.TestCase):
                 "build_shortcut_exe",
                 return_value=(0, executable, build_env),
             ) as build_mock,
-            mock.patch.object(draxul_do, "run", return_value=0) as run_mock,
+            mock.patch.object(
+                draxul_do, "run_bounded_process_tree", return_value=0
+            ) as run_mock,
         ):
             self.assertEqual(0, draxul_do.main())
 
@@ -606,6 +941,82 @@ class SmokeCommandTests(unittest.TestCase):
             [str(executable), "--console", "--smoke-test"],
             ROOT,
             env=build_env,
+            timeout_seconds=30,
+        )
+
+    def test_smoke_timeout_stops_the_owned_posix_process_group(self) -> None:
+        process = mock.Mock(pid=4321)
+        process.wait.side_effect = [
+            subprocess.TimeoutExpired(["draxul"], 30),
+            -signal.SIGTERM,
+            -signal.SIGTERM,
+        ]
+        with (
+            mock.patch.object(draxul_do.sys, "platform", "darwin"),
+            mock.patch.object(
+                draxul_do.subprocess, "Popen", return_value=process
+            ) as popen,
+            mock.patch.object(draxul_do.os, "killpg") as killpg,
+        ):
+            result = draxul_do.run_bounded_process_tree(
+                ["draxul", "--smoke-test"],
+                ROOT,
+                timeout_seconds=30,
+            )
+
+        self.assertEqual(124, result)
+        popen.assert_called_once_with(
+            ["draxul", "--smoke-test"],
+            cwd=ROOT,
+            env=None,
+            start_new_session=True,
+        )
+        killpg.assert_called_once_with(4321, signal.SIGTERM)
+
+    def test_keyboard_interrupt_stops_the_owned_posix_process_group(self) -> None:
+        process = mock.Mock(pid=4321)
+        process.wait.side_effect = [KeyboardInterrupt, -signal.SIGTERM]
+        with (
+            mock.patch.object(draxul_do.sys, "platform", "darwin"),
+            mock.patch.object(draxul_do.subprocess, "Popen", return_value=process),
+            mock.patch.object(draxul_do.os, "killpg") as killpg,
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                draxul_do.run(["cmake", "--build", "build"], ROOT)
+
+        killpg.assert_called_once_with(4321, signal.SIGTERM)
+
+    def test_windows_timeout_uses_new_group_and_taskkill_tree(self) -> None:
+        process = mock.Mock(pid=9876)
+        process.wait.side_effect = [
+            subprocess.TimeoutExpired(["draxul"], 30),
+            1,
+        ]
+        completed = subprocess.CompletedProcess([], 0)
+        with (
+            mock.patch.object(draxul_do.sys, "platform", "win32"),
+            mock.patch.object(
+                draxul_do.subprocess,
+                "CREATE_NEW_PROCESS_GROUP",
+                512,
+                create=True,
+            ),
+            mock.patch.object(draxul_do.subprocess, "Popen", return_value=process) as popen,
+            mock.patch.object(
+                draxul_do.subprocess, "run", return_value=completed
+            ) as run_mock,
+        ):
+            self.assertEqual(
+                124,
+                draxul_do.run_bounded_process_tree(
+                    ["draxul.exe", "--smoke-test"], ROOT, timeout_seconds=30
+                ),
+            )
+
+        self.assertEqual(512, popen.call_args.kwargs["creationflags"])
+        self.assertEqual(
+            ["taskkill", "/PID", "9876", "/T", "/F"],
+            run_mock.call_args.args[0],
         )
 
     def test_smoke_rejects_duplicate_skip_build(self) -> None:

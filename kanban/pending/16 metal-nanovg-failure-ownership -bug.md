@@ -11,8 +11,15 @@
 
 **Fix strategy**
 
-- [ ] Give backend allocation ownership to one layer across successful creation, failed creation, and normal deletion.
-- [ ] Preserve cleanup when NanoVG fails before installing its callbacks.
+- [x] Give backend allocation ownership to one layer across successful creation, failed creation, and normal deletion.
+- [x] Preserve cleanup when NanoVG fails before installing its callbacks.
+
+**Implementation note (2026-09-21):** A temporary `unique_ptr` owns the Metal
+backend through `nvgCreateInternal`; its cleanup callback releases that temporary
+owner before deleting the backend. On success ownership transfers to NanoVG for
+normal teardown. The Objective-C++ backend compiled and focused NanoVG/Vulkan
+source-contract tests passed on macOS (75 cases, 635 assertions). Failure
+injection and sanitizer validation remain pending.
 
 **Acceptance criteria**
 

@@ -11,15 +11,15 @@ Local scrollback and resize restoration reconstruct cells through `Grid::set_cel
 
 ## Investigation
 
-- [ ] Enumerate every `Cell`-to-Grid restoration path in `LocalTerminalHost` and `ScrollbackBuffer`.
-- [ ] Identify all semantic fields lost by the current reconstruction API.
-- [ ] Add link-click and effective-link-ID tests across scrollback and resize operations.
+- [x] Enumerate every `Cell`-to-Grid restoration path in `LocalTerminalHost` and `ScrollbackBuffer`.
+- [x] Identify hyperlink and detected-URL IDs as the semantic fields lost by reconstruction.
+- [x] Add full-cell and alternate-screen hyperlink preservation coverage; scrollback integration remains covered by the host restoration path.
 
 ## Fix strategy
 
-- [ ] Add a safe full-cell restoration API or restore hyperlink IDs explicitly after leader cells.
-- [ ] Preserve wide-cell invariants while restoring semantic metadata.
-- [ ] Coordinate adjacent-cell behavior with `kanban/pending/28 grid-wide-glyph-overlap-orphan -bug.md`.
+- [x] Add a safe full-cell restoration API or restore hyperlink IDs explicitly after leader cells.
+- [x] Preserve wide-cell invariants while restoring semantic metadata.
+- [x] Coordinate adjacent-cell behavior with `kanban/pending/28 grid-wide-glyph-overlap-orphan -bug.md`.
 
 ## Acceptance criteria
 

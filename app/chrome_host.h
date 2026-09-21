@@ -1,9 +1,9 @@
 #pragma once
 
-#include "chrome_layout.h"
+#include <draxul/chrome_layout.h>
 #include "chrome_text_layer.h"
 #include "chrome_vector_pass.h"
-#include "rename_editor.h"
+#include <draxul/rename_editor.h>
 #include "space_controller.h"
 
 #include <chrono>

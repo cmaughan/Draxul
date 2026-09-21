@@ -63,3 +63,7 @@ function(draxul_plugin_imgui_attach_metal_backend target class_prefix)
             COMPILE_DEFINITIONS
             "MetalContext=${class_prefix}ImGuiMetalContext;MetalBuffer=${class_prefix}ImGuiMetalBuffer;FramebufferDescriptor=${class_prefix}ImGuiFramebufferDescriptor")
 endfunction()
+
+if(COMMAND draxul_configure_internal_targets_in_directory)
+    draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")
+endif()

@@ -1,9 +1,11 @@
 #include <draxul/terminal_core.h>
 
 #include <draxul/terminal_sgr.h>
+#include <draxul/terminal_dimensions.h>
 
 #include <algorithm>
 #include <draxul/alt_screen_manager.h>
+#include <draxul/filesystem_path_text.h>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/unicode.h>
@@ -19,7 +21,7 @@ namespace
 {
 void set_grid_cell_for_alt_screen(Grid& grid, int col, int row, const Cell& cell)
 {
-    grid.set_cell(col, row, std::string(cell.text.view()), cell.hl_attr_id, cell.double_width);
+    grid.restore_cell(col, row, cell);
 }
 
 std::string dec_special_graphics(std::string_view cluster)
@@ -169,8 +171,9 @@ void TerminalCore::reset()
 void TerminalCore::resize(int cols, int rows)
 {
     PERF_MEASURE();
-    cols = std::max(1, cols);
-    rows = std::max(1, rows);
+    const auto dimensions = normalize_terminal_dimensions(cols, rows);
+    cols = dimensions.cols;
+    rows = dimensions.rows;
     if (cols == grid_cols() && rows == grid_rows())
         return;
 
@@ -708,16 +711,9 @@ void TerminalCore::on_osc_cwd(const std::string& path)
 
     // Show the last path component (directory name) as the window title,
     // matching the convention used by most terminal emulators.
-    std::string_view sv = path;
+    const std::string_view basename = path_display_basename(path);
 
-    // Strip trailing slash(es) so that "/tmp/" yields "tmp", not "".
-    while (sv.size() > 1 && sv.back() == '/')
-        sv.remove_suffix(1);
-
-    const auto last_slash = sv.rfind('/');
-    const std::string_view basename = (last_slash != std::string_view::npos) ? sv.substr(last_slash + 1) : sv;
-
-    host_.terminal_set_title(basename.empty() ? "/" : basename);
+    host_.terminal_set_title(basename.empty() ? path : std::string(basename));
 }
 
 TerminalSnapshotMetadata TerminalCore::snapshot_metadata() const

@@ -409,7 +409,8 @@ bool PaneManager::restart_leaf(LeafId id, IHostCallbacks& callbacks)
     hosts_.erase(it);
 
     // Relaunch the same host in the same pane slot.
-    if (!create_host_for_leaf(id, callbacks, std::move(launch), false))
+    if (!create_host_for_leaf(
+            id, callbacks, std::move(launch), false, true))
         return false;
 
     update_all_viewports();
@@ -1269,7 +1270,8 @@ DividerId PaneManager::find_focused_ancestor_divider(FocusDirection direction) c
 }
 
 bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
-    HostLaunchOptions launch, bool is_primary)
+    HostLaunchOptions launch, bool is_primary,
+    bool preserve_failed_leaf)
 {
     PERF_MEASURE();
     error_code_.clear();
@@ -1357,12 +1359,16 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
 
     if (!new_host)
     {
-        pane_ids_.erase(id);
         if (HostProviderRegistry::global().has(launch.kind))
             error_ = std::string("The selected host could not be created: ") + to_string(launch.kind);
         else
             error_ = std::string("The selected host is not available in this build: ") + to_string(launch.kind);
-        return false;
+        if (!preserve_failed_leaf)
+        {
+            pane_ids_.erase(id);
+            return false;
+        }
+        new_host = std::make_unique<UnavailableHost>(error_);
     }
 
     IGridRenderer& grid_renderer = *deps_.grid_renderer;
@@ -1400,7 +1406,8 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
             && deps_.options
             && deps_.options->host_kind_explicit
             && deps_.options->host_kind == HostKind::Plugin;
-        if (saved_launch.kind != HostKind::Plugin || cli_requested_plugin)
+        if ((saved_launch.kind != HostKind::Plugin || cli_requested_plugin)
+            && !preserve_failed_leaf)
         {
             pane_ids_.erase(id);
             return false;

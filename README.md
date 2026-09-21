@@ -197,7 +197,7 @@ The root `do.py` script is the recommended entry point for common tasks:
 ./do.py test --satview  # Add SatView's test suite
 ./do.py test --products # Add every product test suite
 ./do.py test --all      # Complete unit inventory
-./do.py smoke --skip-build # reuse that built app for the startup smoke test
+./do.py smoke --skip-build # reuse that app; bounded to 30s in an owned process group
 ./do.py clean        # remove repository-root build/ and build-* directories
 
 ./do.py basic        # run basic-view render snapshot compare
@@ -241,6 +241,8 @@ py do.py clean                 # Remove build/ and build-*/
 The repository includes lightweight native tests for grid logic, redraw parsing, input translation, RPC behavior, renderer state, and Unicode width conformance against headless Neovim.
 
 For the normal edit-test loop, `do.py build`, `do.py run`, and `do.py test` share the same selected generator, configuration, and build tree. They default to Debug and Ninja on Windows. `do.py test` builds the core test aggregate and its dependencies—including the app required by the core test contract—then runs only the core, app, Markdown/Kanban, and Python workflow tests with bounded parallelism. It does not launch the app or run smoke/render comparisons.
+
+Configure/build work is serialized per selected build tree. A second `do.py` build workflow exits cleanly and reports the live owner's PID, command, and lock file instead of writing the same object directory concurrently. The last completed or interrupted build result remains in `<build-tree>/.draxul-build-result.json`, so a timed-out caller can inspect the actual outcome before retrying. `do.py clean` also refuses to remove a build tree with a live owner.
 
 Product tests are opt-in and additive: use `--megacity`, `--satview`, `--scoreview`, or `--rezonality` when changing that product or a shared seam it consumes. Use `--products` for changes to shared plugin SDK/support/renderer code that can affect every product. `--all` builds the historical `draxul-tests` aggregate and runs the complete unit inventory. The individual product flags and `--products` keep the build scoped to their named aggregates; `--all` is the explicit broad acceptance path. The Rezonality scope additionally runs its real PBR edit/error/recovery integration and fixed robot render comparison; those cases are omitted from core-only runs and are not registered when the submodule target is unavailable.
 
@@ -419,7 +421,7 @@ The workflow uses the same repo-local test scripts as local development, includi
 
 ### Architecture Overview
 
-![Draxul architecture](docs/architecture/architecture.claude.svg)
+![Draxul architecture](docs/architecture/architecture.svg)
 
 Regenerate with the prompt in `plans/prompts/architecture_diagram.md`.
 

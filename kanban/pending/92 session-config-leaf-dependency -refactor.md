@@ -11,20 +11,20 @@
 
 #### Boundary verification
 
-- [ ] Inventory Session implementation includes/symbols and the Session → protocol/client/server transitive closure.
-- [ ] Confirm config-support supplies every required symbol without application configuration implementation.
-- [ ] Record current directory selection, serialization, and durable replacement behavior.
+- [x] Inventory Session implementation includes/symbols and the Session → protocol/client/server transitive closure.
+- [x] Confirm config-support supplies every required symbol without application configuration implementation.
+- [x] Record current directory selection, serialization, and durable replacement behavior.
 
 #### Implementation and migration
 
-- [ ] Replace only the obsolete target edge and retain necessary performance/JSON dependencies.
-- [ ] Extend boundary validation to inspect the relevant transitive target closure, including static-library link-only edges.
-- [ ] Reject application config, SDL implementation, and UI dependencies reaching headless Session/protocol/client/server owners.
-- [ ] Handle aliases, cycles, and relevant generator-expression wrappers explicitly; avoid an unrelated graph-tool rewrite.
+- [x] Replace only the obsolete target edge and retain necessary performance/JSON dependencies.
+- [x] Extend boundary validation to inspect the relevant transitive target closure, including static-library link-only edges.
+- [x] Reject application config, SDL implementation, and UI dependencies reaching headless Session/protocol/client/server owners.
+- [x] Handle aliases, cycles, and relevant generator-expression wrappers explicitly; avoid an unrelated graph-tool rewrite.
 
 #### Unit tests
 
-- [ ] Add meaningful configure fixtures proving an indirect forbidden edge fails and the intended leaf closure passes.
+- [x] Add meaningful configure fixtures proving an indirect forbidden edge fails and the intended leaf closure passes.
 - [ ] Retain existing Session codec, checkpoint, default-path, and durability regressions.
 - [ ] Build `cmake --build <cache> --config Debug --target draxul-session-model draxul-protocol-link-isolation draxul-client-link-isolation draxul-server-link-isolation --parallel`.
 - [ ] Verify the isolated consumer link closures, not merely successful compilation through the broad test executable.
@@ -32,18 +32,18 @@
 #### Cross-platform validation
 
 - [ ] Check Windows/macOS default directories and durable I/O remain unchanged.
-- [ ] Verify the headless closure gains neither Vulkan nor Metal dependencies.
+- [x] Verify the headless closure gains neither Vulkan nor Metal dependencies.
 - [ ] Run `python3 do.py test debug`, then `python3 do.py smoke debug --skip-build`.
 
 #### Agent documentation/tooling
 
-- [ ] Update dependency comments/module-map claims to describe the verified leaf dependency.
-- [ ] Register configure fixtures in the existing validation flow and keep them platform-aware.
-- [ ] Document target-closure isolation without promising graphics-SDK-free root configuration.
+- [x] Update dependency comments/module-map claims to describe the verified leaf dependency.
+- [x] Register configure fixtures in the existing validation flow and keep them platform-aware.
+- [x] Document target-closure isolation without promising graphics-SDK-free root configuration.
 
 #### Acceptance criteria
 
-- [ ] Session persistence no longer depends directly or transitively on application configuration or SDL implementation.
+- [x] Session persistence no longer depends directly or transitively on application configuration or SDL implementation.
 - [ ] Protocol/client/server isolation consumers retain valid links.
 - [ ] Default paths, persisted formats, public APIs, and replacement semantics are unchanged.
-- [ ] A regression through an indirect forbidden dependency is detected.
+- [x] A regression through an indirect forbidden dependency is detected.

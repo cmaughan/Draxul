@@ -18,23 +18,119 @@ function(draxul_reject_direct_links target)
     endforeach()
 endfunction()
 
+# Return target dependencies reachable through normal links and the common
+# wrappers CMake adds around static-library/private and build-only edges. Other
+# generator expressions are deliberately ignored: treating their payload as an
+# unconditional target would make platform/configuration alternatives appear
+# simultaneously active.
+function(draxul_get_transitive_link_closure output root_target)
+    set(_queue "${root_target}")
+    set(_visited)
+    set(_closure)
+    while(_queue)
+        list(POP_FRONT _queue _candidate)
+        if(_candidate IN_LIST _visited OR NOT TARGET "${_candidate}")
+            continue()
+        endif()
+
+        get_target_property(_aliased "${_candidate}" ALIASED_TARGET)
+        if(_aliased)
+            set(_candidate "${_aliased}")
+            if(_candidate IN_LIST _visited)
+                continue()
+            endif()
+        endif()
+        list(APPEND _visited "${_candidate}")
+
+        foreach(_property LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+            get_target_property(_links "${_candidate}" ${_property})
+            if(NOT _links OR _links STREQUAL "_links-NOTFOUND")
+                continue()
+            endif()
+            foreach(_link IN LISTS _links)
+                set(_resolved "${_link}")
+                while(_resolved MATCHES
+                    "^\\$<(LINK_ONLY|BUILD_INTERFACE|TARGET_NAME_IF_EXISTS):(.+)>$")
+                    set(_resolved "${CMAKE_MATCH_2}")
+                endwhile()
+                if(_resolved MATCHES "^\\$<")
+                    continue()
+                endif()
+                if(TARGET "${_resolved}")
+                    get_target_property(_resolved_alias "${_resolved}" ALIASED_TARGET)
+                    if(_resolved_alias)
+                        set(_resolved "${_resolved_alias}")
+                    endif()
+                    if(NOT _resolved STREQUAL root_target
+                       AND NOT _resolved IN_LIST _closure)
+                        list(APPEND _closure "${_resolved}")
+                    endif()
+                    if(NOT _resolved IN_LIST _visited)
+                        list(APPEND _queue "${_resolved}")
+                    endif()
+                endif()
+            endforeach()
+        endforeach()
+    endwhile()
+    set(${output} "${_closure}" PARENT_SCOPE)
+endfunction()
+
+function(draxul_reject_transitive_links target)
+    draxul_get_transitive_link_closure(_closure "${target}")
+    foreach(_forbidden IN LISTS ARGN)
+        set(_forbidden_resolved "${_forbidden}")
+        if(TARGET "${_forbidden}")
+            get_target_property(_forbidden_alias "${_forbidden}" ALIASED_TARGET)
+            if(_forbidden_alias)
+                set(_forbidden_resolved "${_forbidden_alias}")
+            endif()
+        endif()
+        if(_forbidden_resolved IN_LIST _closure)
+            message(FATAL_ERROR
+                "${target} must not transitively depend on ${_forbidden}; "
+                "resolved closure: ${_closure}")
+        endif()
+    endforeach()
+endfunction()
+
 function(draxul_check_dependency_boundaries)
     draxul_check_direct_link(draxul-types draxul-performance)
     draxul_check_direct_link(draxul-bmp draxul-types)
     draxul_check_direct_link(draxul-bmp draxul-performance)
+    draxul_check_direct_link(draxul-weather draxul-http)
     draxul_check_direct_link(draxul-terminal-core draxul-grid)
     draxul_check_direct_link(draxul-terminal-core draxul-types)
     draxul_check_direct_link(draxul-terminal-core draxul-performance)
     draxul_check_direct_link(draxul-terminal-process draxul-agent)
     draxul_check_direct_link(draxul-session-model draxul-agent)
     draxul_check_direct_link(draxul-session-model draxul-host-identity)
+    draxul_check_direct_link(draxul-session-model draxul-plugin-config-support)
     draxul_check_direct_link(draxul-protocol draxul-agent)
     draxul_check_direct_link(draxul-protocol draxul-session-model)
     draxul_check_direct_link(draxul-runtime-support draxul-host-identity)
-    draxul_check_direct_link(draxul-host draxul-host-identity)
-    draxul_check_direct_link(draxul-host draxul-client)
-    draxul_check_direct_link(draxul-host draxul-nvim)
-    draxul_reject_direct_links(draxul-host draxul-terminal-process)
+    draxul_check_direct_link(draxul-runtime-support draxul-nvim-protocol)
+    draxul_check_direct_link(draxul-nvim-protocol draxul-types)
+    draxul_check_direct_link(draxul-nvim-transport draxul-nvim-protocol)
+    draxul_check_direct_link(draxul-host-api draxul-agent)
+    draxul_check_direct_link(draxul-host-api draxul-host-identity)
+    draxul_check_direct_link(draxul-host-api draxul-types)
+    draxul_check_direct_link(draxul-grid-host draxul-host-api)
+    draxul_check_direct_link(draxul-terminal-host draxul-client)
+    draxul_check_direct_link(draxul-terminal-host draxul-terminal-core)
+    draxul_check_direct_link(draxul-nvim-host draxul-nvim-protocol)
+    draxul_check_direct_link(draxul-nvim-host draxul-nvim-transport)
+    draxul_check_direct_link(draxul-plugin-host draxul-plugin)
+    draxul_reject_direct_links(draxul-host-api
+        draxul-client draxul-grid draxul-nvim draxul-renderer
+        draxul-runtime-support draxul-terminal-core draxul-window)
+    draxul_reject_direct_links(draxul-grid-host
+        draxul-client draxul-nvim draxul-terminal-core draxul-terminal-process)
+    draxul_reject_direct_links(draxul-terminal-host
+        draxul-nvim draxul-nvim-protocol draxul-nvim-transport
+        draxul-terminal-process)
+    draxul_reject_direct_links(draxul-nvim-protocol
+        draxul-host draxul-nvim-transport draxul-renderer
+        draxul-runtime-support draxul-window)
     draxul_check_direct_link(draxul-client draxul-control)
     draxul_check_direct_link(draxul-client draxul-protocol)
     draxul_check_direct_link(draxul-server draxul-control)
@@ -68,6 +164,27 @@ function(draxul_check_dependency_boundaries)
     draxul_reject_direct_links(draxul-server
         draxul-window draxul-renderer draxul-runtime-support draxul-host
         draxul-nvim draxul-gui draxul-ui SDL3::SDL3)
+
+    foreach(_headless_target
+        draxul-session-model draxul-protocol draxul-client draxul-server)
+        draxul_reject_transitive_links(${_headless_target}
+            draxul-config
+            SDL3::SDL3
+            draxul-window
+            draxul-renderer
+            draxul-ui
+            draxul-gui
+            draxul-runtime-support)
+    endforeach()
+
+    foreach(_render_contract_consumer draxul-gui draxul-ui draxul-nanovg)
+        draxul_reject_transitive_links(${_render_contract_consumer}
+            draxul-renderer)
+    endforeach()
+
+    draxul_reject_transitive_links(draxul-weather
+        draxul-app draxul-window draxul-renderer draxul-runtime-support
+        draxul-host draxul-font draxul-grid draxul-gui draxul-ui SDL3::SDL3)
 
     set(_product_target_pattern
         "draxul-(markdown|kanban|megacity|codeviz|satview|scoreview|pcbview|score-|notation)")
@@ -105,6 +222,7 @@ function(draxul_check_core_product_isolation)
         draxul-plugin
         draxul-bmp
         draxul-http
+        draxul-weather
         draxul-window
         draxul-renderer
         draxul-ui
@@ -123,13 +241,19 @@ function(draxul_check_core_product_isolation)
         draxul-gui
         draxul-runtime-support
         draxul-render-test
-        draxul-app-support
+        draxul-app-shell
+        draxul-host-api
+        draxul-grid-host
+        draxul-terminal-host
+        draxul-nvim-host
+        draxul-plugin-host
         draxul-host
         draxul-nanovg
         draxul-nanovg-backend
         draxul-markdown
         draxul-markdown-host
         draxul-kanban
+        draxul-kanban-host
         draxul-app
         draxul)
         if(NOT TARGET ${_core_target})

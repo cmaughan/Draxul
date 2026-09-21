@@ -9,7 +9,6 @@
 #include <memory>
 #include <string>
 #include <thread>
-#include <unordered_map>
 #include <vector>
 
 namespace draxul
@@ -18,6 +17,7 @@ namespace draxul
 class IRenderPass;
 class LoadedPlugin;
 class PluginManager;
+class PluginStorage;
 
 class PluginHost final : public IHost
 {
@@ -66,10 +66,7 @@ public:
     bool reload(const std::shared_ptr<LoadedPlugin>& candidate,
         std::string& warning, std::string& error,
         bool defer_storage_commit = false);
-    bool finalize_reload_storage(std::string& error)
-    {
-        return commit_storage_overlay(error);
-    }
+    bool finalize_reload_storage(std::string& error);
 
     void accept_render_result(const DraxulPluginRenderResultV2& result);
 
@@ -117,7 +114,6 @@ private:
         std::string& error);
     void stop_instance(bool wait_for_renderer);
     std::optional<std::string> export_reload_state(std::string& warning);
-    bool commit_storage_overlay(std::string& error);
     static PluginHost* callback_host(void* context);
     void retire_callback_contexts();
     void send_input(DraxulPluginInputEventV2 event);
@@ -125,9 +121,6 @@ private:
     void run_tick(std::chrono::steady_clock::time_point now,
         bool& frame_needed);
     std::optional<PresentationSnapshot> presentation_snapshot() const;
-    void initialize_service_paths();
-    std::filesystem::path storage_path(uint32_t scope,
-        std::string_view key) const;
 
     std::shared_ptr<PluginManager> manager_;
     std::shared_ptr<LoadedPlugin> plugin_;
@@ -154,12 +147,7 @@ private:
     bool visible_ = true;
     bool focused_ = false;
     bool has_presentation_ = false;
-    std::filesystem::path storage_root_override_;
-    std::filesystem::path resource_path_;
-    std::filesystem::path config_path_;
-    std::filesystem::path data_path_;
-    std::filesystem::path cache_path_;
-    std::filesystem::path temporary_path_;
+    std::unique_ptr<PluginStorage> storage_;
     std::thread::id main_thread_id_;
     std::string imgui_font_path_;
     float imgui_font_size_pixels_ = 13.0f;
@@ -168,8 +156,6 @@ private:
     uint64_t callback_generation_ = 0;
     CallbackContext* active_callback_context_ = nullptr;
     std::vector<std::unique_ptr<CallbackContext>> callback_contexts_;
-    bool storage_overlay_active_ = false;
-    std::unordered_map<std::string, std::optional<std::string>> storage_overlay_;
     bool reload_prequiesced_ = false;
     std::optional<std::string> prepared_reload_state_;
     std::string prepared_reload_schema_;

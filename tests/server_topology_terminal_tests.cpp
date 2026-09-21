@@ -2,6 +2,8 @@
 
 #include "support/server_kernel_test_support.h"
 
+#include <draxul/topology_layout.h>
+
 using namespace draxul;
 using draxul::tests::TempDir;
 using namespace draxul::tests::server_kernel;
@@ -254,6 +256,204 @@ TEST_CASE("topology ratio storms retain only bounded command outcomes",
     CHECK(service.completed_command_result_bytes()
         == kTopologyCompletedCommandLimit
             * sizeof(std::string));
+}
+
+TEST_CASE("topology layouts reject wrong field types without mutation",
+    "[server][topology][layout][validation]")
+{
+    TopologyService service("layout-validation", {});
+    const uint64_t initial_revision = service.snapshot().revision;
+    const nlohmann::json layout{
+        { "name", "Validated" },
+        { "tabs", nlohmann::json::array({ {
+              { "name", "Main" },
+              { "panes", nlohmann::json::array({
+                    { { "alias", "first" } },
+                    { { "alias", "second" },
+                        { "direction", "right" } },
+                }) },
+          } }) },
+    };
+
+    auto wrong_dry_run = service.handle("topology.layout_apply",
+        { { "layout", layout }, { "dry_run", "yes" } });
+    CHECK_FALSE(wrong_dry_run.ok);
+    CHECK(wrong_dry_run.error_code == "invalid_layout");
+    CHECK(service.snapshot().revision == initial_revision);
+
+    auto wrong_direction_layout = layout;
+    wrong_direction_layout["tabs"][0]["panes"][1]["direction"] = 7;
+    auto wrong_direction = service.handle("topology.layout_apply",
+        { { "layout", wrong_direction_layout } });
+    CHECK_FALSE(wrong_direction.ok);
+    CHECK(wrong_direction.error_code == "invalid_layout");
+    CHECK(service.snapshot().revision == initial_revision);
+}
+
+TEST_CASE("server topology moves a live pane across Spaces atomically",
+    "[server][topology][pane-move]")
+{
+    TopologyService service("cross-space-move", {});
+    const TopologySpace initial_space
+        = service.snapshot().spaces.front();
+    const TopologyTab initial_tab = initial_space.tabs.front();
+    const TopologyPane moved = initial_tab.panes.front();
+
+    TopologyCommand create_source_survivor{
+        .client_id = "move-client",
+        .command_id = "create-source-survivor",
+        .expected_revision = service.snapshot().revision,
+        .kind = TopologyCommandKind::CreateTab,
+        .space_id = initial_space.space_id,
+        .name = "Source survivor",
+    };
+    REQUIRE(service.handle("topology.command",
+                       topology_command_to_json(create_source_survivor))
+                .ok);
+
+    TopologyCommand create_destination{
+        .client_id = "move-client",
+        .command_id = "create-destination",
+        .expected_revision = service.snapshot().revision,
+        .kind = TopologyCommandKind::CreateSpace,
+        .name = "Destination",
+        .root_directory = "/different/root",
+    };
+    REQUIRE(service.handle("topology.command",
+                       topology_command_to_json(create_destination))
+                .ok);
+    const TopologySpace destination
+        = service.snapshot().spaces.back();
+    const TopologyTab destination_tab = destination.tabs.front();
+    const std::string target_pane_id
+        = destination_tab.panes.front().pane_id;
+
+    const uint64_t revision_before_move
+        = service.snapshot().revision;
+    TopologyCommand move{
+        .client_id = "move-client",
+        .command_id = "cross-space-move",
+        .expected_revision = revision_before_move,
+        .kind = TopologyCommandKind::MovePane,
+        .space_id = initial_space.space_id,
+        .tab_id = initial_tab.tab_id,
+        .destination_space_id = destination.space_id,
+        .destination_tab_id = destination_tab.tab_id,
+        .pane_id = moved.pane_id,
+        .target_pane_id = target_pane_id,
+        .direction = TopologySplitDirection::Horizontal,
+        .ratio = 0.4f,
+        .place_before = true,
+    };
+    const auto response = service.handle(
+        "topology.command", topology_command_to_json(move));
+    INFO(response.error_message);
+    REQUIRE(response.ok);
+    std::string parse_error;
+    const auto result = topology_command_result_from_json(
+        response.value, parse_error);
+    INFO(parse_error);
+    REQUIRE(result);
+    CHECK(result->moved_pane_id == moved.pane_id);
+    CHECK(result->source_space_id == initial_space.space_id);
+    CHECK(result->source_tab_id == initial_tab.tab_id);
+    CHECK(result->destination_space_id == destination.space_id);
+    CHECK(result->destination_tab_id == destination_tab.tab_id);
+    CHECK(result->snapshot.revision == revision_before_move + 1);
+
+    const TopologySpace* updated_source
+        = find_space(result->snapshot, initial_space.space_id);
+    const TopologySpace* updated_destination
+        = find_space(result->snapshot, destination.space_id);
+    REQUIRE(updated_source);
+    REQUIRE(updated_destination);
+    CHECK(updated_source->tabs.size() == 1);
+    CHECK_FALSE(find_tab(*updated_source, initial_tab.tab_id));
+    const TopologyTab* updated_destination_tab
+        = find_tab(*updated_destination, destination_tab.tab_id);
+    REQUIRE(updated_destination_tab);
+    REQUIRE(updated_destination_tab->panes.size() == 2);
+    const TopologyPane* relocated
+        = find_pane(*updated_destination_tab, moved.pane_id);
+    REQUIRE(relocated);
+    CHECK(relocated->terminal_id == moved.terminal_id);
+    CHECK(relocated->server_working_directory
+        == moved.server_working_directory);
+    CHECK(relocated->agent == moved.agent);
+    CHECK(relocated->agent_session == moved.agent_session);
+    CHECK(updated_destination_tab->nodes.size() == 3);
+    CHECK(updated_destination_tab->nodes.front().ratio
+        == Catch::Approx(0.4f));
+
+    // Idempotent replay returns the same route transition without another
+    // topology revision.
+    const auto duplicate_response = service.handle(
+        "topology.command", topology_command_to_json(move));
+    REQUIRE(duplicate_response.ok);
+    const auto duplicate = topology_command_result_from_json(
+        duplicate_response.value, parse_error);
+    REQUIRE(duplicate);
+    CHECK(duplicate->duplicate);
+    CHECK(duplicate->destination_tab_id
+        == destination_tab.tab_id);
+    CHECK(duplicate->snapshot.revision
+        == result->snapshot.revision);
+}
+
+TEST_CASE("cross-tab pane move rejects unsupported routes before mutation",
+    "[server][topology][pane-move][validation]")
+{
+    TopologyService service("cross-tab-rejections", {});
+    const TopologySpace source = service.snapshot().spaces.front();
+    const TopologyTab source_tab = source.tabs.front();
+    TopologyCommand create_destination{
+        .client_id = "move-validation",
+        .command_id = "create-destination",
+        .expected_revision = service.snapshot().revision,
+        .kind = TopologyCommandKind::CreateSpace,
+        .name = "Destination",
+    };
+    REQUIRE(service.handle("topology.command",
+                       topology_command_to_json(create_destination))
+                .ok);
+    const TopologySpace destination
+        = service.snapshot().spaces.back();
+    const TopologyTab destination_tab = destination.tabs.front();
+    const TopologySnapshot before = service.snapshot();
+
+    TopologyCommand move_final_space_pane{
+        .client_id = "move-validation",
+        .command_id = "reject-final-space-pane",
+        .expected_revision = before.revision,
+        .kind = TopologyCommandKind::MovePane,
+        .space_id = source.space_id,
+        .tab_id = source_tab.tab_id,
+        .destination_space_id = destination.space_id,
+        .destination_tab_id = destination_tab.tab_id,
+        .pane_id = source_tab.panes.front().pane_id,
+        .target_pane_id = destination_tab.panes.front().pane_id,
+    };
+    const auto final_pane = service.handle("topology.command",
+        topology_command_to_json(move_final_space_pane));
+    CHECK_FALSE(final_pane.ok);
+    CHECK(final_pane.error_code == "last_space_pane");
+    CHECK(service.snapshot() == before);
+
+    TopologyCommand move_client_local = move_final_space_pane;
+    move_client_local.command_id = "reject-client-local";
+    move_client_local.space_id = destination.space_id;
+    move_client_local.tab_id = destination_tab.tab_id;
+    move_client_local.destination_space_id = source.space_id;
+    move_client_local.destination_tab_id = source_tab.tab_id;
+    move_client_local.pane_id
+        = destination_tab.panes.front().pane_id;
+    move_client_local.target_pane_id
+        = source_tab.panes.front().pane_id;
+    const auto local_pane = service.handle("topology.command",
+        topology_command_to_json(move_client_local));
+    CHECK_FALSE(local_pane.ok);
+    CHECK(local_pane.error_code == "client_local_pane");
+    CHECK(service.snapshot() == before);
 }
 
 TEST_CASE("shared topology stores and updates client-local preview descriptors",
@@ -878,6 +1078,130 @@ TEST_CASE("two topology clients converge through idempotent server commands",
     REQUIRE(changed);
     REQUIRE(second.snapshot() == first.snapshot());
 
+    run_guard.join();
+}
+
+TEST_CASE("real server keeps terminal process and scrollback across a tab move",
+    "[server][topology][pane-move][remote-terminal][process]")
+{
+    TempDir temp("draxul-cross-tab-live-pane");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    TopologyClient controller({
+        .runtime_directory = temp.path,
+        .client_id = "move-controller",
+    });
+    TopologyClient observer({
+        .runtime_directory = temp.path,
+        .client_id = "move-observer",
+    });
+    std::string error;
+    REQUIRE(controller.refresh(error));
+    REQUIRE(observer.refresh(error));
+    const TopologySpace source_space
+        = controller.snapshot().spaces.front();
+    const TopologyTab source_tab = source_space.tabs.front();
+    const TopologyPane source_pane = source_tab.panes.front();
+
+    auto terminal = remote_client(
+        temp.path, "move-terminal", "fixed-epoch", "terminal");
+    REQUIRE(terminal.attach(error));
+    const uint64_t generation_before
+        = terminal.projection().version().generation;
+    const uint64_t process_before
+        = terminal.projection().pane().process_id;
+#ifdef _WIN32
+    const std::string before_command
+        = "Write-Output '__MOVE_BEFORE__'\r";
+    const std::string after_command
+        = "Write-Output '__MOVE_AFTER__'\r";
+#else
+    const std::string before_command
+        = "printf '__MOVE_BEFORE__\\n'\r";
+    const std::string after_command
+        = "printf '__MOVE_AFTER__\\n'\r";
+#endif
+    REQUIRE(terminal.send_input(before_command, error));
+    REQUIRE(wait_for_text(terminal, "__MOVE_BEFORE__", error));
+
+    TopologyCommand create_tab{
+        .command_id = "move-create-destination",
+        .expected_revision = controller.snapshot().revision,
+        .kind = TopologyCommandKind::CreateTab,
+        .space_id = source_space.space_id,
+        .name = "Destination",
+        .pane_domain = TopologyPaneDomain::ServerTerminal,
+    };
+    TopologyCommandResult created;
+    REQUIRE(controller.execute(create_tab, created, error));
+    const TopologyTab destination_tab
+        = created.snapshot.spaces.front().tabs.back();
+
+    TopologyCommand move{
+        .command_id = "move-live-terminal",
+        .expected_revision = controller.snapshot().revision,
+        .kind = TopologyCommandKind::MovePane,
+        .space_id = source_space.space_id,
+        .tab_id = source_tab.tab_id,
+        .destination_space_id = source_space.space_id,
+        .destination_tab_id = destination_tab.tab_id,
+        .pane_id = source_pane.pane_id,
+        .target_pane_id = destination_tab.panes.front().pane_id,
+        .direction = TopologySplitDirection::Vertical,
+        .ratio = 0.5f,
+    };
+    TopologyCommandResult moved;
+    REQUIRE(controller.execute(move, moved, error));
+    CHECK(moved.snapshot.revision
+        == created.snapshot.revision + 1);
+    const TopologySpace* updated_space
+        = find_space(moved.snapshot, source_space.space_id);
+    REQUIRE(updated_space);
+    CHECK_FALSE(find_tab(*updated_space, source_tab.tab_id));
+    const TopologyTab* updated_tab
+        = find_tab(*updated_space, destination_tab.tab_id);
+    REQUIRE(updated_tab);
+    const TopologyPane* updated_pane
+        = find_pane(*updated_tab, source_pane.pane_id);
+    REQUIRE(updated_pane);
+    CHECK(updated_pane->terminal_id == source_pane.terminal_id);
+
+    REQUIRE(terminal.send_input(after_command, error));
+    REQUIRE(wait_for_text(terminal, "__MOVE_AFTER__", error));
+    CHECK(terminal.projection().version().generation
+        == generation_before);
+    CHECK(terminal.projection().pane().process_id
+        == process_before);
+    CHECK(snapshot_text(terminal.projection().snapshot())
+              .find("__MOVE_BEFORE__")
+        != std::string::npos);
+
+    bool changed = false;
+    REQUIRE(observer.poll(changed, error));
+    REQUIRE(changed);
+    CHECK(observer.snapshot() == controller.snapshot());
+
+    RemoteTerminalClient reconnected({
+        .runtime_directory = temp.path,
+        .client_id = "move-reconnected",
+        .expected_server_epoch = "fixed-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = source_pane.terminal_id,
+    });
+    REQUIRE(reconnected.attach(error));
+    CHECK(reconnected.projection().pane().pane_id
+        == source_pane.pane_id);
+    CHECK(reconnected.projection().version().generation
+        == generation_before);
+    CHECK(reconnected.projection().pane().process_id
+        == process_before);
+    REQUIRE(wait_for_text(reconnected, "__MOVE_AFTER__", error));
     run_guard.join();
 }
 

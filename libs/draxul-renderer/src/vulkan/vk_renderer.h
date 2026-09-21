@@ -69,6 +69,8 @@ private:
     bool recreate_frame_resources();
     bool start_new_chunk_command_buffer();
     bool flush_submit_chunk(bool final_chunk);
+    void abort_active_frame();
+    bool replace_current_frame_sync_objects();
     bool flush_pending_atlas_uploads(VkCommandBuffer cmd);
     void retire_grid_slot_resources(uint32_t frame_index, VkGridBuffer::BufferState buffer, VkDescriptorPool descriptor_pool,
         VkDescriptorSet bg_desc_set, VkDescriptorSet fg_desc_set);
@@ -77,6 +79,7 @@ private:
     bool ensure_capture_buffer(size_t required_size);
     void destroy_capture_buffer();
     void finish_capture_readback();
+    void clear_capture_readback_metadata();
     bool create_imgui_descriptor_pool();
     bool create_imgui_font_texture();
     bool begin_main_render_pass(bool clear_depth_for_load = false);
@@ -122,6 +125,9 @@ private:
     VmaAllocation capture_allocation_ = VK_NULL_HANDLE;
     void* capture_mapped_ = nullptr;
     size_t capture_buffer_size_ = 0;
+    uint32_t capture_width_ = 0;
+    uint32_t capture_height_ = 0;
+    size_t capture_byte_count_ = 0;
     VkDescriptorPool imgui_desc_pool_ = VK_NULL_HANDLE;
     bool imgui_initialized_ = false;
     bool imgui_font_texture_rebuild_pending_ = false;
@@ -133,6 +139,7 @@ private:
     bool main_render_pass_active_ = false;
     bool main_render_pass_started_ = false;
     bool chunk_has_work_ = false;
+    bool renderer_failed_ = false;
     uint32_t current_chunk_index_ = 0;
     uint64_t target_generation_ = 1;
 };

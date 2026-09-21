@@ -11,10 +11,10 @@
 
 **Fix strategy**
 
-- [ ] Sanitize invalid UTF-8 and truncate complete characters.
-- [ ] Make diagnostic serialization failure recoverable.
+- [x] Sanitize invalid UTF-8 and truncate complete characters.
+- [x] Make diagnostic serialization failure recoverable.
 
 **Acceptance criteria**
 
-- [ ] Publication always produces valid bounded JSON or a controlled error.
-- [ ] Broken shader diagnostics cannot destroy the active scene or prevent later recovery.
+- [x] Publication always produces valid bounded JSON or a controlled error.
+- [x] Broken shader diagnostics cannot destroy the active scene or prevent later recovery.

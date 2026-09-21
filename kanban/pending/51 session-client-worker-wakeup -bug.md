@@ -11,11 +11,11 @@
 
 **Fix strategy**
 
-- [ ] Update wait predicates under `mutex_`, then notify.
-- [ ] Audit startup and fallback transitions for consistent synchronization.
+- [x] Update wait predicates under `mutex_`, then notify.
+- [x] Audit startup and fallback transitions for consistent synchronization.
 
 **Acceptance criteria**
 
-- [ ] An idle externally fed client always stops promptly.
-- [ ] Legacy fallback begins without needing an unrelated command.
-- [ ] Coordinate regression techniques with existing hidden-terminal work.
+- [x] An idle externally fed client always stops promptly.
+- [x] Legacy fallback begins without needing an unrelated command.
+- [x] Coordinate regression techniques with existing hidden-terminal work.

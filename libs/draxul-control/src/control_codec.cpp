@@ -177,7 +177,15 @@ ControlMethodResult parse_request(std::string_view bytes,
         = nlohmann::json::parse(bytes, nullptr, false, true);
     if (envelope.is_discarded() || !envelope.is_object())
         return ControlMethodResult::error("invalid_json", "Control message is not valid JSON.");
-    if (envelope.value("version", 0) != kControlProtocolVersion)
+    const auto version = envelope.find("version");
+    const bool supported_version = version != envelope.end()
+        && ((version->is_number_unsigned()
+                && version->get<uint64_t>()
+                    == static_cast<uint64_t>(kControlProtocolVersion))
+            || (version->is_number_integer()
+                && version->get<int64_t>()
+                    == static_cast<int64_t>(kControlProtocolVersion)));
+    if (!supported_version)
     {
         return ControlMethodResult::error(
             "unsupported_version", "Unsupported control protocol version.");

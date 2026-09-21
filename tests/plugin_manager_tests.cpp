@@ -4,12 +4,14 @@
 #include <draxul/plugin_host.h>
 #include <draxul/events.h>
 #include <draxul/base_renderer.h>
+#include "plugin_storage.h"
 #include "support/fake_renderer.h"
 #include "support/test_host_callbacks.h"
 
 #include <filesystem>
 #include <fstream>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -75,7 +77,395 @@ void install_plugin(const std::filesystem::path& tier,
              << "library = \"" << library_name << "\"\n";
 }
 
+class FaultInjectingStorageFiles final
+    : public draxul::PluginStorageFileOperations
+{
+public:
+    enum class Failure
+    {
+        None,
+        CreateDirectories,
+        FileSize,
+        Read,
+        Open,
+        Write,
+        Flush,
+        Replace,
+        Remove,
+    };
+
+    class Output final : public draxul::PluginStorageOutputFile
+    {
+    public:
+        Output(FaultInjectingStorageFiles& owner,
+            std::unique_ptr<draxul::PluginStorageOutputFile> delegate)
+            : owner_(owner)
+            , delegate_(std::move(delegate))
+        {
+        }
+
+        bool write(std::string_view value,
+            std::error_code& error) override
+        {
+            if (owner_.failure == Failure::Write)
+                return owner_.fail(error);
+            return delegate_->write(value, error);
+        }
+
+        bool flush(std::error_code& error) override
+        {
+            if (owner_.failure == Failure::Flush)
+                return owner_.fail(error);
+            return delegate_->flush(error);
+        }
+
+    private:
+        FaultInjectingStorageFiles& owner_;
+        std::unique_ptr<draxul::PluginStorageOutputFile> delegate_;
+    };
+
+    explicit FaultInjectingStorageFiles(Failure initial_failure)
+        : failure(initial_failure)
+        , delegate(draxul::native_plugin_storage_file_operations())
+    {
+    }
+
+    bool create_directories(const std::filesystem::path& path,
+        std::error_code& error) override
+    {
+        if (failure == Failure::CreateDirectories)
+            return fail(error);
+        return delegate->create_directories(path, error);
+    }
+
+    bool file_size(const std::filesystem::path& path,
+        std::uintmax_t& size, std::error_code& error) override
+    {
+        if (failure == Failure::FileSize)
+            return fail(error);
+        return delegate->file_size(path, size, error);
+    }
+
+    bool read_all(const std::filesystem::path& path, std::string& value,
+        std::error_code& error) override
+    {
+        if (failure == Failure::Read)
+            return fail(error);
+        return delegate->read_all(path, value, error);
+    }
+
+    std::unique_ptr<draxul::PluginStorageOutputFile> open_output(
+        const std::filesystem::path& path,
+        std::error_code& error) override
+    {
+        last_temporary = path;
+        if (failure == Failure::Open)
+        {
+            (void)fail(error);
+            return {};
+        }
+        auto output = delegate->open_output(path, error);
+        if (!output)
+            return {};
+        return std::make_unique<Output>(*this, std::move(output));
+    }
+
+    bool replace(const std::filesystem::path& temporary,
+        const std::filesystem::path& target,
+        std::error_code& error) override
+    {
+        ++replace_calls;
+        if (failure == Failure::Replace
+            || (fail_replace_call > 0
+                && replace_calls == fail_replace_call))
+            return fail(error);
+        return delegate->replace(temporary, target, error);
+    }
+
+    bool remove(const std::filesystem::path& path,
+        std::error_code& error) override
+    {
+        ++remove_calls;
+        last_removed = path;
+        if (failure == Failure::Remove)
+            return fail(error);
+        return delegate->remove(path, error);
+    }
+
+    std::filesystem::path temporary_directory(
+        std::error_code& error) override
+    {
+        return delegate->temporary_directory(error);
+    }
+
+    bool fail(std::error_code& error)
+    {
+        error = injected_error();
+        return false;
+    }
+
+    static std::error_code injected_error()
+    {
+        return std::make_error_code(std::errc::permission_denied);
+    }
+
+    Failure failure;
+    std::shared_ptr<draxul::PluginStorageFileOperations> delegate;
+    int fail_replace_call = 0;
+    int replace_calls = 0;
+    int remove_calls = 0;
+    std::filesystem::path last_temporary;
+    std::filesystem::path last_removed;
+};
+
+std::string read_storage(draxul::PluginStorage& storage, uint32_t scope,
+    std::string_view key)
+{
+    size_t size = 0;
+    REQUIRE(storage.read_json(scope, key.data(), key.size(), nullptr,
+        &size) == DRAXUL_PLUGIN_STORAGE_OK);
+    std::string value(size, '\0');
+    REQUIRE(storage.read_json(scope, key.data(), key.size(), value.data(),
+        &size) == DRAXUL_PLUGIN_STORAGE_OK);
+    value.resize(size - 1);
+    return value;
+}
+
 } // namespace
+
+TEST_CASE("PluginStorage owns scoped paths and JSON buffer policy",
+    "[plugin][storage]")
+{
+    TempPlugins temp;
+    const auto root = temp.root / "storage";
+    const auto resources = temp.root / "module";
+    draxul::PluginStorage storage(root);
+    storage.initialize("dev.draxul.storage", "pane-1", resources);
+
+    CHECK(storage.service_path(DRAXUL_PLUGIN_PATH_RESOURCES) == resources);
+    CHECK(storage.service_path(DRAXUL_PLUGIN_PATH_CONFIG)
+        == root / "config" / "dev.draxul.storage");
+    CHECK(storage.service_path(DRAXUL_PLUGIN_PATH_DATA)
+        == root / "data" / "dev.draxul.storage");
+    CHECK(storage.service_path(DRAXUL_PLUGIN_PATH_CACHE)
+        == root / "cache" / "dev.draxul.storage");
+    CHECK(storage.service_path(DRAXUL_PLUGIN_PATH_TEMPORARY)
+        == root / "temporary" / "dev.draxul.storage");
+    CHECK(storage.storage_path(DRAXUL_PLUGIN_STORAGE_PLUGIN, "state")
+        == root / "config" / "dev.draxul.storage" / "state"
+            / "state.json");
+    CHECK(storage.storage_path(DRAXUL_PLUGIN_STORAGE_PANE, "state")
+        == root / "config" / "dev.draxul.storage" / "panes" / "pane-1"
+            / "state.json");
+
+    size_t path_size = 0;
+    REQUIRE(storage.get_service_path(DRAXUL_PLUGIN_PATH_DATA, nullptr,
+        &path_size));
+    CHECK(std::filesystem::is_directory(
+        root / "data" / "dev.draxul.storage"));
+    size_t small_path_size = 1;
+    char small_path[1]{};
+    CHECK_FALSE(storage.get_service_path(DRAXUL_PLUGIN_PATH_DATA,
+        small_path, &small_path_size));
+    CHECK(small_path_size == path_size);
+    std::string path_value(path_size, '\0');
+    REQUIRE(storage.get_service_path(DRAXUL_PLUGIN_PATH_DATA,
+        path_value.data(), &path_size));
+    CHECK(std::filesystem::path(path_value.c_str())
+        == root / "data" / "dev.draxul.storage");
+    CHECK_FALSE(storage.get_service_path(999, nullptr, &path_size));
+
+    constexpr std::string_view key = "state";
+    constexpr std::string_view json = R"({"value":1})";
+    size_t size = 0;
+    CHECK(storage.read_json(DRAXUL_PLUGIN_STORAGE_PLUGIN, key.data(),
+        key.size(), nullptr, &size) == DRAXUL_PLUGIN_STORAGE_NOT_FOUND);
+    CHECK(storage.write_json(DRAXUL_PLUGIN_STORAGE_PLUGIN, "../bad", 6,
+        json.data(), json.size()) == DRAXUL_PLUGIN_STORAGE_INVALID_KEY);
+    CHECK(storage.write_json(999, key.data(), key.size(), "bad", 3)
+        == DRAXUL_PLUGIN_STORAGE_INVALID_JSON);
+    CHECK(storage.write_json(999, key.data(), key.size(), json.data(),
+        json.size()) == DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE);
+    CHECK(storage.write_json(DRAXUL_PLUGIN_STORAGE_PLUGIN, key.data(),
+        key.size(), nullptr, 0) == DRAXUL_PLUGIN_STORAGE_INVALID_JSON);
+    std::string oversized(DRAXUL_PLUGIN_MAX_STORAGE_JSON_BYTES + 1, ' ');
+    CHECK(storage.write_json(DRAXUL_PLUGIN_STORAGE_PLUGIN, key.data(),
+        key.size(), oversized.data(), oversized.size())
+        == DRAXUL_PLUGIN_STORAGE_TOO_LARGE);
+
+    REQUIRE(storage.write_json(DRAXUL_PLUGIN_STORAGE_PLUGIN, key.data(),
+        key.size(), json.data(), json.size()) == DRAXUL_PLUGIN_STORAGE_OK);
+    REQUIRE(storage.read_json(DRAXUL_PLUGIN_STORAGE_PLUGIN, key.data(),
+        key.size(), nullptr, &size) == DRAXUL_PLUGIN_STORAGE_OK);
+    CHECK(size == json.size() + 1);
+    size_t small_size = 1;
+    char small[1]{};
+    CHECK(storage.read_json(DRAXUL_PLUGIN_STORAGE_PLUGIN, key.data(),
+        key.size(), small, &small_size)
+        == DRAXUL_PLUGIN_STORAGE_BUFFER_TOO_SMALL);
+    CHECK(small_size == json.size() + 1);
+    CHECK(read_storage(storage, DRAXUL_PLUGIN_STORAGE_PLUGIN, key) == json);
+
+    const auto path = storage.storage_path(DRAXUL_PLUGIN_STORAGE_PLUGIN, key);
+    {
+        std::ofstream invalid(path, std::ios::binary | std::ios::trunc);
+        invalid << "bad";
+    }
+    CHECK(storage.read_json(DRAXUL_PLUGIN_STORAGE_PLUGIN, key.data(),
+        key.size(), nullptr, &size) == DRAXUL_PLUGIN_STORAGE_INVALID_JSON);
+    {
+        std::ofstream too_large(path, std::ios::binary | std::ios::trunc);
+        too_large << oversized;
+    }
+    CHECK(storage.read_json(DRAXUL_PLUGIN_STORAGE_PLUGIN, key.data(),
+        key.size(), nullptr, &size) == DRAXUL_PLUGIN_STORAGE_TOO_LARGE);
+
+    draxul::PluginStorage unavailable(root);
+    unavailable.initialize("dev.draxul.storage", "../bad-pane", resources);
+    CHECK(unavailable.write_json(DRAXUL_PLUGIN_STORAGE_PANE, key.data(),
+        key.size(), json.data(), json.size())
+        == DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE);
+}
+
+TEST_CASE("PluginStorage overlays stage visibility, tombstones, and commits",
+    "[plugin][storage][reload]")
+{
+    TempPlugins temp;
+    draxul::PluginStorage storage(temp.root / "storage");
+    storage.initialize("dev.draxul.storage", "pane", temp.root / "module");
+    constexpr std::string_view key = "state";
+    constexpr std::string_view first = R"({"value":1})";
+    constexpr std::string_view second = R"({"value":2})";
+    REQUIRE(storage.write_json(DRAXUL_PLUGIN_STORAGE_PANE, key.data(),
+        key.size(), first.data(), first.size()) == DRAXUL_PLUGIN_STORAGE_OK);
+
+    storage.begin_overlay();
+    CHECK(read_storage(storage, DRAXUL_PLUGIN_STORAGE_PANE, key) == first);
+    REQUIRE(storage.write_json(DRAXUL_PLUGIN_STORAGE_PANE, key.data(),
+        key.size(), second.data(), second.size())
+        == DRAXUL_PLUGIN_STORAGE_OK);
+    CHECK(read_storage(storage, DRAXUL_PLUGIN_STORAGE_PANE, key) == second);
+    storage.discard_overlay();
+    CHECK(read_storage(storage, DRAXUL_PLUGIN_STORAGE_PANE, key) == first);
+
+    storage.begin_overlay();
+    REQUIRE(storage.remove(DRAXUL_PLUGIN_STORAGE_PANE, key.data(),
+        key.size()) == DRAXUL_PLUGIN_STORAGE_OK);
+    size_t size = 0;
+    CHECK(storage.read_json(DRAXUL_PLUGIN_STORAGE_PANE, key.data(),
+        key.size(), nullptr, &size) == DRAXUL_PLUGIN_STORAGE_NOT_FOUND);
+    storage.discard_overlay();
+    CHECK(read_storage(storage, DRAXUL_PLUGIN_STORAGE_PANE, key) == first);
+
+    storage.begin_overlay();
+    REQUIRE(storage.write_json(DRAXUL_PLUGIN_STORAGE_PANE, key.data(),
+        key.size(), second.data(), second.size())
+        == DRAXUL_PLUGIN_STORAGE_OK);
+    std::string error;
+    REQUIRE(storage.commit_overlay(error));
+    CHECK(error.empty());
+    CHECK(read_storage(storage, DRAXUL_PLUGIN_STORAGE_PANE, key) == second);
+
+    storage.begin_overlay();
+    REQUIRE(storage.remove(DRAXUL_PLUGIN_STORAGE_PANE, key.data(),
+        key.size()) == DRAXUL_PLUGIN_STORAGE_OK);
+    REQUIRE(storage.commit_overlay(error));
+    CHECK(storage.read_json(DRAXUL_PLUGIN_STORAGE_PANE, key.data(),
+        key.size(), nullptr, &size) == DRAXUL_PLUGIN_STORAGE_NOT_FOUND);
+}
+
+TEST_CASE("PluginStorage preserves primary temporary-write failures",
+    "[plugin][storage][reload]")
+{
+    using Failure = FaultInjectingStorageFiles::Failure;
+    for (const auto failure : { Failure::Open, Failure::Write,
+             Failure::Flush, Failure::Replace })
+    {
+        DYNAMIC_SECTION(static_cast<int>(failure))
+        {
+            TempPlugins temp;
+            auto files
+                = std::make_shared<FaultInjectingStorageFiles>(failure);
+            draxul::PluginStorage storage(temp.root / "storage", files);
+            storage.initialize("dev.draxul.storage", "pane",
+                temp.root / "module");
+            constexpr std::string_view key = "state";
+            constexpr std::string_view json = R"({"value":1})";
+            storage.begin_overlay();
+            REQUIRE(storage.write_json(DRAXUL_PLUGIN_STORAGE_PLUGIN,
+                key.data(), key.size(), json.data(), json.size())
+                == DRAXUL_PLUGIN_STORAGE_OK);
+            std::string error;
+            CHECK_FALSE(storage.commit_overlay(error));
+            CHECK(error.find(FaultInjectingStorageFiles::injected_error()
+                    .message())
+                != std::string::npos);
+            CHECK(error.find("Success") == std::string::npos);
+            CHECK(files->remove_calls == 1);
+            CHECK(files->last_removed == files->last_temporary);
+            CHECK_FALSE(std::filesystem::exists(files->last_temporary));
+            CHECK_FALSE(storage.overlay_active());
+        }
+    }
+}
+
+TEST_CASE("PluginStorage reports filesystem failures and partial commit",
+    "[plugin][storage][reload]")
+{
+    TempPlugins temp;
+    auto files = std::make_shared<FaultInjectingStorageFiles>(
+        FaultInjectingStorageFiles::Failure::CreateDirectories);
+    draxul::PluginStorage storage(temp.root / "storage", files);
+    storage.initialize("dev.draxul.storage", "pane", temp.root / "module");
+    size_t path_size = 0;
+    CHECK_FALSE(storage.get_service_path(DRAXUL_PLUGIN_PATH_DATA, nullptr,
+        &path_size));
+    constexpr std::string_view first_key = "first";
+    constexpr std::string_view partial_first_key = "partial-first";
+    constexpr std::string_view partial_second_key = "partial-second";
+    constexpr std::string_view json = R"({"value":1})";
+    CHECK(storage.write_json(DRAXUL_PLUGIN_STORAGE_PLUGIN, first_key.data(),
+        first_key.size(), json.data(), json.size())
+        == DRAXUL_PLUGIN_STORAGE_IO_ERROR);
+
+    files->failure = FaultInjectingStorageFiles::Failure::None;
+    REQUIRE(storage.write_json(DRAXUL_PLUGIN_STORAGE_PLUGIN,
+        first_key.data(), first_key.size(), json.data(), json.size())
+        == DRAXUL_PLUGIN_STORAGE_OK);
+    files->failure = FaultInjectingStorageFiles::Failure::FileSize;
+    size_t size = 0;
+    CHECK(storage.read_json(DRAXUL_PLUGIN_STORAGE_PLUGIN, first_key.data(),
+        first_key.size(), nullptr, &size) == DRAXUL_PLUGIN_STORAGE_IO_ERROR);
+    files->failure = FaultInjectingStorageFiles::Failure::Read;
+    CHECK(storage.read_json(DRAXUL_PLUGIN_STORAGE_PLUGIN, first_key.data(),
+        first_key.size(), nullptr, &size) == DRAXUL_PLUGIN_STORAGE_IO_ERROR);
+    files->failure = FaultInjectingStorageFiles::Failure::Remove;
+    CHECK(storage.remove(DRAXUL_PLUGIN_STORAGE_PLUGIN, first_key.data(),
+        first_key.size()) == DRAXUL_PLUGIN_STORAGE_IO_ERROR);
+
+    files->failure = FaultInjectingStorageFiles::Failure::None;
+    files->fail_replace_call = files->replace_calls + 2;
+    storage.begin_overlay();
+    REQUIRE(storage.write_json(DRAXUL_PLUGIN_STORAGE_PLUGIN,
+        partial_first_key.data(), partial_first_key.size(), json.data(),
+        json.size())
+        == DRAXUL_PLUGIN_STORAGE_OK);
+    REQUIRE(storage.write_json(DRAXUL_PLUGIN_STORAGE_PLUGIN,
+        partial_second_key.data(), partial_second_key.size(), json.data(),
+        json.size())
+        == DRAXUL_PLUGIN_STORAGE_OK);
+    std::string error;
+    CHECK_FALSE(storage.commit_overlay(error));
+    CHECK(error.find(FaultInjectingStorageFiles::injected_error().message())
+        != std::string::npos);
+    const bool first_exists = std::filesystem::exists(
+        storage.storage_path(DRAXUL_PLUGIN_STORAGE_PLUGIN,
+            partial_first_key));
+    const bool second_exists = std::filesystem::exists(
+        storage.storage_path(DRAXUL_PLUGIN_STORAGE_PLUGIN,
+            partial_second_key));
+    CHECK(first_exists != second_exists);
+}
 
 #ifdef DRAXUL_MEGACITY_PLUGIN_PATH
 TEST_CASE("MegaCity module creates the real City and Biology products",

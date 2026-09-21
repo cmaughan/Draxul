@@ -12,6 +12,7 @@
 #include <catch2/catch_all.hpp>
 #include <draxul/log.h>
 #include <fstream>
+#include <limits>
 
 using namespace draxul;
 using namespace draxul::tests;
@@ -354,6 +355,16 @@ TEST_CASE("schema-driven config parsing preserves range and literal semantics", 
     CHECK(contains_message(capture.records, "scroll_speed"));
     CHECK(contains_message(capture.records, "selection_max_cells"));
     CHECK(contains_message(capture.records, "paste_confirm_lines"));
+}
+
+TEST_CASE("minimum-clamped config integers remain representable", "[config][schema]")
+{
+    const AppConfig config = AppConfig::parse(
+        "chord_timeout_ms = 2147483648\n"
+        "chord_indicator_fade_ms = 9223372036854775807\n");
+    CHECK(config.chord_timeout_ms == std::numeric_limits<int>::max());
+    CHECK(config.chord_indicator_fade_ms
+        == std::numeric_limits<int>::max());
 }
 
 TEST_CASE("app config serialize/parse round-trip preserves all fields", "[config]")
@@ -814,7 +825,7 @@ TEST_CASE("config duplicate keybinding: first registered action takes precedence
 TEST_CASE("gui keybinding parsing works without SDL initialized", "[config]")
 {
     // Ctrl+Shift modifier parsing must work with no SDL_Init call.
-    // This confirms that draxul-app-support has no SDL initialisation dependency.
+    // This confirms that draxul-config has no SDL initialisation dependency.
     auto binding = parse_gui_keybinding("copy", "Ctrl+Shift+C");
     INFO("copy binding parses without SDL init");
     REQUIRE(binding.has_value());

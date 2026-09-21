@@ -7,6 +7,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <exception>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <random>
@@ -302,8 +303,23 @@ public:
         else
         {
             ++commands_dispatched;
-            ControlMethodResult dispatched = dispatch(
-                session_id, client_id, command);
+            ControlMethodResult dispatched;
+            try
+            {
+                dispatched = dispatch(session_id, client_id, command);
+            }
+            catch (const std::exception& exception)
+            {
+                dispatched = ControlMethodResult::error(
+                    "command_failed",
+                    std::string("Session command failed: ")
+                        + exception.what());
+            }
+            catch (...)
+            {
+                dispatched = ControlMethodResult::error(
+                    "command_failed", "Session command failed unexpectedly.");
+            }
             result.ok = dispatched.ok;
             if (dispatched.ok)
                 result.result = std::move(dispatched.value);

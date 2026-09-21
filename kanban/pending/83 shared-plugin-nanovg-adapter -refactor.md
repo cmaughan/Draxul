@@ -11,29 +11,29 @@
 
 #### Boundary verification
 
-- [ ] Compare both products’ callback retention, viewport conversion, context lifecycle, and shader-root behavior.
-- [ ] Freeze a header name that cannot collide with core `draxul/nanovg_pass.h`.
-- [ ] Define bundled and standalone resource-provider wiring before product migration.
-- [ ] Coordinate allocation-failure coverage with `kanban/pending/16 metal-nanovg-failure-ownership -bug.md`.
+- [x] Compare both products’ callback retention, viewport conversion, context lifecycle, and shader-root behavior.
+- [x] Freeze a header name that cannot collide with core `draxul/nanovg_pass.h`.
+- [x] Define bundled and standalone resource-provider wiring before product migration.
+- [x] Coordinate allocation-failure coverage with `kanban/pending/16 metal-nanovg-failure-ownership -bug.md`.
 
 #### Implementation and migration
 
-- [ ] Add the support leaf and register its alias in the root support allowlist.
-- [ ] Migrate PCBView first, preserving product drawing ownership.
-- [ ] Migrate ScoreView and copy/stage the new support directory in `external_product_plugin_smoke.py`.
-- [ ] Preserve standalone `draxul-scoreview-vma-impl`; do not require unavailable bundled Vulkan resources.
-- [ ] Remove duplicated native adapters after both consumers pass.
+- [x] Add the support leaf and register its alias in the root support allowlist.
+- [x] Migrate PCBView first, preserving product drawing ownership.
+- [x] Migrate ScoreView and copy/stage the new support directory in `external_product_plugin_smoke.py`.
+- [x] Preserve standalone `draxul-scoreview-vma-impl`; do not require unavailable bundled Vulkan resources.
+- [x] Remove duplicated native adapters after both consumers pass.
 
 #### Unit tests
 
-- [ ] Add `draxul-test-plugin-nanovg` using private recording operations for viewport/scissor/translation, frame forwarding, callback consumption, initialization failure/retry, and destruction order.
-- [ ] Characterize Vulkan device/format reset separately from existing Metal initialization behavior.
-- [ ] Enable `cmake --build <cache> --config Debug --target draxul-test-plugin-nanovg --parallel`.
-- [ ] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-plugin-nanovg-shard-' --parallel 4 --output-on-failure`.
+- [x] Add `draxul-test-plugin-nanovg` using private recording operations for viewport/scissor/translation, frame forwarding, callback consumption, initialization failure/retry, and destruction order.
+- [x] Characterize Vulkan device/format reset separately from existing Metal initialization behavior.
+- [x] Enable `cmake --build <cache> --config Debug --target draxul-test-plugin-nanovg --parallel`.
+- [x] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-plugin-nanovg-shard-' --parallel 4 --output-on-failure`.
 
 #### Cross-platform validation
 
-- [ ] Preserve PIC, module symbol isolation, NanoVG shader staging, and Metal ARC.
+- [x] Preserve PIC, module symbol isolation, NanoVG shader staging, and Metal ARC.
 - [ ] Preserve bundled macOS SDL header-only linkage versus standalone/Windows SDL linkage.
 - [ ] Run `cmake --build <cache> --config Debug --target draxul-scoreview-extraction-smoke --parallel`; this is a custom target, not a CTest entry.
 - [ ] Run `python3 do.py test debug --products`, then `python3 do.py smoke debug --skip-build`.
@@ -41,13 +41,13 @@
 
 #### Agent documentation/tooling
 
-- [ ] Register focused tests in core aggregates and runner selection.
-- [ ] Document support dependencies and standalone staging in core/product guides.
+- [x] Register focused tests in core aggregates and runner selection.
+- [x] Document support dependencies and standalone staging in core/product guides.
 - [ ] Land core support first, then product commits and deliberate pointer adoption.
 
 #### Acceptance criteria
 
-- [ ] Both products use one adapter implementation per backend.
-- [ ] Support has no app, renderer, window, or product dependency.
+- [x] Both products use one adapter implementation per backend.
+- [x] Support has no app, renderer, window, or product dependency.
 - [ ] ScoreView’s copied-tree build and render smoke remain valid.
-- [ ] Existing platform behavior is preserved without introducing unrelated parity changes.
+- [x] Existing platform behavior is preserved without introducing unrelated parity changes.

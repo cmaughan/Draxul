@@ -98,3 +98,5 @@ add_library(Draxul::PluginSupport::Http ALIAS draxul-http)
 if(TARGET draxul-vulkan-resources)
     add_library(Draxul::PluginSupport::VulkanResources ALIAS draxul-vulkan-resources)
 endif()
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

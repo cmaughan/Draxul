@@ -11,10 +11,10 @@
 
 **Fix strategy**
 
-- [ ] Check construction errors immediately and advance through `increment(error_code)`.
-- [ ] Return scan failures before committing a replacement board.
+- [x] Check construction errors immediately and advance through `increment(error_code)`.
+- [x] Return scan failures before committing a replacement board.
 
 **Acceptance criteria**
 
-- [ ] Failed reloads preserve the last valid board and expose an error.
-- [ ] Mid-scan failures never escape the UI callback.
+- [x] Failed reloads preserve the last valid board and expose an error.
+- [x] Mid-scan failures never escape the UI callback.

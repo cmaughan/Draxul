@@ -2,7 +2,8 @@
 
 #include <draxul/clipboard_poll_gate.h>
 #include <draxul/grid_host_base.h>
-#include <draxul/nvim.h>
+#include <draxul/nvim_transport.h>
+#include <draxul/nvim_ui.h>
 #include <draxul/startup_resize_state.h>
 #include <draxul/ui_request_worker.h>
 

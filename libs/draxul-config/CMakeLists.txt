@@ -23,3 +23,5 @@ target_link_libraries(draxul-config PRIVATE
     draxul-performance
     SDL3::SDL3
 )
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

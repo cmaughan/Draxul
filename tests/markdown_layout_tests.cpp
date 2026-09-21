@@ -9,6 +9,7 @@
 #include <draxul/rich_text_service.h>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -34,6 +35,27 @@ RichTextService make_initialized_service(float base_point_size = 12.0f)
     RichTextService service;
     REQUIRE(service.initialize(config, base_point_size, 96.0f));
     return service;
+}
+
+FontMetricsLookup synthetic_metrics()
+{
+    return [](const RichTextStyleKey& style) {
+        const int cell_width = std::max(1, static_cast<int>(std::lround(style.point_size * 0.60f)));
+        const int cell_height = std::max(1, static_cast<int>(std::lround(style.point_size * 1.50f)));
+        return FontMetrics{
+            .cell_width = cell_width,
+            .cell_height = cell_height,
+            .ascender = std::max(1, static_cast<int>(std::lround(cell_height * 0.78f))),
+            .descender = std::max(0, cell_height - static_cast<int>(std::lround(cell_height * 0.78f))),
+        };
+    };
+}
+
+FontMetricsLookup metrics_from(RichTextService& service)
+{
+    return [&service](const RichTextStyleKey& style) {
+        return service.metrics_for(style);
+    };
 }
 
 Inline text_inline(std::string text)
@@ -152,11 +174,11 @@ TEST_CASE("markdown layout gives H1 a taller row than body text", "[markdown][la
     document.blocks.push_back(heading(1, "Large title"));
     document.blocks.push_back(paragraph("Small body"));
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto layout = layout_markdown_document(
         document,
         default_markdown_theme(12.0f),
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 600.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() == 2);
@@ -164,7 +186,6 @@ TEST_CASE("markdown layout gives H1 a taller row than body text", "[markdown][la
     REQUIRE(layout.rows[1].source_kind == BlockKind::Paragraph);
     REQUIRE(layout.rows[0].height > layout.rows[1].height);
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout left margin is measured in body character widths", "[markdown][layout]")
@@ -172,14 +193,14 @@ TEST_CASE("markdown layout left margin is measured in body character widths", "[
     Document document;
     document.blocks.push_back(paragraph("Margin controlled body text."));
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto theme = default_markdown_theme(12.0f);
-    const auto metrics = service.metrics_for(theme.body.rich_text);
+    const auto metrics = metrics_lookup(theme.body.rich_text);
 
     const auto layout = layout_markdown_document(
         document,
         theme,
-        service,
+        metrics_lookup,
         LayoutOptions{
             .viewport_width = 600.0f,
             .viewport_height = 400.0f,
@@ -190,7 +211,6 @@ TEST_CASE("markdown layout left margin is measured in body character widths", "[
     REQUIRE(layout.rows.size() == 1);
     REQUIRE(layout.rows[0].runs.front().x == Catch::Approx(static_cast<float>(metrics.cell_width) * 2.0f));
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout wraps long paragraphs at narrow content width", "[markdown][layout]")
@@ -199,11 +219,11 @@ TEST_CASE("markdown layout wraps long paragraphs at narrow content width", "[mar
     document.blocks.push_back(paragraph(
         "This paragraph contains enough words to wrap into several visual rows when the viewport is narrow."));
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto layout = layout_markdown_document(
         document,
         default_markdown_theme(12.0f),
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 160.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() > 1);
@@ -213,7 +233,6 @@ TEST_CASE("markdown layout wraps long paragraphs at narrow content width", "[mar
         REQUIRE(row.height > 0.0f);
     }
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout splits long unbroken words without rasterizing text", "[markdown][layout]")
@@ -222,12 +241,13 @@ TEST_CASE("markdown layout splits long unbroken words without rasterizing text",
     document.blocks.push_back(paragraph(std::string(240, 'w')));
 
     auto service = make_initialized_service();
+    const auto metrics_lookup = metrics_from(service);
     service.clear_atlas_dirty();
 
     const auto layout = layout_markdown_document(
         document,
         default_markdown_theme(12.0f),
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 160.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() > 1);
@@ -238,7 +258,6 @@ TEST_CASE("markdown layout splits long unbroken words without rasterizing text",
     }
     REQUIRE_FALSE(service.atlas_dirty());
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout indents subsection headings and content", "[markdown][layout]")
@@ -253,11 +272,11 @@ TEST_CASE("markdown layout indents subsection headings and content", "[markdown]
     document.blocks.push_back(heading(2, "Input"));
     document.blocks.push_back(paragraph("Input details."));
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto layout = layout_markdown_document(
         document,
         default_markdown_theme(12.0f),
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 720.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() == 8);
@@ -275,7 +294,6 @@ TEST_CASE("markdown layout indents subsection headings and content", "[markdown]
     REQUIRE(h3_body_x == Catch::Approx(h3_x));
     REQUIRE(next_h2_x == Catch::Approx(h2_x));
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout indents lists beneath subsections beyond the heading text", "[markdown][layout]")
@@ -288,11 +306,11 @@ TEST_CASE("markdown layout indents lists beneath subsections beyond the heading 
     list.children.push_back(paragraph("GPU text path"));
     document.blocks.push_back(std::move(list));
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto layout = layout_markdown_document(
         document,
         default_markdown_theme(12.0f),
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 720.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() == 2);
@@ -308,7 +326,6 @@ TEST_CASE("markdown layout indents lists beneath subsections beyond the heading 
     REQUIRE(bullet->x > heading_x);
     REQUIRE(layout.rows[1].runs.front().x > bullet->x);
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout creates front matter rows with a background decoration", "[markdown][layout]")
@@ -321,11 +338,11 @@ TEST_CASE("markdown layout creates front matter rows with a background decoratio
     Document document;
     document.blocks.push_back(std::move(front_matter));
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto layout = layout_markdown_document(
         document,
         default_markdown_theme(12.0f),
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 500.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() == 2);
@@ -337,7 +354,6 @@ TEST_CASE("markdown layout creates front matter rows with a background decoratio
         [](const Decoration& decoration) { return decoration.kind == Decoration::Kind::Background; });
     REQUIRE(has_background);
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout renders pipe tables with aligned cells and borders", "[markdown][layout]")
@@ -360,11 +376,11 @@ TEST_CASE("markdown layout renders pipe tables with aligned cells and borders", 
     Document document;
     document.blocks.push_back(std::move(table));
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto layout = layout_markdown_document(
         document,
         default_markdown_theme(12.0f),
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 480.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() == 2);
@@ -386,7 +402,6 @@ TEST_CASE("markdown layout renders pipe tables with aligned cells and borders", 
     REQUIRE(has_table_background);
     REQUIRE(has_table_border);
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout shares pipe table width from min and preferred content widths", "[markdown][layout]")
@@ -411,11 +426,11 @@ TEST_CASE("markdown layout shares pipe table width from min and preferred conten
     Document document;
     document.blocks.push_back(std::move(table));
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto layout = layout_markdown_document(
         document,
         default_markdown_theme(12.0f),
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 520.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() > 2);
@@ -427,7 +442,6 @@ TEST_CASE("markdown layout shares pipe table width from min and preferred conten
     REQUIRE(widths[2] > widths[1]);
     REQUIRE(widths[2] < layout.content_width * 0.60f);
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout wraps long pipe table cells into taller table rows", "[markdown][layout]")
@@ -450,11 +464,11 @@ TEST_CASE("markdown layout wraps long pipe table cells into taller table rows", 
     Document document;
     document.blocks.push_back(std::move(table));
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto layout = layout_markdown_document(
         document,
         default_markdown_theme(12.0f),
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 220.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() > 2);
@@ -462,7 +476,6 @@ TEST_CASE("markdown layout wraps long pipe table cells into taller table rows", 
         return row.source_kind == BlockKind::TableRow && row.height > 0.0f;
     }));
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout starts a new row on a soft break without a blank row", "[markdown][layout]")
@@ -474,11 +487,11 @@ TEST_CASE("markdown layout starts a new row on a soft break without a blank row"
         text_inline("second authored line."),
     }));
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto layout = layout_markdown_document(
         document,
         default_markdown_theme(12.0f),
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 900.0f, .viewport_height = 400.0f });
 
     // One row per authored line -- and critically, no empty row between them.
@@ -487,7 +500,6 @@ TEST_CASE("markdown layout starts a new row on a soft break without a blank row"
     REQUIRE(layout.rows[1].runs.front().text == "second authored line.");
     REQUIRE(layout.rows[1].y == Catch::Approx(layout.rows[0].y + layout.rows[0].height));
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout keeps hard breaks on their own row", "[markdown][layout]")
@@ -499,18 +511,17 @@ TEST_CASE("markdown layout keeps hard breaks on their own row", "[markdown][layo
         text_inline("Address line two"),
     }));
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto layout = layout_markdown_document(
         document,
         default_markdown_theme(12.0f),
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 900.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() == 2);
     REQUIRE(layout.rows[0].runs.front().text == "Address line one");
     REQUIRE(layout.rows[1].runs.front().text == "Address line two");
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout applies inline bold and italic emphasis", "[markdown][layout]")
@@ -524,12 +535,12 @@ TEST_CASE("markdown layout applies inline bold and italic emphasis", "[markdown]
         text_inline(" tail"),
     }));
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto theme = default_markdown_theme(12.0f);
     const auto layout = layout_markdown_document(
         document,
         theme,
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 900.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() == 1);
@@ -553,7 +564,6 @@ TEST_CASE("markdown layout applies inline bold and italic emphasis", "[markdown]
     REQUIRE(runs[0].x < runs[1].x);
     REQUIRE(runs[1].x < runs[2].x);
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout keeps emphasis bold inside headings", "[markdown][layout]")
@@ -567,12 +577,12 @@ TEST_CASE("markdown layout keeps emphasis bold inside headings", "[markdown][lay
     Document document;
     document.blocks.push_back(std::move(block));
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto theme = default_markdown_theme(12.0f);
     const auto layout = layout_markdown_document(
         document,
         theme,
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 900.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() == 1);
@@ -584,7 +594,6 @@ TEST_CASE("markdown layout keeps emphasis bold inside headings", "[markdown][lay
     REQUIRE(emphasized.rich_text.bold); // headings are bold to begin with
     REQUIRE(emphasized.rich_text.point_size == Catch::Approx(theme.heading2.rich_text.point_size));
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout draws task markers as accent-colored glyphs", "[markdown][layout]")
@@ -594,11 +603,12 @@ TEST_CASE("markdown layout draws task markers as accent-colored glyphs", "[markd
     document.blocks.push_back(task_item("Still open", false));
 
     auto service = make_initialized_service();
+    const auto metrics_lookup = metrics_from(service);
     const auto theme = default_markdown_theme(12.0f);
     const auto layout = layout_markdown_document(
         document,
         theme,
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 600.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() == 2);
@@ -630,7 +640,6 @@ TEST_CASE("markdown layout draws task markers as accent-colored glyphs", "[markd
         CHECK(cluster.advance_px > 0.0f);
     }
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout keeps authored line structure from source", "[markdown][layout]")
@@ -643,12 +652,12 @@ TEST_CASE("markdown layout keeps authored line structure from source", "[markdow
         "spread across the lines.\n");
     REQUIRE(parsed.ok);
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto theme = default_markdown_theme(12.0f);
     const auto layout = layout_markdown_document(
         parsed.document,
         theme,
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 1200.0f, .viewport_height = 400.0f });
 
     REQUIRE(layout.rows.size() == 3);
@@ -675,12 +684,11 @@ TEST_CASE("markdown layout keeps authored line structure from source", "[markdow
     REQUIRE_FALSE(resolve_markdown_style(theme, middle[0].style).rich_text.bold);
 
     // Word gaps across a style change are geometric, not literal spaces in the run.
-    const auto metrics = service.metrics_for(theme.body.rich_text);
+    const auto metrics = metrics_lookup(theme.body.rich_text);
     const float space_width = static_cast<float>(metrics.cell_width);
     const float first_end = middle[0].x + space_width * static_cast<float>(middle[0].text.size());
     REQUIRE(middle[1].x == Catch::Approx(first_end + space_width));
 
-    service.shutdown();
 }
 
 TEST_CASE("markdown layout keeps bold-led lines and bullets separated", "[markdown][layout]")
@@ -697,12 +705,12 @@ TEST_CASE("markdown layout keeps bold-led lines and bullets separated", "[markdo
         "- **slug** hyphenated short description\n");
     REQUIRE(parsed.ok);
 
-    auto service = make_initialized_service();
+    const auto metrics_lookup = synthetic_metrics();
     const auto theme = default_markdown_theme(12.0f);
     const auto layout = layout_markdown_document(
         parsed.document,
         theme,
-        service,
+        metrics_lookup,
         LayoutOptions{ .viewport_width = 1200.0f, .viewport_height = 600.0f });
 
     REQUIRE(layout.rows.size() == 5);
@@ -731,5 +739,4 @@ TEST_CASE("markdown layout keeps bold-led lines and bullets separated", "[markdo
         REQUIRE(layout.rows[index].runs.front().x > layout.rows[0].runs.front().x);
     }
 
-    service.shutdown();
 }

@@ -8,6 +8,11 @@ import sys
 import tempfile
 import zlib
 
+try:
+    from .draxul_paths import executable_path
+except ImportError:  # Direct execution: scripts/ is the import root.
+    from draxul_paths import executable_path
+
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -35,9 +40,7 @@ def build_command(root: pathlib.Path) -> list[str]:
 
 
 def draxul_path(root: pathlib.Path) -> pathlib.Path:
-    if sys.platform.startswith("win"):
-        return root / "build" / "Debug" / "draxul.exe"
-    return root / "build" / "draxul"
+    return executable_path(root)
 
 
 def run_command(command: list[str], cwd: pathlib.Path) -> None:

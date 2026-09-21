@@ -11,23 +11,23 @@
 
 #### Boundary verification
 
-- [ ] Inventory all public font headers and confirm no native types/macros require public propagation.
-- [ ] Find every white-box consumer, including font, resolver, raster-error, style-model, and box-drawing tests.
-- [ ] Record production compile usage separately from static final-link requirements.
+- [x] Inventory all public font headers and confirm no native types/macros require public propagation.
+- [x] Find every white-box consumer, including font, resolver, raster-error, style-model, and box-drawing tests.
+- [x] Record production compile usage separately from static final-link requirements.
 
 #### Implementation and migration
 
-- [ ] Introduce a test-only interface target for required private includes and native dependencies.
-- [ ] Migrate white-box includes and link their owning test target explicitly.
-- [ ] Change production FreeType/HarfBuzz visibility to private.
-- [ ] Add proposed `draxul-font-link-isolation`, consuming public headers through only `draxul-font`.
-- [ ] Keep implementation headers out of installed/public APIs.
+- [x] Introduce a test-only interface target for required private includes and native dependencies.
+- [x] Migrate white-box includes and link their owning test target explicitly.
+- [x] Change production FreeType/HarfBuzz visibility to private.
+- [x] Add proposed `draxul-font-link-isolation`, consuming public headers through only `draxul-font`.
+- [x] Keep implementation headers out of installed/public APIs.
 
 #### Unit tests
 
-- [ ] Retain font/style/fallback/raster-error coverage without duplicating implementation-mirroring tests.
-- [ ] Verify the isolated public consumer builds/links and does not inherit native compile include requirements.
-- [ ] Verify white-box consumers receive those requirements only through explicit test access.
+- [x] Retain font/style/fallback/raster-error coverage without duplicating implementation-mirroring tests.
+- [x] Verify the isolated public consumer builds/links and does not inherit native compile include requirements.
+- [x] Verify white-box consumers receive those requirements only through explicit test access.
 - [ ] Enable `cmake --build <cache> --config Debug --target draxul-font-link-isolation draxul-test-core --parallel`.
 - [ ] During iteration run `ctest --test-dir <cache> -C Debug -R '^draxul-test-core-shard-' --parallel 4 --output-on-failure`.
 
@@ -39,15 +39,15 @@
 
 #### Agent documentation/tooling
 
-- [ ] Register the build-only consumer in the appropriate aggregate.
-- [ ] Document public font contracts versus private native/test requirements.
+- [x] Register the build-only consumer in the appropriate aggregate.
+- [x] Document public font contracts versus private native/test requirements.
 - [ ] Preserve the completed scope and outstanding validation of `kanban/done/30 font-style-model -refactor.md`.
 
 #### Acceptance criteria
 
-- [ ] Production consumers no longer inherit FreeType/HarfBuzz compile interfaces through `draxul-font`.
-- [ ] White-box tests declare their private dependencies explicitly.
-- [ ] Public font APIs, shaping/rasterization behavior, and final links remain compatible.
+- [x] Production consumers no longer inherit FreeType/HarfBuzz compile interfaces through `draxul-font`.
+- [x] White-box tests declare their private dependencies explicitly.
+- [x] Public font APIs, shaping/rasterization behavior, and final links remain compatible.
 - [ ] The report distinguishes compile-interface cleanup from dependency build-cost reduction.
 
 ## Final target/module map

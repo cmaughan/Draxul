@@ -16,7 +16,7 @@ Users expect their terminal to reopen where they left it. Draxul currently appea
 
 ### Files to modify
 - `app/app.cpp` — add save-on-exit logic: query window position, size, and maximise state from SDL3 before destroying the window; write to config
-- `libs/draxul-app-support/` — extend `AppConfig` with `window_x`, `window_y`, `window_width`, `window_height`, `window_maximized` fields
+- `libs/draxul-config/` — extend `AppConfig` with `window_x`, `window_y`, `window_width`, `window_height`, `window_maximized` fields
 - Config parsing — read/write the window state fields in `config.toml` under a `[window]` table
 - `libs/draxul-window/include/draxul/window.h` — add `get_position()`, `get_size()`, `is_maximized()` to the `IWindow` interface if not already present
 - `libs/draxul-window/src/sdl_window.cpp` — implement the new interface methods using SDL3 APIs

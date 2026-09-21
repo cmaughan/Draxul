@@ -3,7 +3,7 @@
 #include <draxul/events.h>
 #include <draxul/grid_sink.h>
 #include <draxul/highlight.h>
-#include <draxul/nvim_rpc.h>
+#include <draxul/nvim_protocol.h>
 #include <draxul/types.h>
 #include <functional>
 #include <string>

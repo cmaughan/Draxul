@@ -17,10 +17,17 @@ Mid-frame chunk-flush failures are discarded, allowing rendering to continue on 
 
 ## Fix strategy
 
-- [ ] Propagate failure or latch an aborted-frame state visible to all subsequent recording calls.
-- [ ] Null or quarantine command buffers that are no longer recording.
-- [ ] Roll back `current_chunk_index_` and vector state on allocation, reset, or begin failure.
-- [ ] Make `end_frame()` safely clean up an already-aborted frame.
+- [x] Propagate failure or latch an aborted-frame state visible to all subsequent recording calls.
+- [x] Null or quarantine command buffers that are no longer recording.
+- [x] Roll back `current_chunk_index_` and vector state on allocation, reset, or begin failure.
+- [x] Make `end_frame()` safely clean up an already-aborted frame.
+
+**Implementation note (2026-09-21):** Chunk failures now abort the active frame,
+wait for submitted work, replace the current frame's semaphore and signaled
+fence, and force a swapchain rebuild before another acquire. Command-buffer
+allocation, reset, and begin leave the chunk index unchanged until success.
+Focused Vulkan source-contract tests passed on macOS (75 cases, 635 assertions).
+Failure injection and Windows Vulkan validation remain pending.
 
 ## Acceptance criteria
 

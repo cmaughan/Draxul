@@ -11,10 +11,10 @@
 
 **Fix strategy**
 
-- [ ] Derive format from decoded storage, perform an explicit conversion, or reject incompatible overrides.
-- [ ] Validate upload size and row stride on both backends.
+- [x] Derive format from decoded storage and reject incompatible overrides.
+- [x] Validate upload size and row stride in both backend upload paths.
 
 **Acceptance criteria**
 
-- [ ] No accepted image upload reads beyond its source storage.
-- [ ] Invalid combinations report diagnostics and preserve the active generation.
+- [x] No accepted image upload reads beyond its source storage.
+- [x] Invalid combinations report diagnostics and preserve the active generation.

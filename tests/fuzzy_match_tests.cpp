@@ -1,4 +1,4 @@
-#include "fuzzy_match.h"
+#include <draxul/fuzzy_match.h>
 
 #include <catch2/catch_test_macros.hpp>
 

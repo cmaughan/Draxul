@@ -19,3 +19,5 @@ if(WIN32)
 elseif(APPLE OR UNIX)
     target_link_libraries(draxul-plugin PRIVATE ${CMAKE_DL_LIBS})
 endif()
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

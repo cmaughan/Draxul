@@ -703,6 +703,8 @@ bool MetalRenderer::flush_submit_chunk(bool final_chunk)
             const size_t height = drawable.texture.height;
             if (ensure_capture_buffer(width, height))
             {
+                capture_width_ = width;
+                capture_height_ = height;
                 id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
                 [blit copyFromTexture:drawable.texture
                                  sourceSlice:0
@@ -719,6 +721,8 @@ bool MetalRenderer::flush_submit_chunk(bool final_chunk)
             else
             {
                 capture_requested_ = false;
+                capture_width_ = 0;
+                capture_height_ = 0;
             }
         }
 
@@ -736,8 +740,8 @@ bool MetalRenderer::flush_submit_chunk(bool final_chunk)
             [cmdBuf waitUntilCompleted];
 
             CapturedFrame frame;
-            frame.width = pixel_w_;
-            frame.height = pixel_h_;
+            frame.width = static_cast<int>(capture_width_);
+            frame.height = static_cast<int>(capture_height_);
             frame.rgba.resize(static_cast<size_t>(frame.width) * frame.height * 4);
 
             const auto* src = static_cast<const uint8_t*>([capture_buffer_.get() contents]);
@@ -760,6 +764,8 @@ bool MetalRenderer::flush_submit_chunk(bool final_chunk)
                 captured_frame_ = std::move(frame);
             }
             capture_requested_ = false;
+            capture_width_ = 0;
+            capture_height_ = 0;
 
             // Signal after readback is fully complete — safe for next frame.
             dispatch_semaphore_signal(sema);

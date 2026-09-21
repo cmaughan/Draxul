@@ -172,7 +172,7 @@ bool SdlWindow::initialize(const std::string& title, int width, int height)
 #endif
 
     wake_event_type_ = SDL_RegisterEvents(2);
-    if (wake_event_type_ == static_cast<Uint32>(-1))
+    if (wake_event_type_ == 0)
     {
         DRAXUL_LOG_ERROR(LogCategory::Window, "SDL_RegisterEvents failed: %s", SDL_GetError());
         return false;

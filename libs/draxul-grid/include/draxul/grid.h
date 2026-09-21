@@ -68,6 +68,11 @@ public:
     void clear() override;
 
     void set_cell(int col, int row, const std::string& text, uint16_t hl_id, bool double_width) override;
+    // Restore a previously captured cell, including semantic metadata. Wide
+    // leaders recreate their continuation atomically; callers may also pass
+    // the captured continuation, which is accepted without clearing its
+    // leader.
+    void restore_cell(int col, int row, const Cell& cell);
     const Cell& get_cell(int col, int row) const;
     void set_cell_hyperlink_id(int col, int row, uint16_t link_id);
     uint16_t link_id_for_uri(std::string_view uri);

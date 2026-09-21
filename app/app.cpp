@@ -6,6 +6,7 @@
 #endif
 #include "chrome_host.h"
 #include "control_event_journal.h"
+#include "control_request_policy.h"
 #include "control_request_router.h"
 #include "gui_action_handler.h"
 #include "input_dispatcher.h"
@@ -21,6 +22,7 @@
 #include <draxul/autorelease_pool.h>
 #include <draxul/client_recovery.h>
 #include <draxul/control_plane.h>
+#include <draxul/filesystem_path_text.h>
 #include <draxul/grid_host_base.h>
 #include <draxul/host_registry.h>
 #include <draxul/log.h>
@@ -3170,13 +3172,7 @@ void App::refresh_tab_default_names()
             const std::string cwd = focused->current_working_directory();
             if (cwd.empty())
                 continue;
-            // Strip trailing slashes, then take the basename.
-            std::string_view sv = cwd;
-            while (sv.size() > 1 && sv.back() == '/')
-                sv.remove_suffix(1);
-            const auto last_slash = sv.rfind('/');
-            const std::string_view basename
-                = (last_slash != std::string_view::npos) ? sv.substr(last_slash + 1) : sv;
+            const std::string_view basename = path_display_basename(cwd);
             if (basename.empty())
                 continue;
             std::string new_name(basename);
@@ -5427,10 +5423,6 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
 {
     ControlRequestRouter read_router(
         space_controller_, agent_controller_, options_.session_id);
-    auto read_agent = [&](std::string_view instance_id) {
-        return read_router.handle(
-            { request.id, "agent.get", { { "instance_id", instance_id } } });
-    };
     auto find_agent = [&](std::string_view instance_id)
         -> std::optional<AgentProjection> {
         const auto agents = agent_controller_.query(space_controller_);
@@ -5475,447 +5467,212 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
         return std::nullopt;
     };
 
-    if (request.method == "pane.focus" || request.method == "pane.action")
+    struct LocatedNativeRoute
     {
-        if (!request.params.is_object()
-            || !request.params.contains("pane_id")
-            || !request.params["pane_id"].is_string()
-            || request.params["pane_id"].get_ref<const std::string&>().empty())
-        {
-            return ControlMethodResult::error("invalid_params",
-                request.method + " requires a non-empty string 'pane_id'.");
-        }
-        const std::string pane_id
-            = request.params["pane_id"].get<std::string>();
-        const auto located = find_local_pane(pane_id);
-        if (!located)
-            return ControlMethodResult::error(
-                "not_found", "The pane is not attached to this Draxul UI.");
-
-        if (request.method == "pane.action")
-        {
-            if (!request.params.contains("action")
-                || !request.params["action"].is_string()
-                || request.params["action"].get_ref<const std::string&>().empty())
-            {
-                return ControlMethodResult::error("invalid_params",
-                    "pane.action requires a non-empty string 'action'.");
-            }
-            if (!located->host)
-                return ControlMethodResult::error(
-                    "not_running", "The pane has no live host.");
-            const std::string action
-                = request.params["action"].get<std::string>();
-            if (!located->host->dispatch_action(action))
-            {
-                return ControlMethodResult::error(
-                    "action_rejected", "The pane host rejected the action.");
-            }
-            request_frame();
-            return ControlMethodResult::success({
-                { "pane_id", pane_id },
-                { "action", action },
-                { "dispatched", true },
-            });
-        }
-
-        if (!space_controller_.activate_space(located->space->id)
-            || !located->space->tab_controller.activate_tab(located->tab->id))
-        {
-            return ControlMethodResult::error(
-                "focus_failed", "The pane's Space or tab could not be activated.");
-        }
-        located->tab->pane_manager.set_focused(located->leaf);
-        refresh_app_shell_layout();
-        input_dispatcher_.set_host(active_pane_manager().focused_host());
-        mark_session_dirty();
-        request_frame();
-        return ControlMethodResult::success({
-            { "pane_id", pane_id },
-            { "space_id", located->space->id },
-            { "tab_id", located->tab->id },
-            { "active", true },
-        });
-    }
-
-    if (request.method == "plugin.reload")
-    {
-        if (!request.params.is_object()
-            || !request.params.contains("plugin_id")
-            || !request.params["plugin_id"].is_string()
-            || request.params["plugin_id"].get_ref<const std::string&>().empty())
-        {
-            return ControlMethodResult::error("invalid_params",
-                "plugin.reload requires a non-empty string 'plugin_id'.");
-        }
-        const std::string plugin_id
-            = request.params["plugin_id"].get<std::string>();
-        const auto reloaded = reload_plugin(plugin_id);
-        if (!reloaded.error.empty())
-        {
-            return ControlMethodResult::error(
-                reloaded.rolled_back ? "reload_rolled_back" : "reload_failed",
-                reloaded.error);
-        }
-        return ControlMethodResult::success({
-            { "plugin_id", plugin_id },
-            { "generation", reloaded.generation },
-            { "matched", reloaded.matched },
-            { "reloaded", reloaded.reloaded },
-            { "warning", reloaded.warning },
-        });
-    }
-
-    if (request.method == "pane.report_agent_session")
-    {
-        const auto required_string = [&](const char* name)
-            -> std::optional<std::string> {
-            if (!request.params.is_object() || !request.params.contains(name)
-                || !request.params[name].is_string()
-                || request.params[name].get_ref<const std::string&>().empty())
-                return std::nullopt;
-            return request.params[name].get<std::string>();
-        };
-        const auto pane_id = required_string("pane_id");
-        const auto instance_id = required_string("agent_instance_id");
-        const auto source = required_string("source");
-        const auto agent_kind = required_string("agent");
-        const auto ref_kind_text = required_string("ref_kind");
-        const auto ref_value = required_string("ref_value");
-        if (!pane_id || !instance_id || !source || !agent_kind
-            || !ref_kind_text || !ref_value
-            || !request.params.contains("integration_version")
-            || !request.params["integration_version"].is_number_unsigned()
-            || !request.params.contains("sequence")
-            || !request.params["sequence"].is_number_unsigned())
-        {
-            return ControlMethodResult::error("invalid_params",
-                "pane.report_agent_session requires complete routing, source, "
-                "version, sequence, and reference fields.");
-        }
-        const auto ref_kind = parse_agent_session_ref_kind(*ref_kind_text);
-        if (!ref_kind)
-            return ControlMethodResult::error(
-                "invalid_params", "Unknown native session reference kind.");
-
-        PaneManager* target_panes = nullptr;
-        LeafId target_leaf = kInvalidLeaf;
-        size_t matching_routes = 0;
+        PaneManager* panes = nullptr;
+        LeafId leaf = kInvalidLeaf;
+        size_t matches = 0;
+    };
+    auto find_native_route = [&](std::string_view pane_id,
+                                 std::string_view instance_id) {
+        LocatedNativeRoute found;
         for (const auto& space : space_controller_.spaces())
         {
             for (const auto& tab : space->tab_controller.tabs())
             {
                 tab->pane_manager.tree().for_each_leaf(
                     [&](LeafId leaf, const PaneDescriptor&) {
-                        const AgentIdentity* candidate = tab->pane_manager.agent_identity(leaf);
-                        if (tab->pane_manager.pane_id(leaf) == *pane_id
+                        const AgentIdentity* candidate
+                            = tab->pane_manager.agent_identity(leaf);
+                        if (tab->pane_manager.pane_id(leaf) == pane_id
                             && candidate
-                            && candidate->instance_id == *instance_id)
+                            && candidate->instance_id == instance_id)
                         {
-                            target_panes = &tab->pane_manager;
-                            target_leaf = leaf;
-                            ++matching_routes;
+                            found.panes = &tab->pane_manager;
+                            found.leaf = leaf;
+                            ++found.matches;
                         }
                     });
             }
         }
-        const AgentIdentity* identity = target_panes
-            ? target_panes->agent_identity(target_leaf)
-            : nullptr;
-        if (matching_routes != 1 || !identity || identity->kind != *agent_kind)
-        {
-            return ControlMethodResult::error(
-                "routing_mismatch", "Agent routing identity does not match the pane.");
-        }
+        return found;
+    };
+    auto find_agent_host = [&](const AgentProjection& agent) -> IHost* {
+        Space* space = space_controller_.find_space(agent.space_id);
+        if (!space)
+            return nullptr;
+        const auto tab = std::find_if(space->tab_controller.tabs().begin(),
+            space->tab_controller.tabs().end(),
+            [&](const auto& candidate) {
+                return candidate && candidate->id == agent.tab_id;
+            });
+        return tab == space->tab_controller.tabs().end()
+            ? nullptr
+            : (*tab)->pane_manager.host_for(agent.leaf_id);
+    };
+    auto has_agent_route = [&](const AgentProjection& agent) {
+        Space* space = space_controller_.find_space(agent.space_id);
+        if (!space)
+            return false;
+        return std::ranges::any_of(space->tab_controller.tabs(),
+            [&](const auto& candidate) {
+                return candidate && candidate->id == agent.tab_id;
+            });
+    };
 
-        AgentSessionRef session_ref{
-            .source = *source,
-            .agent_kind = *agent_kind,
-            .integration_version = request.params["integration_version"].get<uint32_t>(),
-            .sequence = request.params["sequence"].get<uint64_t>(),
-            .kind = *ref_kind,
-            .value = *ref_value,
-        };
-        std::string validation_error;
-        if (!validate_agent_session_ref(session_ref, &validation_error))
-            return ControlMethodResult::error(
-                "invalid_session_ref", validation_error);
-        for (const auto& space : space_controller_.spaces())
-        {
-            for (const auto& tab : space->tab_controller.tabs())
+    ControlRequestPolicy policy({
+        .read = [&read_router](const ControlRequest& read_request) {
+            return read_router.handle(read_request);
+        },
+        .find_pane = [&](std::string_view pane_id)
+            -> std::optional<ControlRequestPolicy::PaneTarget> {
+            const auto located = find_local_pane(pane_id);
+            if (!located)
+                return std::nullopt;
+            return ControlRequestPolicy::PaneTarget{
+                .pane_id = std::string(pane_id),
+                .space_id = located->space->id,
+                .tab_id = located->tab->id,
+                .has_host = located->host != nullptr,
+            };
+        },
+        .focus_pane = [&](const ControlRequestPolicy::PaneTarget& target) {
+            const auto located = find_local_pane(target.pane_id);
+            if (!located
+                || !space_controller_.activate_space(located->space->id)
+                || !located->space->tab_controller.activate_tab(located->tab->id))
             {
-                bool duplicate = false;
-                tab->pane_manager.tree().for_each_leaf(
-                    [&](LeafId leaf, const PaneDescriptor&) {
-                        const AgentSessionRef* existing = tab->pane_manager.agent_session_ref(leaf);
-                        duplicate = duplicate
-                            || (existing && (&tab->pane_manager != target_panes || leaf != target_leaf)
-                                && existing->source == session_ref.source
-                                && existing->agent_kind == session_ref.agent_kind
-                                && existing->kind == session_ref.kind
-                                && existing->value == session_ref.value);
-                    });
-                if (duplicate)
-                    return ControlMethodResult::error("duplicate_session_ref",
-                        "Native agent session is already owned by another pane.");
+                return ControlRequestPolicy::FocusResult::Failed;
             }
-        }
-        if (!target_panes->set_agent_session_ref(
-                target_leaf, std::move(session_ref)))
-        {
-            return ControlMethodResult::error("stale_report",
-                "Native session report is stale or was rejected.");
-        }
-        mark_session_dirty();
-        return read_agent(*instance_id);
-    }
-
-    if (request.method == "space.focus")
-    {
-        if (!request.params.is_object() || !request.params.contains("id")
-            || !request.params["id"].is_number_integer())
-        {
-            return ControlMethodResult::error(
-                "invalid_params", "space.focus requires an integer 'id'.");
-        }
-        const SpaceId id = request.params["id"].get<SpaceId>();
-        const auto activated = activate_space(id);
-        if (!activated)
-            return ControlMethodResult::error("not_found", activated.error().message);
-        return ControlMethodResult::success({
-            { "space_id", id },
-            { "active", true },
-        });
-    }
-
-    if (request.method == "agent.start")
-    {
-        if (!request.params.is_object()
-            || !request.params.contains("profile_id")
-            || !request.params["profile_id"].is_string())
-        {
-            return ControlMethodResult::error(
-                "invalid_params", "agent.start requires a string 'profile_id'.");
-        }
-        if (request.params.contains("space_id"))
-        {
-            if (!request.params["space_id"].is_number_integer())
-                return ControlMethodResult::error(
-                    "invalid_params", "'space_id' must be an integer.");
-            const auto activated = activate_space(request.params["space_id"].get<SpaceId>());
-            if (!activated)
-                return ControlMethodResult::error(
-                    "not_found", activated.error().message);
-        }
-        AgentLaunchRequest launch{
-            .profile_id = request.params["profile_id"].get<std::string>(),
-        };
-        if (request.params.contains("args"))
-        {
-            if (!request.params["args"].is_array()
-                || request.params["args"].size() > 64)
-            {
-                return ControlMethodResult::error(
-                    "invalid_params", "'args' must be an array of at most 64 strings.");
-            }
-            for (const auto& arg : request.params["args"])
-            {
-                if (!arg.is_string() || arg.get_ref<const std::string&>().size() > 4096)
-                    return ControlMethodResult::error(
-                        "invalid_params", "Every agent argument must be a bounded string.");
-                launch.additional_args.push_back(arg.get<std::string>());
-            }
-        }
-        if (request.params.contains("cwd"))
-        {
-            if (!request.params["cwd"].is_string())
-                return ControlMethodResult::error(
-                    "invalid_params", "'cwd' must be a string.");
-            launch.working_directory = request.params["cwd"].get<std::string>();
-        }
-        const auto started = launch_agent(std::move(launch));
-        if (!started)
-            return ControlMethodResult::error(
-                "start_failed", started.error().message);
-        return read_agent(started.value());
-    }
-
-    if (request.method == "agent.focus" || request.method == "agent.restart"
-        || request.method == "agent.send_text" || request.method == "agent.send_keys"
-        || request.method == "agent.wait")
-    {
-        if (!request.params.is_object()
-            || !request.params.contains("instance_id")
-            || !request.params["instance_id"].is_string())
-        {
-            return ControlMethodResult::error(
-                "invalid_params", request.method + " requires 'instance_id'.");
-        }
-        const std::string instance_id = request.params["instance_id"].get<std::string>();
-        const auto agent = find_agent(instance_id);
-        if (!agent)
-            return ControlMethodResult::error("not_found", "Agent not found.");
-
-        if (request.method == "agent.focus")
-        {
-            if (!agent_controller_.focus(space_controller_, instance_id))
-                return ControlMethodResult::error("focus_failed", "Unable to focus agent.");
+            located->tab->pane_manager.set_focused(located->leaf);
             refresh_app_shell_layout();
             input_dispatcher_.set_host(active_pane_manager().focused_host());
             mark_session_dirty();
             request_frame();
-            return read_agent(instance_id);
-        }
-
-        if (request.method == "agent.restart")
-        {
-            const auto restarted
-                = restart_agent_runtime(*agent);
-            if (!restarted)
+            return ControlRequestPolicy::FocusResult::Focused;
+        },
+        .dispatch_pane_action = [&](const ControlRequestPolicy::PaneTarget& target,
+                                    std::string_view action) {
+            const auto located = find_local_pane(target.pane_id);
+            if (!located || !located->host
+                || !located->host->dispatch_action(action))
             {
-                return ControlMethodResult::error(
-                    "restart_failed",
-                    restarted.error().message);
+                return ControlRequestPolicy::ActionResult::Rejected;
             }
-            return read_agent(instance_id);
-        }
-
-        Space* space = space_controller_.find_space(agent->space_id);
-        Tab* tab = nullptr;
-        if (space)
-        {
-            const auto tab_it = std::find_if(space->tab_controller.tabs().begin(),
-                space->tab_controller.tabs().end(),
-                [&](const auto& candidate) {
-                    return candidate && candidate->id == agent->tab_id;
-                });
-            if (tab_it != space->tab_controller.tabs().end())
-                tab = tab_it->get();
-        }
-        if (!tab)
-            return ControlMethodResult::error(
-                "agent_replaced", "The agent pane no longer exists.");
-        IHost* host = tab->pane_manager.host_for(agent->leaf_id);
-
-        if (request.method == "agent.wait")
-        {
-            if (request.params.contains("runtime_generation"))
-            {
-                if (!request.params["runtime_generation"].is_number_unsigned())
-                    return ControlMethodResult::error(
-                        "invalid_params", "'runtime_generation' must be unsigned.");
-                if (request.params["runtime_generation"].get<uint64_t>()
-                    != agent->generation.value)
-                {
-                    return ControlMethodResult::success({
-                        { "complete", true },
-                        { "outcome", "agent_replaced" },
-                        { "agent", read_agent(instance_id).value },
-                    });
-                }
-            }
-            std::vector<std::string> desired;
-            if (request.params.contains("until"))
-            {
-                if (!request.params["until"].is_array())
-                    return ControlMethodResult::error(
-                        "invalid_params", "'until' must be an array.");
-                for (const auto& value : request.params["until"])
-                {
-                    if (!value.is_string())
-                        return ControlMethodResult::error(
-                            "invalid_params", "'until' values must be strings.");
-                    desired.push_back(value.get<std::string>());
-                }
-            }
-            if (desired.empty())
-                desired = { "blocked", "done", "exited", "failed" };
-            const auto matches = [&](std::string_view value) {
-                return std::find(desired.begin(), desired.end(), value)
-                    != desired.end();
+            request_frame();
+            return ControlRequestPolicy::ActionResult::Dispatched;
+        },
+        .reload_plugin = [&](std::string_view plugin_id) {
+            const auto reloaded = reload_plugin(plugin_id);
+            return ControlRequestPolicy::PluginReloadResult{
+                .generation = reloaded.generation,
+                .matched = reloaded.matched,
+                .reloaded = reloaded.reloaded,
+                .rolled_back = reloaded.rolled_back,
+                .warning = reloaded.warning,
+                .error = reloaded.error,
             };
-            const std::string lifecycle(to_string(agent->lifecycle));
-            const std::string status(to_string(agent->status));
-            const bool complete = matches(lifecycle) || matches(status);
-            return ControlMethodResult::success({
-                { "complete", complete },
-                { "outcome", complete ? (matches(status) ? status : lifecycle) : "" },
-                { "agent", read_agent(instance_id).value },
-            });
-        }
-
-        if (!host)
-            return ControlMethodResult::error(
-                "not_running", "The agent pane has no live host.");
-        std::string bytes;
-        if (request.method == "agent.send_text")
-        {
-            if (!request.params.contains("text")
-                || !request.params["text"].is_string())
+        },
+        .inspect_native_route = [&](std::string_view pane_id,
+                                    std::string_view instance_id,
+                                    std::string_view agent_kind) {
+            const auto route = find_native_route(pane_id, instance_id);
+            const AgentIdentity* identity = route.panes
+                ? route.panes->agent_identity(route.leaf)
+                : nullptr;
+            return route.matches == 1 && identity
+                    && identity->kind == agent_kind
+                ? ControlRequestPolicy::NativeRouteResult::Matched
+                : ControlRequestPolicy::NativeRouteResult::Mismatch;
+        },
+        .accept_native_session = [&](std::string_view pane_id,
+                                     std::string_view instance_id,
+                                     AgentSessionRef session_ref) {
+            const auto route = find_native_route(pane_id, instance_id);
+            if (route.matches != 1 || !route.panes)
+                return ControlRequestPolicy::NativeSessionResult::Stale;
+            for (const auto& space : space_controller_.spaces())
             {
-                return ControlMethodResult::error(
-                    "invalid_params", "agent.send_text requires string 'text'.");
+                for (const auto& tab : space->tab_controller.tabs())
+                {
+                    bool duplicate = false;
+                    tab->pane_manager.tree().for_each_leaf(
+                        [&](LeafId leaf, const PaneDescriptor&) {
+                            const AgentSessionRef* existing
+                                = tab->pane_manager.agent_session_ref(leaf);
+                            duplicate = duplicate
+                                || (existing
+                                    && (&tab->pane_manager != route.panes
+                                        || leaf != route.leaf)
+                                    && existing->source == session_ref.source
+                                    && existing->agent_kind == session_ref.agent_kind
+                                    && existing->kind == session_ref.kind
+                                    && existing->value == session_ref.value);
+                        });
+                    if (duplicate)
+                        return ControlRequestPolicy::NativeSessionResult::Duplicate;
+                }
             }
-            bytes = request.params["text"].get<std::string>();
-            if (bytes.size() > 64 * 1024)
-                return ControlMethodResult::error(
-                    "invalid_params", "Agent text exceeds 64 KiB.");
-        }
-        else
-        {
-            if (!request.params.contains("keys")
-                || !request.params["keys"].is_array()
-                || request.params["keys"].size() > 64)
+            if (!route.panes->set_agent_session_ref(
+                    route.leaf, std::move(session_ref)))
             {
-                return ControlMethodResult::error(
-                    "invalid_params", "agent.send_keys requires at most 64 keys.");
+                return ControlRequestPolicy::NativeSessionResult::Stale;
             }
-            std::vector<std::string> keys;
-            keys.reserve(request.params["keys"].size());
-            for (const auto& value : request.params["keys"])
+            mark_session_dirty();
+            return ControlRequestPolicy::NativeSessionResult::Accepted;
+        },
+        .focus_space = [&](SpaceId id) {
+            const auto activated = activate_space(id);
+            return activated
+                ? ControlRequestPolicy::OperationResult::success()
+                : ControlRequestPolicy::OperationResult::failure(
+                      activated.error().message);
+        },
+        .launch_agent = [&](AgentLaunchRequest launch) {
+            auto started = launch_agent(std::move(launch));
+            return started
+                ? ControlRequestPolicy::LaunchResult{
+                      .instance_id = std::move(started.value()) }
+                : ControlRequestPolicy::LaunchResult{
+                      .error = started.error().message };
+        },
+        .find_agent = find_agent,
+        .focus_agent = [&](std::string_view instance_id) {
+            if (!agent_controller_.focus(space_controller_, instance_id))
             {
-                if (!value.is_string())
-                    return ControlMethodResult::error(
-                        "invalid_params", "Every key must be a string.");
-                keys.push_back(value.get<std::string>());
+                return ControlRequestPolicy::OperationResult::failure(
+                    "Unable to focus agent.");
             }
-            std::string key_error;
-            auto encoded = encode_agent_keys(keys, key_error);
-            if (!encoded)
-                return ControlMethodResult::error(
-                    "invalid_params", std::move(key_error));
-            bytes = std::move(*encoded);
-        }
-        if (!host->send_agent_input(bytes))
-            return ControlMethodResult::error(
-                "input_failed", "The agent host rejected input.");
-        return read_agent(instance_id);
-    }
-
-    if (request.method == "event.subscribe")
-    {
-        uint64_t cursor = 0;
-        size_t limit = 64;
-        if (request.params.contains("cursor"))
-        {
-            if (!request.params["cursor"].is_number_unsigned())
-                return ControlMethodResult::error(
-                    "invalid_params", "'cursor' must be unsigned.");
-            cursor = request.params["cursor"].get<uint64_t>();
-        }
-        if (request.params.contains("limit"))
-        {
-            if (!request.params["limit"].is_number_unsigned())
-                return ControlMethodResult::error(
-                    "invalid_params", "'limit' must be unsigned.");
-            limit = std::clamp<size_t>(
-                request.params["limit"].get<size_t>(), 1, 128);
-        }
-        return ControlMethodResult::success(
-            control_events_->read_after(cursor, limit));
-    }
-
-    return read_router.handle(request);
+            refresh_app_shell_layout();
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
+            mark_session_dirty();
+            request_frame();
+            return ControlRequestPolicy::OperationResult::success();
+        },
+        .restart_agent = [&](const AgentProjection& agent) {
+            const auto restarted = restart_agent_runtime(agent);
+            return restarted
+                ? ControlRequestPolicy::OperationResult::success()
+                : ControlRequestPolicy::OperationResult::failure(
+                      restarted.error().message);
+        },
+        .inspect_agent_route = [&](const AgentProjection& agent) {
+            if (!has_agent_route(agent))
+                return ControlRequestPolicy::AgentRouteResult::Missing;
+            return find_agent_host(agent)
+                ? ControlRequestPolicy::AgentRouteResult::Ready
+                : ControlRequestPolicy::AgentRouteResult::NoLiveHost;
+        },
+        .send_agent_input = [&](const AgentProjection& agent,
+                                std::string_view bytes) {
+            IHost* host = find_agent_host(agent);
+            return host && host->send_agent_input(bytes);
+        },
+        .read_events = [&](uint64_t cursor, size_t limit) {
+            return control_events_->read_after(cursor, limit);
+        },
+    });
+    return policy.handle(request);
 }
 
 void App::shutdown()

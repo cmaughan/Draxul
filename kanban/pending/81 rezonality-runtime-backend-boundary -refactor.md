@@ -11,17 +11,17 @@
 
 #### Boundary verification
 
-- [ ] Define candidate ownership, `needs_prepare`, prepare/record/retire responsibilities, and failure outcomes.
+- [x] Define candidate ownership, `needs_prepare`, prepare/record/retire responsibilities, and failure outcomes.
 - [ ] Keep audio orchestration in the controller through `AudioAnalyzer`; device opening, permissions, capture sharing, buffering, and teardown belong to the audio target proposed in `kanban/pending/93 rezonality-audio-capture-boundary -refactor.md`.
-- [ ] Serialize shared product CMake edits with the project-pipeline and audio owners after agreeing their value/header contracts.
-- [ ] Preserve Vulkan target-generation/render-pass checks and Metal format checks as distinct native requirements.
-- [ ] Coordinate or land `kanban/pending/09 rezonality-pending-build-lifetime -bug.md` and `kanban/pending/48 rezonality-gpu-initialization-rollback -bug.md` before relocating affected logic.
-- [ ] Preserve the separate scope of `kanban/pending/43 rezonality-diagnostic-utf8 -bug.md`.
+- [x] Serialize shared product CMake edits with the project-pipeline and audio owners after agreeing their value/header contracts.
+- [x] Preserve Vulkan target-generation/render-pass checks and Metal format checks as distinct native requirements.
+- [x] Land `kanban/pending/09 rezonality-pending-build-lifetime -bug.md` and the transactional resource fixes from `kanban/pending/48 rezonality-gpu-initialization-rollback -bug.md` before relocating affected logic.
+- [x] Preserve the separate scope of `kanban/pending/43 rezonality-diagnostic-utf8 -bug.md`.
 
 #### Implementation and migration
 
 - [ ] Mechanically move native implementation into selected Vulkan `.cpp` and Metal `.mm` files.
-- [ ] Extract a controller that can be compiled independently for fake-backend tests; keep native dependencies out of its interface.
+- [x] Extract a controller that can be compiled independently for fake-backend tests; keep native dependencies out of its interface.
 - [ ] Centralize candidate selection, activation outcomes, status publication, and presentation notifications.
 - [ ] Delegate ABI callbacks after mechanical moves pass; retain existing audio/service adapters.
 - [ ] Update the source-location assertion in `rezonality_plugin_contract_tests.cpp:199–210` when Metal code moves.
@@ -29,26 +29,26 @@
 #### Unit tests
 
 - [ ] Add `draxul-test-rezonality-runtime` covering prepare success/failure, resize recreation, attempted/active generations, hidden/quiesced state, and retirement ordering.
-- [ ] Retain actual module load/edit/break/repair coverage.
-- [ ] Enable `cmake --build <cache> --config Debug --target draxul-test-rezonality-runtime --parallel`.
-- [ ] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-rezonality-runtime-shard-' --parallel 4 --output-on-failure`.
+- [x] Retain actual module load/edit/break/repair coverage.
+- [x] Enable `cmake --build <cache> --config Debug --target draxul-test-rezonality-runtime --parallel`.
+- [x] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-rezonality-runtime-shard-' --parallel 4 --output-on-failure`.
 
 #### Cross-platform validation
 
 - [ ] Preserve borrowed command-buffer ownership, Metal object lifetime, and retirement only after all using frame slots complete.
-- [ ] Preserve last-good-generation behavior without adding backend submit, present, or device-idle operations.
+- [x] Preserve last-good-generation behavior without adding backend submit, present, or device-idle operations.
 - [ ] Run `python3 do.py test debug --rezonality`, then `python3 do.py smoke debug --skip-build`, with equivalent Windows validation.
-- [ ] Retain raster/PBR/ray and synthetic-audio scenarios; leave unavailable native checks pending.
+- [x] Retain raster/PBR/ray and synthetic-audio scenarios; leave unavailable native checks pending.
 
 #### Agent documentation/tooling
 
-- [ ] Register focused tests in product aggregates, `do.py`, and runner selection tests.
-- [ ] Document controller/backend ownership and native compatibility differences in product guidance.
+- [x] Register focused tests in product aggregates, `do.py`, and runner selection tests.
+- [x] Document controller/backend ownership and native compatibility differences in product guidance.
 - [ ] Commit product implementation separately and adopt the parent pointer deliberately.
 
 #### Acceptance criteria
 
-- [ ] Activation/failure policy has one controller implementation.
-- [ ] Native handles remain private and ABI compatibility is unchanged.
-- [ ] Controller tests require neither native rendering nor the app.
-- [ ] Real reload recovery and supported native rendering remain intact.
+- [x] Activation/failure policy has one controller implementation.
+- [x] Native handles remain private and ABI compatibility is unchanged.
+- [x] Controller tests require neither native rendering nor the app.
+- [x] Real reload recovery and supported native rendering remain intact.

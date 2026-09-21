@@ -7,6 +7,8 @@
 #include <draxul/server_control_channel.h>
 #include <draxul/session_protocol.h>
 
+#include "session_stream_policy.h"
+
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -1576,25 +1578,21 @@ public:
         std::optional<ControlClientResult> result;
     };
 
-    enum class StreamCommandOwner
-    {
-        Generic,
-        Terminal,
-        Topology,
-    };
+    using StreamCommandOwner
+        = detail::SessionStreamPolicy::CommandOwner;
 
     struct QueuedStreamCommand
     {
+        detail::SessionStreamPolicy::CommandToken token = 0;
         uint64_t request_id = 0;
         std::string method;
         nlohmann::json params = nlohmann::json::object();
         StreamCommandOwner owner = StreamCommandOwner::Generic;
+        uint64_t registration_id = 0;
         std::weak_ptr<Entry> entry;
         CoordinatorCommand terminal;
         std::optional<TopologyCommand> topology;
         std::shared_ptr<StreamCommandWaiter> waiter;
-        int retry_count = 0;
-        uint64_t send_order = 0;
     };
 
     explicit Impl(RemoteSessionCoordinatorOptions options)
@@ -1711,6 +1709,7 @@ public:
         }
         finish_stream_after_worker();
         abandon_stream_commands(false);
+        stream_policy_.reset();
         std::vector<std::shared_ptr<Entry>> entries;
         {
             std::lock_guard guard(mutex_);
@@ -1883,6 +1882,7 @@ private:
             return false;
         }
         command.request_id = next_stream_command_request_id();
+        command.token = command.request_id;
         {
             std::lock_guard guard(worker_mutex_);
             if (!stream_commands_active_
@@ -1959,25 +1959,15 @@ private:
     void abandon_stream_commands(bool retry_on_short_control)
     {
         std::deque<QueuedStreamCommand> commands;
-        std::vector<QueuedStreamCommand> sent;
-        sent.reserve(pending_stream_commands_.size()
-            + deferred_topology_commands_.size());
-        for (uint64_t request_id : pending_stream_command_order_)
+        for (const auto token
+            : stream_policy_.abandon_sent_commands())
         {
-            const auto found
-                = pending_stream_commands_.find(request_id);
-            if (found != pending_stream_commands_.end())
-                sent.push_back(std::move(found->second));
+            const auto found = stream_command_payloads_.find(token);
+            if (found == stream_command_payloads_.end())
+                continue;
+            commands.push_back(std::move(found->second));
+            stream_command_payloads_.erase(found);
         }
-        for (auto& command : deferred_topology_commands_)
-            sent.push_back(std::move(command));
-        std::ranges::sort(sent, {},
-            &QueuedStreamCommand::send_order);
-        for (auto& command : sent)
-            commands.push_back(std::move(command));
-        pending_stream_commands_.clear();
-        pending_stream_command_order_.clear();
-        deferred_topology_commands_.clear();
         {
             std::lock_guard guard(worker_mutex_);
             while (!outgoing_stream_commands_.empty())
@@ -2157,25 +2147,6 @@ private:
         return request;
     }
 
-    static bool same_session_state(
-        const SessionPollRequest& lhs,
-        const SessionPollRequest& rhs)
-    {
-        return lhs.server_epoch == rhs.server_epoch
-            && lhs.topology_after_revision
-                == rhs.topology_after_revision
-            && lhs.agent_after_revision == rhs.agent_after_revision
-            && lhs.terminals == rhs.terminals;
-    }
-
-    uint64_t next_session_request_serial()
-    {
-        const uint64_t result = stream_request_serial_;
-        if (++stream_request_serial_ == 0)
-            stream_request_serial_ = 1;
-        return result;
-    }
-
     void close_stream_connection()
     {
         std::lock_guard guard(stream_connection_mutex_);
@@ -2295,7 +2266,7 @@ private:
     {
         const auto entries = entries_snapshot();
         SessionPollRequest initial = make_session_request(
-            entries, next_session_request_serial());
+            entries, 1);
         ServerControlChannel channel({
             .runtime_directory = options_.runtime_directory,
             .client_id = options_.client_id,
@@ -2350,7 +2321,7 @@ private:
         stream_max_frame_bytes_ = std::min(
             response->max_frame_bytes, kControlMaxMessageBytes);
         stream_max_queue_bytes_ = response->max_queue_bytes;
-        stream_heartbeat_timeout_ = std::chrono::milliseconds(
+        const auto heartbeat_timeout = std::chrono::milliseconds(
             std::clamp<uint64_t>(
                 static_cast<uint64_t>(response->heartbeat_interval_ms)
                     * 3,
@@ -2370,11 +2341,9 @@ private:
             finish_stream_after_worker();
             return false;
         }
-        last_stream_poll_ = std::move(initial);
-        stream_update_required_ = false;
-        last_stream_frame_serial_ = 0;
-        last_stream_event_request_serial_ = 0;
-        stream_last_frame_at_ = std::chrono::steady_clock::now();
+        stream_policy_.activate(response->server_epoch,
+            std::move(initial), heartbeat_timeout,
+            std::chrono::steady_clock::now());
         {
             std::lock_guard guard(worker_mutex_);
             stream_reader_done_ = false;
@@ -2424,7 +2393,7 @@ private:
             invalidate_stream_cursors_after_epoch_change();
         }
         finish_stream_after_worker();
-        last_stream_poll_.reset();
+        stream_policy_.reset();
         if (session_poll_supported_)
         {
             transport_mode_ = SessionTransportMode::SessionPoll;
@@ -2447,6 +2416,15 @@ private:
             reader_done = stream_reader_done_;
             reader_error = stream_reader_error_;
         }
+        std::vector<uint64_t> active_registrations;
+        active_registrations.reserve(entries.size());
+        for (const auto& entry : entries)
+        {
+            const uint64_t registration_id
+                = entry->batch_subscription().subscription_id;
+            if (this->entry(registration_id) == entry)
+                active_registrations.push_back(registration_id);
+        }
         for (auto& bytes : frames)
         {
             auto encoded = nlohmann::json::parse(
@@ -2464,33 +2442,24 @@ private:
                     : std::move(parse_error);
                 return false;
             }
-            if (frame->server_epoch
-                    != options_.recovery->server_epoch()
-                || frame->frame_serial
-                    != last_stream_frame_serial_ + 1)
+            auto decision = stream_policy_.accept_frame(
+                std::move(*frame),
+                std::chrono::steady_clock::now(),
+                active_registrations);
+            if (!decision)
             {
-                stream_failure_code_ = frame->server_epoch
-                        != options_.recovery->server_epoch()
-                    ? "stale_epoch"
-                    : "invalid_session_stream";
+                stream_failure_code_
+                    = std::move(decision.failure_code);
                 stream_failure_message_
-                    = "The Session event stream identity or ordering changed.";
+                    = std::move(decision.failure_message);
                 return false;
             }
-            last_stream_frame_serial_ = frame->frame_serial;
-            stream_last_frame_at_ = std::chrono::steady_clock::now();
-            if (frame->kind == SessionStreamServerFrameKind::Error)
+            if (decision.action
+                == detail::SessionStreamPolicy::FrameAction::CommandResult)
             {
-                stream_failure_code_ = frame->error_code;
-                stream_failure_message_ = frame->error_message;
-                return false;
-            }
-            if (frame->kind
-                == SessionStreamServerFrameKind::CommandResult)
-            {
-                if (!frame->command_result
-                    || !accept_stream_command_result(
-                        std::move(*frame->command_result)))
+                if (!decision.command
+                    || !apply_stream_command_result(
+                        std::move(*decision.command)))
                 {
                     stream_failure_code_ = "invalid_session_stream";
                     stream_failure_message_
@@ -2498,31 +2467,20 @@ private:
                     return false;
                 }
             }
-            else if (frame->kind == SessionStreamServerFrameKind::Events)
+            else if (decision.action
+                == detail::SessionStreamPolicy::FrameAction::Events)
             {
-                if (!frame->events || !last_stream_poll_
-                    || frame->events->server_epoch
-                        != frame->server_epoch
-                    || frame->events->request_serial
-                        > last_stream_poll_->request_serial
-                    || frame->events->request_serial
-                        <= last_stream_event_request_serial_)
+                if (!decision.events)
                 {
                     stream_failure_code_ = "invalid_session_stream";
                     stream_failure_message_
                         = "The Session event batch does not match the active stream state.";
                     return false;
                 }
-                accept_session_response(*frame->events, entries,
+                accept_session_response(*decision.events, entries,
                     std::chrono::microseconds::zero(),
                     "session.stream", false,
                     stream_commands_active_);
-                last_stream_event_request_serial_
-                    = frame->events->request_serial;
-                // Every Events frame is flow-controlled by the server, even
-                // if it contains only a deferred/error channel and advances
-                // no cursor. A fresh Update is therefore also its ack.
-                stream_update_required_ = true;
             }
             else
             {
@@ -2542,24 +2500,28 @@ private:
         return true;
     }
 
-    bool accept_stream_command_result(
-        SessionStreamCommandResult response)
+    bool apply_stream_command_result(
+        detail::SessionStreamPolicy::CommandResultDecision decision)
     {
-        const auto found
-            = pending_stream_commands_.find(response.request_id);
-        if (found == pending_stream_commands_.end())
+        release_stream_command_slot();
+        if (decision.action
+            == detail::SessionStreamPolicy::CommandResultAction::WaitForNewerTopology)
+        {
+            return true;
+        }
+        const auto found = stream_command_payloads_.find(
+            decision.command.token);
+        if (found == stream_command_payloads_.end())
             return false;
         QueuedStreamCommand command = std::move(found->second);
-        pending_stream_commands_.erase(found);
-        std::erase(pending_stream_command_order_, response.request_id);
-        release_stream_command_slot();
-        const bool retry_on_short_control
-            = !response.ok
-            && (response.error_code == "command_result_too_large"
-                || response.error_code
-                    == "unsupported_stream_command"
-                || response.error_code == "command_unavailable");
-        if (retry_on_short_control)
+        stream_command_payloads_.erase(found);
+        if (decision.action
+            == detail::SessionStreamPolicy::CommandResultAction::ObsoleteRegistration)
+        {
+            return true;
+        }
+        if (decision.action
+            == detail::SessionStreamPolicy::CommandResultAction::RetryOnShortControl)
         {
             if (command.owner == StreamCommandOwner::Terminal)
             {
@@ -2582,21 +2544,12 @@ private:
             }
             return true;
         }
-        if (command.owner == StreamCommandOwner::Topology
-            && command.topology && !response.ok
-            && response.error_code == "revision_conflict"
-            && command.retry_count == 0)
-        {
-            ++command.retry_count;
-            deferred_topology_commands_.push_back(
-                std::move(command));
-            return true;
-        }
+        auto& response_result = decision.result;
         ControlClientResult result{
-            .ok = response.ok,
-            .result = std::move(response.result),
-            .error_code = std::move(response.error_code),
-            .error_message = std::move(response.error_message),
+            .ok = response_result.ok,
+            .result = std::move(response_result.result),
+            .error_code = std::move(response_result.error_code),
+            .error_message = std::move(response_result.error_message),
         };
         switch (command.owner)
         {
@@ -2607,9 +2560,9 @@ private:
             if (auto entry = command.entry.lock())
             {
                 SessionStreamCommandResult terminal_result{
-                    .request_id = response.request_id,
+                    .request_id = response_result.request_id,
                     .ok = result.ok,
-                    .replayed = response.replayed,
+                    .replayed = response_result.replayed,
                     .result = std::move(result.result),
                     .error_code = std::move(result.error_code),
                     .error_message = std::move(result.error_message),
@@ -2635,21 +2588,48 @@ private:
         QueuedStreamCommand command,
         std::stop_token stop_token)
     {
-        const uint64_t request_id = command.request_id;
-        command.send_order = next_stream_send_order_++;
-        if (next_stream_send_order_ == 0)
-            next_stream_send_order_ = 1;
-        auto [found, inserted]
-            = pending_stream_commands_.emplace(
-                request_id, std::move(command));
+        const auto token = command.token;
+        auto [found, inserted] = stream_command_payloads_.emplace(
+            token, std::move(command));
         if (!inserted)
+        {
+            stream_failure_code_ = "invalid_session_stream";
+            stream_failure_message_
+                = "The Session stream command token was reused.";
             return false;
-        pending_stream_command_order_.push_back(request_id);
+        }
+        return write_staged_stream_command(token, stop_token);
+    }
+
+    bool write_staged_stream_command(
+        detail::SessionStreamPolicy::CommandToken token,
+        std::stop_token stop_token, int retry_count = 0)
+    {
+        const auto found = stream_command_payloads_.find(token);
+        if (found == stream_command_payloads_.end()
+            || !stream_policy_.track_command_write(
+                found->second.request_id,
+                {
+                    .token = token,
+                    .owner = found->second.owner,
+                    .registration_id
+                    = found->second.registration_id,
+                    .topology_revision = found->second.topology
+                        ? found->second.topology->expected_revision
+                        : 0,
+                    .retry_count = retry_count,
+                }))
+        {
+            stream_failure_code_ = "invalid_session_stream";
+            stream_failure_message_
+                = "The Session stream command state is inconsistent.";
+            return false;
+        }
         std::string error;
         if (!write_stream_frame({
                 .kind = SessionStreamClientFrameKind::Command,
                 .command = SessionStreamCommand{
-                    .request_id = request_id,
+                    .request_id = found->second.request_id,
                     .server_epoch
                     = options_.recovery->server_epoch(),
                     .method = found->second.method,
@@ -2670,30 +2650,39 @@ private:
         std::stop_token stop_token)
     {
         size_t sent = 0;
-        if (!deferred_topology_commands_.empty()
-            && options_.session_client)
+        if (options_.session_client
+            && reserve_stream_command_slot())
         {
             const uint64_t revision = options_.session_client
                                           ->session_poll_revisions()
                                           .topology;
-            auto& deferred = deferred_topology_commands_.front();
-            if (deferred.topology
-                && revision > deferred.topology->expected_revision
-                && reserve_stream_command_slot())
+            auto retry = stream_policy_.take_topology_retry(revision);
+            if (retry)
             {
-                QueuedStreamCommand command = std::move(deferred);
-                deferred_topology_commands_.pop_front();
-                command.topology->expected_revision = revision;
-                command.params
-                    = topology_command_to_json(*command.topology);
-                command.request_id
-                    = next_stream_command_request_id();
-                if (!write_queued_stream_command(
-                        std::move(command), stop_token))
+                const auto found = stream_command_payloads_.find(
+                    retry->command.token);
+                if (found == stream_command_payloads_.end()
+                    || !found->second.topology)
                 {
+                    stream_failure_code_ = "invalid_session_stream";
+                    stream_failure_message_
+                        = "The deferred Session topology command is missing its payload.";
                     return false;
                 }
+                found->second.topology->expected_revision = revision;
+                found->second.params = topology_command_to_json(
+                    *found->second.topology);
+                found->second.request_id
+                    = next_stream_command_request_id();
+                if (!write_staged_stream_command(
+                        retry->command.token, stop_token,
+                        retry->command.retry_count))
+                    return false;
                 ++sent;
+            }
+            else
+            {
+                release_stream_command_slot();
             }
         }
 
@@ -2705,8 +2694,10 @@ private:
             external.swap(outgoing_stream_commands_);
         }
         const size_t external_budget
-            = std::max<size_t>(1, kCommandsPerPoll / 2);
-        while (!external.empty() && sent < external_budget)
+            = stream_policy_.shared_command_budget(sent);
+        size_t external_sent = 0;
+        while (!external.empty()
+            && external_sent < external_budget)
         {
             QueuedStreamCommand command
                 = std::move(external.front());
@@ -2724,6 +2715,7 @@ private:
                 return false;
             }
             ++sent;
+            ++external_sent;
         }
         if (!external.empty())
         {
@@ -2736,17 +2728,31 @@ private:
             }
         }
 
-        const size_t entry_count = entries.size();
-        const size_t start = entry_count == 0
-            ? 0
-            : stream_command_rotation_ % entry_count;
+        std::vector<uint64_t> registration_ids;
+        registration_ids.reserve(entries.size());
+        for (const auto& entry : entries)
+        {
+            registration_ids.push_back(
+                entry->batch_subscription().subscription_id);
+        }
+        const auto probe_order
+            = stream_policy_.terminal_probe_order(registration_ids);
+        const size_t entry_count = probe_order.size();
         size_t visited = 0;
         while (visited < entry_count
-            && sent < kCommandsPerPoll)
+            && sent
+                < detail::SessionStreamPolicy::kCommandsPerWriteTurn)
         {
-            const auto& entry
-                = entries[(start + visited) % entry_count];
+            const uint64_t registration_id = probe_order[visited];
             ++visited;
+            const auto found_entry = std::ranges::find(entries,
+                registration_id, [](const auto& entry) {
+                    return entry->batch_subscription()
+                        .subscription_id;
+                });
+            if (found_entry == entries.end())
+                continue;
+            const auto& entry = *found_entry;
             auto prepared = entry->take_stream_command();
             if (!prepared)
                 continue;
@@ -2756,11 +2762,15 @@ private:
                     std::move(prepared->command));
                 break;
             }
+            const uint64_t request_id
+                = next_stream_command_request_id();
             QueuedStreamCommand command{
-                .request_id = next_stream_command_request_id(),
+                .token = request_id,
+                .request_id = request_id,
                 .method = std::move(prepared->method),
                 .params = std::move(prepared->params),
                 .owner = StreamCommandOwner::Terminal,
+                .registration_id = registration_id,
                 .entry = entry,
                 .terminal = std::move(prepared->command),
             };
@@ -2771,12 +2781,8 @@ private:
             }
             ++sent;
         }
-        if (entry_count != 0)
-        {
-            stream_command_rotation_
-                = (start + std::max<size_t>(1, visited))
-                % entry_count;
-        }
+        stream_policy_.advance_terminal_rotation(
+            entry_count, visited);
 
         return true;
     }
@@ -2784,18 +2790,16 @@ private:
     bool update_stream(std::stop_token stop_token)
     {
         const auto entries = entries_snapshot();
-        SessionPollRequest current = make_session_request(
-            entries, stream_request_serial_);
-        if (!stream_update_required_ && last_stream_poll_
-            && same_session_state(current, *last_stream_poll_))
-        {
+        auto update = stream_policy_.prepare_update(
+            make_session_request(entries, 0));
+        if (!update)
             return true;
-        }
-        current.request_serial = next_session_request_serial();
         std::string error;
         if (!write_stream_frame({
                 .kind = SessionStreamClientFrameKind::Update,
-                .update = SessionStreamUpdate{ .poll = current },
+                .update = SessionStreamUpdate{
+                    .poll = update->poll,
+                },
             },
                 stop_token, error))
         {
@@ -2803,8 +2807,7 @@ private:
             stream_failure_message_ = std::move(error);
             return false;
         }
-        last_stream_poll_ = std::move(current);
-        stream_update_required_ = false;
+        stream_policy_.commit_update(*update);
         return true;
     }
 
@@ -2851,9 +2854,8 @@ private:
                 fall_back_from_stream();
                 return;
             }
-            const auto elapsed = std::chrono::steady_clock::now()
-                - stream_last_frame_at_;
-            if (elapsed >= stream_heartbeat_timeout_)
+            const auto now = std::chrono::steady_clock::now();
+            if (stream_policy_.heartbeat_expired(now))
             {
                 stream_failure_code_ = "deadline_exceeded";
                 stream_failure_message_
@@ -2861,8 +2863,7 @@ private:
                 fall_back_from_stream();
                 return;
             }
-            auto wait = std::chrono::duration_cast<std::chrono::milliseconds>(
-                stream_heartbeat_timeout_ - elapsed);
+            auto wait = stream_policy_.heartbeat_time_remaining(now);
             if (commands_processed)
                 wait = std::min(wait, kPollInterval);
             wait_for_worker(wait);
@@ -3054,26 +3055,15 @@ private:
     size_t stream_max_queue_bytes_ = kSessionStreamDefaultQueueBytes;
     bool stream_reader_done_ = false;
     AsyncFrameStreamError stream_reader_error_;
-    uint64_t stream_request_serial_ = 1;
-    uint64_t last_stream_frame_serial_ = 0;
-    uint64_t last_stream_event_request_serial_ = 0;
-    std::optional<SessionPollRequest> last_stream_poll_;
-    bool stream_update_required_ = false;
-    std::chrono::milliseconds stream_heartbeat_timeout_{
-        kSessionStreamDefaultHeartbeatIntervalMs * 3
-    };
-    std::chrono::steady_clock::time_point stream_last_frame_at_{};
     std::string stream_failure_code_;
     std::string stream_failure_message_;
+    detail::SessionStreamPolicy stream_policy_;
     std::atomic<bool> stream_commands_active_ = false;
     std::atomic<size_t> stream_command_count_ = 0;
     std::deque<QueuedStreamCommand> outgoing_stream_commands_;
-    std::deque<QueuedStreamCommand> deferred_topology_commands_;
-    std::unordered_map<uint64_t, QueuedStreamCommand>
-        pending_stream_commands_;
-    std::deque<uint64_t> pending_stream_command_order_;
-    size_t stream_command_rotation_ = 0;
-    uint64_t next_stream_send_order_ = 1;
+    std::unordered_map<detail::SessionStreamPolicy::CommandToken,
+        QueuedStreamCommand>
+        stream_command_payloads_;
 };
 
 class RemoteSessionCoordinator::Registration::State

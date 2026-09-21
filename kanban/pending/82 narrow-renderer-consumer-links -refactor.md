@@ -11,16 +11,16 @@
 
 #### Boundary verification
 
-- [ ] Inventory includes and symbols used by all three consumers; capture direct and transitive links.
-- [ ] Confirm public headers receive their contracts directly rather than through unrelated consumers.
-- [ ] Verify Vulkan’s VMA implementation currently arrives transitively and must remain supplied explicitly.
+- [x] Inventory includes and symbols used by all three consumers; capture direct and transitive links.
+- [x] Confirm public headers receive their contracts directly rather than through unrelated consumers.
+- [x] Verify Vulkan’s VMA implementation currently arrives transitively and must remain supplied explicitly.
 
 #### Implementation and migration
 
-- [ ] Remove GUI’s renderer edge and validate that consumer first.
-- [ ] Replace UI’s renderer link with private render support, retaining explicit ImGui/SDL requirements.
-- [ ] Replace NanoVG’s renderer link with public render support and explicitly retain `draxul-vulkan-resources` on Vulkan.
-- [ ] Preserve Metal frameworks/ARC and existing native source selection.
+- [x] Remove GUI’s renderer edge and validate that consumer first.
+- [x] Replace UI’s renderer link with private render support, retaining explicit ImGui/SDL requirements.
+- [x] Replace NanoVG’s renderer link with public render support and explicitly retain `draxul-vulkan-resources` on Vulkan.
+- [x] Preserve Metal frameworks/ARC and existing native source selection.
 
 #### Unit tests
 
@@ -38,11 +38,11 @@
 #### Agent documentation/tooling
 
 - [ ] Register focused tests in core aggregates, `do.py`, and selection tests.
-- [ ] Correct dependency comments in GUI/UI documentation, NanoVG CMake, and the module map.
-- [ ] Document reduced target closure without claiming GPU-independent root configuration.
+- [x] Correct dependency comments in GUI/UI documentation, NanoVG CMake, and the module map.
+- [x] Document reduced target closure without claiming GPU-independent root configuration.
 
 #### Acceptance criteria
 
-- [ ] None of the three libraries directly or transitively depends on the concrete renderer.
+- [x] None of the three libraries directly or transitively depends on the concrete renderer.
 - [ ] Contract tests do not rely on the broad core test target to mask missing links.
 - [ ] Existing interfaces, visuals, and platform linkage remain compatible.

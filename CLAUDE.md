@@ -71,8 +71,16 @@ TSan suppressions for third-party library noise (SDL3, Metal, system frameworks)
   the final confirmation or when optimized behavior is relevant.
 - `do smoke --skip-build` runs the startup check against the already-built selected
   cache. Omit `--skip-build` when no preceding build/test has produced the app.
+  The wrapper owns a dedicated process group and stops it after 30 seconds, so a
+  stuck startup cannot leave the calling validation run blocked indefinitely.
 - `t.bat` / `t.sh` remain explicit broad validation wrappers, not the normal
   edit-build-test path.
+
+Every internal CMake directory that declares targets must finish with
+`draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")`.
+This applies sanitizer, coverage, and MSVC parallel-PDB policy by target type;
+the final configure-time audit rejects an internal target that omits the call.
+Mounted product repositories own their corresponding target policy.
 
 ### Debugging / Logging
 
@@ -140,7 +148,7 @@ Draxul is a Neovim GUI frontend. It spawns `nvim --embed`, communicates via msgp
 The graph is no longer a single linear stack: core infrastructure fans out from
 the narrow `draxul-types`, `draxul-performance`, `draxul-bmp`, and
 `draxul-host-identity` foundations; runtime and host composition sit above them, and product
-modules connect to the executable through host targets. See
+modules connect to the executable through the native plugin ABI. See
 [docs/module-map.md](docs/module-map.md#dependency-shape) for the maintained high-level
 graph and each `CMakeLists.txt` for exact target edges.
 
@@ -161,7 +169,8 @@ nvim --embed (child process)
 
 - **Renderer hierarchy**: `IBaseRenderer` lives in `libs/draxul-plugin-support/include/draxul/base_renderer.h` (shared with plugins); `IGridRenderer` extends it in `libs/draxul-renderer/include/draxul/renderer.h`. `MetalRenderer` and `VkRenderer` implement `IGridRenderer`.
   - `IRenderPass` / `IRenderContext` (`base_renderer.h`): typed render pass abstraction. A pass is recorded via `IBaseRenderer::record_render_pass(IRenderPass&, viewport)`; the renderer hands each pass an `IRenderContext` with the per-frame platform handles.
-- **Host hierarchy** (`libs/draxul-host/include/draxul/`): `IHost` (`host.h`) is the base; `GridHostBase` / `TerminalSurfaceHostBase` / `TerminalHostBase` provide shared grid, terminal-surface (selection/copy-mode/mouse), and terminal behavior for the shell, remote-terminal, and Neovim hosts; `PluginHost` (`plugin_host.h`) hosts dynamically loaded product plugins across the versioned C ABI. Products (SatView, MegaCity, ScoreView) have no core host classes.
+- **Host hierarchy** (`libs/draxul-host/include/draxul/`): `draxul-host-api` owns `IHost`, launch/callback records, and the provider registry; `draxul-grid-host` owns `GridHostBase`; `draxul-terminal-host` owns process-free client terminal presentation and selection/mouse/key behavior; `draxul-nvim-host` owns the concrete Neovim adapter; and `draxul-plugin-host` owns `PluginHost` across the versioned C ABI. `draxul-host` is an interface-only compatibility aggregate. Link the narrow leaf that owns the API being used.
+- **App shell** (`libs/draxul-app-shell/include/draxul/`): renderer-free split-tree, shell/chrome layout, rename, and fuzzy-match behavior. Keep App orchestration and GPU/window integration in `draxul-app`.
 - **IWindow** (`libs/draxul-window/include/draxul/window.h`) — abstract window interface. The renderer knows nothing about fonts, neovim, or text — only colored rectangles and textured quads at grid positions.
 - **App** (`app/app.h/cpp`) is the orchestrator that owns all subsystems and runs the main loop.
 - Platform-specific renderer implementations live in `libs/draxul-renderer/src/vulkan/` (Windows) and `libs/draxul-renderer/src/metal/` (macOS).
@@ -194,6 +203,12 @@ All grid and GPU state is only touched by the main thread.
 
 ### Neovim RPC
 
+- `draxul-nvim-protocol` owns transport-neutral `MpackValue`, `IRpcChannel`,
+  MPack codec, redraw parsing, and input encoding; `draxul-nvim-transport` owns
+  `NvimProcess`, OS pipes, `NvimRpc`, the reader thread, queues, and requests.
+- Include `nvim_protocol.h`, `nvim_ui.h`, or `nvim_transport.h` directly in new
+  code. `nvim.h`, `nvim_rpc.h`, and `draxul-nvim` are migration compatibility
+  surfaces. Keep concrete Nvim dependencies private to `draxul-nvim-host`.
 - MPack library with `MPACK_EXTENSIONS=1` (required for neovim's ext types: Buffer/Window/Tabpage)
 - Handles `grid_line` run-length encoding, double-width chars, multi-byte UTF-8
 - Only renders on `flush` events
@@ -244,10 +259,23 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
   matrix.
 - Keep build and test execution parallel whenever the tool supports it. The
   `do.py` paths supply bounded parallelism for both compilation and CTest.
+- `do.py` serializes configure/build work per selected build tree. If another
+  workflow owns that cache it exits with the owning PID, command, lock path,
+  and durable result path instead of starting a competing build. Inspect
+  `<build-tree>/.draxul-build-result.json` after an interrupted caller; a stale
+  lock is reclaimed only after its recorded process is no longer running.
 - `do.py test` is core-scoped by default. Add `--megacity`, `--satview`,
   `--scoreview`, or `--pcbview` only when that product or a seam it consumes changed. Use
   `--products` when shared plugin SDK/support/renderer changes can affect every
   product, and `--all` only for an explicitly requested complete unit inventory.
+- Add `--label <label>` to run only tests carrying that exact CTest label within
+  the selected core/product scope. A label that matches no tests is an error.
+- For an iteration that belongs to one Catch2 executable, use
+  `py do.py test debug --target draxul-test-core --catch "[server]"`. The runner
+  builds only that target, rejects a zero-match filter before the test run, and
+  accepts `--repeat N [--seed N]` to rerun without another configure/build while
+  reporting every seed. Supported subprocesses run in an owned process tree;
+  cancellation stops that tree and records the interrupted build result.
 - During implementation, build the narrowest affected target and use focused test
   filters only when they shorten an active edit/diagnosis loop. Do not run focused
   coverage immediately before an aggregate run that will repeat the same cases

@@ -1,7 +1,7 @@
 add_executable(draxul-rpc-fake
     rpc_fake_server.cpp
 )
-target_link_libraries(draxul-rpc-fake PRIVATE draxul-nvim)
+target_link_libraries(draxul-rpc-fake PRIVATE draxul-nvim-protocol)
 
 # Header-only fakes and fixtures are shared by every test executable. Keeping
 # their include path and Catch dependency in one interface target prevents the
@@ -25,47 +25,96 @@ draxul_get_registered_plugin_test_sources(DRAXUL_PLUGIN_TEST_SOURCES)
 set(DRAXUL_APP_TEST_SOURCES
     active_tab_invariant_tests.cpp
     app_config_tests.cpp
-    app_shell_layout_tests.cpp
     app_dispatch_tests.cpp
     app_pump_tests.cpp
     app_smoke_tests.cpp
-    chrome_layout_tests.cpp
     chrome_host_rename_tests.cpp
     chrome_host_tabbar_tests.cpp
     cli_args_tests.cpp
     command_palette_tests.cpp
     config_lifecycle_tests.cpp
     control_plane_tests.cpp
+    control_request_policy_tests.cpp
     dpi_hotplug_integration_tests.cpp
     frame_timer_tests.cpp
-    fuzzy_match_tests.cpp
     grid_host_null_handle_tests.cpp
     gui_action_handler_tests.cpp
     pane_manager_tests.cpp
     plugin_manager_tests.cpp
     host_provider_availability_tests.cpp
-    http_weather_tests.cpp
     input_dispatcher_routing_tests.cpp
     overlay_allocation_failure_tests.cpp
-    pane_status_pill_tests.cpp
     server_status_surface_tests.cpp
     session_state_tests.cpp
     space_controller_tests.cpp
-    split_tree_tests.cpp
     startup_rollback_tests.cpp
     tab_keybinding_roundtrip_tests.cpp
     toast_host_tests.cpp
     topology_mutation_route_tests.cpp
 )
-file(GLOB DRAXUL_MARKDOWN_KANBAN_TEST_SOURCES CONFIGURE_DEPENDS
+set(DRAXUL_APP_SHELL_TEST_SOURCES
+    app_shell_layout_tests.cpp
+    chrome_layout_tests.cpp
+    fuzzy_match_tests.cpp
+    pane_status_pill_tests.cpp
+    rename_editor_tests.cpp
+    split_tree_tests.cpp
+)
+set(DRAXUL_HOST_API_TEST_SOURCES host_api_tests.cpp)
+set(DRAXUL_AGENT_INTEGRATION_TEST_SOURCES agent_integration_tests.cpp)
+set(DRAXUL_WEATHER_TEST_SOURCES weather_service_tests.cpp)
+set(DRAXUL_NVIM_PROTOCOL_TEST_SOURCES
+    clipboard_tests.cpp
+    grid_line_bounds_tests.cpp
+    input_tests.cpp
+    mouse_modifier_tests.cpp
+    mpack_fuzz_tests.cpp
+    mpackvalue_variant_stability_tests.cpp
+    rpc_codec_tests.cpp
+    ui_events_tests.cpp
+    ui_request_worker_overlap_tests.cpp
+)
+set(DRAXUL_NVIM_TRANSPORT_TEST_SOURCES
+    nvim_crash_tests.cpp
+    nvim_partial_init_tests.cpp
+    nvim_process_tests.cpp
+    result_tests.cpp
+    rpc_backpressure_tests.cpp
+    rpc_integration_tests.cpp
+    shutdown_race_tests.cpp
+    unicode_tests.cpp
+)
+file(GLOB DRAXUL_MARKDOWN_TEST_SOURCES CONFIGURE_DEPENDS
     RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     markdown_*_tests.cpp
-    kanban_*_tests.cpp
 )
+set(DRAXUL_MARKDOWN_LAYOUT_TEST_SOURCES markdown_layout_tests.cpp)
+set(DRAXUL_KANBAN_CORE_TEST_SOURCES
+    kanban_board_tests.cpp
+    kanban_layout_tests.cpp
+    kanban_navigation_tests.cpp
+    kanban_store_tests.cpp
+)
+set(DRAXUL_KANBAN_HOST_TEST_SOURCES kanban_host_tests.cpp)
+set(DRAXUL_NANOVG_PAINT_TEST_SOURCES nanovg_paint_tests.cpp)
+set(DRAXUL_PLUGIN_NANOVG_TEST_SOURCES plugin_nanovg_pass_tests.cpp)
+list(REMOVE_ITEM DRAXUL_MARKDOWN_TEST_SOURCES
+    ${DRAXUL_MARKDOWN_LAYOUT_TEST_SOURCES})
 
 set(DRAXUL_CLASSIFIED_TEST_SOURCES
     ${DRAXUL_APP_TEST_SOURCES}
-    ${DRAXUL_MARKDOWN_KANBAN_TEST_SOURCES}
+    ${DRAXUL_APP_SHELL_TEST_SOURCES}
+    ${DRAXUL_HOST_API_TEST_SOURCES}
+    ${DRAXUL_AGENT_INTEGRATION_TEST_SOURCES}
+    ${DRAXUL_WEATHER_TEST_SOURCES}
+    ${DRAXUL_NVIM_PROTOCOL_TEST_SOURCES}
+    ${DRAXUL_NVIM_TRANSPORT_TEST_SOURCES}
+    ${DRAXUL_MARKDOWN_LAYOUT_TEST_SOURCES}
+    ${DRAXUL_MARKDOWN_TEST_SOURCES}
+    ${DRAXUL_KANBAN_CORE_TEST_SOURCES}
+    ${DRAXUL_KANBAN_HOST_TEST_SOURCES}
+    ${DRAXUL_NANOVG_PAINT_TEST_SOURCES}
+    ${DRAXUL_PLUGIN_NANOVG_TEST_SOURCES}
     ${DRAXUL_PLUGIN_TEST_SOURCES}
 )
 list(LENGTH DRAXUL_CLASSIFIED_TEST_SOURCES DRAXUL_CLASSIFIED_COUNT)
@@ -169,7 +218,7 @@ endif()
 # later replaced one monolithic suite with seven focused sources (+6 sources)
 # while preserving its 66 registrations and tags.
 set(DRAXUL_TEST_SOURCE_BASELINE 213)
-set(DRAXUL_TEST_REGISTRATION_BASELINE 2081)
+set(DRAXUL_TEST_REGISTRATION_BASELINE 2087)
 # The Workspace -> Tab terminology migration consolidated the old [workspace]
 # tag into the existing [tab] token without removing any test registrations.
 set(DRAXUL_TEST_TAG_TOKEN_BASELINE 310)
@@ -220,9 +269,7 @@ function(draxul_add_test_target target label shard_count)
         DRAXUL_ENABLE_RENDER_TESTS
     )
 
-    draxul_apply_sanitizers(${target})
-    draxul_apply_coverage(${target})
-    draxul_apply_msvc_parallel_pdb_fix(${target})
+    draxul_configure_internal_target(${target})
     add_dependencies(draxul-tests ${target})
 
     math(EXPR last_shard "${shard_count} - 1")
@@ -245,14 +292,13 @@ draxul_add_test_target(draxul-test-core core 4 ${DRAXUL_CORE_TEST_SOURCES})
 target_link_libraries(draxul-test-core PRIVATE
     draxul-bmp
     draxul-performance
-    draxul-app-support
     draxul-http
     draxul-window
     draxul-renderer
     draxul-ui
     draxul-font
+    draxul-font-test-internals
     draxul-grid
-    draxul-nvim
     draxul-config
     draxul-client
     draxul-protocol
@@ -261,7 +307,12 @@ target_link_libraries(draxul-test-core PRIVATE
     draxul-gui
     draxul-runtime-support
     draxul-render-test
-    draxul-host
+    draxul-grid-host
+    draxul-host-api
+    draxul-nvim-host
+    draxul-plugin-host
+    draxul-terminal-host
+    draxul-terminal-process-test-internals
     draxul-nanovg
     draxul-control-test-internals
     draxul-renderer-test-internals
@@ -271,13 +322,68 @@ target_link_libraries(draxul-test-core PRIVATE
 # focused core target must therefore remain sufficient on its own.
 add_dependencies(draxul-test-core draxul-rpc-fake)
 
+draxul_add_test_target(draxul-test-nvim-protocol "nvim;protocol" 2
+    ${DRAXUL_NVIM_PROTOCOL_TEST_SOURCES})
+target_link_libraries(draxul-test-nvim-protocol PRIVATE
+    draxul-grid
+    draxul-host-api
+    draxul-nvim-protocol
+    draxul-runtime-support
+)
+
+draxul_add_test_target(draxul-test-nvim-transport "nvim;transport" 2
+    ${DRAXUL_NVIM_TRANSPORT_TEST_SOURCES})
+target_link_libraries(draxul-test-nvim-transport PRIVATE
+    draxul-nvim-transport
+    draxul-runtime-support
+    draxul-types
+)
+add_dependencies(draxul-test-nvim-transport draxul-rpc-fake)
+
 draxul_add_test_target(draxul-test-app "app;session" 2 ${DRAXUL_APP_TEST_SOURCES})
 target_link_libraries(draxul-test-app PRIVATE
     draxul-app
     draxul-markdown-host
-    draxul-kanban
+    draxul-kanban-host
 )
+target_include_directories(draxul-test-app PRIVATE
+    "${CMAKE_SOURCE_DIR}/libs/draxul-host/src")
 target_compile_definitions(draxul-test-app PRIVATE DRAXUL_TEST_REGISTER_APP_HOSTS)
+
+draxul_add_test_target(draxul-test-app-shell "app-shell" 2
+    ${DRAXUL_APP_SHELL_TEST_SOURCES})
+target_link_libraries(draxul-test-app-shell PRIVATE draxul-app-shell)
+
+draxul_add_test_target(draxul-test-host-api "host-api" 1
+    ${DRAXUL_HOST_API_TEST_SOURCES})
+target_link_libraries(draxul-test-host-api PRIVATE draxul-host-api)
+
+draxul_add_test_target(draxul-test-agent-integration "agent-integration" 1
+    ${DRAXUL_AGENT_INTEGRATION_TEST_SOURCES})
+target_link_libraries(draxul-test-agent-integration PRIVATE
+    draxul-agent-integration
+    draxul-types
+    nlohmann_json::nlohmann_json)
+
+draxul_add_test_target(draxul-test-weather "weather" 2
+    ${DRAXUL_WEATHER_TEST_SOURCES})
+target_link_libraries(draxul-test-weather PRIVATE
+    draxul-weather-test-internals
+    draxul-types)
+
+draxul_add_test_target(draxul-test-markdown-layout "markdown;layout" 1
+    ${DRAXUL_MARKDOWN_LAYOUT_TEST_SOURCES})
+target_link_libraries(draxul-test-markdown-layout PRIVATE draxul-markdown)
+
+draxul_add_test_target(draxul-test-nanovg-paint "nanovg;paint" 2
+    ${DRAXUL_NANOVG_PAINT_TEST_SOURCES})
+target_link_libraries(draxul-test-nanovg-paint PRIVATE
+    draxul-nanovg-backend draxul-types)
+
+draxul_add_test_target(draxul-test-plugin-nanovg "plugin;nanovg" 2
+    ${DRAXUL_PLUGIN_NANOVG_TEST_SOURCES})
+target_link_libraries(draxul-test-plugin-nanovg PRIVATE
+    Draxul::PluginSupport::NanoVGPass draxul-types)
 
 add_library(draxul-plugin-fixture MODULE fixtures/plugin_fixture.cpp)
 target_link_libraries(draxul-plugin-fixture PRIVATE
@@ -334,13 +440,31 @@ target_compile_definitions(draxul-test-app PRIVATE
     DRAXUL_FIXTURE_NO_SYMBOL_PATH="$<TARGET_FILE:draxul-plugin-fixture-no-symbol>"
 )
 draxul_add_test_target(
-    draxul-test-markdown-kanban "markdown;kanban" 1
-    ${DRAXUL_MARKDOWN_KANBAN_TEST_SOURCES}
+    draxul-test-markdown-kanban "markdown" 1
+    ${DRAXUL_MARKDOWN_TEST_SOURCES}
 )
 target_link_libraries(draxul-test-markdown-kanban PRIVATE
+    draxul-config
     draxul-markdown
     draxul-markdown-host
+)
+
+draxul_add_test_target(draxul-test-kanban-core "kanban" 1
+    ${DRAXUL_KANBAN_CORE_TEST_SOURCES})
+target_link_libraries(draxul-test-kanban-core PRIVATE
     draxul-kanban
+    SDL3::SDL3
+)
+
+draxul_add_test_target(draxul-test-kanban-host "kanban;host" 1
+    ${DRAXUL_KANBAN_HOST_TEST_SOURCES})
+target_link_libraries(draxul-test-kanban-host PRIVATE
+    draxul-kanban-host
+    draxul-font
+    draxul-imgui-core
+    draxul-renderer
+    draxul-window
+    SDL3::SDL3
 )
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -412,9 +536,7 @@ set_tests_properties(draxul-review-skill-py-tests
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
 
-draxul_apply_sanitizers(draxul-rpc-fake)
-draxul_apply_coverage(draxul-rpc-fake)
-draxul_apply_msvc_parallel_pdb_fix(draxul-rpc-fake)
+draxul_configure_internal_target(draxul-rpc-fake)
 
 # These are build-only contracts, not runtime tests. Each translation unit
 # consumes a public API through only its owning target so missing direct
@@ -430,8 +552,45 @@ target_link_libraries(draxul-plugin-sdk-c-link-isolation PRIVATE
 add_executable(draxul-performance-link-isolation link_isolation/performance_public_header.cpp)
 target_link_libraries(draxul-performance-link-isolation PRIVATE draxul-performance)
 
+add_executable(draxul-types-link-isolation link_isolation/types_public_header.cpp)
+target_link_libraries(draxul-types-link-isolation PRIVATE draxul-types)
+
+add_executable(draxul-font-link-isolation link_isolation/font_public_headers.cpp)
+target_link_libraries(draxul-font-link-isolation PRIVATE draxul-font)
+
 add_executable(draxul-host-link-isolation link_isolation/host_public_header.cpp)
 target_link_libraries(draxul-host-link-isolation PRIVATE draxul-host)
+
+add_executable(draxul-nvim-protocol-link-isolation
+    link_isolation/nvim_protocol_public_headers.cpp)
+target_link_libraries(draxul-nvim-protocol-link-isolation PRIVATE
+    draxul-nvim-protocol)
+
+add_executable(draxul-nvim-transport-link-isolation
+    link_isolation/nvim_transport_public_headers.cpp)
+target_link_libraries(draxul-nvim-transport-link-isolation PRIVATE
+    draxul-nvim-transport)
+
+add_executable(draxul-host-api-link-isolation
+    link_isolation/host_api_public_headers.cpp)
+target_link_libraries(draxul-host-api-link-isolation PRIVATE draxul-host-api)
+
+add_executable(draxul-app-shell-link-isolation
+    link_isolation/app_shell_public_headers.cpp)
+target_link_libraries(draxul-app-shell-link-isolation PRIVATE draxul-app-shell)
+
+add_executable(draxul-kanban-core-link-isolation
+    link_isolation/kanban_core_public_headers.cpp)
+target_link_libraries(draxul-kanban-core-link-isolation PRIVATE draxul-kanban)
+
+add_executable(draxul-weather-link-isolation
+    link_isolation/weather_public_header.cpp)
+target_link_libraries(draxul-weather-link-isolation PRIVATE draxul-weather)
+
+add_executable(draxul-agent-integration-link-isolation
+    link_isolation/agent_integration_public_header.cpp)
+target_link_libraries(draxul-agent-integration-link-isolation PRIVATE
+    draxul-agent-integration)
 
 add_executable(draxul-terminal-core-link-isolation link_isolation/terminal_core_public_header.cpp)
 target_link_libraries(draxul-terminal-core-link-isolation PRIVATE draxul-terminal-core)
@@ -452,7 +611,16 @@ add_dependencies(draxul-tests
     draxul-bmp-link-isolation
     draxul-plugin-sdk-c-link-isolation
     draxul-performance-link-isolation
+    draxul-types-link-isolation
+    draxul-font-link-isolation
     draxul-host-link-isolation
+    draxul-nvim-protocol-link-isolation
+    draxul-nvim-transport-link-isolation
+    draxul-host-api-link-isolation
+    draxul-app-shell-link-isolation
+    draxul-kanban-core-link-isolation
+    draxul-weather-link-isolation
+    draxul-agent-integration-link-isolation
     draxul-terminal-core-link-isolation
     draxul-terminal-process-link-isolation
     draxul-protocol-link-isolation
@@ -466,11 +634,31 @@ add_custom_target(draxul-tests-core)
 add_dependencies(draxul-tests-core
     draxul-test-core
     draxul-test-app
+    draxul-test-app-shell
+    draxul-test-host-api
+    draxul-test-agent-integration
+    draxul-test-weather
+    draxul-test-nvim-protocol
+    draxul-test-nvim-transport
+    draxul-test-markdown-layout
     draxul-test-markdown-kanban
+    draxul-test-kanban-core
+    draxul-test-kanban-host
+    draxul-test-nanovg-paint
+    draxul-test-plugin-nanovg
     draxul-bmp-link-isolation
     draxul-plugin-sdk-c-link-isolation
     draxul-performance-link-isolation
+    draxul-types-link-isolation
+    draxul-font-link-isolation
     draxul-host-link-isolation
+    draxul-nvim-protocol-link-isolation
+    draxul-nvim-transport-link-isolation
+    draxul-host-api-link-isolation
+    draxul-app-shell-link-isolation
+    draxul-kanban-core-link-isolation
+    draxul-weather-link-isolation
+    draxul-agent-integration-link-isolation
     draxul-terminal-core-link-isolation
     draxul-terminal-process-link-isolation
     draxul-protocol-link-isolation
@@ -478,9 +666,47 @@ add_dependencies(draxul-tests-core
     draxul-server-link-isolation
 )
 
-if(TARGET draxul-test-megacity)
+add_test(NAME draxul-dependency-boundary-positive
+    COMMAND ${CMAKE_COMMAND}
+        -S ${CMAKE_CURRENT_SOURCE_DIR}/cmake/dependency_boundary
+        -B ${CMAKE_CURRENT_BINARY_DIR}/dependency-boundary-positive
+        -DDRAXUL_SOURCE_ROOT=${CMAKE_SOURCE_DIR}
+        -DCASE=positive)
+set_tests_properties(draxul-dependency-boundary-positive PROPERTIES
+    LABELS "unit;cmake" TIMEOUT 60)
+
+add_test(NAME draxul-dependency-boundary-negative
+    COMMAND ${CMAKE_COMMAND}
+        -S ${CMAKE_CURRENT_SOURCE_DIR}/cmake/dependency_boundary
+        -B ${CMAKE_CURRENT_BINARY_DIR}/dependency-boundary-negative
+        -DDRAXUL_SOURCE_ROOT=${CMAKE_SOURCE_DIR}
+        -DCASE=negative)
+set_tests_properties(draxul-dependency-boundary-negative PROPERTIES
+    LABELS "unit;cmake" TIMEOUT 60 WILL_FAIL TRUE)
+
+add_test(NAME draxul-internal-target-policy-positive
+    COMMAND ${CMAKE_COMMAND}
+        -S ${CMAKE_CURRENT_SOURCE_DIR}/cmake/internal_target_policy
+        -B ${CMAKE_CURRENT_BINARY_DIR}/internal-target-policy-positive
+        -DDRAXUL_SOURCE_ROOT=${CMAKE_SOURCE_DIR}
+        -DCASE=positive)
+set_tests_properties(draxul-internal-target-policy-positive PROPERTIES
+    LABELS "unit;cmake" TIMEOUT 60)
+
+add_test(NAME draxul-internal-target-policy-negative
+    COMMAND ${CMAKE_COMMAND}
+        -S ${CMAKE_CURRENT_SOURCE_DIR}/cmake/internal_target_policy
+        -B ${CMAKE_CURRENT_BINARY_DIR}/internal-target-policy-negative
+        -DDRAXUL_SOURCE_ROOT=${CMAKE_SOURCE_DIR}
+        -DCASE=negative)
+set_tests_properties(draxul-internal-target-policy-negative PROPERTIES
+    LABELS "unit;cmake" TIMEOUT 60 WILL_FAIL TRUE)
+
+if(TARGET draxul-test-megacity AND TARGET draxul-test-megacity-parser)
     add_custom_target(draxul-tests-megacity)
-    add_dependencies(draxul-tests-megacity draxul-test-megacity)
+    add_dependencies(draxul-tests-megacity
+        draxul-test-megacity
+        draxul-test-megacity-parser)
 endif()
 if(TARGET draxul-test-satview)
     add_custom_target(draxul-tests-satview)
@@ -498,10 +724,19 @@ if(TARGET draxul-test-pcbview)
     add_dependencies(draxul-tests-pcbview draxul-test-pcbview)
 endif()
 add_custom_target(draxul-tests-rezonality)
-if(TARGET draxul-test-rezonality)
-    add_dependencies(draxul-tests-rezonality draxul-test-rezonality)
+if(TARGET draxul-test-rezonality
+   AND TARGET draxul-test-rezonality-project
+   AND TARGET draxul-test-rezonality-runtime
+   AND TARGET draxul-test-rezonality-audio)
+    add_dependencies(draxul-tests-rezonality
+        draxul-test-rezonality
+        draxul-test-rezonality-project
+        draxul-test-rezonality-runtime
+        draxul-test-rezonality-audio)
 endif()
 
 target_compile_definitions(draxul-test-core PRIVATE
     DRAXUL_EXECUTABLE_PATH="$<TARGET_FILE:draxul>"
 )
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

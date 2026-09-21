@@ -1,7 +1,9 @@
 #pragma once
-// Convenience header: includes both nvim_rpc.h and nvim_ui.h.
+// Compatibility convenience header: includes protocol, transport, and UI APIs.
 // Prefer the narrower headers in new code:
-//   <draxul/nvim_rpc.h>  — NvimProcess, MpackValue, RPC types, IRpcChannel, NvimRpc
-//   <draxul/nvim_ui.h>   — ModeInfo, UiEventHandler, NvimInput
-#include <draxul/nvim_rpc.h>
+//   <draxul/nvim_protocol.h> — values, channel contract, and RPC records
+//   <draxul/nvim_transport.h> — process transport and threaded NvimRpc
+//   <draxul/nvim_ui.h>        — ModeInfo, UiEventHandler, and NvimInput
+#include <draxul/nvim_protocol.h>
+#include <draxul/nvim_transport.h>
 #include <draxul/nvim_ui.h>

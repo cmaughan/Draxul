@@ -1,23 +1,12 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
+#include <draxul/system_resource_snapshot.h>
 #include <optional>
 
 namespace draxul
 {
-
-struct SystemResourceSnapshot
-{
-    int cpu_percent = -1;
-    int memory_percent = -1;
-
-    [[nodiscard]] bool available() const
-    {
-        return cpu_percent >= 0 && memory_percent >= 0;
-    }
-
-    [[nodiscard]] bool operator==(const SystemResourceSnapshot& other) const = default;
-};
 
 class SystemResourceMonitor
 {

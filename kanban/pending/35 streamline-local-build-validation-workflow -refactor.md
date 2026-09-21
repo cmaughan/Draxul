@@ -72,36 +72,36 @@ loop, and helper-lock failures were avoidable workflow cost.
       small shared runner used by all three; keep CMake/CTest authoritative.
 - [x] Make configuration and build type explicit so a Release implementation loop does
       not unexpectedly configure and rebuild the Debug/Ninja tree for smoke.
-- [ ] Specify how a timed-out caller can recover the actual build result instead of
+- [x] Specify how a timed-out caller can recover the actual build result instead of
       abandoning still-running MSBuild/Ninja descendants.
 
 ## Build serialization and process ownership
 
-- [ ] Prevent two repository build commands from writing the same configuration tree
+- [x] Prevent two repository build commands from writing the same configuration tree
       concurrently, with a clear message identifying the active build and how to wait
       for or inspect it.
-- [ ] Ensure the wrapper owns and waits for the complete compiler/linker process tree,
+- [x] Ensure the wrapper owns and waits for the complete compiler/linker process tree,
       or records a durable result/log that a later invocation can collect.
-- [ ] Preserve compiler parallelism inside one build while prohibiting competing builds
+- [x] Preserve compiler parallelism inside one build while prohibiting competing builds
       against the same object directory.
-- [ ] Detect stale build ownership safely without terminating unrelated CMake, MSBuild,
+- [x] Detect stale build ownership safely without terminating unrelated CMake, MSBuild,
       Ninja, compiler, or linker processes.
 - [ ] Keep build logs concise on success and retain complete diagnostics on failure.
 
 ## Focused validation
 
-- [ ] Include each new focused executable in both its aggregate target dependencies
+- [x] Include each new focused executable in both its aggregate target dependencies
       and `do.py` scope-selection patterns, with runner selection coverage.
       `_test_scope_selection()` currently enumerates exact patterns; CTest
       registration alone does not include a new suite. Coordinate the proposed
       Rezonality project/runtime/audio and MegaCity parser suites from the accepted
       refactor cards, preserving the Catch/label selection and zero-match checks below.
-- [ ] Add a supported command for building the smallest owning test target and running
+- [x] Add a supported command for building the smallest owning test target and running
       a Catch2 name/tag or CTest label without rebuilding the complete product closure
       unnecessarily.
-- [ ] Validate Catch2 filter composition before launching; treat a zero-test match as a
+- [x] Validate Catch2 filter composition before launching; treat a zero-test match as a
       clear selection error and print the correctly escaped command.
-- [ ] Support repeat-with-new-seed for timing/concurrency integration tests without
+- [x] Support repeat-with-new-seed for timing/concurrency integration tests without
       repeating configure or unrelated builds.
 - [x] Reuse the integration-first policy from `CLAUDE.md`: focused vertical tests during
       iteration, then one final full-suite gate; do not replace useful integration
@@ -111,6 +111,22 @@ loop, and helper-lock failures were avoidable workflow cost.
 
 ## Live-server and helper safety
 
+### Local process-ownership and focused-selection checkpoint (2026-09-21)
+
+`do.py` now starts supported build, test, smoke, and render-check commands in an
+owned process group. Timeout or keyboard cancellation stops that group; serialized
+build cancellation also writes an `interrupted` result with exit code 130 before
+releasing the build-tree lock. Windows `taskkill /T` and POSIX process-group cleanup
+are covered by platform-specific command-construction tests.
+
+`do.py test --target <draxul-test-*> [--catch <filter>]` builds one Catch2 target,
+lists the matching cases before execution, rejects a zero-match filter with its
+shell-escaped command, and supports `--repeat N [--seed N]` without rebuilding.
+Aggregate CTest selections are also inventoried before execution, and both paths
+print target, selection, result, duration, and seed/result-path summaries. Retained
+full failure logs, live Windows helper preflight, cross-platform timing, and the
+single final-tier command remain open below.
+
 - [ ] Preflight whether a running Windows Draxul server holds a helper binary that the
       requested build/test must replace.
 - [ ] If replacement is required, report the exact server PID, runtime directory,
@@ -118,19 +134,19 @@ loop, and helper-lock failures were avoidable workflow cost.
 - [ ] Avoid stopping a compatible live server when the helper binary is unchanged.
 - [ ] Make isolated server integration tests use a helper location or launch strategy
       that cannot be blocked by an unrelated default-runtime server where practical.
-- [ ] Verify cleanup leaves no isolated server, compiler, linker, test, or render process
+- [x] Verify cleanup leaves no isolated server, compiler, linker, test, or render process
       running after success, failure, cancellation, or timeout.
 
 ## Integration-first validation
 
-- [ ] Exercise two attempted concurrent builds against one tree and prove the second
+- [x] Exercise two attempted concurrent builds against one tree and prove the second
       waits or exits cleanly without object-file corruption or permission errors.
-- [ ] Exercise caller timeout/cancellation and prove the build is either cancelled as a
+- [x] Exercise caller timeout/cancellation and prove the build is either cancelled as a
       complete process tree or remains discoverable with a collectable final result.
 - [ ] Run the focused workflow for core, app, server/RPC, and render-affecting changes.
 - [ ] Run with a compatible live server and with a stale helper-holding server; prove the
       preflight chooses the safe path in each case.
-- [ ] Verify Windows multi-config and macOS single-config command construction and
+- [x] Verify Windows multi-config and macOS single-config command construction and
       process cleanup.
 - [ ] Verify the final tier performs one application/test build, smoke, relevant render
       scenarios, and full CTest without redundant reconfiguration.
@@ -141,19 +157,19 @@ loop, and helper-lock failures were avoidable workflow cost.
       and the fast-versus-final workflow.
 - [x] Update `do.py --help`, wrapper help, and `docs/features.md` if the delivered runner
       becomes a supported developer-facing capability.
-- [ ] Document recovery from an interrupted build and from a live server-helper lock.
+- [x] Document recovery from an interrupted build and from a live server-helper lock.
 
 ## Acceptance criteria
 
 - [x] A typical RPC/input feature iteration needs one focused build and one focused
       integration-test command per code revision, followed by one final validation
       command.
-- [ ] No supported workflow can accidentally overlap builds in the same output tree.
-- [ ] Timeouts and cancellations leave either no descendants or a visible, collectable
+- [x] No supported workflow can accidentally overlap builds in the same output tree.
+- [x] Timeouts and cancellations leave either no descendants or a visible, collectable
       build result; agents do not need to guess whether compilation is still running.
 - [ ] The final validation command cannot fail merely because an unrelated compatible
       Draxul server is running, and handles an incompatible helper lock explicitly.
-- [ ] Zero-test filters fail early with actionable syntax instead of looking like a test
+- [x] Zero-test filters fail early with actionable syntax instead of looking like a test
       run.
 - [ ] Final output clearly distinguishes build failures, product-test failures,
       snapshot failures, and validation-environment failures.

@@ -10,9 +10,9 @@
 2. Keep the app layer as thin wiring only — `app/app.cpp` became the main merge hotspot when too much policy accumulated there.
 3. Public headers go in `include/draxul/` (angle brackets), internal headers in `src/` (quotes) — never duplicate a header between the two or they silently diverge.
 4. Do not include backend-private renderer headers from `app/` — the renderer boundary exists precisely to prevent this coupling.
-5. Renderer interface layering (`IBaseRenderer` → `I3DRenderer` → `IGridRenderer`) lets grid hosts and 3D hosts compose naturally without knowing about each other.
+5. Keep renderer lifecycle in `IBaseRenderer`, grid operations in `IGridRenderer`, and optional ImGui/capture behavior in explicit side capabilities; `IFrameContext` records product render passes without a widened 3D renderer interface.
 6. The `IRenderPass::record(IRenderContext&)` abstraction is minimal and correct — any subsystem can register a pass without touching renderer internals.
-7. Host hierarchy (`IHost` → `I3DHost` → `IGridHost` → `GridHostBase`) keeps terminal and 3D hosts cleanly separated.
+7. Keep `IHost` neutral and let `GridHostBase` add only grid presentation; native product plugins receive render services through the versioned plugin ABI instead of a core 3D-host hierarchy.
 8. When a class exceeds ~50 member variables it has become a god object and needs decomposition.
 9. Prefer straightforward data flow over flexible abstractions — an explicit `build_scene_snapshot()` returning a POD-like struct is easier to debug than a live scene graph.
 10. Keep Megacity types local to `draxul-megacity` unless another module genuinely needs them — premature publication creates unwanted coupling.
@@ -152,7 +152,7 @@
 
 **Specific Bugs & Pitfalls Discovered**
 
-111. `static_cast<I3DRenderer*>` downcast compiles silently if the hierarchy changes but becomes UB — use `dynamic_cast` with null check.
+111. Avoid capability downcasts from the renderer owner. `RendererBundle` records optional ImGui and capture interfaces when it takes ownership, while render passes use the frame context supplied to them.
 112. `int64_t` to `int` narrowing in `try_get_int` for grid coordinates is a maintenance trap — add range checking.
 113. BMP reader/writer had signed integer overflow UB in `write:46` and `read_u32:97`.
 114. SDL file dialog's async callback could use-after-free the `SDL_Window*` if the window was destroyed during the async operation.

@@ -1,6 +1,6 @@
 
 #include <catch2/catch_all.hpp>
-#include <draxul/nvim_rpc.h>
+#include <draxul/nvim_protocol.h>
 
 using namespace draxul;
 
@@ -34,36 +34,36 @@ TEST_CASE("MpackValue default-constructed type() is Nil", "[rpc]")
 
 TEST_CASE("MpackValue nil type() is Nil", "[rpc]")
 {
-    MpackValue val = NvimRpc::make_nil();
+    MpackValue val = MpackValue::make_nil();
     INFO("nil MpackValue reports Nil type");
     REQUIRE(val.type() == MpackValue::Nil);
 }
 
 TEST_CASE("MpackValue bool type() is Bool", "[rpc]")
 {
-    MpackValue val_true = NvimRpc::make_bool(true);
+    MpackValue val_true = MpackValue::make_bool(true);
     INFO("bool(true) MpackValue reports Bool type");
     REQUIRE(val_true.type() == MpackValue::Bool);
 
-    MpackValue val_false = NvimRpc::make_bool(false);
+    MpackValue val_false = MpackValue::make_bool(false);
     INFO("bool(false) MpackValue reports Bool type");
     REQUIRE(val_false.type() == MpackValue::Bool);
 }
 
 TEST_CASE("MpackValue int type() is Int", "[rpc]")
 {
-    MpackValue val = NvimRpc::make_int(42);
+    MpackValue val = MpackValue::make_int(42);
     INFO("int MpackValue reports Int type");
     REQUIRE(val.type() == MpackValue::Int);
 
-    MpackValue val_neg = NvimRpc::make_int(-1);
+    MpackValue val_neg = MpackValue::make_int(-1);
     INFO("negative int MpackValue reports Int type");
     REQUIRE(val_neg.type() == MpackValue::Int);
 }
 
 TEST_CASE("MpackValue uint type() is UInt", "[rpc]")
 {
-    MpackValue val = NvimRpc::make_uint(99);
+    MpackValue val = MpackValue::make_uint(99);
     INFO("uint MpackValue reports UInt type");
     REQUIRE(val.type() == MpackValue::UInt);
 }
@@ -78,21 +78,21 @@ TEST_CASE("MpackValue float type() is Float", "[rpc]")
 
 TEST_CASE("MpackValue string type() is String", "[rpc]")
 {
-    MpackValue val = NvimRpc::make_str("hello");
+    MpackValue val = MpackValue::make_str("hello");
     INFO("string MpackValue reports String type");
     REQUIRE(val.type() == MpackValue::String);
 }
 
 TEST_CASE("MpackValue array type() is Array", "[rpc]")
 {
-    MpackValue val = NvimRpc::make_array({ NvimRpc::make_int(1), NvimRpc::make_int(2) });
+    MpackValue val = MpackValue::make_array({ MpackValue::make_int(1), MpackValue::make_int(2) });
     INFO("array MpackValue reports Array type");
     REQUIRE(val.type() == MpackValue::Array);
 }
 
 TEST_CASE("MpackValue map type() is Map", "[rpc]")
 {
-    MpackValue val = NvimRpc::make_map({ { NvimRpc::make_str("key"), NvimRpc::make_int(1) } });
+    MpackValue val = MpackValue::make_map({ { MpackValue::make_str("key"), MpackValue::make_int(1) } });
     INFO("map MpackValue reports Map type");
     REQUIRE(val.type() == MpackValue::Map);
 }
@@ -107,23 +107,23 @@ TEST_CASE("MpackValue ext type() is Ext", "[rpc]")
 
 TEST_CASE("MpackValue type() does not conflate Bool with Int", "[rpc]")
 {
-    MpackValue bool_val = NvimRpc::make_bool(true);
-    MpackValue int_val = NvimRpc::make_int(1);
+    MpackValue bool_val = MpackValue::make_bool(true);
+    MpackValue int_val = MpackValue::make_int(1);
     INFO("Bool and Int types must be distinct");
     REQUIRE(bool_val.type() != int_val.type());
 }
 
 TEST_CASE("MpackValue type() does not conflate Int with UInt", "[rpc]")
 {
-    MpackValue int_val = NvimRpc::make_int(1);
-    MpackValue uint_val = NvimRpc::make_uint(1);
+    MpackValue int_val = MpackValue::make_int(1);
+    MpackValue uint_val = MpackValue::make_uint(1);
     INFO("Int and UInt types must be distinct");
     REQUIRE(int_val.type() != uint_val.type());
 }
 
 TEST_CASE("MpackValue as_int() converts small uint64 to int64", "[rpc]")
 {
-    MpackValue val = NvimRpc::make_uint(42);
+    MpackValue val = MpackValue::make_uint(42);
     INFO("small uint64 should convert to int64 without error");
     REQUIRE(val.as_int() == 42);
 }
@@ -131,7 +131,7 @@ TEST_CASE("MpackValue as_int() converts small uint64 to int64", "[rpc]")
 TEST_CASE("MpackValue as_int() converts max-representable uint64 to int64", "[rpc]")
 {
     uint64_t max_safe = static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
-    MpackValue val = NvimRpc::make_uint(max_safe);
+    MpackValue val = MpackValue::make_uint(max_safe);
     INFO("INT64_MAX stored as uint64 should convert to int64");
     REQUIRE(val.as_int() == std::numeric_limits<int64_t>::max());
 }
@@ -139,14 +139,14 @@ TEST_CASE("MpackValue as_int() converts max-representable uint64 to int64", "[rp
 TEST_CASE("MpackValue as_int() throws for uint64 exceeding INT64_MAX", "[rpc]")
 {
     uint64_t too_large = static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) + 1;
-    MpackValue val = NvimRpc::make_uint(too_large);
+    MpackValue val = MpackValue::make_uint(too_large);
     INFO("uint64 > INT64_MAX must throw std::range_error, not silently wrap to negative");
     REQUIRE_THROWS_AS(val.as_int(), std::range_error);
 }
 
 TEST_CASE("MpackValue as_int() throws for UINT64_MAX", "[rpc]")
 {
-    MpackValue val = NvimRpc::make_uint(std::numeric_limits<uint64_t>::max());
+    MpackValue val = MpackValue::make_uint(std::numeric_limits<uint64_t>::max());
     INFO("UINT64_MAX must throw std::range_error");
     REQUIRE_THROWS_AS(val.as_int(), std::range_error);
 }

@@ -7,15 +7,15 @@
 
 **Investigation**
 
-- [ ] Trace binding 3 through GBuffer, scene, and debug passes.
+- [x] Trace binding 3 through GBuffer, scene, and debug passes.
 
 **Fix strategy**
 
-- [ ] Select and write descriptors before their first recorded binding.
-- [ ] Use separate descriptor sets where passes require different images.
+- [x] Select and write descriptors before their first recorded binding.
+- [x] Use separate descriptor sets where passes require different images. (Not required: binding 3 has one frame-wide raw/denoised selection.)
 
 **Acceptance criteria**
 
-- [ ] Raw and denoised AO views use their intended images.
+- [x] Raw and denoised AO views use their intended images.
 - [ ] Toggling debug modes produces no descriptor-update validation errors.
-- [ ] Preserve Metal’s corresponding visual behavior.
+- [x] Preserve Metal’s corresponding visual behavior.

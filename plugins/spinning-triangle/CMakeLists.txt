@@ -129,3 +129,5 @@ if(NOT DRAXUL_TRIANGLE_STANDALONE)
         COPY_FILES ${_triangle_payload}
         DEPENDS ${_triangle_payload_dependencies})
 endif()
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

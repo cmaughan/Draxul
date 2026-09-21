@@ -12,47 +12,52 @@ Keep board, storage, layout, and navigation in `draxul-kanban`, and move
 
 ## Boundary verification
 
-- [ ] Confirm only `kanban_host.cpp`/`kanban_host.h` require `GridHostBase` and host registration.
-- [ ] Inventory public header include needs for board, store, layout, and navigation.
-- [ ] Verify SDL is needed only privately by navigation implementation.
-- [ ] Split test inventory into pure core cases and host lifecycle/rendering cases.
-- [ ] Compare the intended split with the existing Markdown core/host precedent.
+- [x] Confirm only `kanban_host.cpp`/`kanban_host.h` require `GridHostBase` and host registration.
+- [x] Inventory public header include needs for board, store, layout, and navigation.
+- [x] Verify SDL is needed only privately by navigation implementation.
+- [x] Split test inventory into pure core cases and host lifecycle/rendering cases.
+- [x] Compare the intended split with the existing Markdown core/host precedent.
 
 ## Implementation and migration
 
-- [ ] Remove host sources from `draxul-kanban` without changing their directory initially.
-- [ ] Add `draxul-kanban-host` for `KanbanHost` and provider registration.
-- [ ] Link core only to required value/filesystem dependencies; keep SDL private.
-- [ ] Link host to core plus `draxul-grid-host`/host API.
-- [ ] Update executable provider linkage and test targets.
-- [ ] Avoid splitting board/store/layout/navigation into additional micro-libraries.
+- [x] Remove host sources from `draxul-kanban` without changing their directory initially.
+- [x] Add `draxul-kanban-host` for `KanbanHost` and provider registration.
+- [x] Link core only to required value/filesystem dependencies; keep SDL private.
+- [x] Link host to core plus `draxul-grid-host`/host API.
+- [x] Update executable provider linkage and test targets.
+- [x] Avoid splitting board/store/layout/navigation into additional micro-libraries.
 
 ## Unit tests
 
-- [ ] Link board, store, layout, and navigation tests to `draxul-kanban` only.
-- [ ] Keep `kanban_host_tests.cpp` on the host target and existing grid-host fixture.
-- [ ] Add a Kanban core public-header/link-isolation build.
-- [ ] Build `draxul-kanban`, `draxul-kanban-host`, and `draxul-test-markdown-kanban`.
-- [ ] Run `ctest --test-dir build -C Release -L kanban --output-on-failure`.
+- [x] Link board, store, layout, and navigation tests to `draxul-kanban` only (plus their direct SDL test-header dependency).
+- [x] Keep `kanban_host_tests.cpp` on the host target and existing grid-host fixture.
+- [x] Add a Kanban core public-header/link-isolation build.
+- [x] Build `draxul-kanban`, `draxul-kanban-host`, and `draxul-test-markdown-kanban`.
+- [x] Run the equivalent active-cache gate: `python3 do.py test debug --label kanban`.
 
 ## Cross-platform validation
 
 - [ ] Exercise filesystem ordering/moves on Windows and macOS path semantics.
 - [ ] Exercise SDL navigation key constants on both platforms.
-- [ ] Confirm host rendering behaves the same through the existing grid contract.
-- [ ] Confirm no Vulkan/Metal backend-specific API enters core.
+- [x] Confirm host rendering behaves the same through the existing grid contract.
+- [x] Confirm no Vulkan/Metal backend-specific API enters core.
 
 ## Agent documentation and tooling
 
-- [ ] Update `docs/module-map.md` and any target examples naming Kanban.
-- [ ] Ensure `python do.py test --label kanban` builds the host/core owner target correctly.
+- [x] Update `docs/module-map.md` and any target examples naming Kanban.
+- [x] Ensure `python do.py test --label kanban` builds the host/core owner target correctly.
 
 ## Acceptance criteria
 
-- [ ] Pure Kanban consumers no longer receive the full host/terminal/Nvim closure.
-- [ ] Core and host tests link only their owning target boundaries.
-- [ ] Host registration and user-visible board behavior are unchanged.
-- [ ] Focused tests, full build, and smoke pass on available platforms.
+- [x] Pure Kanban consumers no longer receive the full host/terminal/Nvim closure.
+- [x] Core and host tests link only their owning target boundaries.
+- [x] Host registration and user-visible board behavior are unchanged.
+- [x] Focused tests, full build, and smoke pass on available platforms.
+
+Local validation on macOS: the exact Kanban label passed 2/2 test processes,
+the core aggregate passed 22/22, the isolated public-header executable returned
+success, and the same-cache Metal smoke passed. The two Windows-specific checks
+above remain pending until the cross-platform build runs.
 
 ## Dependencies and ownership
 

@@ -7,14 +7,14 @@
 
 **Investigation**
 
-- [ ] Force shutdown between predicate evaluation and blocking with a full output queue.
+- [x] Force shutdown between predicate evaluation and blocking with a full output queue.
 
 **Fix strategy**
 
-- [ ] Change the relevant stop predicate under the waiter’s mutex.
-- [ ] Notify the backpressure condition on every stop/close path.
+- [x] Change the relevant stop predicate under the waiter’s mutex.
+- [x] Notify the backpressure condition on every stop/close path.
 
 **Acceptance criteria**
 
-- [ ] Saturated readers exit within a bounded deadline on both platforms.
-- [ ] Normal backpressure still preserves output ordering and contents.
+- [ ] Saturated readers exit within a bounded deadline on both platforms (macOS focused coverage passes; Windows pending).
+- [x] Normal backpressure still preserves output ordering and contents.

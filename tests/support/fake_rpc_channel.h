@@ -1,6 +1,6 @@
 #pragma once
 
-#include <draxul/nvim.h>
+#include <draxul/nvim_protocol.h>
 
 #include <chrono>
 #include <condition_variable>
@@ -38,7 +38,7 @@ public:
         request_in_flight_ = false;
         cv_.notify_all();
 
-        return RpcResult::ok(NvimRpc::make_nil());
+        return RpcResult::ok(MpackValue::make_nil());
     }
 
     void notify(const std::string& method, const std::vector<MpackValue>& params) override

@@ -205,13 +205,13 @@ ControlMethodResult TopologyService::apply_layout(
             "invalid_layout", "A layout object is required.");
     }
     const auto& layout = params["layout"];
-    const bool dry_run = params.value("dry_run", false);
     if (params.contains("dry_run")
         && !params["dry_run"].is_boolean())
     {
         return ControlMethodResult::error(
             "invalid_layout", "dry_run must be a boolean.");
     }
+    const bool dry_run = params.value("dry_run", false);
     const auto bounded_string = [](const nlohmann::json& object,
                                     const char* key,
                                     bool required = false)
@@ -329,6 +329,12 @@ ControlMethodResult TopologyService::apply_layout(
             }
             if (pane_index > 0)
             {
+                if (pane_value.contains("direction")
+                    && !pane_value["direction"].is_string())
+                {
+                    return ControlMethodResult::error(
+                        "invalid_layout", "Pane direction must be a string.");
+                }
                 const std::string direction
                     = pane_value.value("direction", "right");
                 if (direction == "left" || direction == "right")
@@ -872,6 +878,27 @@ ControlMethodResult TopologyService::command(
             .applied = true,
             .duplicate = true,
             .created_id = completed->second,
+            .moved_pane_id = parsed->kind == TopologyCommandKind::MovePane
+                ? parsed->pane_id
+                : std::string{},
+            .source_space_id = parsed->kind == TopologyCommandKind::MovePane
+                ? parsed->space_id
+                : std::string{},
+            .source_tab_id = parsed->kind == TopologyCommandKind::MovePane
+                ? parsed->tab_id
+                : std::string{},
+            .destination_space_id
+            = parsed->kind == TopologyCommandKind::MovePane
+                ? (parsed->destination_space_id.empty()
+                          ? parsed->space_id
+                          : parsed->destination_space_id)
+                : std::string{},
+            .destination_tab_id
+            = parsed->kind == TopologyCommandKind::MovePane
+                ? (parsed->destination_tab_id.empty()
+                          ? parsed->tab_id
+                          : parsed->destination_tab_id)
+                : std::string{},
             .snapshot = snapshot_,
         };
         return ControlMethodResult::success(
@@ -895,6 +922,27 @@ ControlMethodResult TopologyService::command(
     TopologyCommandResult result{
         .applied = true,
         .created_id = std::move(created_id),
+        .moved_pane_id = parsed->kind == TopologyCommandKind::MovePane
+            ? parsed->pane_id
+            : std::string{},
+        .source_space_id = parsed->kind == TopologyCommandKind::MovePane
+            ? parsed->space_id
+            : std::string{},
+        .source_tab_id = parsed->kind == TopologyCommandKind::MovePane
+            ? parsed->tab_id
+            : std::string{},
+        .destination_space_id
+        = parsed->kind == TopologyCommandKind::MovePane
+            ? (parsed->destination_space_id.empty()
+                      ? parsed->space_id
+                      : parsed->destination_space_id)
+            : std::string{},
+        .destination_tab_id
+        = parsed->kind == TopologyCommandKind::MovePane
+            ? (parsed->destination_tab_id.empty()
+                      ? parsed->tab_id
+                      : parsed->destination_tab_id)
+            : std::string{},
         .snapshot = snapshot_,
     };
     remember(key, result.created_id);
@@ -1196,12 +1244,61 @@ bool TopologyService::apply(const TopologyCommand& command,
     {
         if (command.pane_id == command.target_pane_id)
             return reject("invalid_move", "Pane move requires two panes.");
+        const std::string destination_space_id
+            = command.destination_space_id.empty()
+            ? command.space_id
+            : command.destination_space_id;
+        const std::string destination_tab_id
+            = command.destination_tab_id.empty()
+            ? command.tab_id
+            : command.destination_tab_id;
+        TopologySpace* destination_space
+            = find_space(snapshot_, destination_space_id);
+        if (!destination_space)
+        {
+            return reject("destination_space_not_found",
+                "Destination Space was not found.");
+        }
+        TopologyTab* destination_tab
+            = find_tab(*destination_space, destination_tab_id);
+        if (!destination_tab)
+        {
+            return reject("destination_tab_not_found",
+                "Destination tab was not found.");
+        }
         TopologyPane* pane = find_pane(*tab, command.pane_id);
-        TopologyPane* target = find_pane(*tab, command.target_pane_id);
-        if (!pane || !target)
-            return reject("pane_not_found", "Pane move requires two panes in the same tab.");
-        if (tab->panes.size() <= 1)
+        TopologyPane* target
+            = find_pane(*destination_tab, command.target_pane_id);
+        if (!pane)
+            return reject("pane_not_found", "Source pane was not found.");
+        if (!target)
+        {
+            return reject("target_pane_not_found",
+                "Target pane was not found in the destination tab.");
+        }
+        if (pane->domain != TopologyPaneDomain::ServerTerminal)
+        {
+            return reject("client_local_pane",
+                "Only server-owned terminal and managed-agent panes can move across tabs.");
+        }
+        const bool same_tab
+            = destination_space_id == command.space_id
+            && destination_tab_id == command.tab_id;
+        if (same_tab && tab->panes.size() <= 1)
             return reject("last_pane", "The final pane cannot be moved.");
+        if (!same_tab
+            && destination_tab->panes.size()
+                >= kTopologyMaxPanesPerTab)
+        {
+            return reject("limit_reached",
+                "Destination tab pane limit reached.");
+        }
+        if (!same_tab && tab->panes.size() == 1
+            && space->tabs.size() == 1)
+        {
+            return reject("last_space_pane",
+                "Cannot move the final pane from the final tab of a Space.");
+        }
         if (!pane->companion_owner_pane_id.empty()
             || !target->companion_owner_pane_id.empty()
             || std::ranges::any_of(tab->panes,
@@ -1217,12 +1314,61 @@ bool TopologyService::apply(const TopologyCommand& command,
             || command.ratio < kTopologyMinSplitRatio
             || command.ratio > kTopologyMaxSplitRatio)
             return reject("invalid_ratio", "Split ratio must be between 0.1 and 0.9.");
-        if (!detach_leaf(*tab, command.pane_id))
-            return reject("invalid_move", "Pane could not be detached from its split.");
-        TopologyNode* target_leaf
-            = find_leaf_for_pane(*tab, command.target_pane_id);
+
+        // Build the two-tree mutation against a complete candidate snapshot.
+        // Validation and graph edits can therefore fail without exposing a
+        // detached source pane or a half-updated destination.
+        TopologySnapshot candidate = snapshot_;
+        TopologySpace* candidate_source_space
+            = find_space(candidate, command.space_id);
+        TopologySpace* candidate_destination_space
+            = find_space(candidate, destination_space_id);
+        TopologyTab* candidate_source_tab
+            = candidate_source_space
+            ? find_tab(*candidate_source_space, command.tab_id)
+            : nullptr;
+        TopologyTab* candidate_destination_tab
+            = candidate_destination_space
+            ? find_tab(*candidate_destination_space,
+                  destination_tab_id)
+            : nullptr;
+        if (!candidate_source_tab || !candidate_destination_tab)
+        {
+            return reject("invalid_move",
+                "Pane routes changed while preparing the move.");
+        }
+
+        const TopologyPane moved_pane
+            = *find_pane(*candidate_source_tab, command.pane_id);
+        if (same_tab)
+        {
+            if (!detach_leaf(*candidate_source_tab, command.pane_id))
+            {
+                return reject("invalid_move",
+                    "Pane could not be detached from its split.");
+            }
+            candidate_destination_tab = candidate_source_tab;
+        }
+        else if (candidate_source_tab->panes.size() > 1)
+        {
+            if (!detach_leaf(*candidate_source_tab, command.pane_id))
+            {
+                return reject("invalid_move",
+                    "Pane could not be detached from its split.");
+            }
+            std::erase_if(candidate_source_tab->panes,
+                [&](const TopologyPane& candidate_pane) {
+                    return candidate_pane.pane_id == command.pane_id;
+                });
+        }
+
+        TopologyNode* target_leaf = find_leaf_for_pane(
+            *candidate_destination_tab, command.target_pane_id);
         if (!target_leaf)
-            return reject("pane_not_found", "Target pane was not found after detaching the pane.");
+        {
+            return reject("target_pane_not_found",
+                "Target pane was not found while preparing the move.");
+        }
         const std::string first_node_id = next_id("node");
         const std::string second_node_id = next_id("node");
         target_leaf->is_leaf = false;
@@ -1231,20 +1377,34 @@ bool TopologyService::apply(const TopologyCommand& command,
         target_leaf->ratio = command.ratio;
         target_leaf->first_node_id = first_node_id;
         target_leaf->second_node_id = second_node_id;
-        tab->nodes.push_back({
+        candidate_destination_tab->nodes.push_back({
             .node_id = first_node_id,
             .is_leaf = true,
             .pane_id = command.place_before
                 ? command.pane_id
                 : command.target_pane_id,
         });
-        tab->nodes.push_back({
+        candidate_destination_tab->nodes.push_back({
             .node_id = second_node_id,
             .is_leaf = true,
             .pane_id = command.place_before
                 ? command.target_pane_id
                 : command.pane_id,
         });
+        if (!same_tab)
+        {
+            candidate_destination_tab->panes.push_back(moved_pane);
+            if (candidate_source_tab->panes.size() == 1
+                && candidate_source_tab->panes.front().pane_id
+                    == command.pane_id)
+            {
+                std::erase_if(candidate_source_space->tabs,
+                    [&](const TopologyTab& candidate_tab) {
+                        return candidate_tab.tab_id == command.tab_id;
+                    });
+            }
+        }
+        snapshot_ = std::move(candidate);
         created_id = command.pane_id;
         return true;
     }

@@ -6,8 +6,9 @@
 #   allowlist as Draxul::PluginSupport::NanoVG and compile inside a standalone
 #   product extraction with no other core library present.
 # * draxul-nanovg — the in-process IRenderPass integration (INanoVGPass) used
-#   by the application and render tests. It needs draxul-renderer's typed
-#   render contexts, so it is never part of the plugin surface.
+#   by the application and render tests. It needs the backend-neutral typed
+#   render contexts from plugin render support, but remains outside the plugin
+#   surface because it owns the in-process render-pass integration.
 #
 # The compiled SPIR-V shaders the Vulkan backend loads live in shaders/ here
 # (single home; consumers compile them via the DRAXUL_NANOVG_SHADER_DIR target
@@ -32,18 +33,22 @@ endif()
 if(APPLE)
     add_library(draxul-nanovg-backend STATIC
         backend/src/nanovg_wrapper.c
+        backend/src/nanovg_paint.cpp
         backend/src/nanovg_mtl.mm
     )
     find_library(METAL_FRAMEWORK Metal REQUIRED)
     find_library(QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
+    find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
     target_link_libraries(draxul-nanovg-backend
         PRIVATE ${METAL_FRAMEWORK} ${QUARTZCORE_FRAMEWORK}
+            ${FOUNDATION_FRAMEWORK}
     )
     # NanoVG Metal backend uses ARC for Objective-C memory management
     target_compile_options(draxul-nanovg-backend PRIVATE -fobjc-arc)
 else()
     add_library(draxul-nanovg-backend STATIC
         backend/src/nanovg_wrapper.c
+        backend/src/nanovg_paint.cpp
         backend/src/nanovg_vk.cpp
     )
     target_link_libraries(draxul-nanovg-backend
@@ -80,6 +85,7 @@ if(NOT DRAXUL_NANOVG_BACKEND_ONLY)
         )
         target_link_libraries(draxul-nanovg
             PRIVATE Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator
+                draxul-vulkan-resources
         )
     endif()
     target_include_directories(draxul-nanovg
@@ -87,6 +93,10 @@ if(NOT DRAXUL_NANOVG_BACKEND_ONLY)
         PRIVATE src
     )
     target_link_libraries(draxul-nanovg
-        PUBLIC draxul-nanovg-backend draxul-renderer
+        PUBLIC draxul-nanovg-backend draxul-plugin-render-support
     )
+endif()
+
+if(COMMAND draxul_configure_internal_targets_in_directory)
+    draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")
 endif()

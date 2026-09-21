@@ -61,8 +61,18 @@ set(DRAXUL_PCBVIEW_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/pcbview"
 set(DRAXUL_REZONALITY_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/rezonality"
     CACHE PATH "Mounted Rezonality plugin source directory")
 
-# Sanitizer helper — applied to draxul targets after FetchContent deps are fetched
+# Low-level policy helpers. InternalTargetPolicy.cmake applies these beside
+# project target definitions and audits completeness after configuration;
+# FetchContent and mounted product targets are outside this repository's policy.
 function(draxul_apply_sanitizers target)
+    get_target_property(_draxul_target_type ${target} TYPE)
+    if(_draxul_target_type STREQUAL "EXECUTABLE"
+       OR _draxul_target_type STREQUAL "SHARED_LIBRARY"
+       OR _draxul_target_type STREQUAL "MODULE_LIBRARY")
+        set(_draxul_target_links TRUE)
+    else()
+        set(_draxul_target_links FALSE)
+    endif()
     if(DRAXUL_ENABLE_TSAN)
         if(DRAXUL_ENABLE_SANITIZERS)
             message(FATAL_ERROR "DRAXUL_ENABLE_TSAN and DRAXUL_ENABLE_SANITIZERS are mutually exclusive (TSan is incompatible with ASan).")
@@ -75,9 +85,9 @@ function(draxul_apply_sanitizers target)
             -fno-omit-frame-pointer
             -g
         )
-        target_link_options(${target} PRIVATE
-            -fsanitize=thread
-        )
+        if(_draxul_target_links)
+            target_link_options(${target} PRIVATE -fsanitize=thread)
+        endif()
         return()
     endif()
     if(NOT DRAXUL_ENABLE_SANITIZERS)
@@ -85,25 +95,27 @@ function(draxul_apply_sanitizers target)
     endif()
     if(MSVC)
         target_compile_options(${target} PRIVATE /fsanitize:address)
-        target_link_options(${target} PRIVATE /fsanitize:address)
+        if(_draxul_target_links)
+            target_link_options(${target} PRIVATE /fsanitize:address)
+        endif()
     elseif(APPLE)
         # Apple Clang: LSan is bundled inside ASan; -fsanitize=leak alone is not supported
         target_compile_options(${target} PRIVATE
             -fsanitize=address,undefined
             -fno-omit-frame-pointer
         )
-        target_link_options(${target} PRIVATE
-            -fsanitize=address,undefined
-        )
+        if(_draxul_target_links)
+            target_link_options(${target} PRIVATE -fsanitize=address,undefined)
+        endif()
     else()
         # Linux/non-Apple Clang/GCC: explicit leak sanitizer support
         target_compile_options(${target} PRIVATE
             -fsanitize=address,leak,undefined
             -fno-omit-frame-pointer
         )
-        target_link_options(${target} PRIVATE
-            -fsanitize=address,leak,undefined
-        )
+        if(_draxul_target_links)
+            target_link_options(${target} PRIVATE -fsanitize=address,leak,undefined)
+        endif()
     endif()
 endfunction()
 
@@ -116,10 +128,15 @@ function(draxul_apply_coverage target)
         -fprofile-instr-generate
         -fcoverage-mapping
     )
-    target_link_options(${target} PRIVATE
-        -fprofile-instr-generate
-    )
+    get_target_property(_draxul_target_type ${target} TYPE)
+    if(_draxul_target_type STREQUAL "EXECUTABLE"
+       OR _draxul_target_type STREQUAL "SHARED_LIBRARY"
+       OR _draxul_target_type STREQUAL "MODULE_LIBRARY")
+        target_link_options(${target} PRIVATE -fprofile-instr-generate)
+    endif()
 endfunction()
+
+include(cmake/InternalTargetPolicy.cmake)
 
 function(draxul_apply_msvc_parallel_pdb_fix target)
     if(NOT MSVC)
@@ -170,6 +187,7 @@ add_subdirectory(libs/draxul-types)
 add_subdirectory(libs/draxul-plugin)
 add_subdirectory(libs/draxul-bmp)
 add_subdirectory(libs/draxul-http)
+add_subdirectory(libs/draxul-weather)
 add_subdirectory(libs/draxul-window)
 add_subdirectory(libs/draxul-font)
 add_subdirectory(libs/draxul-imgui-core)
@@ -178,6 +196,7 @@ add_subdirectory(libs/draxul-imgui-core)
 # CMake resolves that when the renderer target is defined below.
 add_subdirectory(libs/draxul-nanovg)
 add_subdirectory(libs/draxul-plugin-support)
+add_subdirectory(plugins/support/nanovg)
 # The reference plugin consumes Draxul::PluginSupport::Adapter, so it mounts
 # after the plugin-support leaves exist.
 add_subdirectory(plugins/spinning-triangle)
@@ -188,17 +207,18 @@ add_subdirectory(libs/draxul-terminal-core)
 add_subdirectory(libs/draxul-nvim)
 add_subdirectory(libs/draxul-config)
 add_subdirectory(libs/draxul-agent)
+add_subdirectory(libs/draxul-agent-integration)
 add_subdirectory(libs/draxul-session-model)
 add_subdirectory(libs/draxul-terminal-process)
 add_subdirectory(libs/draxul-protocol)
 add_subdirectory(libs/draxul-control)
 add_subdirectory(libs/draxul-client)
 add_subdirectory(libs/draxul-server)
+add_subdirectory(libs/draxul-app-shell)
 add_subdirectory(libs/draxul-gui)
 add_subdirectory(modules/markdown)
 add_subdirectory(libs/draxul-runtime-support)
 add_subdirectory(libs/draxul-render-test)
-add_subdirectory(libs/draxul-app-support)
 add_subdirectory(libs/draxul-host)
 add_subdirectory(modules/kanban)
 
@@ -264,7 +284,8 @@ draxul_allow_plugin_support_targets(
     Draxul::PluginSupport::Text
     Draxul::PluginSupport::Http
     Draxul::PluginSupport::ImGuiCore
-    Draxul::PluginSupport::NanoVG)
+    Draxul::PluginSupport::NanoVG
+    Draxul::PluginSupport::NanoVGPass)
 if(TARGET Draxul::PluginSupport::ImGui)
     draxul_allow_plugin_support_targets(Draxul::PluginSupport::ImGui)
 endif()
@@ -279,21 +300,6 @@ include(cmake/CheckDependencyBoundaries.cmake)
 draxul_check_dependency_boundaries()
 draxul_check_core_source_product_isolation("${CMAKE_SOURCE_DIR}")
 
-# Apply sanitizers/coverage to all draxul library targets (not FetchContent deps)
-foreach(_draxul_lib
-    draxul-performance draxul-types draxul-plugin draxul-bmp draxul-http draxul-window
-    draxul-plugin-runtime-support draxul-plugin-adapter-support
-    draxul-plugin-config-support draxul-plugin-tooltip-support
-    draxul-imgui-core draxul-renderer draxul-ui
-    draxul-font draxul-grid draxul-nvim
-    draxul-terminal-core draxul-terminal-process
-    draxul-config draxul-session-model draxul-protocol draxul-control draxul-client draxul-server
-    draxul-gui draxul-markdown draxul-markdown-host draxul-kanban draxul-runtime-support draxul-render-test
-    draxul-host)
-    draxul_apply_sanitizers(${_draxul_lib})
-    draxul_apply_coverage(${_draxul_lib})
-    draxul_apply_msvc_parallel_pdb_fix(${_draxul_lib})
-endforeach()
 include(CTest)
 if(BUILD_TESTING)
     add_subdirectory(tests)
@@ -306,10 +312,6 @@ endif()
 #   cmake/CompileShaders_Metal.cmake (Apple)
 #   cmake/CompileShaders.cmake (Windows)
 if(APPLE)
-    set(DRAXUL_APP_PLATFORM_SOURCES
-        "app/macos_menu.mm"
-        "app/macos_server_status_surface.mm"
-    )
     set(DRAXUL_EXEC_PLATFORM_SOURCES "")
     set(DRAXUL_ICON_FILE "${CMAKE_SOURCE_DIR}/assets/draxul.icns")
     if(EXISTS "${DRAXUL_ICON_FILE}")
@@ -319,81 +321,12 @@ if(APPLE)
         )
     endif()
 elseif(WIN32)
-    set(DRAXUL_APP_PLATFORM_SOURCES "")
     set(DRAXUL_EXEC_PLATFORM_SOURCES "app/draxul.rc")
 else()
-    set(DRAXUL_APP_PLATFORM_SOURCES "")
     set(DRAXUL_EXEC_PLATFORM_SOURCES "")
 endif()
 
-add_library(draxul-app
-    app/agent_controller.cpp
-    app/agent_integration.cpp
-    app/app.cpp
-    app/app_shell_layout.cpp
-    app/chrome_pill.cpp
-    app/chrome_host.cpp
-    app/chrome_layout.cpp
-    app/chrome_text_layer.cpp
-    app/chrome_vector_pass.cpp
-    app/rename_editor.cpp
-    app/cli_args.cpp
-    app/cli_help.cpp
-    app/server_status_surface.cpp
-    app/command_palette.cpp
-    app/command_palette_host.cpp
-    app/control_cli.cpp
-    app/control_event_journal.cpp
-    app/control_request_router.cpp
-    app/toast_host.cpp
-    app/weather_service.cpp
-    app/diagnostics_panel_host.cpp
-    app/fuzzy_match.cpp
-    app/gui_action_handler.cpp
-    app/input_dispatcher.cpp
-    app/pane_manager.cpp
-    app/render_tree.cpp
-    app/session_id.cpp
-    app/space_controller.cpp
-    app/split_tree.cpp
-    app/tab_controller.cpp
-    app/topology_cli.cpp
-    app/topology_mutation_route.cpp
-    ${DRAXUL_APP_PLATFORM_SOURCES}
-)
-
-target_include_directories(draxul-app PUBLIC app)
-
-draxul_apply_sanitizers(draxul-app)
-draxul_apply_coverage(draxul-app)
-draxul_apply_msvc_parallel_pdb_fix(draxul-app)
-
-target_link_libraries(draxul-app PUBLIC
-    draxul-agent
-    draxul-session-model
-    draxul-control
-    draxul-client
-    draxul-http
-    nlohmann_json::nlohmann_json
-    draxul-config
-    draxul-runtime-support
-    draxul-render-test
-    draxul-renderer
-    draxul-ui
-    draxul-font
-    draxul-grid
-    draxul-gui
-    draxul-nvim
-    draxul-host
-    draxul-plugin
-    draxul-nanovg
-)
-target_link_libraries(draxul-app PRIVATE draxul-performance)
-# Product implementations are linked only into their native plugin modules;
-# neither draxul-app nor the executable links a product library.
-if(DRAXUL_ENABLE_RENDER_TESTS)
-    target_compile_definitions(draxul-app PUBLIC DRAXUL_ENABLE_RENDER_TESTS)
-endif()
+add_subdirectory(app)
 
 add_executable(draxul
     app/main.cpp
@@ -414,16 +347,12 @@ if(APPLE AND EXISTS "${CMAKE_SOURCE_DIR}/assets/draxul.icns")
     )
 endif()
 
-draxul_apply_sanitizers(draxul)
-draxul_apply_coverage(draxul)
-draxul_apply_msvc_parallel_pdb_fix(draxul)
-
 target_link_libraries(draxul PRIVATE
     draxul-app
     draxul-bmp
     draxul-client
     draxul-markdown-host
-    draxul-kanban
+    draxul-kanban-host
     draxul-performance
     draxul-server
 )
@@ -432,6 +361,7 @@ draxul_stage_registered_plugins(draxul)
 if(DRAXUL_ENABLE_RENDER_TESTS)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_RENDER_TESTS)
 endif()
+
 if(TARGET draxul-test-core)
     add_dependencies(draxul-test-core draxul)
 endif()
@@ -670,3 +600,8 @@ if(BUILD_TESTING)
         message(WARNING "Skipping draxul-app-smoke test because nvim was not found on PATH")
     endif()
 endif()
+
+# Apply target-local build policy only after the complete project graph exists,
+# then fail configuration if any project-owned target omitted the policy hook.
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")
+draxul_audit_internal_targets("${CMAKE_SOURCE_DIR}")

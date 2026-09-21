@@ -164,3 +164,45 @@ TEST_CASE("PTY output queue applies backpressure without losing the byte stream"
     CHECK(delivered_bytes >= 2 * 1024 * 1024);
     process.shutdown();
 }
+
+TEST_CASE("PTY shutdown wakes a reader blocked by output backpressure",
+    "[process_util][terminal][backpressure][shutdown]")
+{
+    std::atomic<size_t> notifications = 0;
+#ifdef _WIN32
+    draxul::ConPtyProcess process;
+    REQUIRE(process.spawn("powershell.exe",
+        {
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "while ($true) { [Console]::Out.Write('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx') }",
+        },
+        std::filesystem::current_path().string(), 80, 24,
+        [&] { ++notifications; }));
+    constexpr size_t kQueueLimit
+        = draxul::ConPtyProcess::kMaxQueuedOutputBytes;
+#else
+    draxul::UnixPtyProcess process;
+    REQUIRE(process.spawn("/bin/sh", { "-c", "yes x" },
+        std::filesystem::current_path().string(),
+        [&] { ++notifications; }, 80, 24, false));
+    constexpr size_t kQueueLimit
+        = draxul::UnixPtyProcess::kMaxQueuedOutputBytes;
+#endif
+
+    const auto saturated_deadline
+        = std::chrono::steady_clock::now()
+        + std::chrono::seconds(5);
+    while (notifications.load() < kQueueLimit / 4096
+        && std::chrono::steady_clock::now() < saturated_deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    REQUIRE(notifications.load() >= kQueueLimit / 4096);
+
+    const auto started = std::chrono::steady_clock::now();
+    process.shutdown();
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(2));
+}

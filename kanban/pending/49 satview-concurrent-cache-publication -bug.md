@@ -7,16 +7,16 @@
 
 **Investigation**
 
-- [ ] Interleave two catalog services writing the same payload and metadata paths.
+- [x] Interleave two catalog services writing the same payload and metadata paths.
 
 **Fix strategy**
 
-- [ ] Use unique sibling temporary files.
-- [ ] Replace destinations atomically without deleting the last valid cache on failure.
-- [ ] Keep payload/metadata publication coherent across writers.
+- [x] Use unique sibling temporary files.
+- [x] Replace destinations atomically without deleting the last valid cache on failure.
+- [x] Keep payload/metadata publication coherent across writers.
 
 **Acceptance criteria**
 
-- [ ] Concurrent refreshes leave a complete usable cache.
+- [x] Concurrent refreshes leave a complete usable cache.
 - [ ] Failed replacement preserves the previous destination on Windows and macOS.
-- [ ] Offline startup remains functional afterward.
+- [x] Offline startup remains functional afterward.

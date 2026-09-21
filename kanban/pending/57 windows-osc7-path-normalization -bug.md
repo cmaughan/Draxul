@@ -7,12 +7,12 @@
 
 **Investigation**
 
-- [ ] Trace drive, UNC, percent-encoded, and backslash-containing paths through metadata, naming, and pane launch.
+- [x] Trace drive, UNC, percent-encoded, and backslash-containing paths through metadata, naming, and pane launch.
 
 **Fix strategy**
 
-- [ ] Convert file URIs to platform-appropriate filesystem paths.
-- [ ] Extract display basenames using platform-aware rules while preserving POSIX behavior.
+- [x] Convert file URIs to platform-appropriate filesystem paths.
+- [x] Extract display basenames using platform-aware rules while preserving POSIX behavior.
 
 **Acceptance criteria**
 

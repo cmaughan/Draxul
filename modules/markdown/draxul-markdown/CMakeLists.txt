@@ -44,8 +44,11 @@ target_include_directories(draxul-markdown-host PUBLIC
 
 target_link_libraries(draxul-markdown-host PUBLIC
     draxul-markdown
-    draxul-host
+    draxul-host-api
     draxul-renderer
+)
+target_link_libraries(draxul-markdown-host PRIVATE
+    draxul-config
 )
 
 if(APPLE)
@@ -65,3 +68,5 @@ else()
         GPUOpen::VulkanMemoryAllocator
     )
 endif()
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

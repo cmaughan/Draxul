@@ -1,12 +1,36 @@
-add_library(draxul-nvim
-    src/nvim_process.cpp
+add_library(draxul-nvim-protocol STATIC
     src/mpack_codec.cpp
-    src/rpc.cpp
     src/ui_events.cpp
     src/input.cpp
 )
-target_include_directories(draxul-nvim PUBLIC include)
-target_link_libraries(draxul-nvim
-    PUBLIC draxul-types mpack_lib
-    PRIVATE draxul-performance SDL3::SDL3
+target_include_directories(draxul-nvim-protocol PUBLIC include)
+target_link_libraries(draxul-nvim-protocol
+    PUBLIC draxul-types
+    PRIVATE
+        draxul-performance
+        mpack_lib
+        SDL3::SDL3
 )
+
+add_library(draxul-nvim-transport STATIC
+    src/nvim_process.cpp
+    src/rpc.cpp
+)
+target_include_directories(draxul-nvim-transport PUBLIC include)
+target_link_libraries(draxul-nvim-transport
+    PUBLIC draxul-nvim-protocol
+    PRIVATE
+        draxul-performance
+        draxul-types
+)
+
+# Compatibility target for consumers that have not selected the narrower
+# protocol or transport surface yet.
+add_library(draxul-nvim INTERFACE)
+target_include_directories(draxul-nvim INTERFACE include)
+target_link_libraries(draxul-nvim INTERFACE
+    draxul-nvim-protocol
+    draxul-nvim-transport
+)
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

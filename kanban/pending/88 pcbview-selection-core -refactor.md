@@ -11,39 +11,50 @@
 
 #### Boundary verification
 
-- [ ] Capture current hit precedence, nearest-hit tie behavior, tolerance, clearing, adjacency, and failure-focus rules.
-- [ ] Identify all runtime reads/writes of selected indices and selection-dependent drawing.
-- [ ] Keep router changes, including `kanban/pending/31 pcbview-routing-cell-budget -bug.md`, outside this extraction.
+- [x] Capture current hit precedence, nearest-hit tie behavior, tolerance, clearing, adjacency, and failure-focus rules.
+- [x] Identify all runtime reads/writes of selected indices and selection-dependent drawing.
+- [x] Keep router changes, including `kanban/pending/31 pcbview-routing-cell-budget -bug.md`, outside this extraction.
 
 #### Implementation and migration
 
-- [ ] Introduce core selection state and pure queries behind runtime forwarding methods.
-- [ ] Move hit selection and updates into core while keeping tolerance calculation and coordinate conversion in runtime.
-- [ ] Delegate drawing highlight queries to core.
-- [ ] Remove redundant runtime selection state after migration.
+- [x] Introduce core selection state and pure queries consumed by the runtime.
+- [x] Move hit selection and updates into core while keeping tolerance calculation and coordinate conversion in runtime.
+- [x] Delegate drawing highlight queries to core.
+- [x] Remove redundant runtime selection state after migration.
 
 #### Unit tests
 
-- [ ] Extend `draxul-test-pcbview` for overlapping-hit precedence, deselection, adjacency, hidden layers, selected-versus-failure focus, and relevant boundary indices.
-- [ ] Preserve existing primitive route/via/failure tests.
-- [ ] Build with `cmake --build <cache> --config Debug --target draxul-test-pcbview --parallel`.
-- [ ] Run `ctest --test-dir <cache> -C Debug -R '^draxul-test-pcbview-shard-' --parallel 4 --output-on-failure`.
+- [x] Extend `draxul-test-pcbview` for overlapping-hit precedence, deselection, adjacency, hidden layers, selected-versus-failure focus, and relevant boundary indices.
+- [x] Preserve existing primitive route/via/failure tests.
+- [x] Build with `cmake --build <cache> --config Debug --target draxul-test-pcbview --parallel`.
+- [x] Run `ctest --test-dir <cache> -C Debug -R '^draxul-test-pcbview-shard-' --parallel 4 --output-on-failure`.
 
 #### Cross-platform validation
 
-- [ ] Confirm the core acquires no SDK, SDL, ImGui, NanoVG, Vulkan, or Metal dependency.
-- [ ] Preserve main-thread runtime ownership and identical world-space results on Windows/macOS.
+- [x] Confirm the core acquires no SDK, SDL, ImGui, NanoVG, Vulkan, or Metal dependency.
+- [x] Preserve main-thread runtime ownership and identical world-space calculations on Windows/macOS.
 - [ ] Run `python3 do.py test debug --pcbview`, then `python3 do.py smoke debug --skip-build`.
 - [ ] Verify PCB render/interaction behavior on Vulkan and Metal; preserve existing selection visuals.
 
 #### Agent documentation/tooling
 
-- [ ] Document selection ownership in PCBView’s module guidance.
-- [ ] Keep test additions in the existing product target and aggregate.
+- [x] Document selection ownership in PCBView’s module guidance.
+- [x] Keep test additions in the existing product target and aggregate.
 - [ ] Commit in the PCBView repository and adopt its pointer deliberately in core.
 
 #### Acceptance criteria
 
-- [ ] Combined selection policy is testable without graphics/UI initialization.
-- [ ] Runtime owns event adaptation and presentation, while core owns selection decisions.
-- [ ] Picking order, tolerance, highlighting, and failure-focus behavior remain unchanged.
+- [x] Combined selection policy is testable without graphics/UI initialization.
+- [x] Runtime owns event adaptation and presentation, while core owns selection decisions.
+- [x] Picking order, tolerance, highlighting, and failure-focus behavior remain unchanged.
+
+Implementation note: `SelectionState` and all hit/highlight decisions now live
+in the graphics-free core API. Runtime code retains ImGui arbitration,
+screen-to-world conversion, pixel-derived tolerance, camera behavior, and
+presentation. Source and regression tests are prepared; build, CTest,
+and the 11-test core + PCBView aggregate passed. `src/selection.cpp` is
+registered in `draxul-pcbview-core`. The same-cache smoke remains unsuccessful:
+Metal initialized, then the smoke client hung for more than three minutes
+despite its 3-second deadline and had to be stopped by exact PID. The clientless
+server it spawned was shut down gracefully. Render interaction, Windows/Vulkan
+validation, the PCBView commit, and parent submodule adoption remain pending.

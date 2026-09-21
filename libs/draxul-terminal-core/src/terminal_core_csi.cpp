@@ -7,6 +7,7 @@
 #include <draxul/perf_timing.h>
 #include <draxul/terminal_sgr.h>
 #include <draxul/unicode.h>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -19,6 +20,20 @@ namespace
 static int param_or(const std::vector<int>& params, size_t index, int fallback)
 {
     return index < params.size() && params[index] > 0 ? params[index] : fallback;
+}
+
+static int clamp_add(int value, int amount, int upper)
+{
+    if (value >= upper || amount >= upper - value)
+        return upper;
+    return value + amount;
+}
+
+static int clamp_sub(int value, int amount, int lower)
+{
+    if (value <= lower || amount >= value - lower)
+        return lower;
+    return value - amount;
 }
 
 } // anonymous namespace
@@ -126,22 +141,41 @@ void TerminalCore::handle_csi(char final_char, std::string_view body)
     PERF_MEASURE();
     DRAXUL_LOG_DEBUG(LogCategory::App, "terminal: CSI %.*s %c",
         static_cast<int>(body.size()), body.data(), final_char);
-    bool private_mode = !body.empty() && body.front() == '?';
-    if (private_mode)
+
+    char private_marker = '\0';
+    if (!body.empty() && body.front() >= '<' && body.front() <= '?')
+    {
+        private_marker = body.front();
         body.remove_prefix(1);
+    }
+
+    const size_t intermediate_start = body.find_first_of(" !\"#$%&'()*+,-./");
+    const std::string_view intermediates = intermediate_start == std::string_view::npos
+        ? std::string_view{}
+        : body.substr(intermediate_start);
+    const std::string_view parameter_body = intermediate_start == std::string_view::npos
+        ? body
+        : body.substr(0, intermediate_start);
+    if (intermediates.find_first_not_of(" !\"#$%&'()*+,-./") != std::string_view::npos
+        || parameter_body.find_first_of("<=>?") != std::string_view::npos)
+        return;
 
     std::vector<int> params;
     size_t start = 0;
-    while (start <= body.size())
+    while (start <= parameter_body.size())
     {
-        const size_t semi = body.find(';', start);
+        const size_t semi = parameter_body.find(';', start);
         const std::string_view part
-            = semi == std::string_view::npos ? body.substr(start) : body.substr(start, semi - start);
-        // std::from_chars is intentionally equivalent to atoi: returns 0 on parse error,
-        // no heap allocation, no locale dependency. Requires C++17.
+            = semi == std::string_view::npos ? parameter_body.substr(start) : parameter_body.substr(start, semi - start);
         int value = 0;
         if (!part.empty())
-            std::from_chars(part.data(), part.data() + part.size(), value);
+        {
+            const auto result = std::from_chars(part.data(), part.data() + part.size(), value);
+            if (result.ec == std::errc::result_out_of_range)
+                value = std::numeric_limits<int>::max();
+            else if (result.ec != std::errc{} || result.ptr != part.data() + part.size())
+                return;
+        }
         params.push_back(value);
         if (semi == std::string_view::npos)
             break;
@@ -164,43 +198,60 @@ void TerminalCore::handle_csi(char final_char, std::string_view body)
     case 'f':
     case 's':
     case 'u':
+        if (private_marker != '\0' || !intermediates.empty())
+            return;
         csi_cursor_move(final_char, params);
         break;
     case 'J':
     case 'K':
     case 'X':
+        if (private_marker != '\0' || !intermediates.empty())
+            return;
         csi_erase(final_char, params);
         break;
     case 'S':
     case 'T':
-        csi_scroll(final_char, private_mode, params);
+        if (!intermediates.empty())
+            return;
+        csi_scroll(final_char, private_marker, params);
         break;
     case 'L':
     case 'M':
     case '@':
     case 'P':
+        if (private_marker != '\0' || !intermediates.empty())
+            return;
         csi_insert_delete(final_char, params);
         break;
     case 'm':
+        if (private_marker != '\0' || !intermediates.empty())
+            return;
         csi_sgr(params);
         break;
     case 'h':
     case 'l':
-        csi_mode(final_char, private_mode, params);
+        if (!intermediates.empty())
+            return;
+        csi_mode(final_char, private_marker, params);
         break;
     case 'n':
-        csi_dsr(private_mode, params);
+        if (!intermediates.empty())
+            return;
+        csi_dsr(private_marker, params);
         break;
     case 'c':
-        csi_da(private_mode, params);
+        if (!intermediates.empty())
+            return;
+        csi_da(private_marker, params);
         break;
     case 'r':
-        csi_margins(private_mode, params);
+        if (!intermediates.empty())
+            return;
+        csi_margins(private_marker, params);
         break;
     case 'q':
         // DECSCUSR (CSI Ps SP q) — Set Cursor Style.
-        // The space intermediate byte is included in the body, so check for it.
-        if (!body.empty() && body.back() == ' ')
+        if (private_marker == '\0' && intermediates == " ")
         {
             const int ps = params.empty() ? 0 : params[0];
             switch (ps)
@@ -248,29 +299,31 @@ void TerminalCore::csi_cursor_move(char final_char, const std::vector<int>& para
     switch (final_char)
     {
     case 'A': // CUU - Cursor Up
-        vt_.row = std::max(vt_.origin_mode ? vt_.scroll_top : 0, vt_.row - param_or(params, 0, 1));
+        vt_.row = clamp_sub(vt_.row, param_or(params, 0, 1),
+            vt_.origin_mode ? vt_.scroll_top : 0);
         vt_.pending_wrap = false;
         break;
     case 'B': // CUD - Cursor Down
-        vt_.row = std::min(vt_.origin_mode ? vt_.scroll_bottom : std::max(0, grid_rows() - 1),
-            vt_.row + param_or(params, 0, 1));
+        vt_.row = clamp_add(vt_.row, param_or(params, 0, 1),
+            vt_.origin_mode ? vt_.scroll_bottom : std::max(0, grid_rows() - 1));
         vt_.pending_wrap = false;
         break;
     case 'C': // CUF - Cursor Forward
-        vt_.col = std::min(std::max(0, grid_cols() - 1), vt_.col + param_or(params, 0, 1));
+        vt_.col = clamp_add(vt_.col, param_or(params, 0, 1),
+            std::max(0, grid_cols() - 1));
         vt_.pending_wrap = false;
         break;
     case 'D': // CUB - Cursor Back
-        vt_.col = std::max(0, vt_.col - param_or(params, 0, 1));
+        vt_.col = clamp_sub(vt_.col, param_or(params, 0, 1), 0);
         vt_.pending_wrap = false;
         break;
     case 'E': // CNL - Cursor Next Line
-        vt_.row = std::min(vt_.scroll_bottom, vt_.row + param_or(params, 0, 1));
+        vt_.row = clamp_add(vt_.row, param_or(params, 0, 1), vt_.scroll_bottom);
         vt_.col = 0;
         vt_.pending_wrap = false;
         break;
     case 'F': // CPL - Cursor Preceding Line
-        vt_.row = std::max(vt_.scroll_top, vt_.row - param_or(params, 0, 1));
+        vt_.row = clamp_sub(vt_.row, param_or(params, 0, 1), vt_.scroll_top);
         vt_.col = 0;
         vt_.pending_wrap = false;
         break;
@@ -285,7 +338,7 @@ void TerminalCore::csi_cursor_move(char final_char, const std::vector<int>& para
         const int c = param_or(params, 1, 1) - 1;
         if (vt_.origin_mode)
         {
-            vt_.row = std::clamp(r + vt_.scroll_top, vt_.scroll_top, vt_.scroll_bottom);
+            vt_.row = clamp_add(vt_.scroll_top, r, vt_.scroll_bottom);
             vt_.col = std::clamp(c, 0, std::max(0, grid_cols() - 1));
         }
         else
@@ -302,20 +355,19 @@ void TerminalCore::csi_cursor_move(char final_char, const std::vector<int>& para
     }
     case 'I': // CHT - Cursor Forward Tabulation
     {
-        const int n = param_or(params, 0, 1);
-        for (int i = 0; i < n; ++i)
-            vt_.col = std::min(std::max(0, grid_cols() - 1), ((vt_.col / 8) + 1) * 8);
+        const int64_t n = param_or(params, 0, 1);
+        const int64_t first = (static_cast<int64_t>(vt_.col) / 8 + 1) * 8;
+        const int64_t target = first + (n - 1) * 8;
+        vt_.col = static_cast<int>(std::min<int64_t>(
+            std::max(0, grid_cols() - 1), target));
         vt_.pending_wrap = false;
         break;
     }
     case 'Z': // CBT - Cursor Backward Tabulation
     {
-        const int n = param_or(params, 0, 1);
-        for (int i = 0; i < n; ++i)
-        {
-            const int prev = ((vt_.col - 1) / 8) * 8;
-            vt_.col = std::max(0, prev);
-        }
+        const int64_t n = param_or(params, 0, 1);
+        const int64_t first = (static_cast<int64_t>(std::max(0, vt_.col - 1)) / 8) * 8;
+        vt_.col = static_cast<int>(std::max<int64_t>(0, first - (n - 1) * 8));
         vt_.pending_wrap = false;
         break;
     }
@@ -352,7 +404,7 @@ void TerminalCore::csi_erase(char final_char, const std::vector<int>& params)
     case 'X': // ECH - Erase Character
     {
         const int n = param_or(params, 0, 1);
-        const int end = std::min(grid_cols(), vt_.col + n);
+        const int end = clamp_add(vt_.col, n, grid_cols());
         for (int col = vt_.col; col < end; ++col)
             clear_cell(col, vt_.row);
         break;
@@ -362,7 +414,7 @@ void TerminalCore::csi_erase(char final_char, const std::vector<int>& params)
     }
 }
 
-void TerminalCore::csi_scroll(char final_char, bool private_mode, const std::vector<int>& params)
+void TerminalCore::csi_scroll(char final_char, char private_marker, const std::vector<int>& params)
 {
     PERF_MEASURE();
 
@@ -371,7 +423,7 @@ void TerminalCore::csi_scroll(char final_char, bool private_mode, const std::vec
     case 'S': // SU - Scroll Up
     {
         const int n = param_or(params, 0, 1);
-        if (!private_mode)
+        if (private_marker == '\0')
         {
             // Capture rows about to scroll off the top into scrollback.
             if (!alt_screen_.in_alt_screen() && vt_.scroll_top == 0
@@ -390,7 +442,7 @@ void TerminalCore::csi_scroll(char final_char, bool private_mode, const std::vec
     case 'T': // SD - Scroll Down
     {
         const int n = param_or(params, 0, 1);
-        if (!private_mode)
+        if (private_marker == '\0')
             scroll_rows(
                 vt_.scroll_top,
                 vt_.scroll_bottom + 1, -n);
@@ -461,10 +513,10 @@ void TerminalCore::csi_sgr(const std::vector<int>& params)
     apply_sgr(current_attr_, params);
 }
 
-void TerminalCore::csi_mode(char final_char, bool private_mode, const std::vector<int>& params)
+void TerminalCore::csi_mode(char final_char, char private_marker, const std::vector<int>& params)
 {
     PERF_MEASURE();
-    if (!private_mode)
+    if (private_marker != '?')
         return;
 
     const bool enable = final_char == 'h';
@@ -567,10 +619,10 @@ void TerminalCore::csi_mode(char final_char, bool private_mode, const std::vecto
     }
 }
 
-void TerminalCore::csi_dsr(bool private_mode, const std::vector<int>& params)
+void TerminalCore::csi_dsr(char private_marker, const std::vector<int>& params)
 {
     PERF_MEASURE();
-    if (private_mode)
+    if (private_marker != '\0')
         return;
     const int code = params.empty() ? 0 : params[0];
     if (code == 6)
@@ -589,28 +641,28 @@ void TerminalCore::csi_dsr(bool private_mode, const std::vector<int>& params)
     }
 }
 
-void TerminalCore::csi_da(bool private_mode, const std::vector<int>& params)
+void TerminalCore::csi_da(char private_marker, const std::vector<int>& params)
 {
     PERF_MEASURE();
     const int code = params.empty() ? 0 : params[0];
-    if (!private_mode && code == 0)
+    if (private_marker == '\0' && code == 0)
     {
         // DA1 — Primary Device Attributes: claim VT220 with ANSI color
         host_.terminal_write_process("\x1B[?62;22c");
     }
-    else if (private_mode && code == 0)
+    else if (private_marker == '>' && code == 0)
     {
         // DA2 — Secondary Device Attributes: "VT220, firmware 1.0"
         host_.terminal_write_process("\x1B[>1;10;0c");
     }
 }
 
-void TerminalCore::csi_margins(bool private_mode, const std::vector<int>& params)
+void TerminalCore::csi_margins(char private_marker, const std::vector<int>& params)
 {
     PERF_MEASURE();
 
     // DECSTBM - Set Top and Bottom Margins (scroll region)
-    if (!private_mode)
+    if (private_marker == '\0')
     {
         // Guard against a zero-sized grid (e.g. window minimized mid-redraw).
         // std::clamp(x, 0, -1) is UB — require at least one row/col before clamping.
@@ -682,13 +734,30 @@ static std::string extract_osc7_path(std::string_view uri)
         return {};
     uri.remove_prefix(kFilePrefix.size());
 
-    // Skip the hostname — everything up to the next '/'.
+    // Split hostname and path. POSIX terminals conventionally ignore the
+    // hostname. Windows preserves a non-local host as a UNC prefix.
     const size_t slash = uri.find('/');
     if (slash == std::string_view::npos)
         return {};
-    uri.remove_prefix(slash); // keep the leading '/'
+    const std::string_view hostname = uri.substr(0, slash);
+    std::string path = percent_decode(uri.substr(slash));
 
-    return percent_decode(uri);
+#ifdef _WIN32
+    const bool local_host = hostname.empty() || hostname == "localhost";
+    if (local_host && path.size() >= 3 && path[0] == '/'
+        && ((path[1] >= 'A' && path[1] <= 'Z')
+            || (path[1] >= 'a' && path[1] <= 'z'))
+        && path[2] == ':')
+    {
+        path.erase(path.begin());
+    }
+    else if (!local_host)
+    {
+        path = "//" + std::string(hostname) + path;
+    }
+    std::replace(path.begin(), path.end(), '/', '\\');
+#endif
+    return path;
 }
 
 void TerminalCore::handle_osc(std::string_view body)

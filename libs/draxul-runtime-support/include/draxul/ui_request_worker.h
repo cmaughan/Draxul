@@ -1,7 +1,7 @@
 #pragma once
 
 #include <condition_variable>
-#include <draxul/nvim_rpc.h>
+#include <draxul/nvim_protocol.h>
 #include <mutex>
 #include <string>
 #include <thread>

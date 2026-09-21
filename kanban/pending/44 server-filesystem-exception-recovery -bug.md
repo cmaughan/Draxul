@@ -11,10 +11,10 @@
 
 **Fix strategy**
 
-- [ ] Use error-code filesystem operations and explicit failure/fallback policy.
-- [ ] Preserve startup failure reporting and contain request exceptions with the layout-stream fix.
+- [x] Use error-code filesystem operations and explicit failure/fallback policy.
+- [x] Preserve startup failure reporting and contain request exceptions with the layout-stream fix.
 
 **Acceptance criteria**
 
-- [ ] Filesystem failures produce actionable errors without terminating unrelated sessions.
-- [ ] Startup failure is reported through the normal discovery/failure channel.
+- [x] Filesystem failures produce actionable errors without terminating unrelated sessions.
+- [x] Startup failure is reported through the normal discovery/failure channel.

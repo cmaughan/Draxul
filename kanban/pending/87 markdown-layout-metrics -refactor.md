@@ -11,22 +11,22 @@
 
 #### Boundary verification
 
-- [ ] Inventory all layout callers and metric uses, including body padding and base-style line height.
-- [ ] Define metric lifetime/value semantics and preserve existing pixel-scale behavior.
-- [ ] Confirm draw-list construction still requires the font library; do not promise target-wide font removal.
+- [x] Inventory all layout callers and metric uses, including body padding and base-style line height.
+- [x] Define metric lifetime/value semantics and preserve existing pixel-scale behavior.
+- [x] Confirm draw-list construction still requires the font library; do not promise target-wide font removal.
 
 #### Implementation and migration
 
-- [ ] Add the metrics-based interface and adapt `MarkdownHost::rebuild_layout()`.
-- [ ] Convert layout internals without changing measurement arithmetic or style resolution.
-- [ ] Migrate geometry tests to synthetic metrics.
-- [ ] Remove the concrete-service overload after all callers move.
+- [x] Add the metrics-based interface and adapt `MarkdownHost::rebuild_layout()`.
+- [x] Convert layout internals without changing measurement arithmetic or style resolution.
+- [x] Migrate geometry tests to synthetic metrics.
+- [x] Remove the concrete-service overload after all callers move.
 
 #### Unit tests
 
-- [ ] Cover narrow/wide/tall metrics, emphasis/base-style line heights, wrapping, tables, padding, and Unicode cell widths.
-- [ ] Retain representative real-font host/drawing integration coverage.
-- [ ] Add `draxul-test-markdown-layout` linked to `draxul-markdown`, excluding host/Kanban targets; avoid duplicate test registration.
+- [x] Cover narrow/wide/tall metrics, emphasis/base-style line heights, wrapping, tables, padding, and Unicode cell widths.
+- [x] Retain representative real-font host/drawing integration coverage.
+- [x] Add `draxul-test-markdown-layout` linked to `draxul-markdown`, excluding host/Kanban targets; avoid duplicate test registration.
 - [ ] Enable `cmake --build <cache> --config Debug --target draxul-test-markdown-layout --parallel`.
 - [ ] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-markdown-layout-shard-' --parallel 4 --output-on-failure`.
 
@@ -39,11 +39,11 @@
 
 #### Agent documentation/tooling
 
-- [ ] Register the focused target in core aggregates and runner selection tests.
-- [ ] Document the metrics contract and the retained drawing/font dependency.
+- [x] Register the focused target in core aggregates and runner selection tests.
+- [x] Document the metrics contract and the retained drawing/font dependency.
 
 #### Acceptance criteria
 
-- [ ] Geometry tests execute without loading physical fonts.
-- [ ] Layout no longer accepts or owns a concrete font service.
-- [ ] Existing document geometry, style resolution, and drawing alignment remain compatible.
+- [x] Geometry tests execute without loading physical fonts.
+- [x] Layout no longer accepts or owns a concrete font service.
+- [x] Existing document geometry, style resolution, and drawing alignment remain compatible.

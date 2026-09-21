@@ -178,3 +178,22 @@ TEST_CASE("resize with pathological dimensions clamps", "[grid][oob]")
         REQUIRE(grid.rows() == 0);
     }
 }
+
+TEST_CASE("full-cell restoration preserves wide hyperlink metadata", "[grid][hyperlink]")
+{
+    Grid source;
+    source.resize(4, 1);
+    source.set_cell(0, 0, "\xE7\x95\x8C", 7, true);
+    const uint16_t link = source.link_id_for_uri("https://example.com/wide");
+    source.set_cell_hyperlink_id(0, 0, link);
+
+    Grid restored;
+    restored.resize(4, 1);
+    restored.restore_cell(0, 0, source.get_cell(0, 0));
+    restored.restore_cell(1, 0, source.get_cell(1, 0));
+
+    CHECK(restored.get_cell(0, 0).double_width);
+    CHECK(restored.get_cell(1, 0).double_width_cont);
+    CHECK(restored.get_cell(0, 0).hyperlink_id == link);
+    CHECK(restored.get_cell(1, 0).hyperlink_id == link);
+}

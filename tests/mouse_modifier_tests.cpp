@@ -3,7 +3,7 @@
 #include <SDL3/SDL.h>
 #include <catch2/catch_all.hpp>
 #include <draxul/events.h>
-#include <draxul/nvim.h>
+#include <draxul/nvim_ui.h>
 
 #include <string>
 #include <vector>

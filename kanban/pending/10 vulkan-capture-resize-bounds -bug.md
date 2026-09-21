@@ -11,11 +11,20 @@
 
 **Fix strategy**
 
-- [ ] Retain recorded capture dimensions and allocation bounds through completion.
-- [ ] Complete readback before recreation where appropriate, or explicitly cancel invalid captures.
+- [x] Retain recorded capture dimensions and allocation bounds through completion.
+- [x] Complete readback before recreation where appropriate, or explicitly cancel invalid captures.
 
 **Acceptance criteria**
 
 - [ ] Captures never read beyond their allocation.
 - [ ] Returned dimensions describe the captured image.
-- [ ] Inspect Metal dimension handling without assuming the same resize mechanism.
+- [x] Inspect Metal dimension handling without assuming the same resize mechanism.
+
+**Implementation note (2026-09-21):** Vulkan records the copy extent and byte
+count before submitting, validates it against the mapped allocation, and reads it
+back before present can rebuild the swapchain. Metal now reports the drawable
+texture extent used for its blit rather than a potentially newer window extent.
+Focused renderer/grid tests passed on macOS (75 cases, 635 assertions). The
+broader aggregate is currently blocked linking unrelated PCBView symbols, and
+the same-cache smoke could not connect to the existing Draxul server.
+Vulkan/Windows runtime validation is still required.

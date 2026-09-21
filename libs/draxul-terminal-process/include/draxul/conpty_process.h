@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <draxul/agent_model.h>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -31,12 +32,18 @@ extern "C" void WINAPI ClosePseudoConsole(HPCON pty);
 namespace draxul
 {
 
+namespace detail
+{
+class AgentProcessObserver;
+}
+
 // Spawns a child process inside a Windows Pseudo Console (ConPty) and
 // provides read/write access to it via a background reader thread.
 // Used by PowerShellHost and ShellHost on Windows.
 class ConPtyProcess
 {
 public:
+    ConPtyProcess();
     ~ConPtyProcess();
 
     bool spawn(const std::string& command, const std::vector<std::string>& args,
@@ -63,9 +70,6 @@ public:
 
 private:
     void reader_main();
-    void ensure_agent_observer_started() const;
-    void stop_agent_observer();
-    void agent_observer_main() const;
 
     HANDLE input_write_ = INVALID_HANDLE_VALUE;
     HANDLE output_read_ = INVALID_HANDLE_VALUE;
@@ -76,6 +80,7 @@ private:
     std::vector<unsigned char> attribute_storage_;
     std::thread reader_thread_;
     std::atomic<bool> reader_running_{ false };
+    bool reader_finished_ = true;
     std::atomic<bool> writes_stopping_{ false };
     std::mutex input_mutex_;
     std::mutex output_mutex_;
@@ -84,15 +89,8 @@ private:
     size_t output_bytes_ = 0;
     std::function<void()> on_output_available_;
     mutable std::optional<int> last_exit_code_;
-    mutable std::mutex agent_observer_start_mutex_;
-    mutable std::mutex agent_observation_mutex_;
-    mutable std::mutex agent_observer_wait_mutex_;
-    mutable std::condition_variable agent_observer_wake_;
-    mutable std::thread agent_observer_thread_;
-    mutable std::atomic<bool> agent_observer_running_{ false };
-    mutable std::atomic<uint64_t> agent_activity_generation_{ 0 };
-    mutable std::optional<AgentProcessObservation>
-        cached_agent_process_observation_;
+    mutable std::mutex process_mutex_;
+    mutable std::unique_ptr<detail::AgentProcessObserver> agent_observer_;
 };
 
 } // namespace draxul

@@ -16,13 +16,13 @@ const MpackValue::MapStorage& as_map(const MpackValue& value)
 
 TEST_CASE("mpack codec round-trips nested values", "[rpc]")
 {
-    MpackValue original = NvimRpc::make_map({
-        { NvimRpc::make_str("ok"), NvimRpc::make_bool(true) },
-        { NvimRpc::make_str("count"), NvimRpc::make_int(42) },
-        { NvimRpc::make_str("items"), NvimRpc::make_array({
-                                          NvimRpc::make_nil(),
-                                          NvimRpc::make_str("hello"),
-                                          NvimRpc::make_uint(7),
+    MpackValue original = MpackValue::make_map({
+        { MpackValue::make_str("ok"), MpackValue::make_bool(true) },
+        { MpackValue::make_str("count"), MpackValue::make_int(42) },
+        { MpackValue::make_str("items"), MpackValue::make_array({
+                                          MpackValue::make_nil(),
+                                          MpackValue::make_str("hello"),
+                                          MpackValue::make_uint(7),
                                       }) },
     });
 
@@ -56,8 +56,8 @@ TEST_CASE("rpc request encoding produces the expected msgpack array shape", "[rp
     std::vector<char> encoded;
     INFO("request encodes successfully");
     REQUIRE(encode_rpc_request(99, "nvim_ui_attach", {
-                                                         NvimRpc::make_int(80),
-                                                         NvimRpc::make_int(24),
+                                                         MpackValue::make_int(80),
+                                                         MpackValue::make_int(24),
                                                      },
         encoded));
 
@@ -97,9 +97,9 @@ TEST_CASE("mpack decoder rejects truncated frames", "[rpc]")
 {
     std::vector<char> encoded;
     INFO("fixture encodes successfully");
-    REQUIRE(encode_mpack_value(NvimRpc::make_array({
-                                   NvimRpc::make_str("abc"),
-                                   NvimRpc::make_int(5),
+    REQUIRE(encode_mpack_value(MpackValue::make_array({
+                                   MpackValue::make_str("abc"),
+                                   MpackValue::make_int(5),
                                }),
         encoded));
     encoded.pop_back();
@@ -114,7 +114,7 @@ TEST_CASE("mpack decoder flags reserved 0xC1 prefix as a hard error", "[rpc]")
     SECTION("truncated frame is not flagged as a hard error")
     {
         std::vector<char> encoded;
-        REQUIRE(encode_mpack_value(NvimRpc::make_str("hello world"), encoded));
+        REQUIRE(encode_mpack_value(MpackValue::make_str("hello world"), encoded));
         encoded.pop_back();
 
         MpackValue decoded;
@@ -140,7 +140,7 @@ TEST_CASE("mpack decoder flags reserved 0xC1 prefix as a hard error", "[rpc]")
     {
         // 0xC1 (invalid) followed by a valid msgpack uint 42 (single byte 0x2A).
         std::vector<char> good;
-        REQUIRE(encode_mpack_value(NvimRpc::make_uint(42), good));
+        REQUIRE(encode_mpack_value(MpackValue::make_uint(42), good));
 
         std::vector<uint8_t> stream;
         stream.push_back(0xC1);

@@ -133,6 +133,100 @@ TEST_CASE("topology projection builds stable renderer-free pane layouts",
         == future_leaf);
 }
 
+TEST_CASE("topology projection preserves pane identity and local focus across tabs",
+    "[client][topology][projection][pane-move]")
+{
+    TopologyProjection projection;
+    TopologyTab source{
+        .tab_id = "source-tab",
+        .name = "Source",
+        .root_node_id = "source-root",
+        .nodes = {
+            { .node_id = "source-root", .is_leaf = false,
+                .direction = TopologySplitDirection::Vertical,
+                .first_node_id = "source-left",
+                .second_node_id = "source-right" },
+            { .node_id = "source-left", .is_leaf = true,
+                .pane_id = "pane-moved" },
+            { .node_id = "source-right", .is_leaf = true,
+                .pane_id = "pane-source" },
+        },
+        .panes = {
+            { .pane_id = "pane-moved",
+                .domain = TopologyPaneDomain::ServerTerminal,
+                .terminal_id = "terminal-moved" },
+            { .pane_id = "pane-source",
+                .domain = TopologyPaneDomain::ServerTerminal,
+                .terminal_id = "terminal-source" },
+        },
+    };
+    TopologyTab destination{
+        .tab_id = "destination-tab",
+        .name = "Destination",
+        .root_node_id = "destination-root",
+        .nodes = { { .node_id = "destination-root",
+            .is_leaf = true, .pane_id = "pane-destination" } },
+        .panes = { { .pane_id = "pane-destination",
+            .domain = TopologyPaneDomain::ServerTerminal,
+            .terminal_id = "terminal-destination" } },
+    };
+    std::string error;
+    auto initial_source = projection.project_tab(
+        source, kInvalidLeaf, HostKind::Zsh, error);
+    REQUIRE(initial_source);
+    const LeafId moved_leaf
+        = projection.local_pane("pane-moved").value();
+    const LeafId source_leaf
+        = projection.local_pane("pane-source").value();
+    projection.commit_tab(source.tab_id, *initial_source);
+    auto initial_destination = projection.project_tab(
+        destination, kInvalidLeaf, HostKind::Zsh, error);
+    REQUIRE(initial_destination);
+    const LeafId destination_leaf
+        = projection.local_pane("pane-destination").value();
+    projection.commit_tab(destination.tab_id, *initial_destination);
+
+    source.root_node_id = "source-right";
+    source.nodes = { { .node_id = "source-right", .is_leaf = true,
+        .pane_id = "pane-source" } };
+    source.panes.erase(source.panes.begin());
+    destination.root_node_id = "destination-root";
+    destination.nodes = {
+        { .node_id = "destination-root", .is_leaf = false,
+            .direction = TopologySplitDirection::Horizontal,
+            .ratio = 0.4f,
+            .first_node_id = "destination-existing",
+            .second_node_id = "destination-moved" },
+        { .node_id = "destination-existing", .is_leaf = true,
+            .pane_id = "pane-destination" },
+        { .node_id = "destination-moved", .is_leaf = true,
+            .pane_id = "pane-moved" },
+    };
+    destination.panes.push_back({
+        .pane_id = "pane-moved",
+        .domain = TopologyPaneDomain::ServerTerminal,
+        .terminal_id = "terminal-moved",
+    });
+
+    const auto updated_source = projection.project_tab(
+        source, moved_leaf, HostKind::Zsh, error);
+    REQUIRE(updated_source);
+    CHECK(updated_source->layout.tree.focused_id == source_leaf);
+    const auto updated_destination = projection.project_tab(
+        destination, destination_leaf, HostKind::Zsh, error);
+    REQUIRE(updated_destination);
+    CHECK(updated_destination->layout.tree.focused_id
+        == destination_leaf);
+    CHECK(projection.local_pane("pane-moved") == moved_leaf);
+    const auto moved_layout = std::ranges::find(
+        updated_destination->layout.panes, moved_leaf,
+        &SessionPaneSnapshot::leaf_id);
+    REQUIRE(moved_layout
+        != updated_destination->layout.panes.end());
+    CHECK(moved_layout->launch.remote_terminal_id
+        == "terminal-moved");
+}
+
 TEST_CASE("topology projection rejects invalid split graphs without an App",
     "[client][topology][projection]")
 {

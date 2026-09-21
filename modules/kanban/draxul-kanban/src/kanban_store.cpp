@@ -286,14 +286,29 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
     }
 
     OrderedNames column_names;
-    for (const auto& entry : std::filesystem::directory_iterator(root, ec))
+    std::filesystem::directory_iterator root_it(root, ec);
+    if (ec)
     {
+        set_error(error, "failed to scan kanban root: " + ec.message());
+        return board;
+    }
+    const std::filesystem::directory_iterator end;
+    while (root_it != end)
+    {
+        const auto entry = *root_it;
+        root_it.increment(ec);
         if (ec)
         {
             set_error(error, "failed to scan kanban root: " + ec.message());
             return board;
         }
-        if (!entry.is_directory(ec))
+        const bool is_directory = entry.is_directory(ec);
+        if (ec)
+        {
+            set_error(error, "failed to inspect kanban root entry: " + ec.message());
+            return board;
+        }
+        if (!is_directory)
         {
             continue;
         }
@@ -312,14 +327,28 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
         column.name = name;
         column.directory = root / name;
 
-        for (const auto& entry : std::filesystem::directory_iterator(column.directory, ec))
+        std::filesystem::directory_iterator column_it(column.directory, ec);
+        if (ec)
         {
+            set_error(error, "failed to scan kanban column: " + ec.message());
+            return board;
+        }
+        while (column_it != end)
+        {
+            const auto entry = *column_it;
+            column_it.increment(ec);
             if (ec)
             {
                 set_error(error, "failed to scan kanban column: " + ec.message());
                 return board;
             }
-            if (!entry.is_regular_file(ec) || entry.path().extension() != ".md")
+            const bool is_regular_file = entry.is_regular_file(ec);
+            if (ec)
+            {
+                set_error(error, "failed to inspect kanban column entry: " + ec.message());
+                return board;
+            }
+            if (!is_regular_file || entry.path().extension() != ".md")
             {
                 continue;
             }

@@ -1290,12 +1290,25 @@ int run_topology_cli(const TopologyCliCommand& command)
         else if (command.verb == "move")
         {
             const auto target = find_pane(snapshot, command.secondary_id);
-            if (!target || target->tab->tab_id != located->tab->tab_id)
+            if (!target)
             {
                 return print_error("pane_not_found",
-                    "Pane move requires two panes in the same tab.", command.json);
+                    "Pane move target was not found.", command.json);
+            }
+            if ((!command.space_id.empty()
+                    && command.space_id
+                        != target->space->space_id)
+                || (!command.tab_id.empty()
+                    && command.tab_id != target->tab->tab_id))
+            {
+                return print_error("destination_mismatch",
+                    "Pane move --space/--tab must identify the target pane's route.",
+                    command.json);
             }
             mutation.kind = TopologyCommandKind::MovePane;
+            mutation.destination_space_id
+                = target->space->space_id;
+            mutation.destination_tab_id = target->tab->tab_id;
             mutation.target_pane_id = target->pane->pane_id;
             mutation.direction
                 = command.direction == "down"

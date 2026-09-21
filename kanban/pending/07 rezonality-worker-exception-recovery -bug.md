@@ -11,10 +11,10 @@
 
 **Fix strategy**
 
-- [ ] Use checked numeric parsing and error-code filesystem operations.
-- [ ] Convert build/watch exceptions into failed diagnostics while continuing the worker.
+- [x] Use checked numeric parsing and error-code filesystem operations.
+- [x] Convert build/watch exceptions into failed diagnostics while continuing the worker.
 
 **Acceptance criteria**
 
-- [ ] Invalid edits preserve the last valid scene.
+- [x] Invalid edits preserve the last valid scene.
 - [ ] Repairing the file successfully activates a later generation on both backends.

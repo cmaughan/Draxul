@@ -7,12 +7,12 @@
 
 **Investigation**
 
-- [ ] Trace process, RPC reader, and pipe ownership during Windows pane closure.
+- [x] Trace process, RPC reader, and pipe ownership during Windows pane closure.
 
 **Fix strategy**
 
-- [ ] Transfer bounded process termination/reaping to a safe background owner.
-- [ ] Preserve cancellation, handle lifetime, and idempotent shutdown.
+- [x] Transfer bounded process termination/reaping to a self-contained background owner.
+- [x] Preserve cancellation, handle lifetime, and idempotent shutdown.
 
 **Acceptance criteria**
 

@@ -25,58 +25,58 @@ route contract before exposing the mutation.
 
 ## Route contract
 
-- [ ] Make stable pane ID the canonical identity for resolving a pane's current
+- [x] Make stable pane ID the canonical identity for resolving a pane's current
       Space, tab, terminal, and managed-agent route.
-- [ ] Audit every consumer of `DRAXUL_SPACE_ID` and `DRAXUL_TAB_ID`, including
+- [x] Audit every consumer of `DRAXUL_SPACE_ID` and `DRAXUL_TAB_ID`, including
       `--current`, managed-agent hooks, session reports, and external scripts.
-- [ ] Define launch-time Space/tab environment values as advisory, or add a
+- [x] Define launch-time Space/tab environment values as advisory, or add a
       bounded route-refresh mechanism for consumers that need current values.
-- [ ] Preserve `DRAXUL_PANE_ID`, pane ID, terminal ID, process state, scrollback,
+- [x] Preserve `DRAXUL_PANE_ID`, pane ID, terminal ID, process state, scrollback,
       and managed-agent instance identity when the selected policy permits it.
-- [ ] If any pane kind must restart instead, require an explicit opt-in and
+- [x] If any pane kind must restart instead, require an explicit opt-in and
       increment its runtime generation; never disguise a restart as a move.
-- [ ] Specify working-directory behavior when moving across Space roots: moving
+- [x] Specify working-directory behavior when moving across Space roots: moving
       a live process must not claim that its actual cwd changed.
 
 ## Atomic topology operation
 
-- [ ] Extend the topology command with destination Space ID, destination tab ID,
+- [x] Extend the topology command with destination Space ID, destination tab ID,
       target pane ID, direction, and ratio.
-- [ ] Validate source/destination, pane domain, companion ownership, ratio,
+- [x] Validate source/destination, pane domain, companion ownership, ratio,
       capacity limits, and route policy before mutating either tree.
-- [ ] Detach the source leaf, collapse its old split, and insert it relative to
+- [x] Detach the source leaf, collapse its old split, and insert it relative to
       the destination leaf in one server event-loop transaction.
-- [ ] Define empty-source-tab behavior explicitly: close the empty tab when
+- [x] Define empty-source-tab behavior explicitly: close the empty tab when
       another tab survives; reject moving the final pane from the final tab of a
       Space unless a replacement policy is deliberately introduced.
 - [ ] Roll back both tabs and all metadata if insertion or persistence fails.
-- [ ] Bump topology revision once and return the pane's new authoritative route.
-- [ ] Preserve client-local focus: each attached UI independently retains focus
+- [x] Bump topology revision once and return the pane's new authoritative route.
+- [x] Preserve client-local focus: each attached UI independently retains focus
       when possible and chooses a local fallback if its focused pane moved away.
-- [ ] Reject client-local/product-host panes in the headless command unless a
+- [x] Reject client-local/product-host panes in the headless command unless a
       separate UI ownership-transfer contract is implemented.
 
 ## CLI and declarative control
 
-- [ ] Support:
+- [x] Support:
       `draxul pane move <pane-id> --space <space-id> --tab <tab-id>
       --target <pane-id> --direction <left|right|up|down> [--ratio <value>]`.
-- [ ] Continue accepting the shorter existing same-tab form.
-- [ ] Return stable JSON fields for the moved pane and its source/destination
+- [x] Continue accepting the shorter existing same-tab form.
+- [x] Return stable JSON fields for the moved pane and its source/destination
       routes.
-- [ ] Allow layout/orchestration callers to compose cross-tab movement without
+- [x] Allow layout/orchestration callers to compose cross-tab movement without
       needing a focused UI.
-- [ ] Update CLI help and `docs/features.md` with the route and restart semantics.
+- [x] Update CLI help and `docs/features.md` with the route and restart semantics.
 
 ## Integration and smoke validation
 
-- [ ] Add an executable-level real-server test that moves a running shell into
+- [x] Add an executable-level real-server test that moves a running shell into
       another tab while output and scrollback remain readable.
 - [ ] Verify `pane get`, `pane read`, `pane run`, and `--current` resolve the new
       route after the move.
 - [ ] Move a managed agent across tabs, confirm stable instance/pane/terminal
       identity, and verify prompt/status/session-report routing after movement.
-- [ ] Cover moves across Spaces with different roots without misreporting cwd.
+- [x] Cover moves across Spaces with different roots without misreporting cwd.
 - [ ] Cover source-tab collapse, final-pane rejection, capacity rejection,
       companion-pane rejection, and rollback after a forced destination failure.
 - [ ] Run a two-UI test proving both clients converge while focus remains local,
@@ -89,3 +89,26 @@ route contract before exposing the mutation.
 - Moving client-local Nvim, Markdown, Kanban, or product panes between UI owners.
 - Migrating a live terminal process between Draxul server processes.
 - Implicitly changing the cwd of a running shell when it enters another Space.
+
+## Local implementation evidence
+
+- `MovePane` now carries explicit destination Space/tab fields while empty
+  destination fields retain the existing same-tab wire behavior. Results expose
+  stable moved-pane and source/destination route fields, including idempotent
+  replays and legacy result decoding.
+- The server validates both routes, the server-owned source domain, companion
+  ownership, ratio, destination capacity, and final-Space behavior before it
+  edits a candidate snapshot. It commits both trees together, closes an empty
+  source tab only when another tab survives, and increments the revision once.
+- Live terminal moves preserve pane ID, terminal ID, runtime generation, process
+  ID, scrollback/output, agent metadata, and recorded working directory. Existing
+  processes are not restarted; client-local panes are rejected.
+- The focused `[pane-move]` run passed 71 assertions in 4 cases, including a real
+  server/shell move and reconnect. `python3 do.py test debug` passed all 23 core
+  CTest entries in 39.01 seconds, followed by a passing same-cache
+  `python3 do.py smoke --skip-build` on macOS/Metal.
+- Still open: persistence-failure rollback injection; executable CLI coverage for
+  every `pane get/read/run/--current` route; a live managed-agent move covering
+  prompt/status/session reporting; capacity/companion/forced-failure coverage in
+  one matrix; a true two-UI detach/reconnect focus test; Windows/Vulkan coverage;
+  and the Release/full-suite validation requested by the card.

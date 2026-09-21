@@ -7,15 +7,15 @@
 
 **Investigation**
 
-- [ ] Hide and show keyboard-driven Roll and Gate modes with background playback disabled.
+- [x] Hide and show a keyboard-driven gated flow with background playback disabled.
 
 **Fix strategy**
 
-- [ ] Restore the requested input rig for every applicable non-Clock mode before resuming.
-- [ ] Preserve input lease and background-playback semantics.
+- [x] Restore the requested input rig for every applicable non-Clock mode before resuming.
+- [x] Preserve input lease and background-playback semantics.
 
 **Acceptance criteria**
 
-- [ ] Keyboard notes work immediately after showing the pane.
-- [ ] Visibility transitions do not create artificial missed-note progress.
-- [ ] Other input modes still reacquire correctly.
+- [x] Keyboard notes work immediately after showing the pane.
+- [x] Visibility transitions do not create artificial missed-note progress.
+- [ ] Other input modes still reacquire correctly (focused runtime validation pending).

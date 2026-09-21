@@ -132,6 +132,8 @@ private:
     std::optional<CapturedFrame> captured_frame_;
     size_t capture_buffer_size_ = 0;
     size_t capture_bytes_per_row_ = 0;
+    size_t capture_width_ = 0;
+    size_t capture_height_ = 0;
 
     bool imgui_initialized_ = false;
     bool wait_for_vblank_ = true;

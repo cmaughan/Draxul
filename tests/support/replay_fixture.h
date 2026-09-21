@@ -1,6 +1,6 @@
 #pragma once
 
-#include <draxul/nvim.h>
+#include <draxul/nvim_protocol.h>
 #include <optional>
 #include <string>
 #include <utility>
@@ -11,32 +11,32 @@ namespace draxul::tests
 
 inline MpackValue i(int64_t value)
 {
-    return NvimRpc::make_int(value);
+    return MpackValue::make_int(value);
 }
 
 inline MpackValue s(const std::string& value)
 {
-    return NvimRpc::make_str(value);
+    return MpackValue::make_str(value);
 }
 
 inline MpackValue b(bool value)
 {
-    return NvimRpc::make_bool(value);
+    return MpackValue::make_bool(value);
 }
 
 inline MpackValue nil()
 {
-    return NvimRpc::make_nil();
+    return MpackValue::make_nil();
 }
 
 inline MpackValue arr(std::initializer_list<MpackValue> items)
 {
-    return NvimRpc::make_array(std::vector<MpackValue>(items));
+    return MpackValue::make_array(std::vector<MpackValue>(items));
 }
 
 inline MpackValue map(std::initializer_list<std::pair<MpackValue, MpackValue>> items)
 {
-    return NvimRpc::make_map(std::vector<std::pair<MpackValue, MpackValue>>(items));
+    return MpackValue::make_map(std::vector<std::pair<MpackValue, MpackValue>>(items));
 }
 
 inline MpackValue cell(
@@ -58,7 +58,7 @@ inline MpackValue cell(
     {
         values.push_back(i(*repeat));
     }
-    return NvimRpc::make_array(std::move(values));
+    return MpackValue::make_array(std::move(values));
 }
 
 inline MpackValue grid_line_batch(
@@ -75,7 +75,7 @@ inline MpackValue redraw_event(const std::string& name, std::initializer_list<Mp
     std::vector<MpackValue> values;
     values.push_back(s(name));
     values.insert(values.end(), batches.begin(), batches.end());
-    return NvimRpc::make_array(std::move(values));
+    return MpackValue::make_array(std::move(values));
 }
 
 } // namespace draxul::tests

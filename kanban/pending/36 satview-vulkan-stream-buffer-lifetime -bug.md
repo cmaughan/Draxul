@@ -7,15 +7,15 @@
 
 **Investigation**
 
-- [ ] Trace every stream buffer’s use across buffered frames and revision changes.
+- [x] Trace every stream buffer’s use across buffered frames and revision changes.
 
 **Fix strategy**
 
-- [ ] Use frame-owned buffers or immutable upload generations.
-- [ ] Retire replaced allocations only after all referencing frame slots complete.
+- [x] Use frame-owned buffers or immutable upload generations.
+- [x] Retire replaced allocations only after all referencing frame slots complete.
 
 **Acceptance criteria**
 
 - [ ] Same-capacity updates and growth produce no GPU lifetime or synchronization errors.
 - [ ] Rapid marker/track updates render correctly with multiple frames in flight.
-- [ ] Review equivalent Metal ownership.
+- [x] Review equivalent Metal ownership.

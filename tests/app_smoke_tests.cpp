@@ -13,7 +13,7 @@
 #include "support/home_dir_redirect.h"
 #include "support/temp_dir.h"
 
-#include "chrome_layout.h"
+#include <draxul/chrome_layout.h>
 #include "session_state.h"
 
 #include <SDL3/SDL.h>

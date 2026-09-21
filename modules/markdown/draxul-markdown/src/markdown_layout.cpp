@@ -175,10 +175,10 @@ class LayoutBuilder
 public:
     LayoutBuilder(
         const MarkdownTheme& theme,
-        draxul::RichTextService& rich_text,
+        const FontMetricsLookup& metrics_for,
         const LayoutOptions& options)
         : theme_(theme)
-        , rich_text_(rich_text)
+        , metrics_for_(metrics_for)
         , scale_(std::max(0.01f, options.pixel_scale))
         , margin_columns_(std::max(0.0f, options.margin_columns))
     {
@@ -256,7 +256,7 @@ public:
 private:
     float padding() const
     {
-        const auto& metrics = rich_text_.metrics_for(theme_.body.rich_text);
+        const auto metrics = metrics_for_(theme_.body.rich_text);
         return std::max(0.0f, static_cast<float>(metrics.cell_width) * margin_columns_ * scale_);
     }
 
@@ -307,7 +307,7 @@ private:
         if (text.empty())
             return 0.0f;
         const auto markdown_style = resolve_markdown_style(theme_, style);
-        const auto& metrics = rich_text_.metrics_for(markdown_style.rich_text);
+        const auto metrics = metrics_for_(markdown_style.rich_text);
         const float cell_width = static_cast<float>(std::max(1, metrics.cell_width));
 
         float width = 0.0f;
@@ -340,14 +340,14 @@ private:
     float row_height_for(StyleId style)
     {
         const auto markdown_style = resolve_markdown_style(theme_, base_style_of(style));
-        const auto& metrics = rich_text_.metrics_for(markdown_style.rich_text);
+        const auto metrics = metrics_for_(markdown_style.rich_text);
         return std::max(1.0f, static_cast<float>(metrics.cell_height) * markdown_style.line_height_multiplier);
     }
 
     float baseline_for(StyleId style, float row_y, float row_height)
     {
         const auto markdown_style = resolve_markdown_style(theme_, base_style_of(style));
-        const auto& metrics = rich_text_.metrics_for(markdown_style.rich_text);
+        const auto metrics = metrics_for_(markdown_style.rich_text);
         const float leading = std::max(0.0f, row_height - static_cast<float>(metrics.cell_height));
         return row_y + leading * 0.5f + static_cast<float>(metrics.ascender);
     }
@@ -1094,7 +1094,7 @@ private:
     }
 
     const MarkdownTheme& theme_;
-    draxul::RichTextService& rich_text_;
+    const FontMetricsLookup& metrics_for_;
     float scale_ = 1.0f;
     float margin_columns_ = 2.0f;
     float y_ = 0.0f;
@@ -1106,10 +1106,10 @@ private:
 LayoutDocument layout_markdown_document(
     const Document& document,
     const MarkdownTheme& theme,
-    draxul::RichTextService& rich_text,
+    const FontMetricsLookup& metrics_for,
     const LayoutOptions& options)
 {
-    LayoutBuilder builder(theme, rich_text, options);
+    LayoutBuilder builder(theme, metrics_for, options);
     builder.layout_blocks(document.blocks);
     return builder.finish();
 }

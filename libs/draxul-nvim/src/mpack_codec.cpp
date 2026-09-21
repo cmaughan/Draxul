@@ -296,11 +296,11 @@ bool encode_rpc_request(
     uint32_t msgid, const std::string& method, const std::vector<MpackValue>& params, std::vector<char>& out)
 {
     PERF_MEASURE();
-    MpackValue payload = NvimRpc::make_array({
-        NvimRpc::make_uint(0),
-        NvimRpc::make_uint(msgid),
-        NvimRpc::make_str(method),
-        NvimRpc::make_array(params),
+    MpackValue payload = MpackValue::make_array({
+        MpackValue::make_uint(0),
+        MpackValue::make_uint(msgid),
+        MpackValue::make_str(method),
+        MpackValue::make_array(params),
     });
     return encode_mpack_value(payload, out);
 }
@@ -309,10 +309,10 @@ bool encode_rpc_notification(
     const std::string& method, const std::vector<MpackValue>& params, std::vector<char>& out)
 {
     PERF_MEASURE();
-    MpackValue payload = NvimRpc::make_array({
-        NvimRpc::make_uint(2),
-        NvimRpc::make_str(method),
-        NvimRpc::make_array(params),
+    MpackValue payload = MpackValue::make_array({
+        MpackValue::make_uint(2),
+        MpackValue::make_str(method),
+        MpackValue::make_array(params),
     });
     return encode_mpack_value(payload, out);
 }
@@ -321,9 +321,9 @@ bool encode_rpc_response(
     uint32_t msgid, const MpackValue& error, const MpackValue& result, std::vector<char>& out)
 {
     PERF_MEASURE();
-    MpackValue payload = NvimRpc::make_array({
-        NvimRpc::make_uint(1),
-        NvimRpc::make_uint(msgid),
+    MpackValue payload = MpackValue::make_array({
+        MpackValue::make_uint(1),
+        MpackValue::make_uint(msgid),
         error,
         result,
     });

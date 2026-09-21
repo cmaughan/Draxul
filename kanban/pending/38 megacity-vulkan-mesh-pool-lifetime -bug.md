@@ -7,15 +7,15 @@
 
 **Investigation**
 
-- [ ] Trace same-capacity scene updates through all buffered frame slots.
+- [x] Trace same-capacity scene updates through all buffered frame slots.
 
 **Fix strategy**
 
-- [ ] Use frame-owned pools or immutable geometry generations with completion-based retirement.
-- [ ] Avoid rewriting unchanged geometry.
+- [x] Use frame-owned pools or immutable geometry generations with completion-based retirement.
+- [x] Avoid rewriting unchanged geometry.
 
 **Acceptance criteria**
 
-- [ ] Same-size, shrinking, and growing rebuilds preserve in-flight data.
+- [x] Same-size, shrinking, and growing rebuilds preserve in-flight data.
 - [ ] Vulkan synchronization validation remains clean.
-- [ ] Review Metal’s corresponding mesh lifetime.
+- [x] Review Metal’s corresponding mesh lifetime.

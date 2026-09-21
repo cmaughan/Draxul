@@ -14,3 +14,5 @@ install(TARGETS draxul-performance
 install(DIRECTORY include/
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     COMPONENT draxul-plugin-sdk)
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

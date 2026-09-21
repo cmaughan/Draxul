@@ -11,10 +11,10 @@
 
 **Fix strategy**
 
-- [ ] Reject a zero result and unwind initialization through the existing error path.
+- [x] Reject a zero result and unwind initialization through the existing error path.
 
 **Acceptance criteria**
 
-- [ ] Registration failure reports an actionable initialization error.
-- [ ] Successful registration provides distinct working wake and file-dialog events.
+- [x] Registration failure reports an actionable initialization error.
+- [x] Successful registration provides distinct working wake and file-dialog events.
 - [ ] Verify both platform startup paths.

@@ -1,5 +1,5 @@
 #include <draxul/log.h>
-#include <draxul/nvim_rpc.h>
+#include <draxul/nvim_transport.h>
 #include <draxul/perf_timing.h>
 #include <draxul/process_util.h>
 
@@ -11,6 +11,7 @@
 #include <mutex>
 #include <sstream>
 #include <string_view>
+#include <thread>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -23,7 +24,6 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
-#include <thread>
 #include <unistd.h>
 #endif
 
@@ -230,13 +230,17 @@ void NvimProcess::shutdown()
 
     if (process_handle)
     {
-        const DWORD wait_result = WaitForSingleObject(process_handle, 2000);
-        if (wait_result == WAIT_TIMEOUT)
-        {
-            TerminateProcess(process_handle, 0);
-            WaitForSingleObject(process_handle, 2000);
-        }
-        CloseHandle(process_handle);
+        // The UI-facing owner relinquishes the handle immediately. A
+        // self-contained reaper owns the bounded wait, escalation, and close.
+        std::thread([process_handle] {
+            const DWORD wait_result = WaitForSingleObject(process_handle, 2000);
+            if (wait_result == WAIT_TIMEOUT)
+            {
+                TerminateProcess(process_handle, 0);
+                WaitForSingleObject(process_handle, 2000);
+            }
+            CloseHandle(process_handle);
+        }).detach();
     }
 }
 

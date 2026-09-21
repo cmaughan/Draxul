@@ -710,13 +710,29 @@ control_detail::ServerFrameResponse ControlServer::Impl::handle_frame(
     }
     else
     {
-        result = control_detail::parse_request(*bytes, token, request);
-        if (result.ok)
-            result = dispatch(request);
-        else
+        try
         {
-            std::lock_guard guard(metrics_mutex);
-            ++metrics.invalid_frames;
+            result = control_detail::parse_request(*bytes, token, request);
+            if (result.ok)
+                result = dispatch(request);
+            else
+            {
+                std::lock_guard guard(metrics_mutex);
+                ++metrics.invalid_frames;
+            }
+        }
+        catch (const std::exception& exception)
+        {
+            result = ControlMethodResult::error(
+                "internal_error",
+                std::string("The control request failed internally: ")
+                    + exception.what());
+        }
+        catch (...)
+        {
+            result = ControlMethodResult::error(
+                "internal_error",
+                "The control request failed internally.");
         }
     }
     return {

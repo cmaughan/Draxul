@@ -13,7 +13,7 @@
 //     (not yet picked up) request is dropped. An in-flight request runs to
 //     completion before the worker thread exits.
 
-#include <draxul/nvim.h>
+#include <draxul/nvim_protocol.h>
 #include <draxul/ui_request_worker.h>
 
 #include <atomic>
@@ -68,7 +68,7 @@ public:
             arrived_cv_.notify_all();
         }
 
-        return RpcResult::ok(NvimRpc::make_nil());
+        return RpcResult::ok(MpackValue::make_nil());
     }
 
     void notify(const std::string&, const std::vector<MpackValue>&) override {}

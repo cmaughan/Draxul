@@ -504,7 +504,7 @@ What worked:
 - includes a data flow section at the bottom showing both the nvim and terminal paths
 
 Why this is useful:
-- the diagram lives in `docs/architecture.svg` and can be opened in any browser
+- the diagram lives in `docs/architecture/architecture.svg` and can be opened in any browser
 - it updates in minutes whenever the architecture changes — just re-run the prompt
 - the stored prompt is in `plans/prompts/architecture_diagram.md` for repeatable generation
 

@@ -11,41 +11,41 @@
 
 #### Boundary verification
 
-- [ ] Compare operation order, enum values, native record offsets, zeroed padding, and 256-byte layouts.
-- [ ] Distinguish no image from a requested image whose texture lookup failed.
-- [ ] Preserve current partial output on missing texture metadata.
-- [ ] Keep shader schema/reflection work in `kanban/ice-box/19 shader-abi-parity -test.md`.
+- [x] Compare operation order, enum values, native record offsets, zeroed padding, and 256-byte layouts.
+- [x] Distinguish no image from a requested image whose texture lookup failed.
+- [x] Preserve current partial output on missing texture metadata.
+- [x] Keep shader schema/reflection work in `kanban/ice-box/19 shader-abi-parity -test.md`.
 
 #### Implementation and migration
 
-- [ ] Characterize current outputs before extraction.
-- [ ] Add the private CPU helper and minimal native record adaptation.
-- [ ] Migrate Vulkan, then Metal, preserving arithmetic order and existing binding layouts.
-- [ ] Remove duplicated conversion code after both callers use the helper.
+- [x] Characterize current outputs before extraction.
+- [x] Add the private CPU helper and minimal native record adaptation.
+- [x] Migrate Vulkan, then Metal, preserving arithmetic order and existing binding layouts.
+- [x] Remove duplicated conversion code after both callers use the helper.
 
 #### Unit tests
 
-- [ ] Add `draxul-test-nanovg-paint` for transformed/disabled scissors, gradients, RGBA premultiplication modes, alpha images, Y flip, stroke values, missing metadata, and matrix packing.
-- [ ] Check native adapter layout compatibility without expanding into shader-generation work.
-- [ ] Enable `cmake --build <cache> --config Debug --target draxul-test-nanovg-paint --parallel`.
-- [ ] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-nanovg-paint-shard-' --parallel 4 --output-on-failure`.
+- [x] Add `draxul-test-nanovg-paint` for transformed/disabled scissors, gradients, RGBA premultiplication modes, alpha images, Y flip, stroke values, missing metadata, and matrix packing.
+- [x] Check native adapter layout compatibility without expanding into shader-generation work.
+- [x] Enable `cmake --build <cache> --config Debug --target draxul-test-nanovg-paint --parallel`.
+- [x] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-nanovg-paint-shard-' --parallel 4 --output-on-failure`.
 
 #### Cross-platform validation
 
 - [ ] Build the backend and app on Windows/Vulkan and macOS/Metal.
-- [ ] Preserve Objective-C++/ARC compilation settings when adding plain C++ sources.
-- [ ] Verify CPU tests need no device; document any remaining native SDK configure/link requirements.
+- [x] Preserve Objective-C++/ARC compilation settings when adding plain C++ sources.
+- [x] Verify CPU tests need no device; document any remaining native SDK configure/link requirements.
 - [ ] Run `python3 do.py test debug --products`, then `python3 do.py smoke debug --skip-build`.
 - [ ] Run shared NanoVG and affected product render coverage on both backends.
 
 #### Agent documentation/tooling
 
-- [ ] Register focused tests in core aggregates, `do.py`, and selection tests.
-- [ ] Document ownership of shared arithmetic versus native resources and submission.
+- [x] Register focused tests in core aggregates, `do.py`, and selection tests.
+- [x] Document ownership of shared arithmetic versus native resources and submission.
 - [ ] Keep copied-tree NanoVG backend builds compatible.
 
 #### Acceptance criteria
 
-- [ ] Paint conversion arithmetic has one implementation.
-- [ ] Uniform layout, zero initialization, missing-texture behavior, and floating-point operation order remain compatible.
+- [x] Paint conversion arithmetic has one implementation.
+- [x] Uniform layout, zero initialization, missing-texture behavior, and floating-point operation order remain compatible.
 - [ ] Device-free tests cover conversion semantics and native rendering remains equivalent.

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "chrome_layout.h"
+#include <draxul/chrome_layout.h>
 
 #include <draxul/nanovg_pass.h>
 #include <draxul/renderer.h>

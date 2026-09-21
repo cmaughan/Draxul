@@ -719,9 +719,11 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
         .client_id = "client-a",
         .command_id = "command-2",
         .expected_revision = 8,
-        .kind = TopologyCommandKind::SwapPane,
+        .kind = TopologyCommandKind::MovePane,
         .space_id = "space-1",
         .tab_id = "tab-1",
+        .destination_space_id = "space-2",
+        .destination_tab_id = "tab-2",
         .pane_id = "pane-1",
         .target_pane_id = "pane-2",
         .move_delta = -1,
@@ -790,6 +792,11 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
     TopologyCommandResult command_result{
         .applied = true,
         .created_id = "pane-created",
+        .moved_pane_id = "pane-moved",
+        .source_space_id = "space-1",
+        .source_tab_id = "tab-1",
+        .destination_space_id = "space-2",
+        .destination_tab_id = "tab-2",
         .snapshot = snapshot,
     };
     const auto decoded_result
@@ -802,12 +809,19 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
     auto legacy_result
         = topology_command_result_to_json(command_result);
     legacy_result.erase("created_id");
+    legacy_result.erase("moved_pane_id");
+    legacy_result.erase("source_space_id");
+    legacy_result.erase("source_tab_id");
+    legacy_result.erase("destination_space_id");
+    legacy_result.erase("destination_tab_id");
     const auto decoded_legacy_result
         = topology_command_result_from_json(
             legacy_result, error);
     INFO(error);
     REQUIRE(decoded_legacy_result);
     CHECK(decoded_legacy_result->created_id.empty());
+    CHECK(decoded_legacy_result->moved_pane_id.empty());
+    CHECK(decoded_legacy_result->destination_tab_id.empty());
 
     auto oversized_result
         = topology_command_result_to_json(command_result);

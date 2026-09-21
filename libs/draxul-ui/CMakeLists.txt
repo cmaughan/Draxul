@@ -12,9 +12,11 @@ add_library(draxul-ui
 
 target_include_directories(draxul-ui PUBLIC include)
 # Dependency contract: PUBLIC types + imgui-core + imgui (the API exposes
-# ImGuiKey and ImGui-adjacent state); PRIVATE SDL3 and renderer
-# (IFrameContext submission).
+# ImGuiKey and ImGui-adjacent state); PRIVATE SDL3 and the backend-neutral
+# render-support contract (IFrameContext submission).
 target_link_libraries(draxul-ui
     PUBLIC draxul-types draxul-imgui-core imgui
-    PRIVATE draxul-performance SDL3::SDL3 draxul-renderer
+    PRIVATE draxul-performance SDL3::SDL3 draxul-plugin-render-support
 )
+
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

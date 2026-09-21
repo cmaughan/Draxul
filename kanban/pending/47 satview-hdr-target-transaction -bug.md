@@ -11,11 +11,11 @@
 
 **Fix strategy**
 
-- [ ] Build a temporary complete target set before publication, or clear every partial set on failure.
-- [ ] Make validity checks cover all required frame resources.
+- [x] Build a temporary complete target set before publication, or clear every partial set on failure.
+- [x] Make validity checks cover all required frame resources.
 
 **Acceptance criteria**
 
-- [ ] Failed creation cannot lead to null framebuffer or descriptor use.
-- [ ] A subsequent successful retry recovers cleanly without leaks.
-- [ ] Preserve Metal failure behavior.
+- [x] Failed creation cannot lead to null framebuffer or descriptor use.
+- [x] A subsequent successful retry recovers cleanly without leaks.
+- [x] Preserve Metal failure behavior.

@@ -9,7 +9,7 @@
 
 ## Problem
 
-`UiRequestWorker` (in `draxul-app-support`) provides a background worker thread for "long-running UI operations." Claude's review argues that all real uses (font queries, RPC requests) are sub-millisecond, making the `std::mutex`/`std::condition_variable`/thread lifecycle overhead unjustified. Gemini argues the opposite — that synchronous RPC on the main thread can cause UI stutters. The truth depends on what is actually dispatched through this worker.
+`UiRequestWorker` (in `draxul-runtime-support`) provides a background worker thread for "long-running UI operations." Claude's review argues that all real uses (font queries, RPC requests) are sub-millisecond, making the `std::mutex`/`std::condition_variable`/thread lifecycle overhead unjustified. Gemini argues the opposite — that synchronous RPC on the main thread can cause UI stutters. The truth depends on what is actually dispatched through this worker.
 
 ---
 

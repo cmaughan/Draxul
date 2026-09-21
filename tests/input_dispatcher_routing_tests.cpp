@@ -8,7 +8,10 @@
 #include <draxul/app_config.h>
 #include <draxul/events.h>
 #include <draxul/host.h>
+#include <draxul/log.h>
 #include <draxul/ui_panel.h>
+
+#include <algorithm>
 
 using namespace draxul;
 
@@ -248,6 +251,54 @@ TEST_CASE("input dispatcher: owner can release only the host being destroyed",
     // The selected host is no longer touched when a replacement is bound.
     dispatcher.set_host(&unrelated);
     CHECK(selected.focus_lost_calls == 1);
+}
+
+TEST_CASE("input dispatcher owns an action across reentrant config reload",
+    "[input_dispatcher][lifetime][config]")
+{
+    std::vector<GuiKeybinding> bindings{
+        { "reload_config", 0, kModNone, SDLK_R, kModCtrl | kModAlt },
+    };
+    GuiActionHandler::Deps action_deps;
+    action_deps.on_reload_config = [&] {
+        bindings.clear();
+        bindings.shrink_to_fit();
+        std::vector<std::string> overwrite(64, std::string(128, 'x'));
+        CHECK(overwrite.size() == 64);
+        bindings.push_back(
+            { "copy", 0, kModNone, SDLK_C, kModCtrl | kModShift });
+    };
+    GuiActionHandler handler(std::move(action_deps));
+    UiPanel panel;
+    panel.initialize();
+    tests::FakeWindow window;
+    std::vector<std::string> messages;
+    LogOptions log_options;
+    log_options.min_level = LogLevel::Trace;
+    log_options.enable_stderr = false;
+    configure_logging(log_options);
+    set_log_sink([&](const LogRecord& record) {
+        messages.push_back(record.message);
+    });
+
+    InputDispatcher::Deps deps;
+    deps.keybindings = &bindings;
+    deps.gui_action_handler = &handler;
+    deps.ui_panel = &panel;
+    InputDispatcher dispatcher(std::move(deps));
+    dispatcher.connect(window);
+    REQUIRE(window.on_key);
+    window.on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
+    clear_log_sink();
+
+    const auto replacement = dispatcher.gui_action_for_key_event(
+        KeyEvent{ 0, SDLK_C, kModCtrl | kModShift, true });
+    REQUIRE(replacement);
+    CHECK(*replacement == "copy");
+    CHECK(std::ranges::any_of(messages, [](const std::string& message) {
+        return message.find("gui action=reload_config")
+            != std::string::npos;
+    }));
 }
 
 // ---------------------------------------------------------------------------

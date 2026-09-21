@@ -11,10 +11,10 @@
 
 **Fix strategy**
 
-- [ ] Validate the version’s type and range before conversion.
-- [ ] Contain frame-processing exceptions and return a structured failure.
+- [x] Validate the version’s type and range before conversion.
+- [x] Contain frame-processing exceptions and return a structured failure.
 
 **Acceptance criteria**
 
-- [ ] String, null, container, and oversized versions fail without disconnecting healthy clients or terminating the process.
-- [ ] Valid protocol versions continue working.
+- [x] String, null, container, and oversized versions fail without disconnecting healthy clients or terminating the process.
+- [x] Valid protocol versions continue working.

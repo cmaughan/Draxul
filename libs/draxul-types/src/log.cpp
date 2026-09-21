@@ -317,24 +317,25 @@ void log_message(LogLevel level, LogCategory category, std::string_view message)
 {
     PERF_MEASURE();
     auto& logger_state = state();
-    std::scoped_lock lock(logger_state.mutex);
-    if ((int)level > (int)logger_state.min_level || !category_enabled(logger_state, category))
-    {
-        return;
-    }
-
+    LogSink sink;
     LogRecord record = { level, category, std::string(message) };
-    if (logger_state.enable_stderr)
     {
-        write_line(stderr, level, category, record.message);
+        std::scoped_lock lock(logger_state.mutex);
+        if ((int)level > (int)logger_state.min_level
+            || !category_enabled(logger_state, category))
+        {
+            return;
+        }
+
+        if (logger_state.enable_stderr)
+            write_line(stderr, level, category, record.message);
+        if (logger_state.file)
+            write_line(logger_state.file, level, category, record.message);
+        sink = logger_state.sink;
     }
-    if (logger_state.file)
+    if (sink)
     {
-        write_line(logger_state.file, level, category, record.message);
-    }
-    if (logger_state.sink)
-    {
-        logger_state.sink(record);
+        sink(record);
     }
 }
 

@@ -49,14 +49,20 @@ public:
         bool expected = false;
         if (!running_.compare_exchange_strong(expected, true))
             return false;
-        stopping_ = false;
+        {
+            std::lock_guard guard(mutex_);
+            stopping_ = false;
+        }
         worker_ = std::jthread([this] { worker_main(); });
         return true;
     }
 
     void stop()
     {
-        stopping_ = true;
+        {
+            std::lock_guard guard(mutex_);
+            stopping_ = true;
+        }
         wake_.notify_all();
         if (worker_.joinable())
             worker_.join();
@@ -288,7 +294,10 @@ public:
 
     void enable_legacy_polling()
     {
-        externally_fed_ = false;
+        {
+            std::lock_guard guard(mutex_);
+            externally_fed_ = false;
+        }
         wake_.notify_one();
     }
 
