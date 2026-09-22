@@ -1,4 +1,4 @@
-# Layout presets and named templates
+# Built-in layout presets and named-template UX
 
 **Type:** feature
 **Priority:** 55
@@ -6,27 +6,62 @@
 
 ## User need
 
-Create balanced rows, columns, grids, and main-plus-stack layouts quickly, then save a useful topology as a named reusable template.
+Create balanced rows, columns, grids, and main-plus-stack layouts quickly,
+then save or export a useful current topology as a named reusable template
+through the GUI.
+
+## Delivered boundary
+
+Commit `cc66d5d` delivered declarative layout JSON validation and atomic apply:
+files can describe Spaces, tabs, panes, aliases, split directions, and ratios;
+validation is non-mutating; apply allocates the complete Space transactionally
+and rolls back failed allocation. This card reuses that format and operation.
+It does not add a second layout parser, validator, apply transaction, or
+rollback mechanism.
 
 ## Implementation plan
 
-- [ ] Define a versioned `LayoutTemplate` using the session split-tree/host launch descriptor types, with no live process state.
-- [ ] Add pure builders for balanced rows, columns, grids, and main-plus-stack that respect minimum pane dimensions and deterministic leaf order.
-- [ ] Add `TabController::apply_layout_template()` as a transaction with preview/confirmation when existing panes would be closed or relaunched.
-- [ ] Support two scopes: rearrange existing panes into a preset without restart, and instantiate a saved template with new hosts.
-- [ ] Persist named templates in the config directory through atomic storage; validate provider availability and paths before mutation.
-- [ ] Add palette commands for applying presets, saving the current tab, renaming/deleting templates, and creating a tab from a template.
-- [ ] Version and migrate descriptors conservatively; unknown future fields should survive round trips where practical.
+- [ ] Add pure builders for balanced rows, columns, grids, and
+      main-plus-stack layouts that respect minimum pane dimensions and produce
+      deterministic pane order and ratios.
+- [ ] Add a UI transaction for rearranging the current tab's existing panes
+      into a built-in preset without restarting their hosts.
+- [ ] Add export of the current tab or selected Space to the delivered
+      declarative layout JSON format, excluding live process and device state.
+- [ ] Persist named templates in the config directory with atomic file
+      replacement and a small index containing display name and source path.
+- [ ] Validate exported and stored templates through the delivered layout
+      validator before publishing them.
+- [ ] Add palette/GUI flows for previewing and applying a built-in preset,
+      saving/exporting the current layout, creating from a named template, and
+      renaming or deleting templates.
+- [ ] Show provider/path validation failures before mutation and use the
+      delivered atomic apply path when a template instantiates new hosts.
+- [ ] Preserve unknown future declarative-layout fields when renaming or
+      reindexing a stored template where practical.
 
 ## Tests and acceptance
 
-- [ ] Property-test leaf count, unique IDs, ratios, minimum sizes, and deterministic topology over varying pane counts/dimensions.
-- [ ] Round-trip named templates with mixed hosts and Unicode names.
-- [ ] Inject unavailable provider, invalid source, storage failure, and partial host initialization; source tab remains intact.
-- [ ] Existing panes retain identity in rearrange mode; instantiate mode creates distinct hosts.
+- [ ] Property-test leaf count, unique IDs, ratios, minimum sizes, and
+      deterministic topology for every built-in preset over varied pane counts
+      and dimensions.
+- [ ] Rearranging existing panes preserves pane IDs, host/runtime identity,
+      focus, and session round-trip state.
+- [ ] Export the current layout, validate it with the existing validator,
+      apply it through the existing declarative API, and verify an equivalent
+      topology with distinct new host identities.
+- [ ] Round-trip named templates containing mixed hosts and Unicode names;
+      cover rename, delete, missing provider/path, corrupt index, and atomic
+      storage failure.
+- [ ] Palette and GUI cancellation leave the current topology and template
+      store unchanged.
 
 ## Dependencies and parallelism
 
-Depends on the `TabController` refactor (`ice-box/22 app-tab-session-controllers -refactor.md`) and its host/session-state prerequisites — all currently deferred to the ice box, so this card is blocked until they are scheduled. Share descriptor/storage types with duplicate tab (51). Preset math can be developed independently after the controller transaction contract is fixed.
+The declarative layout format, validation/apply transaction, `TabController`,
+and session descriptor boundaries are available. Share export and named-store
+helpers with duplicate tab (51) rather than introducing another serialized
+layout type. Preset math can be developed independently once the rearrange
+transaction contract is fixed.
 
 <model>GPT-5 Codex</model>

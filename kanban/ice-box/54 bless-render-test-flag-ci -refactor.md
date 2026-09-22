@@ -1,25 +1,61 @@
-# 54 Bless Render Test Flag — CI Only
+# 54 Keep render-test commands out of production packages
 
-## Why This Exists
+**Type:** refactor
+**Priority:** 54
+**Raised by:** Claude
 
-The `--bless-render-test` CLI flag permanently overwrites reference BMP images. It is currently exposed in the user-facing production binary. An end-user who discovers this flag could accidentally destroy the CI reference images. It should be a CI/developer-only capability.
+## Remaining problem
 
-Identified by: **Claude** (worst features #1).
+The render-test command line is already compiled as one unit behind
+`DRAXUL_ENABLE_RENDER_TESTS`; a second bless-only compile definition would
+duplicate that policy. The CMake option defaults to `OFF`, and it guards the
+parsed fields, argument branches, render-scenario loading, capture, comparison,
+export, and blessing paths.
 
-## Goal
+The unresolved boundary is the distribution build. Every checked-in developer
+preset, including `release`, `win-ninja-release`, and `mac-release`, explicitly
+sets `DRAXUL_ENABLE_RENDER_TESTS=ON`. `do.py deploy` builds through that Release
+preset and may reuse its cache before staging the same executable. Consequently
+the deploy package currently includes `--render-test`,
+`--export-render-test`, `--show-render-test-window`, and
+`--bless-render-test`.
 
-Move `--bless-render-test` behind a compile-time feature flag (`DRAXUL_ENABLE_BLESS`) that is only enabled in CI / developer builds. In production release builds, the flag should be silently ignored or produce an error message.
+## Implementation plan
 
-## Implementation Plan
+- [ ] Define a dedicated production-package configure policy with
+      `DRAXUL_ENABLE_RENDER_TESTS=OFF` on both Windows and macOS. Keep the
+      existing development/CI presets enabled so compare and bless workflows
+      continue to work.
+- [ ] Make `do.py deploy` use that policy in an isolated or freshly verified
+      cache. It must never reuse a Release cache configured with render tests
+      enabled.
+- [ ] Add a packaging regression test that inspects the deploy configuration
+      and runs the staged executable's argument parser, proving all four
+      render-test-only options are rejected as unknown in the production
+      package, including `--bless-render-test`.
+- [ ] Document that deterministic render compare/bless commands are available
+      in developer/CI builds and omitted from production packages.
+- [ ] Validate the package-policy tests on Windows and macOS and run the normal
+      deploy smoke for each platform.
 
-- [ ] Read `app/main.cpp` for `--bless-render-test` argument parsing.
-- [ ] Add a CMake option `DRAXUL_ENABLE_RENDER_BLESS` (default OFF for production, ON for CI).
-- [ ] Wrap the `--bless-render-test` branch in `#ifdef DRAXUL_ENABLE_RENDER_BLESS`.
-- [ ] Wire developer/CI configuration through root `CMakePresets.json` or the owning wrapper.
-- [ ] In release presets, ensure it is OFF.
-- [ ] Update `CLAUDE.md` to note the flag is compile-time gated.
-- [ ] Run focused CLI/render tests and same-cache smoke; formatting remains hook-owned.
+## Acceptance criteria
 
-## Sub-Agent Split
+- [ ] Development and CI builds retain the current render compare, export,
+      visible-window, and bless workflows under `DRAXUL_ENABLE_RENDER_TESTS`.
+- [ ] `do.py deploy` cannot stage an executable built with
+      `DRAXUL_ENABLE_RENDER_TESTS=ON`.
+- [ ] A packaged executable rejects `--bless-render-test` and the other
+      render-test-only options without modifying reference images.
+- [ ] No separate `DRAXUL_ENABLE_RENDER_BLESS` option or nested compile-time
+      branch is introduced.
 
-Single agent. Small change to `main.cpp` and CMake.
+## Static evidence
+
+- Root `CMakeLists.txt` declares `DRAXUL_ENABLE_RENDER_TESTS` with default
+  `OFF` and exports the definition to the application only when enabled.
+- `app/cli_args.h`, `app/cli_args.cpp`, and `app/main.cpp` already guard the
+  complete render-test CLI and execution path with that definition.
+- `CMakePresets.json` explicitly enables the option in all normal Release
+  presets, while `do.py::cmd_deploy` calls the shared Release
+  configure/build path and stages its resulting binary. That is the only policy
+  gap retained by this card.

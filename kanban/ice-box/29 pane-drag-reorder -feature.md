@@ -1,4 +1,4 @@
-# 29 pane-drag-reorder -feature
+# 29 Drag panes to reorder the authoritative topology
 
 **Priority:** LOW
 **Type:** Feature
@@ -7,42 +7,88 @@
 
 ---
 
-## Summary
+## User need
 
-`SplitTree` supports adjusting pane ratios by dragging dividers, but does not support reordering panes spatially. In a complex split layout, being unable to swap two panes means the user must close and re-open panes in the desired order. This is the most common layout ergonomics complaint in split-pane terminal apps.
+Let a user drag a pane by its title/header and choose another pane as the
+reorder target. The existing authoritative topology service must perform the
+actual swap or move so attached clients converge and checkpoint publication
+uses the normal mutation path.
 
 ---
 
-## Implementation Plan
+## Delivered foundation
 
-- [ ] Read `app/split_tree.cpp` and `app/split_tree.h` in full.
-- [ ] Read `app/app.cpp` or wherever divider hit-detection and drag handling is implemented (search for `divider`/`drag`).
-- [ ] Design the reorder operation:
-  - A pane drag starts when the user clicks and drags a pane's **title bar or header** (not the divider — divider drag already adjusts ratios).
-  - As the drag crosses the midpoint of an adjacent pane, the two panes swap positions in the `SplitTree`.
-  - On mouse release, the swap is committed.
-- [ ] Implement `SplitTree::swap_panes(PaneId a, PaneId b)` that swaps two leaf nodes in the tree while preserving their ratios.
-- [ ] Implement the drag-start / drag-over / drag-commit input handling.
-- [ ] Add a visual indicator during drag (highlight the target pane's border).
-- [ ] Add tests for `SplitTree::swap_panes`:
-  - Swap two siblings → verify their positions are exchanged.
-  - Swap with self → no-op.
-  - Swap panes in different subtrees → verify tree is consistent.
-- [ ] Run `cmake --build build --target draxul draxul-tests && py do.py smoke`.
-- [ ] Run focused split/Chrome tests, relevant render coverage, and same-cache smoke.
+- [x] `TopologyCommandKind::SwapPane` is implemented by the protocol and server,
+      and `TopologyMutationRoute` resolves stable pane IDs before dispatch.
+- [x] The configured `swap_pane` action already sends an authoritative
+      `SwapPane` mutation and reports rejection through the normal toast path.
+- [x] `MovePane` supports placement relative to a target pane. Same-tab moves
+      are available now; the broader live server-pane route is implemented in
+      `kanban/pending/33 cross-tab-server-pane-movement -feature.md`.
+- [x] Divider dragging remains a separate input state and already owns split
+      ratio changes.
+
+## Remaining UI work
+
+- [ ] Add a pane-title/header hit target and begin a pane drag only after a
+      small pointer-motion threshold. Do not start from a divider or terminal
+      content selection.
+- [ ] Keep source and hovered target as stable pane IDs. Resolve current routes
+      at commit time rather than retaining a mutable `SplitTree` leaf pointer.
+- [ ] Highlight the current valid target and, when directional placement is
+      offered, the selected target edge. A rejected target must look distinct
+      and explain the reason without mutating topology.
+- [ ] On release over a pane center, dispatch the existing authoritative
+      `SwapPane`. If the UI exposes edge insertion or a tab/Space destination,
+      dispatch the existing authoritative `MovePane` with target, direction,
+      and ratio instead of editing a local tree.
+- [ ] Cancel cleanly on Escape, pointer-capture loss, window deactivation,
+      source/target disappearance, or release outside a valid target. Clear the
+      highlight and perform no topology mutation.
+- [ ] While dragging, treat topology snapshots as authoritative. If another
+      client changes the revision, either refresh the target mapping or let the
+      mutation reject and reconverge; never apply a client-only reorder.
+- [ ] Request one relayout/frame after an accepted result and restore focus to
+      the moved pane when it remains visible in the active tab.
+
+## Tests
+
+- [ ] Input-state tests cover motion threshold, title/header-only start,
+      divider/selection exclusion, target changes, self-target, and every
+      cancellation path.
+- [ ] A mutation-route spy proves a center drop emits exactly one `SwapPane`
+      with stable source/target IDs and an edge drop emits exactly one
+      `MovePane` with the selected placement. Previewing and cancellation emit
+      no command.
+- [ ] Cover an authoritative rejection or revision race: the local UI clears
+      drag state, displays the failure, and preserves the published topology.
+- [ ] Cover sibling and different-subtree swaps, preserved split ratios, focus,
+      checkpoint publication, and convergence through the existing server
+      topology path.
+- [ ] Run focused input/chrome/topology tests, the scope-appropriate aggregate,
+      relevant render coverage, and same-cache smoke on macOS and Windows.
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] Two panes can be swapped by dragging one onto the other.
-- [ ] Split ratios are preserved after the swap.
-- [ ] `SplitTree::swap_panes` unit tests pass.
+- [ ] Two panes can be swapped by dragging one title/header onto another.
+- [ ] Drag preview and every cancellation path leave authoritative topology
+      unchanged.
+- [ ] An accepted drop reaches the existing `SwapPane`/`MovePane` service; no
+      direct local `SplitTree` mutation or duplicate swap implementation exists.
+- [ ] Ratios, focus, server checkpoint state, and all attached clients converge
+      after the mutation.
 
 ---
 
 ## Interdependencies
 
-- `08 splittree-min-pane-size -test` — write that test first to validate the ratio logic this feature depends on.
+- Complete the remaining multi-UI and cross-platform gates on
+  `kanban/pending/33 cross-tab-server-pane-movement -feature.md` before exposing
+  a cross-tab/Space drag destination.
+- `50 pane-tab-move -feature.md` owns client-local host transfer across tabs.
+  This card must honor that ownership boundary instead of promising a server
+  move for unsupported client-local panes.
 
 *Work item generated by claude-sonnet-4-6*
