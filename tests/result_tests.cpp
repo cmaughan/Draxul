@@ -5,7 +5,7 @@
 
 #include <catch2/catch_all.hpp>
 
-#include <draxul/nvim_rpc.h>
+#include <draxul/nvim_transport.h>
 #include <draxul/result.h>
 
 #include "support/scoped_env_var.h"

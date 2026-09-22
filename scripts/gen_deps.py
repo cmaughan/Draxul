@@ -193,7 +193,7 @@ def prune_deps_of(dot_text: str, prune_patterns: list[str]) -> str:
 # First match wins.
 NODE_COLORS: list[tuple[str, str, str]] = [
     (r"^draxul$",                      "#2d6a9f", "white"),   # app executable — deep blue
-    (r"^draxul-nvim$",                 "#5b8dd9", "white"),   # integration layer — mid blue
+    (r"^draxul-nvim-(protocol|transport)$", "#5b8dd9", "white"),  # integration — mid blue
     (r"^draxul-(window|renderer)$",    "#7ec8a4", "black"),   # platform/GPU layer — green
     (r"^draxul-(font|grid)$",          "#f0a868", "black"),   # domain layer — orange
     (r"^draxul-types$",                "#c9a8e0", "black"),   # shared types — purple

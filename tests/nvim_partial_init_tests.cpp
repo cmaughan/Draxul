@@ -13,7 +13,7 @@
 
 #include <catch2/catch_all.hpp>
 #include <chrono>
-#include <draxul/nvim_rpc.h>
+#include <draxul/nvim_transport.h>
 #include <draxul/ui_request_worker.h>
 #include <thread>
 

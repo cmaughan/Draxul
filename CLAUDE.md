@@ -206,9 +206,9 @@ All grid and GPU state is only touched by the main thread.
 - `draxul-nvim-protocol` owns transport-neutral `MpackValue`, `IRpcChannel`,
   MPack codec, redraw parsing, and input encoding; `draxul-nvim-transport` owns
   `NvimProcess`, OS pipes, `NvimRpc`, the reader thread, queues, and requests.
-- Include `nvim_protocol.h`, `nvim_ui.h`, or `nvim_transport.h` directly in new
-  code. `nvim.h`, `nvim_rpc.h`, and `draxul-nvim` are migration compatibility
-  surfaces. Keep concrete Nvim dependencies private to `draxul-nvim-host`.
+- Include `nvim_protocol.h`, `nvim_ui.h`, or `nvim_transport.h` directly according
+  to the behavior used. Keep concrete Nvim dependencies private to
+  `draxul-nvim-host`.
 - MPack library with `MPACK_EXTENSIONS=1` (required for neovim's ext types: Buffer/Window/Tabpage)
 - Handles `grid_line` run-length encoding, double-width chars, multi-byte UTF-8
 - Only renders on `flush` events

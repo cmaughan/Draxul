@@ -1760,6 +1760,98 @@ nlohmann::json run_stream_load_scenario(
 
 } // namespace
 
+#ifndef _WIN32
+TEST_CASE("Unix Session stream shutdown cancels active I/O within a bounded deadline",
+    "[session-stream][control][shutdown]")
+{
+    TempDir temp("draxul-session-stream-bounded-stop");
+    SessionStreamService stream_service({
+        .runtime_directory = temp.path,
+        .server_epoch = "stream-epoch",
+        .heartbeat_interval = std::chrono::seconds(10),
+    });
+    std::string error;
+    REQUIRE(stream_service.start(error));
+
+    const SessionStreamOpenRequest request{
+        .server_epoch = "stream-epoch",
+        .session_id = "default",
+        .poll = {
+            .request_serial = 1,
+            .server_epoch = "stream-epoch",
+        },
+    };
+    const ControlMethodResult opened = stream_service.open(
+        session_stream_open_request_to_json(request), "bounded-stop-client");
+    REQUIRE(opened.ok);
+    auto response = session_stream_open_response_from_json(opened.value, error);
+    INFO(error);
+    REQUIRE(response);
+
+    AsyncFrameStreamError transport_error;
+    auto client = AsyncFrameStreamClient::connect(
+        response->endpoint, std::chrono::seconds(2), transport_error);
+    INFO(transport_error.code << ": " << transport_error.message);
+    REQUIRE(client);
+    const SessionStreamClientFrame connect{
+        .kind = SessionStreamClientFrameKind::Connect,
+        .connect = SessionStreamConnectRequest{
+            .server_epoch = response->server_epoch,
+            .ticket = response->ticket,
+        },
+    };
+    REQUIRE(client->write_frame(
+        session_stream_client_frame_to_json(connect).dump(), {},
+        transport_error));
+
+    const SessionStreamService::Poll idle_poll
+        = [](std::string_view, std::string_view,
+              const SessionPollRequest& poll, size_t) {
+              return SessionPollBuildResult{
+                  .response = SessionPollResponse{
+                      .request_serial = poll.request_serial,
+                      .server_epoch = poll.server_epoch,
+                  },
+              };
+          };
+    const auto attach_deadline
+        = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (stream_service.connection_count() == 0
+        && std::chrono::steady_clock::now() < attach_deadline)
+    {
+        stream_service.pump(idle_poll);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE(stream_service.connection_count() == 1);
+
+    auto blocked_reader = std::async(std::launch::async, [&] {
+        std::string bytes;
+        AsyncFrameStreamError read_error;
+        const bool read = client->read_frame(bytes, {}, read_error);
+        return std::pair(read, std::move(read_error));
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+    const auto stop_started_at = std::chrono::steady_clock::now();
+    auto stopped = std::async(std::launch::async, [&] {
+        stream_service.stop();
+    });
+    REQUIRE(stopped.wait_for(std::chrono::seconds(1))
+        == std::future_status::ready);
+    stopped.get();
+    CHECK(std::chrono::steady_clock::now() - stop_started_at
+        < std::chrono::seconds(1));
+
+    REQUIRE(blocked_reader.wait_for(std::chrono::seconds(1))
+        == std::future_status::ready);
+    const auto [read, read_error] = blocked_reader.get();
+    CHECK_FALSE(read);
+    CHECK((read_error.code == "closed"
+        || read_error.code == "cancelled"));
+    client->close();
+}
+#endif
+
 TEST_CASE("Session event stream multiplexes terminals topology and agents without polling",
     "[session-stream][control][remote-terminal]")
 {

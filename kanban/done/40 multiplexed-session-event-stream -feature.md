@@ -266,8 +266,23 @@ remains pending asynchronous CI.
 - [x] Suspend/resume hidden panes and prove presentation stops while runtimes continue
       headlessly, then resumes through one current snapshot.
 - [x] Exercise new-UI/old-server and old-UI/new-server compatibility.
-- [ ] Validate Unix-domain sockets on macOS and named pipes on Windows, including
-      cancellation, bounded shutdown, and simultaneous CLI traffic.
+- [x] Validate Unix-domain sockets on macOS, including cancellation, bounded
+      shutdown, and simultaneous CLI traffic.
+- [x] Validate named pipes on Windows, including cancellation, bounded shutdown,
+      and simultaneous CLI traffic. The Windows closure checkpoint below records
+      the complete nine-job aggregate, Debug and Release smoke, persistent-stream
+      load fixture, stalled-reader isolation, and interactive command latency.
+
+The macOS closure run on 2026-09-22 built `draxul-test-core` and passed the
+focused `[session-stream][control]~[.session-stream-load]` selection (4 cases,
+135 assertions). Existing coverage closes a blocked frame read within one
+second and serves a bounded-latency short-control `server.status` request while
+the Session stream remains active. A new Unix integration test authenticates an
+active stream, blocks client and service I/O, and proves
+`SessionStreamService::stop()` cancels the acceptor, reader, and writer within a
+one-second deadline.
+The final normal Debug validation passed all 45 unit CTest entries, startup
+smoke, and all five default Metal render comparisons.
 
 ## Acceptance criteria
 
@@ -304,6 +319,5 @@ unoptimized.
 Coordinator acceptance now also replaces the live control endpoint, observes an
 old-epoch `session.poll` rejection, obtains the successor epoch and connection token
 through `server.hello`, proves all terminal/topology/agent cursors reset, accepts the
-authoritative successor snapshots, and never starts legacy per-pane workers. The only
-remaining tracker gate is the macOS side of the cross-platform transport validation;
-it is checked asynchronously after this local slice is pushed.
+authoritative successor snapshots, and never starts legacy per-pane workers. The
+macOS closure above completes the cross-platform transport validation.

@@ -5,7 +5,7 @@
 #include <atomic>
 #include <catch2/catch_all.hpp>
 #include <chrono>
-#include <draxul/nvim.h>
+#include <draxul/nvim_transport.h>
 #include <future>
 #include <latch>
 #include <string>

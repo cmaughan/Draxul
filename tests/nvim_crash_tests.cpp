@@ -4,7 +4,7 @@
 #include <catch2/catch_all.hpp>
 #include <chrono>
 #include <draxul/log.h>
-#include <draxul/nvim_rpc.h>
+#include <draxul/nvim_transport.h>
 #include <string>
 #include <thread>
 

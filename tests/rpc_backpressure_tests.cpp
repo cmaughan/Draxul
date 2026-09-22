@@ -2,7 +2,7 @@
 #include "support/scoped_env_var.h"
 
 #include <draxul/log.h>
-#include <draxul/nvim_rpc.h>
+#include <draxul/nvim_transport.h>
 
 #include <atomic>
 #include <catch2/catch_all.hpp>

@@ -1,9 +1,9 @@
 #include "support/test_support.h"
 
-#include <catch2/catch_test_macros.hpp>
 #include <catch2/benchmark/catch_benchmark.hpp>
+#include <catch2/catch_test_macros.hpp>
 
-#include <draxul/nvim.h>
+#include <draxul/nvim_transport.h>
 #include <draxul/unicode.h>
 
 #include <string>

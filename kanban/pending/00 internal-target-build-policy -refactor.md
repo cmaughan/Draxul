@@ -43,11 +43,17 @@ MSVC `/FS` with one target-local helper plus a configure-time completeness audit
 - [ ] Windows/MSVC: build compiled targets in parallel and verify `/FS` is applied.
 - [ ] Windows: verify supported sanitizer configuration still configures and links.
 - [x] macOS ASan gate retired by project decision; no ASan run is required for this card.
-- [ ] macOS: configure/build the remaining `mac-tsan` and coverage presets.
-- [ ] Verify both Metal and Vulkan OBJECT targets are considered without applying link
-  options to OBJECT libraries.
-- [ ] Configure with each mounted product disabled or absent and prove external product
-      targets are not accidentally treated as core internals.
+- [x] macOS: configure/build the policy-sensitive `draxul-renderer-core`,
+      `draxul-renderer-metal`, and `draxul-test-nanovg-paint` targets under both
+      the `mac-tsan` and `mac-coverage` presets.
+- [ ] macOS: build and run the full `draxul-tests` suite under the `mac-tsan` and
+      `mac-coverage` presets.
+- [x] Verify both Metal and Vulkan OBJECT declarations are covered by the shared
+      directory policy and receive compile-only policy; exercise Metal on macOS,
+      with Vulkan execution covered by the Windows gates above.
+- [x] Configure once with all products disabled and once with enabled products absent;
+      prove the optional core graph still audits cleanly and mounted product source
+      roots remain under product-owned policy rather than the core audit.
 
 ## Agent documentation and tooling
 
@@ -69,3 +75,24 @@ MSVC `/FS` with one target-local helper plus a configure-time completeness audit
 No prerequisites. One build-system agent owns the helper, root cleanup, and audit.
 Module adoption may be delegated only after the helper contract is frozen. Blocks
 all other pending refactor cards that add or move targets.
+
+## 2026-09-22 validation
+
+- `mac-tsan` configured successfully and built `draxul-renderer-core`,
+  `draxul-renderer-metal`, and `draxul-test-nanovg-paint`. The generated rules
+  give both OBJECT targets `-fsanitize=thread -fno-omit-frame-pointer` compile
+  flags and no link step; the executable owns the `-fsanitize=thread` link flag.
+- `mac-coverage` configured successfully and built the same three targets. The
+  OBJECT targets receive `-fprofile-instr-generate -fcoverage-mapping` only at
+  compile time and have no `link.txt`; the executable owns the coverage link flag.
+- The first TSan configure exposed a product-policy bug in PCBView: its local
+  sanitizer/coverage loop attempted PRIVATE options on the INTERFACE canvas
+  target. `plugins/pcbview/CMakeLists.txt` now skips `INTERFACE_LIBRARY` targets,
+  after which both focused policy configurations completed. The restored normal
+  Debug validation passed all 45 unit CTest entries, startup smoke, and all five
+  default Metal render comparisons.
+- A Debug configure with all five products disabled completed the core audit. A
+  second configure with all five products enabled but pointed at an absent root
+  reported each as enabled but not mounted and also completed the core audit.
+- The shared cache was restored to the normal Debug configuration with all five
+  real product roots enabled and TSan/coverage disabled.

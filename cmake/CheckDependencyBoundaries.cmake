@@ -121,12 +121,12 @@ function(draxul_check_dependency_boundaries)
     draxul_check_direct_link(draxul-nvim-host draxul-nvim-transport)
     draxul_check_direct_link(draxul-plugin-host draxul-plugin)
     draxul_reject_direct_links(draxul-host-api
-        draxul-client draxul-grid draxul-nvim draxul-renderer
+        draxul-client draxul-grid draxul-renderer
         draxul-runtime-support draxul-terminal-core draxul-window)
     draxul_reject_direct_links(draxul-grid-host
-        draxul-client draxul-nvim draxul-terminal-core draxul-terminal-process)
+        draxul-client draxul-terminal-core draxul-terminal-process)
     draxul_reject_direct_links(draxul-terminal-host
-        draxul-nvim draxul-nvim-protocol draxul-nvim-transport
+        draxul-nvim-protocol draxul-nvim-transport
         draxul-terminal-process)
     draxul_reject_direct_links(draxul-nvim-protocol
         draxul-host draxul-nvim-transport draxul-renderer
@@ -157,13 +157,13 @@ function(draxul_check_dependency_boundaries)
         SDL3::SDL3)
     draxul_reject_direct_links(draxul-protocol
         draxul-window draxul-renderer draxul-runtime-support draxul-host
-        draxul-nvim draxul-gui draxul-ui SDL3::SDL3)
+        draxul-gui draxul-ui SDL3::SDL3)
     draxul_reject_direct_links(draxul-client
         draxul-window draxul-renderer draxul-runtime-support draxul-host
-        draxul-nvim draxul-gui draxul-ui SDL3::SDL3)
+        draxul-gui draxul-ui SDL3::SDL3)
     draxul_reject_direct_links(draxul-server
         draxul-window draxul-renderer draxul-runtime-support draxul-host
-        draxul-nvim draxul-gui draxul-ui SDL3::SDL3)
+        draxul-gui draxul-ui SDL3::SDL3)
 
     foreach(_headless_target
         draxul-session-model draxul-protocol draxul-client draxul-server)
@@ -229,7 +229,6 @@ function(draxul_check_core_product_isolation)
         draxul-font
         draxul-grid
         draxul-terminal-core
-        draxul-nvim
         draxul-config
         draxul-agent
         draxul-session-model

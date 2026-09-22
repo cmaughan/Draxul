@@ -2,11 +2,11 @@
 #include "support/temp_dir.h"
 #include "support/test_support.h"
 
-#include <catch2/catch_all.hpp>
 #include <atomic>
+#include <catch2/catch_all.hpp>
 #include <chrono>
 #include <draxul/log.h>
-#include <draxul/nvim.h>
+#include <draxul/nvim_transport.h>
 #include <filesystem>
 #include <fstream>
 #include <string>

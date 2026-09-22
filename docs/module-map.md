@@ -292,11 +292,10 @@ parsing, and keyboard/mouse/text input encoding. It has no child process or
 reader-thread implementation. `draxul-nvim-transport` owns `NvimProcess`, pipe
 I/O, `NvimRpc`, the reader thread, notification queuing, and request tracking.
 
-`draxul-nvim` and `<draxul/nvim_rpc.h>` remain compatibility aggregates during
-consumer migration. New code should include `<draxul/nvim_protocol.h>`,
-`<draxul/nvim_ui.h>`, or `<draxul/nvim_transport.h>` according to the behavior it
-uses. MPack, SDL, and performance instrumentation are implementation-only
-dependencies of the owning leaves.
+Consumers include `<draxul/nvim_protocol.h>`, `<draxul/nvim_ui.h>`, or
+`<draxul/nvim_transport.h>` according to the behavior they use. MPack, SDL, and
+performance instrumentation are implementation-only dependencies of the owning
+leaves.
 
 Owns:
 - protocol: values, codec, UI event parsing, and input encoding

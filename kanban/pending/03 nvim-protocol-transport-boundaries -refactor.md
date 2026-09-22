@@ -25,10 +25,10 @@ RPC and child-process transport while retaining compatibility during migration.
 - [x] Add `draxul-nvim-protocol` for values, channel contract, codec, UI decoder, and input encoder.
 - [x] Make MPack, SDL, and performance PRIVATE to protocol implementation as applicable.
 - [x] Add `draxul-nvim-transport` for `NvimProcess`, `NvimRpc`, reader thread, and request tracking.
-- [x] Keep `draxul-nvim` as a compatibility aggregate/forwarding include surface.
+- [x] Keep `draxul-nvim` as a compatibility aggregate/forwarding include surface during migration.
 - [x] Migrate fake channels and `UiRequestWorker` to protocol-only linkage.
 - [x] Migrate RPC fake and `NvimHost` to transport plus protocol.
-- [ ] Remove compatibility only after direct consumers and include paths are settled.
+- [x] Remove compatibility after migrating the remaining test consumers to the narrow transport header.
 
 ## Unit tests
 
@@ -68,8 +68,17 @@ RPC and child-process transport while retaining compatibility during migration.
   existing repo-built Draxul server that held the process singleton; the
   same-cache Metal smoke passed.
 - Windows process/pipe validation and the cross-platform MPack accumulation
-  check remain open. Compatibility forwarding remains intentionally available
-  while direct consumers finish migrating.
+  check remain open.
+- 2026-09-22 source audit: the remaining eight test consumers now include
+  `<draxul/nvim_transport.h>` directly; the unused `draxul-nvim` INTERFACE target
+  and `<draxul/nvim.h>` / `<draxul/nvim_rpc.h>` forwarding headers were removed.
+  A Debug configure and app build passed, followed by focused protocol, transport,
+  RPC-fake, test, and public-header isolation target builds. The four focused CTest
+  shards passed in 3.52 seconds. `scripts/gen_deps.py` regenerated the canonical
+  DOT/SVG dependency graph; it contains the protocol and transport leaves and no
+  exact `draxul-nvim` aggregate node.
+- The final normal Debug validation passed all 45 unit CTest entries, startup
+  smoke, and all five default Metal render comparisons.
 
 ## Dependencies and ownership
 

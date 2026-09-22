@@ -12,145 +12,579 @@ node [
     "node3" [ label = "SDL_uclibc", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
     "node2" -> "node3"  // SDL3-static -> SDL_uclibc
     "node4" [ label = "SDL3_test\n(SDL3::SDL3_test)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node5" [ label = "draxul", shape = egg, fillcolor="#2d6a9f", fontcolor="white" ];
-    "node6" [ label = "draxul-app", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node7" [ label = "draxul-config", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node7" -> "node2" [ style = dotted ] // draxul-config -> SDL3-static
-    "node8" [ label = "draxul-types", shape = octagon, fillcolor="#c9a8e0", fontcolor="black" ];
-    "node9" [ label = "glm\n(glm::glm)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node8" -> "node9"  // draxul-types -> glm
-    "node7" -> "node8"  // draxul-config -> draxul-types
-    "node6" -> "node7"  // draxul-app -> draxul-config
-    "node10" [ label = "draxul-font", shape = octagon, fillcolor="#f0a868", fontcolor="black" ];
-    "node10" -> "node8"  // draxul-font -> draxul-types
-    "node11" [ label = "freetype", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node10" -> "node11"  // draxul-font -> freetype
-    "node12" [ label = "harfbuzz", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node12" -> "node11"  // harfbuzz -> freetype
-    "node10" -> "node12"  // draxul-font -> harfbuzz
-    "node6" -> "node10"  // draxul-app -> draxul-font
-    "node13" [ label = "draxul-grid", shape = octagon, fillcolor="#f0a868", fontcolor="black" ];
-    "node13" -> "node8"  // draxul-grid -> draxul-types
-    "node6" -> "node13"  // draxul-app -> draxul-grid
-    "node14" [ label = "draxul-gui", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node14" -> "node10"  // draxul-gui -> draxul-font
-    "node15" [ label = "draxul-renderer", shape = octagon, fillcolor="#7ec8a4", fontcolor="black" ];
-    "node15" -> "node2"  // draxul-renderer -> SDL3-static
-    "node16" [ label = "draxul-renderer-core", shape = hexagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node16" -> "node2"  // draxul-renderer-core -> SDL3-static
-    "node16" -> "node8"  // draxul-renderer-core -> draxul-types
-    "node17" [ label = "draxul-window", shape = octagon, fillcolor="#7ec8a4", fontcolor="black" ];
-    "node17" -> "node2"  // draxul-window -> SDL3-static
-    "node17" -> "node8"  // draxul-window -> draxul-types
-    "node16" -> "node17"  // draxul-renderer-core -> draxul-window
-    "node18" [ label = "imgui", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node16" -> "node18"  // draxul-renderer-core -> imgui
-    "node15" -> "node16"  // draxul-renderer -> draxul-renderer-core
-    "node19" [ label = "draxul-renderer-vulkan", shape = hexagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node19" -> "node2" [ style = dotted ] // draxul-renderer-vulkan -> SDL3-static
-    "node19" -> "node8" [ style = dotted ] // draxul-renderer-vulkan -> draxul-types
-    "node19" -> "node17" [ style = dotted ] // draxul-renderer-vulkan -> draxul-window
-    "node19" -> "node18" [ style = dotted ] // draxul-renderer-vulkan -> imgui
-    "node20" [ label = "vk-bootstrap\n(vk-bootstrap::vk-bootstrap)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node19" -> "node20" [ style = dotted ] // draxul-renderer-vulkan -> vk-bootstrap
-    "node15" -> "node19"  // draxul-renderer -> draxul-renderer-vulkan
-    "node15" -> "node8"  // draxul-renderer -> draxul-types
-    "node15" -> "node17"  // draxul-renderer -> draxul-window
-    "node15" -> "node18"  // draxul-renderer -> imgui
-    "node15" -> "node20" [ style = dotted ] // draxul-renderer -> vk-bootstrap
-    "node14" -> "node15"  // draxul-gui -> draxul-renderer
-    "node14" -> "node8"  // draxul-gui -> draxul-types
-    "node6" -> "node14"  // draxul-app -> draxul-gui
-    "node21" [ label = "draxul-host", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node21" -> "node10"  // draxul-host -> draxul-font
-    "node21" -> "node13"  // draxul-host -> draxul-grid
-    "node21" -> "node15"  // draxul-host -> draxul-renderer
-    "node22" [ label = "draxul-runtime-support", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node22" -> "node7"  // draxul-runtime-support -> draxul-config
-    "node22" -> "node10"  // draxul-runtime-support -> draxul-font
-    "node22" -> "node13"  // draxul-runtime-support -> draxul-grid
-    "node23" [ label = "draxul-nvim", shape = octagon, fillcolor="#5b8dd9", fontcolor="white" ];
-    "node23" -> "node2"  // draxul-nvim -> SDL3-static
-    "node23" -> "node8"  // draxul-nvim -> draxul-types
-    "node24" [ label = "mpack_lib", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node23" -> "node24"  // draxul-nvim -> mpack_lib
-    "node22" -> "node23"  // draxul-runtime-support -> draxul-nvim
-    "node22" -> "node15"  // draxul-runtime-support -> draxul-renderer
-    "node22" -> "node17"  // draxul-runtime-support -> draxul-window
-    "node21" -> "node22"  // draxul-host -> draxul-runtime-support
-    "node21" -> "node8"  // draxul-host -> draxul-types
-    "node21" -> "node17"  // draxul-host -> draxul-window
-    "node6" -> "node21"  // draxul-app -> draxul-host
-    "node25" [ label = "draxul-nanovg", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node25" -> "node15"  // draxul-nanovg -> draxul-renderer
-    "node6" -> "node25"  // draxul-app -> draxul-nanovg
-    "node6" -> "node23"  // draxul-app -> draxul-nvim
-    "node26" [ label = "draxul-render-test", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node26" -> "node7"  // draxul-render-test -> draxul-config
-    "node26" -> "node10"  // draxul-render-test -> draxul-font
-    "node26" -> "node21"  // draxul-render-test -> draxul-host
-    "node26" -> "node25"  // draxul-render-test -> draxul-nanovg
-    "node26" -> "node15"  // draxul-render-test -> draxul-renderer
-    "node6" -> "node26"  // draxul-app -> draxul-render-test
-    "node6" -> "node15"  // draxul-app -> draxul-renderer
-    "node6" -> "node22"  // draxul-app -> draxul-runtime-support
-    "node27" [ label = "draxul-ui", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node27" -> "node2" [ style = dotted ] // draxul-ui -> SDL3-static
-    "node27" -> "node15" [ style = dotted ] // draxul-ui -> draxul-renderer
-    "node27" -> "node8"  // draxul-ui -> draxul-types
-    "node27" -> "node18"  // draxul-ui -> imgui
-    "node6" -> "node27"  // draxul-app -> draxul-ui
-    "node5" -> "node6" [ style = dotted ] // draxul -> draxul-app
-    "node28" [ label = "draxul-kanban", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node28" -> "node2" [ style = dotted ] // draxul-kanban -> SDL3-static
-    "node28" -> "node21"  // draxul-kanban -> draxul-host
-    "node28" -> "node8"  // draxul-kanban -> draxul-types
-    "node5" -> "node28" [ style = dotted ] // draxul -> draxul-kanban
-    "node29" [ label = "draxul-markdown-host", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node29" -> "node21"  // draxul-markdown-host -> draxul-host
-    "node30" [ label = "draxul-markdown", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node30" -> "node10"  // draxul-markdown -> draxul-font
-    "node31" [ label = "md4c", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node30" -> "node31" [ style = dotted ] // draxul-markdown -> md4c
-    "node29" -> "node30"  // draxul-markdown-host -> draxul-markdown
-    "node29" -> "node15"  // draxul-markdown-host -> draxul-renderer
-    "node5" -> "node29" [ style = dotted ] // draxul -> draxul-markdown-host
-    "node32" [ label = "draxul-megacity", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node33" [ label = "draxul-code-semantics", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node34" [ label = "draxul-treesitter", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node34" -> "node8"  // draxul-treesitter -> draxul-types
-    "node35" [ label = "tree_sitter_core", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node34" -> "node35"  // draxul-treesitter -> tree_sitter_core
-    "node36" [ label = "tree_sitter_cpp_grammar", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node34" -> "node36"  // draxul-treesitter -> tree_sitter_cpp_grammar
-    "node33" -> "node34"  // draxul-code-semantics -> draxul-treesitter
-    "node33" -> "node8"  // draxul-code-semantics -> draxul-types
-    "node32" -> "node33"  // draxul-megacity -> draxul-code-semantics
-    "node32" -> "node7"  // draxul-megacity -> draxul-config
-    "node32" -> "node10"  // draxul-megacity -> draxul-font
-    "node37" [ label = "draxul-geometry", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node37" -> "node8"  // draxul-geometry -> draxul-types
-    "node37" -> "node9"  // draxul-geometry -> glm
-    "node32" -> "node37" [ style = dotted ] // draxul-megacity -> draxul-geometry
-    "node32" -> "node14"  // draxul-megacity -> draxul-gui
-    "node32" -> "node21"  // draxul-megacity -> draxul-host
-    "node32" -> "node15"  // draxul-megacity -> draxul-renderer
-    "node32" -> "node34"  // draxul-megacity -> draxul-treesitter
-    "node32" -> "node8"  // draxul-megacity -> draxul-types
-    "node32" -> "node27" [ style = dotted ] // draxul-megacity -> draxul-ui
-    "node32" -> "node18"  // draxul-megacity -> imgui
-    "node5" -> "node32" [ style = dotted ] // draxul -> draxul-megacity
-    "node38" [ label = "draxul-rpc-fake", shape = egg, fillcolor="#f4e04d", fontcolor="black" ];
-    "node38" -> "node23" [ style = dotted ] // draxul-rpc-fake -> draxul-nvim
-    "node39" [ label = "draxul-tests", shape = egg, fillcolor="#f4e04d", fontcolor="black" ];
-    "node39" -> "node0" [ style = dotted ] // draxul-tests -> Catch2
-    "node39" -> "node6" [ style = dotted ] // draxul-tests -> draxul-app
-    "node39" -> "node37" [ style = dotted ] // draxul-tests -> draxul-geometry
-    "node39" -> "node28" [ style = dotted ] // draxul-tests -> draxul-kanban
-    "node39" -> "node30" [ style = dotted ] // draxul-tests -> draxul-markdown
-    "node39" -> "node29" [ style = dotted ] // draxul-tests -> draxul-markdown-host
-    "node39" -> "node32" [ style = dotted ] // draxul-tests -> draxul-megacity
-    "node39" -> "node38"  // draxul-tests -> draxul-rpc-fake
-    "node40" [ label = "md4c-html", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node40" -> "node31"  // md4c-html -> md4c
+    "node5" [ label = "assimp\n(assimp::assimp)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node6" [ label = "celestrak-sgp4", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node7" [ label = "draxul", shape = egg, fillcolor="#2d6a9f", fontcolor="white" ];
+    "node7" -> "node7"  // draxul -> draxul
+    "node8" [ label = "draxul-app", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node9" [ label = "draxul-agent", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node10" [ label = "draxul-types\n(Draxul::PluginSupport::Types)", shape = octagon, fillcolor="#c9a8e0", fontcolor="black" ];
+    "node11" [ label = "draxul-performance\n(Draxul::PluginSupport::Performance)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node10" -> "node11" [ style = dotted ] // draxul-types -> draxul-performance
+    "node12" [ label = "glm\n(glm::glm)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node10" -> "node12"  // draxul-types -> glm
+    "node9" -> "node10" [ style = dotted ] // draxul-agent -> draxul-types
+    "node8" -> "node9"  // draxul-app -> draxul-agent
+    "node13" [ label = "draxul-agent-integration", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node8" -> "node13" [ style = dotted ] // draxul-app -> draxul-agent-integration
+    "node14" [ label = "draxul-app-shell", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node15" [ label = "draxul-config", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node15" -> "node2" [ style = dotted ] // draxul-config -> SDL3-static
+    "node15" -> "node11" [ style = dotted ] // draxul-config -> draxul-performance
+    "node16" [ label = "draxul-plugin-config-support\n(Draxul::PluginSupport::Config)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node16" -> "node11" [ style = dotted ] // draxul-plugin-config-support -> draxul-performance
+    "node16" -> "node10"  // draxul-plugin-config-support -> draxul-types
+    "node15" -> "node16"  // draxul-config -> draxul-plugin-config-support
+    "node15" -> "node10"  // draxul-config -> draxul-types
+    "node14" -> "node15"  // draxul-app-shell -> draxul-config
+    "node14" -> "node11" [ style = dotted ] // draxul-app-shell -> draxul-performance
+    "node17" [ label = "draxul-protocol", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node17" -> "node9"  // draxul-protocol -> draxul-agent
+    "node18" [ label = "draxul-session-model", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node18" -> "node9"  // draxul-session-model -> draxul-agent
+    "node18" -> "node11" [ style = dotted ] // draxul-session-model -> draxul-performance
+    "node18" -> "node16" [ style = dotted ] // draxul-session-model -> draxul-plugin-config-support
+    "node17" -> "node18"  // draxul-protocol -> draxul-session-model
+    "node19" [ label = "draxul-terminal-core", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node20" [ label = "draxul-grid", shape = octagon, fillcolor="#f0a868", fontcolor="black" ];
+    "node20" -> "node11" [ style = dotted ] // draxul-grid -> draxul-performance
+    "node20" -> "node10"  // draxul-grid -> draxul-types
+    "node19" -> "node20"  // draxul-terminal-core -> draxul-grid
+    "node19" -> "node11" [ style = dotted ] // draxul-terminal-core -> draxul-performance
+    "node19" -> "node10"  // draxul-terminal-core -> draxul-types
+    "node17" -> "node19"  // draxul-protocol -> draxul-terminal-core
+    "node14" -> "node17" [ style = dotted ] // draxul-app-shell -> draxul-protocol
+    "node14" -> "node18"  // draxul-app-shell -> draxul-session-model
+    "node14" -> "node10"  // draxul-app-shell -> draxul-types
+    "node8" -> "node14"  // draxul-app -> draxul-app-shell
+    "node21" [ label = "draxul-client", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node22" [ label = "draxul-control", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node21" -> "node22"  // draxul-client -> draxul-control
+    "node21" -> "node17"  // draxul-client -> draxul-protocol
+    "node21" -> "node18"  // draxul-client -> draxul-session-model
+    "node21" -> "node10" [ style = dotted ] // draxul-client -> draxul-types
+    "node8" -> "node21"  // draxul-app -> draxul-client
+    "node8" -> "node15"  // draxul-app -> draxul-config
+    "node8" -> "node22"  // draxul-app -> draxul-control
+    "node23" [ label = "draxul-font\n(Draxul::PluginSupport::Text)", shape = octagon, fillcolor="#f0a868", fontcolor="black" ];
+    "node23" -> "node11" [ style = dotted ] // draxul-font -> draxul-performance
+    "node23" -> "node10"  // draxul-font -> draxul-types
+    "node24" [ label = "freetype", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node25" [ label = "png_static", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node25" -> "node25"  // png_static -> png_static
+    "node24" -> "node25" [ style = dotted ] // freetype -> png_static
+    "node23" -> "node24" [ style = dotted ] // draxul-font -> freetype
+    "node26" [ label = "harfbuzz", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node26" -> "node24"  // harfbuzz -> freetype
+    "node23" -> "node26" [ style = dotted ] // draxul-font -> harfbuzz
+    "node8" -> "node23"  // draxul-app -> draxul-font
+    "node8" -> "node20"  // draxul-app -> draxul-grid
+    "node27" [ label = "draxul-grid-host", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node27" -> "node23" [ style = dotted ] // draxul-grid-host -> draxul-font
+    "node27" -> "node20"  // draxul-grid-host -> draxul-grid
+    "node28" [ label = "draxul-host-api", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node28" -> "node9"  // draxul-host-api -> draxul-agent
+    "node28" -> "node11" [ style = dotted ] // draxul-host-api -> draxul-performance
+    "node28" -> "node10"  // draxul-host-api -> draxul-types
+    "node27" -> "node28"  // draxul-grid-host -> draxul-host-api
+    "node27" -> "node11" [ style = dotted ] // draxul-grid-host -> draxul-performance
+    "node29" [ label = "draxul-renderer", shape = octagon, fillcolor="#7ec8a4", fontcolor="black" ];
+    "node29" -> "node2"  // draxul-renderer -> SDL3-static
+    "node30" [ label = "draxul-imgui-core\n(Draxul::PluginSupport::ImGuiCore)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node31" [ label = "imgui", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node30" -> "node31"  // draxul-imgui-core -> imgui
+    "node29" -> "node30"  // draxul-renderer -> draxul-imgui-core
+    "node29" -> "node11" [ style = dotted ] // draxul-renderer -> draxul-performance
+    "node32" [ label = "draxul-renderer-core", shape = hexagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node32" -> "node2"  // draxul-renderer-core -> SDL3-static
+    "node32" -> "node30"  // draxul-renderer-core -> draxul-imgui-core
+    "node32" -> "node11" [ style = dotted ] // draxul-renderer-core -> draxul-performance
+    "node32" -> "node10"  // draxul-renderer-core -> draxul-types
+    "node33" [ label = "draxul-window", shape = octagon, fillcolor="#7ec8a4", fontcolor="black" ];
+    "node33" -> "node2"  // draxul-window -> SDL3-static
+    "node33" -> "node11" [ style = dotted ] // draxul-window -> draxul-performance
+    "node33" -> "node10"  // draxul-window -> draxul-types
+    "node32" -> "node33"  // draxul-renderer-core -> draxul-window
+    "node32" -> "node31"  // draxul-renderer-core -> imgui
+    "node29" -> "node32"  // draxul-renderer -> draxul-renderer-core
+    "node34" [ label = "draxul-renderer-metal", shape = hexagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node34" -> "node2" [ style = dotted ] // draxul-renderer-metal -> SDL3-static
+    "node34" -> "node30" [ style = dotted ] // draxul-renderer-metal -> draxul-imgui-core
+    "node34" -> "node11" [ style = dotted ] // draxul-renderer-metal -> draxul-performance
+    "node34" -> "node10" [ style = dotted ] // draxul-renderer-metal -> draxul-types
+    "node34" -> "node33" [ style = dotted ] // draxul-renderer-metal -> draxul-window
+    "node34" -> "node31" [ style = dotted ] // draxul-renderer-metal -> imgui
+    "node29" -> "node34"  // draxul-renderer -> draxul-renderer-metal
+    "node29" -> "node10"  // draxul-renderer -> draxul-types
+    "node29" -> "node33"  // draxul-renderer -> draxul-window
+    "node29" -> "node31"  // draxul-renderer -> imgui
+    "node27" -> "node29" [ style = dotted ] // draxul-grid-host -> draxul-renderer
+    "node35" [ label = "draxul-runtime-support", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node35" -> "node15"  // draxul-runtime-support -> draxul-config
+    "node35" -> "node23"  // draxul-runtime-support -> draxul-font
+    "node35" -> "node20"  // draxul-runtime-support -> draxul-grid
+    "node36" [ label = "draxul-nvim-protocol", shape = octagon, fillcolor="#5b8dd9", fontcolor="white" ];
+    "node36" -> "node2" [ style = dotted ] // draxul-nvim-protocol -> SDL3-static
+    "node36" -> "node11" [ style = dotted ] // draxul-nvim-protocol -> draxul-performance
+    "node36" -> "node10"  // draxul-nvim-protocol -> draxul-types
+    "node37" [ label = "mpack_lib", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node36" -> "node37" [ style = dotted ] // draxul-nvim-protocol -> mpack_lib
+    "node35" -> "node36"  // draxul-runtime-support -> draxul-nvim-protocol
+    "node35" -> "node11" [ style = dotted ] // draxul-runtime-support -> draxul-performance
+    "node35" -> "node17"  // draxul-runtime-support -> draxul-protocol
+    "node35" -> "node29"  // draxul-runtime-support -> draxul-renderer
+    "node35" -> "node10"  // draxul-runtime-support -> draxul-types
+    "node35" -> "node33"  // draxul-runtime-support -> draxul-window
+    "node27" -> "node35"  // draxul-grid-host -> draxul-runtime-support
+    "node27" -> "node10"  // draxul-grid-host -> draxul-types
+    "node27" -> "node33" [ style = dotted ] // draxul-grid-host -> draxul-window
+    "node8" -> "node27"  // draxul-app -> draxul-grid-host
+    "node38" [ label = "draxul-gui", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node38" -> "node23"  // draxul-gui -> draxul-font
+    "node38" -> "node11" [ style = dotted ] // draxul-gui -> draxul-performance
+    "node39" [ label = "draxul-plugin-tooltip-support\n(Draxul::PluginSupport::Tooltip)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node39" -> "node23"  // draxul-plugin-tooltip-support -> draxul-font
+    "node39" -> "node11" [ style = dotted ] // draxul-plugin-tooltip-support -> draxul-performance
+    "node38" -> "node39"  // draxul-gui -> draxul-plugin-tooltip-support
+    "node38" -> "node10"  // draxul-gui -> draxul-types
+    "node8" -> "node38"  // draxul-app -> draxul-gui
+    "node8" -> "node28"  // draxul-app -> draxul-host-api
+    "node40" [ label = "draxul-nanovg", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node41" [ label = "draxul-nanovg-backend\n(Draxul::PluginSupport::NanoVG)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node41" -> "node10" [ style = dotted ] // draxul-nanovg-backend -> draxul-types
+    "node40" -> "node41"  // draxul-nanovg -> draxul-nanovg-backend
+    "node8" -> "node40"  // draxul-app -> draxul-nanovg
+    "node42" [ label = "draxul-nvim-host", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node42" -> "node23" [ style = dotted ] // draxul-nvim-host -> draxul-font
+    "node42" -> "node27" [ style = dotted ] // draxul-nvim-host -> draxul-grid-host
+    "node42" -> "node28" [ style = dotted ] // draxul-nvim-host -> draxul-host-api
+    "node42" -> "node36" [ style = dotted ] // draxul-nvim-host -> draxul-nvim-protocol
+    "node43" [ label = "draxul-nvim-transport", shape = octagon, fillcolor="#5b8dd9", fontcolor="white" ];
+    "node43" -> "node36"  // draxul-nvim-transport -> draxul-nvim-protocol
+    "node43" -> "node11" [ style = dotted ] // draxul-nvim-transport -> draxul-performance
+    "node43" -> "node10" [ style = dotted ] // draxul-nvim-transport -> draxul-types
+    "node42" -> "node43" [ style = dotted ] // draxul-nvim-host -> draxul-nvim-transport
+    "node42" -> "node11" [ style = dotted ] // draxul-nvim-host -> draxul-performance
+    "node42" -> "node33" [ style = dotted ] // draxul-nvim-host -> draxul-window
+    "node8" -> "node42"  // draxul-app -> draxul-nvim-host
+    "node8" -> "node11" [ style = dotted ] // draxul-app -> draxul-performance
+    "node44" [ label = "draxul-plugin", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node44" -> "node11" [ style = dotted ] // draxul-plugin -> draxul-performance
+    "node44" -> "node10"  // draxul-plugin -> draxul-types
+    "node8" -> "node44"  // draxul-app -> draxul-plugin
+    "node45" [ label = "draxul-plugin-host", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node45" -> "node28"  // draxul-plugin-host -> draxul-host-api
+    "node45" -> "node11" [ style = dotted ] // draxul-plugin-host -> draxul-performance
+    "node45" -> "node44" [ style = dotted ] // draxul-plugin-host -> draxul-plugin
+    "node45" -> "node29" [ style = dotted ] // draxul-plugin-host -> draxul-renderer
+    "node45" -> "node10" [ style = dotted ] // draxul-plugin-host -> draxul-types
+    "node8" -> "node45"  // draxul-app -> draxul-plugin-host
+    "node46" [ label = "draxul-render-test", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node47" [ label = "draxul-bmp", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node47" -> "node11" [ style = dotted ] // draxul-bmp -> draxul-performance
+    "node47" -> "node10"  // draxul-bmp -> draxul-types
+    "node46" -> "node47" [ style = dotted ] // draxul-render-test -> draxul-bmp
+    "node46" -> "node15"  // draxul-render-test -> draxul-config
+    "node46" -> "node23"  // draxul-render-test -> draxul-font
+    "node46" -> "node28"  // draxul-render-test -> draxul-host-api
+    "node46" -> "node40"  // draxul-render-test -> draxul-nanovg
+    "node46" -> "node11" [ style = dotted ] // draxul-render-test -> draxul-performance
+    "node46" -> "node29"  // draxul-render-test -> draxul-renderer
+    "node46" -> "node35"  // draxul-render-test -> draxul-runtime-support
+    "node8" -> "node46"  // draxul-app -> draxul-render-test
+    "node8" -> "node29"  // draxul-app -> draxul-renderer
+    "node8" -> "node35"  // draxul-app -> draxul-runtime-support
+    "node8" -> "node18"  // draxul-app -> draxul-session-model
+    "node48" [ label = "draxul-terminal-host", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node48" -> "node2" [ style = dotted ] // draxul-terminal-host -> SDL3-static
+    "node48" -> "node21" [ style = dotted ] // draxul-terminal-host -> draxul-client
+    "node48" -> "node27"  // draxul-terminal-host -> draxul-grid-host
+    "node48" -> "node11" [ style = dotted ] // draxul-terminal-host -> draxul-performance
+    "node48" -> "node19"  // draxul-terminal-host -> draxul-terminal-core
+    "node48" -> "node33" [ style = dotted ] // draxul-terminal-host -> draxul-window
+    "node8" -> "node48"  // draxul-app -> draxul-terminal-host
+    "node49" [ label = "draxul-ui", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node49" -> "node2" [ style = dotted ] // draxul-ui -> SDL3-static
+    "node49" -> "node30"  // draxul-ui -> draxul-imgui-core
+    "node49" -> "node11" [ style = dotted ] // draxul-ui -> draxul-performance
+    "node49" -> "node10"  // draxul-ui -> draxul-types
+    "node49" -> "node31"  // draxul-ui -> imgui
+    "node8" -> "node49"  // draxul-app -> draxul-ui
+    "node50" [ label = "draxul-weather", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node51" [ label = "draxul-http\n(Draxul::PluginSupport::Http)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node50" -> "node51"  // draxul-weather -> draxul-http
+    "node50" -> "node10" [ style = dotted ] // draxul-weather -> draxul-types
+    "node8" -> "node50"  // draxul-app -> draxul-weather
+    "node7" -> "node8" [ style = dotted ] // draxul -> draxul-app
+    "node7" -> "node47" [ style = dotted ] // draxul -> draxul-bmp
+    "node7" -> "node21" [ style = dotted ] // draxul -> draxul-client
+    "node52" [ label = "draxul-kanban-host", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node52" -> "node27"  // draxul-kanban-host -> draxul-grid-host
+    "node53" [ label = "draxul-kanban", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node53" -> "node2" [ style = dotted ] // draxul-kanban -> SDL3-static
+    "node53" -> "node10"  // draxul-kanban -> draxul-types
+    "node52" -> "node53"  // draxul-kanban-host -> draxul-kanban
+    "node7" -> "node52" [ style = dotted ] // draxul -> draxul-kanban-host
+    "node54" [ label = "draxul-markdown-host", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node54" -> "node15" [ style = dotted ] // draxul-markdown-host -> draxul-config
+    "node54" -> "node28"  // draxul-markdown-host -> draxul-host-api
+    "node55" [ label = "draxul-markdown", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node55" -> "node23"  // draxul-markdown -> draxul-font
+    "node56" [ label = "md4c", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node55" -> "node56" [ style = dotted ] // draxul-markdown -> md4c
+    "node54" -> "node55"  // draxul-markdown-host -> draxul-markdown
+    "node54" -> "node29"  // draxul-markdown-host -> draxul-renderer
+    "node7" -> "node54" [ style = dotted ] // draxul -> draxul-markdown-host
+    "node7" -> "node11" [ style = dotted ] // draxul -> draxul-performance
+    "node57" [ label = "draxul-server", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node57" -> "node9"  // draxul-server -> draxul-agent
+    "node57" -> "node22"  // draxul-server -> draxul-control
+    "node57" -> "node17"  // draxul-server -> draxul-protocol
+    "node57" -> "node18"  // draxul-server -> draxul-session-model
+    "node58" [ label = "draxul-terminal-process", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node58" -> "node9"  // draxul-terminal-process -> draxul-agent
+    "node58" -> "node11" [ style = dotted ] // draxul-terminal-process -> draxul-performance
+    "node58" -> "node10" [ style = dotted ] // draxul-terminal-process -> draxul-types
+    "node57" -> "node58"  // draxul-server -> draxul-terminal-process
+    "node57" -> "node10"  // draxul-server -> draxul-types
+    "node7" -> "node57" [ style = dotted ] // draxul -> draxul-server
+    "node59" [ label = "draxul-megacity-plugin", shape = tripleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node60" [ label = "draxul-codeviz-renderer", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node61" [ label = "draxul-codeviz-scene", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node62" [ label = "draxul-geometry", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node62" -> "node11" [ style = dotted ] // draxul-geometry -> draxul-performance
+    "node62" -> "node10"  // draxul-geometry -> draxul-types
+    "node62" -> "node12"  // draxul-geometry -> glm
+    "node61" -> "node62"  // draxul-codeviz-scene -> draxul-geometry
+    "node61" -> "node11" [ style = dotted ] // draxul-codeviz-scene -> draxul-performance
+    "node60" -> "node61"  // draxul-codeviz-renderer -> draxul-codeviz-scene
+    "node60" -> "node62" [ style = dotted ] // draxul-codeviz-renderer -> draxul-geometry
+    "node60" -> "node11" [ style = dotted ] // draxul-codeviz-renderer -> draxul-performance
+    "node60" -> "node31" [ style = dotted ] // draxul-codeviz-renderer -> imgui
+    "node59" -> "node60" [ style = dotted ] // draxul-megacity-plugin -> draxul-codeviz-renderer
+    "node63" [ label = "draxul-megacity", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node64" [ label = "draxul-code-semantics", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node64" -> "node11" [ style = dotted ] // draxul-code-semantics -> draxul-performance
+    "node65" [ label = "draxul-treesitter", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node65" -> "node11" [ style = dotted ] // draxul-treesitter -> draxul-performance
+    "node65" -> "node10"  // draxul-treesitter -> draxul-types
+    "node66" [ label = "tree_sitter_core", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node65" -> "node66"  // draxul-treesitter -> tree_sitter_core
+    "node67" [ label = "tree_sitter_cpp_grammar", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node65" -> "node67"  // draxul-treesitter -> tree_sitter_cpp_grammar
+    "node64" -> "node65"  // draxul-code-semantics -> draxul-treesitter
+    "node64" -> "node10"  // draxul-code-semantics -> draxul-types
+    "node63" -> "node64"  // draxul-megacity -> draxul-code-semantics
+    "node68" [ label = "draxul-codeviz-host", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node68" -> "node61"  // draxul-codeviz-host -> draxul-codeviz-scene
+    "node68" -> "node11" [ style = dotted ] // draxul-codeviz-host -> draxul-performance
+    "node69" [ label = "draxul-plugin-camera-input-support\n(Draxul::PluginSupport::CameraInput)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node69" -> "node10"  // draxul-plugin-camera-input-support -> draxul-types
+    "node68" -> "node69"  // draxul-codeviz-host -> draxul-plugin-camera-input-support
+    "node68" -> "node10"  // draxul-codeviz-host -> draxul-types
+    "node63" -> "node68"  // draxul-megacity -> draxul-codeviz-host
+    "node63" -> "node60"  // draxul-megacity -> draxul-codeviz-renderer
+    "node63" -> "node61"  // draxul-megacity -> draxul-codeviz-scene
+    "node63" -> "node23"  // draxul-megacity -> draxul-font
+    "node63" -> "node62" [ style = dotted ] // draxul-megacity -> draxul-geometry
+    "node70" [ label = "draxul-megacity-model", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node70" -> "node64"  // draxul-megacity-model -> draxul-code-semantics
+    "node70" -> "node61"  // draxul-megacity-model -> draxul-codeviz-scene
+    "node70" -> "node11" [ style = dotted ] // draxul-megacity-model -> draxul-performance
+    "node70" -> "node16"  // draxul-megacity-model -> draxul-plugin-config-support
+    "node63" -> "node70"  // draxul-megacity -> draxul-megacity-model
+    "node63" -> "node11"  // draxul-megacity -> draxul-performance
+    "node63" -> "node16"  // draxul-megacity -> draxul-plugin-config-support
+    "node71" [ label = "draxul-plugin-imgui\n(Draxul::PluginImGui)\n(Draxul::PluginSupport::ImGui)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node71" -> "node30"  // draxul-plugin-imgui -> draxul-imgui-core
+    "node71" -> "node31" [ style = dotted ] // draxul-plugin-imgui -> imgui
+    "node63" -> "node71"  // draxul-megacity -> draxul-plugin-imgui
+    "node72" [ label = "draxul-plugin-runtime-support\n(Draxul::PluginSupport::Runtime)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node72" -> "node10"  // draxul-plugin-runtime-support -> draxul-types
+    "node63" -> "node72"  // draxul-megacity -> draxul-plugin-runtime-support
+    "node63" -> "node39"  // draxul-megacity -> draxul-plugin-tooltip-support
+    "node63" -> "node65"  // draxul-megacity -> draxul-treesitter
+    "node63" -> "node10"  // draxul-megacity -> draxul-types
+    "node63" -> "node31"  // draxul-megacity -> imgui
+    "node59" -> "node63" [ style = dotted ] // draxul-megacity-plugin -> draxul-megacity
+    "node73" [ label = "draxul-plugin-adapter-support\n(Draxul::PluginSupport::Adapter)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node73" -> "node72"  // draxul-plugin-adapter-support -> draxul-plugin-runtime-support
+    "node59" -> "node73" [ style = dotted ] // draxul-megacity-plugin -> draxul-plugin-adapter-support
+    "node59" -> "node71" [ style = dotted ] // draxul-megacity-plugin -> draxul-plugin-imgui
+    "node59" -> "node72" [ style = dotted ] // draxul-megacity-plugin -> draxul-plugin-runtime-support
+    "node74" [ label = "draxul-pcbview-plugin", shape = tripleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node75" [ label = "draxul-pcbview-runtime", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node76" [ label = "draxul-plugin-nanovg-support\n(Draxul::PluginSupport::NanoVGPass)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node76" -> "node41"  // draxul-plugin-nanovg-support -> draxul-nanovg-backend
+    "node77" [ label = "draxul-pcbview-core", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node77" -> "node12"  // draxul-pcbview-core -> glm
+    "node75" -> "node77"  // draxul-pcbview-runtime -> draxul-pcbview-core
+    "node75" -> "node71" [ style = dotted ] // draxul-pcbview-runtime -> draxul-plugin-imgui
+    "node75" -> "node31" [ style = dotted ] // draxul-pcbview-runtime -> imgui
+    "node74" -> "node75" [ style = dotted ] // draxul-pcbview-plugin -> draxul-pcbview-runtime
+    "node74" -> "node73" [ style = dotted ] // draxul-pcbview-plugin -> draxul-plugin-adapter-support
+    "node74" -> "node71" [ style = dotted ] // draxul-pcbview-plugin -> draxul-plugin-imgui
+    "node74" -> "node31" [ style = dotted ] // draxul-pcbview-plugin -> imgui
+    "node78" [ label = "draxul-rezonality-plugin", shape = tripleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node78" -> "node73" [ style = dotted ] // draxul-rezonality-plugin -> draxul-plugin-adapter-support
+    "node79" [ label = "draxul-rezonality-audio", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node78" -> "node79" [ style = dotted ] // draxul-rezonality-plugin -> draxul-rezonality-audio
+    "node80" [ label = "draxul-rezonality-project", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node80" -> "node5" [ style = dotted ] // draxul-rezonality-project -> assimp
+    "node80" -> "node12"  // draxul-rezonality-project -> glm
+    "node78" -> "node80" [ style = dotted ] // draxul-rezonality-plugin -> draxul-rezonality-project
+    "node81" [ label = "draxul-rezonality-runtime", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node81" -> "node12"  // draxul-rezonality-runtime -> glm
+    "node78" -> "node81" [ style = dotted ] // draxul-rezonality-plugin -> draxul-rezonality-runtime
+    "node82" [ label = "spirv-cross-msl", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node83" [ label = "spirv-cross-glsl", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node84" [ label = "spirv-cross-core", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node83" -> "node84" [ style = dotted ] // spirv-cross-glsl -> spirv-cross-core
+    "node82" -> "node83" [ style = dotted ] // spirv-cross-msl -> spirv-cross-glsl
+    "node78" -> "node82" [ style = dotted ] // draxul-rezonality-plugin -> spirv-cross-msl
+    "node85" [ label = "draxul-satview-plugin", shape = tripleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node85" -> "node73" [ style = dotted ] // draxul-satview-plugin -> draxul-plugin-adapter-support
+    "node85" -> "node71" [ style = dotted ] // draxul-satview-plugin -> draxul-plugin-imgui
+    "node86" [ label = "draxul-satview-runtime", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node86" -> "node23" [ style = dotted ] // draxul-satview-runtime -> draxul-font
+    "node86" -> "node69"  // draxul-satview-runtime -> draxul-plugin-camera-input-support
+    "node86" -> "node16" [ style = dotted ] // draxul-satview-runtime -> draxul-plugin-config-support
+    "node86" -> "node71"  // draxul-satview-runtime -> draxul-plugin-imgui
+    "node86" -> "node72"  // draxul-satview-runtime -> draxul-plugin-runtime-support
+    "node87" [ label = "draxul-satview-core", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node87" -> "node6" [ style = dotted ] // draxul-satview-core -> celestrak-sgp4
+    "node87" -> "node11" [ style = dotted ] // draxul-satview-core -> draxul-performance
+    "node87" -> "node10"  // draxul-satview-core -> draxul-types
+    "node86" -> "node87"  // draxul-satview-runtime -> draxul-satview-core
+    "node88" [ label = "draxul-satview-renderer", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node88" -> "node11" [ style = dotted ] // draxul-satview-renderer -> draxul-performance
+    "node88" -> "node87" [ style = dotted ] // draxul-satview-renderer -> draxul-satview-core
+    "node89" [ label = "draxul-satview-scene", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node89" -> "node11" [ style = dotted ] // draxul-satview-scene -> draxul-performance
+    "node89" -> "node87"  // draxul-satview-scene -> draxul-satview-core
+    "node88" -> "node89"  // draxul-satview-renderer -> draxul-satview-scene
+    "node88" -> "node31" [ style = dotted ] // draxul-satview-renderer -> imgui
+    "node86" -> "node88"  // draxul-satview-runtime -> draxul-satview-renderer
+    "node86" -> "node89"  // draxul-satview-runtime -> draxul-satview-scene
+    "node90" [ label = "draxul-satview-services", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node90" -> "node51"  // draxul-satview-services -> draxul-http
+    "node90" -> "node11" [ style = dotted ] // draxul-satview-services -> draxul-performance
+    "node90" -> "node87"  // draxul-satview-services -> draxul-satview-core
+    "node86" -> "node90"  // draxul-satview-runtime -> draxul-satview-services
+    "node86" -> "node31"  // draxul-satview-runtime -> imgui
+    "node85" -> "node86" [ style = dotted ] // draxul-satview-plugin -> draxul-satview-runtime
+    "node91" [ label = "draxul-scoreview-plugin", shape = tripleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node91" -> "node73" [ style = dotted ] // draxul-scoreview-plugin -> draxul-plugin-adapter-support
+    "node91" -> "node71" [ style = dotted ] // draxul-scoreview-plugin -> draxul-plugin-imgui
+    "node92" [ label = "draxul-scoreview-runtime", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node93" [ label = "draxul-notation", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node94" [ label = "tinyxml2\n(tinyxml2::tinyxml2)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node93" -> "node94" [ style = dotted ] // draxul-notation -> tinyxml2
+    "node92" -> "node93"  // draxul-scoreview-runtime -> draxul-notation
+    "node92" -> "node71"  // draxul-scoreview-runtime -> draxul-plugin-imgui
+    "node95" [ label = "draxul-scoreview", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node96" [ label = "draxul-score-audio", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node97" [ label = "draxul-score-input", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node98" [ label = "rtmidi", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node97" -> "node98" [ style = dotted ] // draxul-score-input -> rtmidi
+    "node96" -> "node97"  // draxul-score-audio -> draxul-score-input
+    "node99" [ label = "kissfft\n(kissfft::kissfft)\n(kissfft::kissfft-float)", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node96" -> "node99" [ style = dotted ] // draxul-score-audio -> kissfft
+    "node95" -> "node96"  // draxul-scoreview -> draxul-score-audio
+    "node95" -> "node97"  // draxul-scoreview -> draxul-score-input
+    "node100" [ label = "draxul-score-learn", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node100" -> "node94" [ style = dotted ] // draxul-score-learn -> tinyxml2
+    "node95" -> "node100"  // draxul-scoreview -> draxul-score-learn
+    "node95" -> "node12"  // draxul-scoreview -> glm
+    "node95" -> "node94" [ style = dotted ] // draxul-scoreview -> tinyxml2
+    "node101" [ label = "verovio", shape = doubleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node95" -> "node101" [ style = dotted ] // draxul-scoreview -> verovio
+    "node92" -> "node95"  // draxul-scoreview-runtime -> draxul-scoreview
+    "node92" -> "node31" [ style = dotted ] // draxul-scoreview-runtime -> imgui
+    "node91" -> "node92" [ style = dotted ] // draxul-scoreview-plugin -> draxul-scoreview-runtime
+    "node91" -> "node31" [ style = dotted ] // draxul-scoreview-plugin -> imgui
+    "node102" [ label = "draxul-spinning-triangle", shape = tripleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node102" -> "node73" [ style = dotted ] // draxul-spinning-triangle -> draxul-plugin-adapter-support
+    "node103" [ label = "draxul-agent-integration-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node103" -> "node13" [ style = dotted ] // draxul-agent-integration-link-isolation -> draxul-agent-integration
+    "node104" [ label = "draxul-app-shell-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node104" -> "node14" [ style = dotted ] // draxul-app-shell-link-isolation -> draxul-app-shell
+    "node105" [ label = "draxul-bmp-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node105" -> "node47" [ style = dotted ] // draxul-bmp-link-isolation -> draxul-bmp
+    "node106" [ label = "draxul-client-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node106" -> "node21" [ style = dotted ] // draxul-client-link-isolation -> draxul-client
+    "node107" [ label = "draxul-font-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node107" -> "node23" [ style = dotted ] // draxul-font-link-isolation -> draxul-font
+    "node108" [ label = "draxul-gui-render-contract-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node108" -> "node38" [ style = dotted ] // draxul-gui-render-contract-isolation -> draxul-gui
+    "node109" [ label = "draxul-host-api-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node109" -> "node28" [ style = dotted ] // draxul-host-api-link-isolation -> draxul-host-api
+    "node110" [ label = "draxul-kanban-core-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node110" -> "node53" [ style = dotted ] // draxul-kanban-core-link-isolation -> draxul-kanban
+    "node111" [ label = "draxul-nanovg-render-contract-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node111" -> "node40" [ style = dotted ] // draxul-nanovg-render-contract-isolation -> draxul-nanovg
+    "node112" [ label = "draxul-nvim-protocol-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node112" -> "node36" [ style = dotted ] // draxul-nvim-protocol-link-isolation -> draxul-nvim-protocol
+    "node113" [ label = "draxul-nvim-transport-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node113" -> "node43" [ style = dotted ] // draxul-nvim-transport-link-isolation -> draxul-nvim-transport
+    "node114" [ label = "draxul-performance-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node114" -> "node11" [ style = dotted ] // draxul-performance-link-isolation -> draxul-performance
+    "node115" [ label = "draxul-plugin-fixture", shape = tripleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node115" -> "node72" [ style = dotted ] // draxul-plugin-fixture -> draxul-plugin-runtime-support
+    "node116" [ label = "draxul-plugin-fixture-bad-abi", shape = tripleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node116" -> "node72" [ style = dotted ] // draxul-plugin-fixture-bad-abi -> draxul-plugin-runtime-support
+    "node117" [ label = "draxul-plugin-fixture-fail-create", shape = tripleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node117" -> "node72" [ style = dotted ] // draxul-plugin-fixture-fail-create -> draxul-plugin-runtime-support
+    "node118" [ label = "draxul-plugin-fixture-no-symbol", shape = tripleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node119" [ label = "draxul-plugin-fixture-unsupported", shape = tripleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node119" -> "node72" [ style = dotted ] // draxul-plugin-fixture-unsupported -> draxul-plugin-runtime-support
+    "node120" [ label = "draxul-plugin-fixture-wrong-id", shape = tripleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node120" -> "node72" [ style = dotted ] // draxul-plugin-fixture-wrong-id -> draxul-plugin-runtime-support
+    "node121" [ label = "draxul-plugin-sdk-c-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node122" [ label = "draxul-protocol-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node122" -> "node17" [ style = dotted ] // draxul-protocol-link-isolation -> draxul-protocol
+    "node123" [ label = "draxul-rpc-fake", shape = egg, fillcolor="#f4e04d", fontcolor="black" ];
+    "node123" -> "node36" [ style = dotted ] // draxul-rpc-fake -> draxul-nvim-protocol
+    "node124" [ label = "draxul-server-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node124" -> "node57" [ style = dotted ] // draxul-server-link-isolation -> draxul-server
+    "node125" [ label = "draxul-terminal-core-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node125" -> "node19" [ style = dotted ] // draxul-terminal-core-link-isolation -> draxul-terminal-core
+    "node126" [ label = "draxul-terminal-process-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node126" -> "node58" [ style = dotted ] // draxul-terminal-process-link-isolation -> draxul-terminal-process
+    "node127" [ label = "draxul-test-agent-integration", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node127" -> "node13" [ style = dotted ] // draxul-test-agent-integration -> draxul-agent-integration
+    "node127" -> "node10" [ style = dotted ] // draxul-test-agent-integration -> draxul-types
+    "node128" [ label = "draxul-test-app", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node128" -> "node8" [ style = dotted ] // draxul-test-app -> draxul-app
+    "node128" -> "node52" [ style = dotted ] // draxul-test-app -> draxul-kanban-host
+    "node128" -> "node54" [ style = dotted ] // draxul-test-app -> draxul-markdown-host
+    "node128" -> "node59"  // draxul-test-app -> draxul-megacity-plugin
+    "node128" -> "node115"  // draxul-test-app -> draxul-plugin-fixture
+    "node128" -> "node116"  // draxul-test-app -> draxul-plugin-fixture-bad-abi
+    "node128" -> "node117"  // draxul-test-app -> draxul-plugin-fixture-fail-create
+    "node128" -> "node118"  // draxul-test-app -> draxul-plugin-fixture-no-symbol
+    "node128" -> "node119"  // draxul-test-app -> draxul-plugin-fixture-unsupported
+    "node128" -> "node120"  // draxul-test-app -> draxul-plugin-fixture-wrong-id
+    "node128" -> "node91"  // draxul-test-app -> draxul-scoreview-plugin
+    "node128" -> "node102"  // draxul-test-app -> draxul-spinning-triangle
+    "node129" [ label = "draxul-test-app-shell", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node129" -> "node14" [ style = dotted ] // draxul-test-app-shell -> draxul-app-shell
+    "node130" [ label = "draxul-test-core", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node130" -> "node7"  // draxul-test-core -> draxul
+    "node130" -> "node47" [ style = dotted ] // draxul-test-core -> draxul-bmp
+    "node130" -> "node21" [ style = dotted ] // draxul-test-core -> draxul-client
+    "node130" -> "node15" [ style = dotted ] // draxul-test-core -> draxul-config
+    "node130" -> "node23" [ style = dotted ] // draxul-test-core -> draxul-font
+    "node130" -> "node20" [ style = dotted ] // draxul-test-core -> draxul-grid
+    "node130" -> "node27" [ style = dotted ] // draxul-test-core -> draxul-grid-host
+    "node130" -> "node38" [ style = dotted ] // draxul-test-core -> draxul-gui
+    "node130" -> "node28" [ style = dotted ] // draxul-test-core -> draxul-host-api
+    "node130" -> "node51" [ style = dotted ] // draxul-test-core -> draxul-http
+    "node130" -> "node40" [ style = dotted ] // draxul-test-core -> draxul-nanovg
+    "node130" -> "node42" [ style = dotted ] // draxul-test-core -> draxul-nvim-host
+    "node130" -> "node11" [ style = dotted ] // draxul-test-core -> draxul-performance
+    "node130" -> "node69" [ style = dotted ] // draxul-test-core -> draxul-plugin-camera-input-support
+    "node130" -> "node45" [ style = dotted ] // draxul-test-core -> draxul-plugin-host
+    "node130" -> "node17" [ style = dotted ] // draxul-test-core -> draxul-protocol
+    "node130" -> "node46" [ style = dotted ] // draxul-test-core -> draxul-render-test
+    "node130" -> "node29" [ style = dotted ] // draxul-test-core -> draxul-renderer
+    "node130" -> "node123"  // draxul-test-core -> draxul-rpc-fake
+    "node130" -> "node35" [ style = dotted ] // draxul-test-core -> draxul-runtime-support
+    "node130" -> "node57" [ style = dotted ] // draxul-test-core -> draxul-server
+    "node130" -> "node48" [ style = dotted ] // draxul-test-core -> draxul-terminal-host
+    "node130" -> "node49" [ style = dotted ] // draxul-test-core -> draxul-ui
+    "node130" -> "node33" [ style = dotted ] // draxul-test-core -> draxul-window
+    "node131" [ label = "draxul-test-host-api", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node131" -> "node28" [ style = dotted ] // draxul-test-host-api -> draxul-host-api
+    "node132" [ label = "draxul-test-kanban-core", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node132" -> "node2" [ style = dotted ] // draxul-test-kanban-core -> SDL3-static
+    "node132" -> "node53" [ style = dotted ] // draxul-test-kanban-core -> draxul-kanban
+    "node133" [ label = "draxul-test-kanban-host", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node133" -> "node2" [ style = dotted ] // draxul-test-kanban-host -> SDL3-static
+    "node133" -> "node23" [ style = dotted ] // draxul-test-kanban-host -> draxul-font
+    "node133" -> "node30" [ style = dotted ] // draxul-test-kanban-host -> draxul-imgui-core
+    "node133" -> "node52" [ style = dotted ] // draxul-test-kanban-host -> draxul-kanban-host
+    "node133" -> "node29" [ style = dotted ] // draxul-test-kanban-host -> draxul-renderer
+    "node133" -> "node33" [ style = dotted ] // draxul-test-kanban-host -> draxul-window
+    "node134" [ label = "draxul-test-markdown-kanban", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node134" -> "node15" [ style = dotted ] // draxul-test-markdown-kanban -> draxul-config
+    "node134" -> "node55" [ style = dotted ] // draxul-test-markdown-kanban -> draxul-markdown
+    "node134" -> "node54" [ style = dotted ] // draxul-test-markdown-kanban -> draxul-markdown-host
+    "node135" [ label = "draxul-test-markdown-layout", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node135" -> "node55" [ style = dotted ] // draxul-test-markdown-layout -> draxul-markdown
+    "node136" [ label = "draxul-test-megacity", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node136" -> "node15" [ style = dotted ] // draxul-test-megacity -> draxul-config
+    "node136" -> "node62" [ style = dotted ] // draxul-test-megacity -> draxul-geometry
+    "node136" -> "node28" [ style = dotted ] // draxul-test-megacity -> draxul-host-api
+    "node136" -> "node29" [ style = dotted ] // draxul-test-megacity -> draxul-renderer
+    "node137" [ label = "draxul-test-megacity-parser", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node137" -> "node65" [ style = dotted ] // draxul-test-megacity-parser -> draxul-treesitter
+    "node138" [ label = "draxul-test-nanovg-paint", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node138" -> "node41" [ style = dotted ] // draxul-test-nanovg-paint -> draxul-nanovg-backend
+    "node138" -> "node10" [ style = dotted ] // draxul-test-nanovg-paint -> draxul-types
+    "node139" [ label = "draxul-test-nvim-protocol", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node139" -> "node20" [ style = dotted ] // draxul-test-nvim-protocol -> draxul-grid
+    "node139" -> "node28" [ style = dotted ] // draxul-test-nvim-protocol -> draxul-host-api
+    "node139" -> "node36" [ style = dotted ] // draxul-test-nvim-protocol -> draxul-nvim-protocol
+    "node139" -> "node35" [ style = dotted ] // draxul-test-nvim-protocol -> draxul-runtime-support
+    "node140" [ label = "draxul-test-nvim-transport", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node140" -> "node43" [ style = dotted ] // draxul-test-nvim-transport -> draxul-nvim-transport
+    "node140" -> "node123"  // draxul-test-nvim-transport -> draxul-rpc-fake
+    "node140" -> "node35" [ style = dotted ] // draxul-test-nvim-transport -> draxul-runtime-support
+    "node140" -> "node10" [ style = dotted ] // draxul-test-nvim-transport -> draxul-types
+    "node141" [ label = "draxul-test-pcbview", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node141" -> "node77" [ style = dotted ] // draxul-test-pcbview -> draxul-pcbview-core
+    "node141" -> "node10" [ style = dotted ] // draxul-test-pcbview -> draxul-types
+    "node142" [ label = "draxul-test-plugin-nanovg", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node142" -> "node76" [ style = dotted ] // draxul-test-plugin-nanovg -> draxul-plugin-nanovg-support
+    "node142" -> "node10" [ style = dotted ] // draxul-test-plugin-nanovg -> draxul-types
+    "node143" [ label = "draxul-test-render-contracts", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node143" -> "node38" [ style = dotted ] // draxul-test-render-contracts -> draxul-gui
+    "node143" -> "node108"  // draxul-test-render-contracts -> draxul-gui-render-contract-isolation
+    "node143" -> "node40" [ style = dotted ] // draxul-test-render-contracts -> draxul-nanovg
+    "node143" -> "node111"  // draxul-test-render-contracts -> draxul-nanovg-render-contract-isolation
+    "node143" -> "node49" [ style = dotted ] // draxul-test-render-contracts -> draxul-ui
+    "node144" [ label = "draxul-ui-render-contract-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node144" -> "node49" [ style = dotted ] // draxul-ui-render-contract-isolation -> draxul-ui
+    "node143" -> "node144"  // draxul-test-render-contracts -> draxul-ui-render-contract-isolation
+    "node145" [ label = "draxul-test-rezonality", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node145" -> "node2" [ style = dotted ] // draxul-test-rezonality -> SDL3-static
+    "node145" -> "node7"  // draxul-test-rezonality -> draxul
+    "node145" -> "node73" [ style = dotted ] // draxul-test-rezonality -> draxul-plugin-adapter-support
+    "node145" -> "node79" [ style = dotted ] // draxul-test-rezonality -> draxul-rezonality-audio
+    "node145" -> "node78"  // draxul-test-rezonality -> draxul-rezonality-plugin
+    "node145" -> "node80" [ style = dotted ] // draxul-test-rezonality -> draxul-rezonality-project
+    "node145" -> "node81" [ style = dotted ] // draxul-test-rezonality -> draxul-rezonality-runtime
+    "node145" -> "node82" [ style = dotted ] // draxul-test-rezonality -> spirv-cross-msl
+    "node146" [ label = "draxul-test-rezonality-audio", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node146" -> "node2" [ style = dotted ] // draxul-test-rezonality-audio -> SDL3-static
+    "node146" -> "node79" [ style = dotted ] // draxul-test-rezonality-audio -> draxul-rezonality-audio
+    "node146" -> "node10" [ style = dotted ] // draxul-test-rezonality-audio -> draxul-types
+    "node147" [ label = "draxul-test-rezonality-project", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node147" -> "node80" [ style = dotted ] // draxul-test-rezonality-project -> draxul-rezonality-project
+    "node147" -> "node10" [ style = dotted ] // draxul-test-rezonality-project -> draxul-types
+    "node148" [ label = "draxul-test-rezonality-runtime", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node148" -> "node81" [ style = dotted ] // draxul-test-rezonality-runtime -> draxul-rezonality-runtime
+    "node148" -> "node10" [ style = dotted ] // draxul-test-rezonality-runtime -> draxul-types
+    "node149" [ label = "draxul-test-satview", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node149" -> "node2" [ style = dotted ] // draxul-test-satview -> SDL3-static
+    "node149" -> "node28" [ style = dotted ] // draxul-test-satview -> draxul-host-api
+    "node149" -> "node16" [ style = dotted ] // draxul-test-satview -> draxul-plugin-config-support
+    "node149" -> "node29" [ style = dotted ] // draxul-test-satview -> draxul-renderer
+    "node150" [ label = "draxul-test-scoreview", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node150" -> "node93" [ style = dotted ] // draxul-test-scoreview -> draxul-notation
+    "node150" -> "node95" [ style = dotted ] // draxul-test-scoreview -> draxul-scoreview
+    "node151" [ label = "draxul-test-scoreview-runtime", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node151" -> "node2" [ style = dotted ] // draxul-test-scoreview-runtime -> SDL3-static
+    "node152" [ label = "draxul-test-weather", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node152" -> "node10" [ style = dotted ] // draxul-test-weather -> draxul-types
+    "node153" [ label = "draxul-types-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node153" -> "node10" [ style = dotted ] // draxul-types-link-isolation -> draxul-types
+    "node154" [ label = "draxul-weather-link-isolation", shape = egg, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node154" -> "node50" [ style = dotted ] // draxul-weather-link-isolation -> draxul-weather
+    "node155" [ label = "md4c-html", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node155" -> "node56"  // md4c-html -> md4c
+    "node156" [ label = "png_framework", shape = doubleoctagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node157" [ label = "spirv-cross-util", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node157" -> "node84" [ style = dotted ] // spirv-cross-util -> spirv-cross-core
 }
