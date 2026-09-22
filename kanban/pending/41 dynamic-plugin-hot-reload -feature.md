@@ -18,8 +18,11 @@ when the replacement cannot start.
       pane restart, renderer-idle, and client-local topology paths.
 - [x] Define the atomic whole-package publication contract for manifest,
       module, dependencies, shaders, and assets.
-- [ ] Confirm Windows replacement avoids locking build output and macOS loads a
-      distinct staged image without weakening existing symbol/Objective-C isolation.
+- [ ] Confirm Windows replacement avoids locking build output.
+- [x] Confirm macOS loads a distinct staged image without weakening existing
+      symbol/Objective-C isolation. The focused integration test loads v1 from
+      private per-UI staging paths, publishes a same-ID v2 image, and activates
+      it from a third distinct path while both old images remain resident.
 - [x] Define generation retention, cleanup, diagnostics, and stale-callback rules.
 
 ## Implementation and migration
@@ -57,8 +60,13 @@ when the replacement cannot start.
       successful rollback; keep rollback-failure placeholder coverage pending.
 - [x] Test no-extension, incompatible, invalid, oversized, and successful
       reload-state transfer paths.
-- [ ] Add Vulkan and Metal reload render-smoke coverage plus shared-server
-      two-client local-generation coverage.
+- [ ] Add Vulkan reload render-smoke coverage.
+- [ ] Add Metal reload render-smoke coverage. The current render-test harness
+      supports startup commands and one settled capture, but has no deterministic
+      hook to publish a replacement and reload it between rendered frames.
+- [x] Add shared-server two-client local-generation coverage. On macOS, the
+      focused test reloads one UI manager from fixture v1 to rebuilt fixture v2
+      while a second manager for the same pane descriptor stays interactive on v1.
 - [x] Run `py do.py test debug`, `py do.py smoke --skip-build`, relevant product
       scope and render checks, then `py do.py run release` for the completed slice.
 
@@ -69,8 +77,15 @@ when the replacement cannot start.
       and SDK documentation.
 - [x] A malformed, partial, incompatible, or failed candidate never takes down
       a working plugin pane.
-- [ ] A valid replacement can be rebuilt and activated on Windows and macOS
-      without restarting Draxul or overwriting a loaded module.
+- [ ] A valid replacement can be rebuilt and activated on Windows without
+      restarting Draxul or overwriting a loaded module.
+- [x] A valid replacement can be rebuilt and activated on macOS without
+      restarting Draxul or overwriting a loaded module. Evidence:
+      `CCACHE_DIR=/tmp/draxul-ccache python3 do.py test debug --target
+      draxul-test-app --catch '[plugin][reload][integration]'` passed all 8
+      cases and 95 assertions on 2026-09-22.
+- The final normal Debug validation passed all 45 unit CTest entries, startup
+  smoke, and all five default Metal render comparisons.
 - [x] Plugins without reload-state support reload safely with a fresh instance;
       compatible plugins preserve their bounded transient state.
 - [x] Users receive an unambiguous cohort reload, rollback, or failure result.

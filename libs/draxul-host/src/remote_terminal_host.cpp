@@ -456,12 +456,13 @@ public:
                 visible);
             return;
         }
-        if (presentation_visible_.exchange(visible) == visible)
-            return;
-        if (!visible)
         {
             std::lock_guard guard(mutex_);
-            published_state_.reset();
+            if (presentation_visible_ == visible)
+                return;
+            presentation_visible_ = visible;
+            if (!visible)
+                published_state_.reset();
         }
         command_wake_.notify_one();
     }

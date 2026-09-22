@@ -1110,6 +1110,97 @@ TEST_CASE("plugin manager prepares a distinct shadow-copied generation",
     CHECK(manager->load("dev.draxul.fixture", error) == candidate);
 }
 
+TEST_CASE("two UI clients keep shared-server plugin generations local",
+    "[plugin][reload][integration][shared-server]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    install_plugin(bundled, "fixture", "dev.draxul.fixture",
+        DRAXUL_FIXTURE_VALID_PATH);
+    const auto package_library = bundled / "fixture"
+        / std::filesystem::path(DRAXUL_FIXTURE_VALID_PATH).filename();
+
+    // Each attached UI owns its plugin manager and resolves the same stable
+    // server pane launch descriptor into a local host instance.
+    const auto manager_a = draxul::PluginManager::discover(
+        bundled, user, temp.root / "runtime-a");
+    const auto manager_b = draxul::PluginManager::discover(
+        bundled, user, temp.root / "runtime-b");
+    draxul::HostContext shared_context;
+    shared_context.launch_options.kind = draxul::HostKind::Plugin;
+    shared_context.launch_options.client_plugin_id = "dev.draxul.fixture";
+    shared_context.launch_options.client_plugin_config_json = "{}";
+    shared_context.pane_id = "shared-server-plugin-pane";
+    shared_context.initial_viewport.pixel_size = { 640, 360 };
+
+    draxul::tests::FakeTermRenderer renderer_a;
+    draxul::tests::FakeTermRenderer renderer_b;
+    auto context_a = shared_context;
+    auto context_b = shared_context;
+    context_a.grid_renderer = &renderer_a;
+    context_b.grid_renderer = &renderer_b;
+    draxul::PluginHost host_a(manager_a, temp.root / "ui-a");
+    draxul::PluginHost host_b(manager_b, temp.root / "ui-b");
+    draxul::tests::TestHostCallbacks callbacks_a;
+    draxul::tests::TestHostCallbacks callbacks_b;
+    REQUIRE(host_a.initialize(context_a, callbacks_a));
+    REQUIRE(host_b.initialize(context_b, callbacks_b));
+
+    const auto original_a = host_a.loaded_plugin();
+    const auto original_b = host_b.loaded_plugin();
+    REQUIRE(original_a);
+    REQUIRE(original_b);
+    CHECK(std::string_view(original_a->api().plugin_version) == "1.0.0");
+    CHECK(std::string_view(original_b->api().plugin_version) == "1.0.0");
+    CHECK(original_a->manifest().library_path != package_library);
+    CHECK(original_b->manifest().library_path != package_library);
+    CHECK(original_a->manifest().library_path
+        != original_b->manifest().library_path);
+
+    // Publishing a rebuilt image replaces only the package source. Both
+    // already-loaded images remain resident at their private staged paths.
+    std::filesystem::copy_file(DRAXUL_FIXTURE_REPLACEMENT_PATH,
+        package_library, std::filesystem::copy_options::overwrite_existing);
+    install_plugin(bundled, "fixture", "dev.draxul.fixture", {},
+        package_library.filename().string(), "Fixture", "2.0.0");
+    std::string error;
+    const auto candidate = host_a.prepare_reload(error);
+    INFO(error);
+    REQUIRE(candidate);
+    CHECK(error.empty());
+    CHECK(std::string_view(candidate->api().plugin_version) == "2.0.0");
+    CHECK(candidate->manifest().library_path != package_library);
+    CHECK(candidate->manifest().library_path
+        != original_a->manifest().library_path);
+    CHECK(&candidate->api() != &original_a->api());
+
+    std::string warning;
+    REQUIRE(host_a.reload(candidate, warning, error));
+    CHECK(warning.empty());
+    CHECK(error.empty());
+    REQUIRE(host_a.loaded_plugin() == candidate);
+    CHECK(std::string_view(host_a.loaded_plugin()->api().plugin_version)
+        == "2.0.0");
+    CHECK(std::string_view(original_a->api().plugin_version) == "1.0.0");
+
+    // Reload is local to UI A. UI B keeps its old resident image and remains
+    // interactive against the unchanged shared pane descriptor.
+    CHECK(host_b.loaded_plugin() == original_b);
+    CHECK(std::string_view(host_b.loaded_plugin()->api().plugin_version)
+        == "1.0.0");
+    REQUIRE(host_b.dispatch_action("fixture_action"));
+    CHECK(host_b.status_text().find("reload=1") != std::string::npos);
+    CHECK(context_a.pane_id == context_b.pane_id);
+    CHECK(context_a.launch_options.client_plugin_id
+        == context_b.launch_options.client_plugin_id);
+    CHECK(context_a.launch_options.client_plugin_config_json
+        == context_b.launch_options.client_plugin_config_json);
+
+    host_a.shutdown();
+    host_b.shutdown();
+}
+
 TEST_CASE("plugin discovery follows the atomic publication pointer",
     "[plugin][reload][integration]")
 {

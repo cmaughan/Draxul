@@ -412,6 +412,14 @@ target_link_libraries(draxul-plugin-fixture PRIVATE
     Draxul::PluginSDK Draxul::PluginSupport::Runtime)
 set_target_properties(draxul-plugin-fixture PROPERTIES PREFIX "")
 
+add_library(draxul-plugin-fixture-replacement MODULE
+    fixtures/plugin_fixture.cpp)
+target_link_libraries(draxul-plugin-fixture-replacement PRIVATE
+    Draxul::PluginSDK Draxul::PluginSupport::Runtime)
+target_compile_definitions(draxul-plugin-fixture-replacement PRIVATE
+    DRAXUL_FIXTURE_PLUGIN_VERSION="2.0.0")
+set_target_properties(draxul-plugin-fixture-replacement PROPERTIES PREFIX "")
+
 add_library(draxul-plugin-fixture-bad-abi MODULE fixtures/plugin_fixture.cpp)
 target_link_libraries(draxul-plugin-fixture-bad-abi PRIVATE
     Draxul::PluginSDK Draxul::PluginSupport::Runtime)
@@ -447,6 +455,7 @@ set_target_properties(draxul-plugin-fixture-no-symbol PROPERTIES PREFIX "")
 add_dependencies(draxul-test-app
     draxul-spinning-triangle
     draxul-plugin-fixture
+    draxul-plugin-fixture-replacement
     draxul-plugin-fixture-bad-abi
     draxul-plugin-fixture-wrong-id
     draxul-plugin-fixture-unsupported
@@ -455,6 +464,7 @@ add_dependencies(draxul-test-app
 target_compile_definitions(draxul-test-app PRIVATE
     DRAXUL_TRIANGLE_PLUGIN_PATH="$<TARGET_FILE:draxul-spinning-triangle>"
     DRAXUL_FIXTURE_VALID_PATH="$<TARGET_FILE:draxul-plugin-fixture>"
+    DRAXUL_FIXTURE_REPLACEMENT_PATH="$<TARGET_FILE:draxul-plugin-fixture-replacement>"
     DRAXUL_FIXTURE_BAD_ABI_PATH="$<TARGET_FILE:draxul-plugin-fixture-bad-abi>"
     DRAXUL_FIXTURE_WRONG_ID_PATH="$<TARGET_FILE:draxul-plugin-fixture-wrong-id>"
     DRAXUL_FIXTURE_UNSUPPORTED_PATH="$<TARGET_FILE:draxul-plugin-fixture-unsupported>"

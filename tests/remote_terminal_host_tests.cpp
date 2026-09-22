@@ -1259,10 +1259,10 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
     std::string error;
 #ifdef _WIN32
     const std::string command
-        = "Write-Output '__HIDDEN_HOST_READY__'\r";
+        = "Write-Host ([char]27 + ']0;__HIDDEN_TITLE__' + [char]7 + '__HIDDEN_HOST_READY__') -NoNewline\r";
 #else
     const std::string command
-        = "printf '__HIDDEN_HOST_READY__\\n'\r";
+        = "printf '\\033]0;__HIDDEN_TITLE__\\007__HIDDEN_HOST_READY__\\n'\r";
 #endif
     REQUIRE(writer.send_input(command, error, 1));
 
@@ -1349,6 +1349,7 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
             && response.result["suspended_subscribers"] == 0
             && host.grid_cols() == 30
             && host.grid_rows() == 7
+            && callbacks.last_window_title == "__HIDDEN_TITLE__"
             && renderer.last_handle->total_cell_updates()
             >= hidden_cell_updates
                 + static_cast<size_t>(
@@ -1357,6 +1358,118 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
     CHECK(host.next_deadline().has_value());
     CHECK(callbacks.request_frame_calls.load() > hidden_frame_requests);
     CHECK(callbacks.wake_window_calls.load() > hidden_window_wakes);
+    CHECK(host.status_text().find("controller") != std::string::npos);
+
+    uint64_t request_id = 10;
+    for (int cycle = 0; cycle < 6; ++cycle)
+    {
+        host.pump();
+        host.set_presentation_visible(false);
+
+        nlohmann::json suspended_metrics;
+        bool cycle_suspended = false;
+        for (int attempt = 0; attempt < 300; ++attempt)
+        {
+            const auto response = ControlClient::request(
+                namespaced_control_id(kServerControlId, temp.path), temp.path,
+                "terminal.metrics");
+            REQUIRE(response.ok);
+            suspended_metrics = response.result;
+            if (suspended_metrics["active_subscribers"] == 0
+                && suspended_metrics["suspended_subscribers"] == 1)
+            {
+                cycle_suspended = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        REQUIRE(cycle_suspended);
+
+        const size_t cycle_hidden_updates
+            = renderer.last_handle->total_cell_updates();
+        const int cycle_hidden_frames
+            = callbacks.request_frame_calls.load();
+        const int cycle_hidden_wakes
+            = callbacks.wake_window_calls.load();
+        const uint64_t avoided_before
+            = suspended_metrics["avoided_delta_encodes"].get<uint64_t>();
+        const std::string hidden_title
+            = "__SWITCH_HIDDEN_" + std::to_string(cycle) + "__";
+#ifdef _WIN32
+        const std::string hidden_command
+            = "Write-Host ([char]27 + ']0;" + hidden_title
+            + "' + [char]7 + '__SWITCH_FRAME__') -NoNewline\r";
+#else
+        const std::string hidden_command
+            = "printf '\\033]0;" + hidden_title
+            + "\\007__SWITCH_FRAME__\\n'\r";
+#endif
+        REQUIRE(writer.send_input(
+            hidden_command, error, request_id++));
+
+        bool hidden_output_suppressed = false;
+        for (int attempt = 0; attempt < 300; ++attempt)
+        {
+            const auto response = ControlClient::request(
+                namespaced_control_id(kServerControlId, temp.path), temp.path,
+                "terminal.metrics");
+            REQUIRE(response.ok);
+            if (response.result["active_subscribers"] == 0
+                && response.result["suspended_subscribers"] == 1
+                && response.result["avoided_delta_encodes"].get<uint64_t>()
+                    > avoided_before)
+            {
+                hidden_output_suppressed = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        REQUIRE(hidden_output_suppressed);
+        host.pump();
+        CHECK(renderer.last_handle->total_cell_updates()
+            == cycle_hidden_updates);
+        CHECK(callbacks.request_frame_calls.load()
+            == cycle_hidden_frames);
+        CHECK(callbacks.wake_window_calls.load()
+            == cycle_hidden_wakes);
+
+        host.set_presentation_visible(true);
+        REQUIRE(pump_until(host, [&] {
+            const auto response = ControlClient::request(
+                namespaced_control_id(kServerControlId, temp.path), temp.path,
+                "terminal.metrics");
+            return response.ok
+                && response.result["active_subscribers"] == 1
+                && response.result["suspended_subscribers"] == 0
+                && callbacks.last_window_title == hidden_title
+                && renderer.last_handle->total_cell_updates()
+                >= cycle_hidden_updates
+                    + static_cast<size_t>(
+                        host.grid_cols() * host.grid_rows());
+        }));
+        CHECK(host.status_text().find("controller")
+            != std::string::npos);
+
+        const size_t resumed_updates
+            = renderer.last_handle->total_cell_updates();
+        const std::string live_title
+            = "__SWITCH_LIVE_" + std::to_string(cycle) + "__";
+#ifdef _WIN32
+        const std::string live_command
+            = "Write-Host ([char]27 + ']0;" + live_title
+            + "' + [char]7 + '__LIVE_FRAME__') -NoNewline\r";
+#else
+        const std::string live_command
+            = "printf '\\033]0;" + live_title
+            + "\\007__LIVE_FRAME__\\n'\r";
+#endif
+        REQUIRE(writer.send_input(live_command, error, request_id++));
+        REQUIRE(pump_until(host, [&] {
+            return callbacks.last_window_title == live_title
+                && renderer.last_handle->total_cell_updates()
+                > resumed_updates;
+        }));
+    }
 
     RemoteTerminalClient observer({
         .runtime_directory = temp.path,
@@ -1387,7 +1500,10 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
     REQUIRE(scrollback_ready);
     CHECK(scrollback.snapshot->cols == host.grid_cols());
 
+    const auto shutdown_started = std::chrono::steady_clock::now();
     host.shutdown();
+    CHECK(std::chrono::steady_clock::now() - shutdown_started
+        < std::chrono::seconds(1));
 }
 
 TEST_CASE("remote terminal host preserves updates published before the UI pumps",

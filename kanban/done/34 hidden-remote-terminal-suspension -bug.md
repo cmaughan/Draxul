@@ -134,14 +134,34 @@ see.
       UI, with no increasing delta-byte delivery to it.
 - [x] The visible Codex or PowerShell pane accepts and echoes sustained typing without
       bursty coalescing attributable to hidden-pane control traffic.
-- [ ] Switching to the dashboard tab shows one current frame promptly, then live updates
+- [x] Switching to the dashboard tab shows one current frame promptly, then live updates
       continue with no missing terminal identity, scrollback, title, or controller role.
-- [ ] Switching repeatedly during active output does not deadlock, leak worker threads,
+- [x] Switching repeatedly during active output does not deadlock, leak worker threads,
       duplicate subscribers, or produce stale frame flashes.
 - [x] Windows Release build, full CTest, smoke, and relevant render snapshots pass.
       macOS compiles and its Unix-domain-socket integration coverage passes in CI.
 - [x] Update `docs/features.md` with the delivered visibility/suspension behavior and
       clipboard policy when implementation is complete.
+
+The macOS closure on 2026-09-22 passed the focused real-server suspension test
+(1 case, 110 assertions), then the normal Debug validation passed all 45 unit
+CTest entries, startup smoke, and all five default Metal render comparisons.
+
+### 2026-09-22 focused macOS validation
+
+- Fixed the legacy host visibility wake so the predicate changes while holding the
+  same mutex as the suspended worker's condition-variable wait, then notifies after
+  releasing it. This closes the lost-wake path that could strand a newly shown tab.
+- Extended the real-server host integration to emit title and cell changes while
+  hidden, require a full current-grid publication on resume, verify controller and
+  scrollback continuity, and then prove foreground updates continue.
+- The same integration performs six more hide/output/resume/live-output cycles. Every
+  hidden phase has exactly one suspended subscriber, every visible phase has exactly
+  one active subscriber, hidden output causes no render or window wake, each resume
+  publishes the latest title and full grid, and final worker shutdown remains bounded.
+- `draxul-test-core` built successfully. Running
+  `./build/tests/draxul-test-core '[host][remote-terminal][suspend]'` with its required
+  Unix-domain socket access passed 110 assertions in one test case.
 
 ## Rollback
 

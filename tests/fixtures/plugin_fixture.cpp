@@ -14,6 +14,9 @@
 #define DRAXUL_FIXTURE_BACKENDS \
     (DRAXUL_PLUGIN_BACKEND_VULKAN | DRAXUL_PLUGIN_BACKEND_METAL)
 #endif
+#ifndef DRAXUL_FIXTURE_PLUGIN_VERSION
+#define DRAXUL_FIXTURE_PLUGIN_VERSION "1.0.0"
+#endif
 
 namespace
 {
@@ -312,7 +315,7 @@ const DraxulPluginApiV2 kApi = {
     .abi_version = DRAXUL_PLUGIN_ABI_VERSION,
     .plugin_id = DRAXUL_FIXTURE_PLUGIN_ID,
     .display_name = "Fixture",
-    .plugin_version = "1.0.0",
+    .plugin_version = DRAXUL_FIXTURE_PLUGIN_VERSION,
     .supported_backends = DRAXUL_FIXTURE_BACKENDS,
     .create_instance = &create_instance,
     .quiesce_instance = &quiesce_instance,
