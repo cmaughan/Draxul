@@ -24,6 +24,8 @@ class HostProviderRegistry;
 namespace markdown
 {
 
+class MarkdownHostTestAccess;
+
 class MarkdownHost final : public draxul::IHost
 {
 public:
@@ -55,6 +57,8 @@ public:
     draxul::HostDebugState debug_state() const override;
 
 private:
+    friend class MarkdownHostTestAccess;
+
     bool load_source(const draxul::HostLaunchOptions& launch_options);
     bool initialize_rich_text(const draxul::HostContext& context);
     bool change_font_size(float point_size);

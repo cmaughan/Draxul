@@ -323,7 +323,7 @@ Good place for:
 
 | Directory | CMake gate | Main targets and responsibility |
 |---|---|---|
-| `modules/markdown/` | Always built | `draxul-markdown` parses documents and lays them out from an immutable font-metrics lookup (device/font loading is outside layout); `draxul-markdown-host` adapts the live rich-text metrics and integrates the native pane and platform render pass |
+| `modules/markdown/` | Always built | `draxul-markdown` parses documents and lays them out from an immutable font-metrics lookup (device/font loading is outside layout); its focused geometry suite injects synthetic metrics, while draw-list and host integration retain real-font coverage. `draxul-markdown-host` adapts the live rich-text metrics and integrates the native pane and platform render pass |
 | `modules/kanban/` | Always built | `draxul-kanban` owns board storage and layout/navigation; `draxul-kanban-host` owns the native grid-host adapter and provider registration |
 | `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Submodule → [draxul-megacity](https://github.com/cmaughan/draxul-megacity). Self-contained MegaCity/BioView product: the backend-neutral `draxul-megacity-model` boundary owns semantic model/layout/grid/routing records and algorithms; separate code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic-module targets consume it. |
 | `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Submodule → [draxul-satview](https://github.com/cmaughan/draxul-satview). Self-contained satellite product: core, scene, services, runtime, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |

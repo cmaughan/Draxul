@@ -209,6 +209,42 @@ TEST_CASE("markdown draw-list batches body and heading glyphs by atlas snapshot"
     service.shutdown();
 }
 
+TEST_CASE("markdown draw-list rasterizes task markers as tinted monochrome glyphs",
+    "[markdown][drawlist]")
+{
+    auto service = make_initialized_service();
+    auto theme = default_markdown_theme(12.0f);
+
+    LayoutDocument layout;
+    auto checked = text_row(0.0f, "\xE2\x9C\x93"); // U+2713 CHECK MARK
+    checked.runs.front().color = theme.accent;
+    layout.rows.push_back(std::move(checked));
+    auto unchecked = text_row(32.0f, "\xE2\x96\xA1"); // U+25A1 WHITE SQUARE
+    unchecked.runs.front().color = theme.accent;
+    layout.rows.push_back(std::move(unchecked));
+
+    const auto list = build_markdown_draw_list(
+        layout,
+        theme,
+        service,
+        MarkdownDrawListOptions{
+            .viewport_width = 160,
+            .viewport_height = 96,
+            .pixel_scale = 1.0f,
+        });
+
+    REQUIRE(list.glyphs.size() == 2);
+    for (const auto& glyph : list.glyphs)
+    {
+        CHECK(glyph.rect.z > 0.0f);
+        CHECK(glyph.rect.w > 0.0f);
+        CHECK((glyph.flags & STYLE_FLAG_COLOR_GLYPH) == 0u);
+        CHECK(glyph.color == theme.accent);
+    }
+
+    service.shutdown();
+}
+
 TEST_CASE("markdown draw-list clips glyph emission to visible rows", "[markdown][drawlist]")
 {
     auto service = make_initialized_service();

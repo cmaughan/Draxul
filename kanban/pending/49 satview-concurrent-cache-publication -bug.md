@@ -18,5 +18,14 @@
 **Acceptance criteria**
 
 - [x] Concurrent refreshes leave a complete usable cache.
-- [ ] Failed replacement preserves the previous destination on Windows and macOS.
+- [x] Deterministic replacement failure through the production publication path preserves the previous destination and removes only the writer's private temporary file.
+- [x] A real macOS filesystem replacement failure preserves the previous regular-file destination.
+- [ ] Exercise the native Windows `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` failure path on Windows and confirm the previous destination remains readable.
 - [x] Offline startup remains functional afterward.
+
+## Validation
+
+- macOS focused cache-publication filter: 24 assertions in 3 test cases passed.
+- macOS `python3 do.py test debug --satview`: 26/26 core + SatView CTest entries passed.
+- macOS `python3 do.py smoke debug --skip-build`: passed with the Metal renderer on Apple M5.
+- The Windows implementation uses replace-in-place and shares the tested failure cleanup policy, but no Windows runtime was available for the remaining native filesystem check.

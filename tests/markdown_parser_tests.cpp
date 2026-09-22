@@ -8,6 +8,7 @@
 #include <draxul/markdown/markdown_host.h>
 #include <draxul/markdown/markdown_parser.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <ranges>
@@ -16,6 +17,82 @@
 using namespace draxul;
 using namespace draxul::tests;
 using namespace draxul::markdown;
+
+namespace draxul::markdown
+{
+
+struct MarkdownHostMetricSnapshot
+{
+    FontMetrics body_metrics{};
+    float row_y = 0.0f;
+    float row_height = 0.0f;
+    float row_baseline = 0.0f;
+    float expected_height = 0.0f;
+    float expected_baseline = 0.0f;
+    float max_glyph_height = 0.0f;
+    size_t glyph_count = 0;
+    bool found_body_row = false;
+    bool glyphs_overlap_row = false;
+};
+
+class MarkdownHostTestAccess
+{
+public:
+    static MarkdownHostMetricSnapshot metric_snapshot(MarkdownHost& host)
+    {
+        host.pump();
+        MarkdownHostMetricSnapshot snapshot;
+        snapshot.body_metrics = host.rich_text_.metrics_for(
+            host.theme_.body.rich_text);
+
+        const auto body_row = std::ranges::find_if(
+            host.layout_.rows,
+            [](const LayoutRow& row) {
+                return row.source_kind == BlockKind::Paragraph;
+            });
+        if (body_row == host.layout_.rows.end())
+            return snapshot;
+
+        snapshot.found_body_row = true;
+        snapshot.row_y = body_row->y;
+        snapshot.row_height = body_row->height;
+        snapshot.row_baseline = body_row->baseline;
+        snapshot.expected_height = std::max(1.0f,
+            static_cast<float>(snapshot.body_metrics.cell_height)
+                * host.theme_.body.line_height_multiplier);
+        const float leading = std::max(0.0f,
+            snapshot.expected_height
+                - static_cast<float>(snapshot.body_metrics.cell_height));
+        snapshot.expected_baseline = body_row->y + leading * 0.5f
+            + static_cast<float>(snapshot.body_metrics.ascender);
+
+        LayoutDocument body_document;
+        body_document.content_width = host.layout_.content_width;
+        body_document.content_height = body_row->y + body_row->height;
+        body_document.rows.push_back(*body_row);
+        const auto draw_list = build_markdown_draw_list(
+            body_document,
+            host.theme_,
+            host.rich_text_,
+            MarkdownDrawListOptions{
+                .viewport_width = std::max(1, host.viewport_.pixel_size.x),
+                .viewport_height = std::max(1, host.viewport_.pixel_size.y),
+                .pixel_scale = host.viewport_.pixel_scale,
+            });
+        snapshot.glyph_count = draw_list.glyphs.size();
+        for (const auto& glyph : draw_list.glyphs)
+        {
+            snapshot.max_glyph_height = std::max(
+                snapshot.max_glyph_height, glyph.rect.w);
+            snapshot.glyphs_overlap_row = snapshot.glyphs_overlap_row
+                || (glyph.rect.y < body_row->y + body_row->height
+                    && glyph.rect.y + glyph.rect.w > body_row->y);
+        }
+        return snapshot;
+    }
+};
+
+} // namespace draxul::markdown
 
 namespace
 {
@@ -180,4 +257,73 @@ TEST_CASE("markdown host opens another source from dispatch action", "[markdown]
     REQUIRE(host.dispatch_action("open_file:" + second.string()));
     CHECK(host.status_text() == "markdown | second.md");
     CHECK(callbacks.last_window_title == "second.md");
+}
+
+TEST_CASE("markdown host keeps layout and glyph metrics aligned across font and DPI changes",
+    "[markdown][host][dpi]")
+{
+    const std::string font = draxul::tests::bundled_font_path().string();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    TempDir temp("draxul-markdown-metrics");
+    const auto source = temp.path / "metrics.md";
+    {
+        std::ofstream out(source, std::ios::trunc);
+        out << "# Metric heading\n\nBody text with **emphasis**.\n";
+    }
+
+    const auto initialize_host = [&](MarkdownHost& host,
+                                     AppConfig& config,
+                                     TestHostCallbacks& callbacks,
+                                     float display_ppi,
+                                     float pixel_scale) {
+        config.font_path = font;
+        config.markdown.font_size = 12.0f;
+        HostContext context;
+        context.config = &config;
+        context.launch_options.kind = HostKind::Markdown;
+        context.launch_options.source_path = source.string();
+        context.initial_viewport.pixel_size = { 800, 600 };
+        context.initial_viewport.pixel_scale = pixel_scale;
+        context.display_ppi = display_ppi;
+        return host.initialize(context, callbacks);
+    };
+    const auto check_alignment = [](const MarkdownHostMetricSnapshot& snapshot) {
+        REQUIRE(snapshot.found_body_row);
+        REQUIRE(snapshot.glyph_count > 0);
+        CHECK(snapshot.row_height == Catch::Approx(snapshot.expected_height));
+        CHECK(snapshot.row_baseline == Catch::Approx(snapshot.expected_baseline));
+        CHECK(snapshot.glyphs_overlap_row);
+    };
+
+    AppConfig standard_config;
+    TestHostCallbacks standard_callbacks;
+    MarkdownHost standard_host;
+    REQUIRE(initialize_host(
+        standard_host, standard_config, standard_callbacks, 96.0f, 1.0f));
+    const auto standard = MarkdownHostTestAccess::metric_snapshot(standard_host);
+    check_alignment(standard);
+
+    HostReloadConfig larger_font;
+    larger_font.markdown_font_size = 18.0f;
+    larger_font.markdown_margin_columns = standard_config.markdown.margin_columns;
+    standard_host.on_config_reloaded(larger_font);
+    const auto enlarged = MarkdownHostTestAccess::metric_snapshot(standard_host);
+    check_alignment(enlarged);
+    CHECK(enlarged.body_metrics.cell_height > standard.body_metrics.cell_height);
+    CHECK(enlarged.row_height > standard.row_height);
+    CHECK(enlarged.max_glyph_height > standard.max_glyph_height);
+
+    AppConfig retina_config;
+    TestHostCallbacks retina_callbacks;
+    MarkdownHost retina_host;
+    REQUIRE(initialize_host(
+        retina_host, retina_config, retina_callbacks, 192.0f, 2.0f));
+    const auto retina = MarkdownHostTestAccess::metric_snapshot(retina_host);
+    check_alignment(retina);
+    CHECK(retina.body_metrics.cell_width > standard.body_metrics.cell_width);
+    CHECK(retina.body_metrics.cell_height > standard.body_metrics.cell_height);
+    CHECK(retina.row_height > standard.row_height);
+    CHECK(retina.max_glyph_height > standard.max_glyph_height);
 }

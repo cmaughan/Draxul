@@ -7,7 +7,7 @@
 
 **Investigation**
 
-- [ ] Inject vertex memory, bind/map, sampler, and upload allocation failures.
+- [x] Inject vertex memory, bind/map, sampler, and upload allocation failures.
 
 **Fix strategy**
 
@@ -16,5 +16,10 @@
 
 **Acceptance criteria**
 
-- [ ] Failed candidates preserve the active generation.
-- [ ] Retrying succeeds without invalid buffer use or cumulative GPU leaks.
+- [x] Failed candidates preserve the active generation.
+- [x] Retrying succeeds without invalid buffer use or cumulative GPU leaks.
+
+**Validation**
+
+- [x] macOS Metal: focused rollback coverage passes 45 assertions; `python3 do.py test debug --rezonality` passes 29/29 CTest entries; same-cache smoke passes.
+- [ ] Build the Vulkan backend and run the Rezonality suite on Windows or Linux CI; macOS cannot compile the changed Vulkan resource path.

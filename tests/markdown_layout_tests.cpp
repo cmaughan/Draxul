@@ -1,16 +1,12 @@
-#include "support/test_support.h"
-
 #include <catch2/catch_all.hpp>
 
 #include <draxul/markdown/markdown_document.h>
 #include <draxul/markdown/markdown_layout.h>
 #include <draxul/markdown/markdown_parser.h>
 #include <draxul/markdown/markdown_theme.h>
-#include <draxul/rich_text_service.h>
 
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -19,23 +15,6 @@ using namespace draxul::markdown;
 
 namespace
 {
-
-TextServiceConfig rich_text_test_config()
-{
-    TextServiceConfig config;
-    config.font_path = (draxul::tests::project_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf").string();
-    return config;
-}
-
-RichTextService make_initialized_service(float base_point_size = 12.0f)
-{
-    auto config = rich_text_test_config();
-    REQUIRE(std::filesystem::exists(config.font_path));
-
-    RichTextService service;
-    REQUIRE(service.initialize(config, base_point_size, 96.0f));
-    return service;
-}
 
 FontMetricsLookup synthetic_metrics()
 {
@@ -48,13 +27,6 @@ FontMetricsLookup synthetic_metrics()
             .ascender = std::max(1, static_cast<int>(std::lround(cell_height * 0.78f))),
             .descender = std::max(0, cell_height - static_cast<int>(std::lround(cell_height * 0.78f))),
         };
-    };
-}
-
-FontMetricsLookup metrics_from(RichTextService& service)
-{
-    return [&service](const RichTextStyleKey& style) {
-        return service.metrics_for(style);
     };
 }
 
@@ -235,14 +207,12 @@ TEST_CASE("markdown layout wraps long paragraphs at narrow content width", "[mar
 
 }
 
-TEST_CASE("markdown layout splits long unbroken words without rasterizing text", "[markdown][layout]")
+TEST_CASE("markdown layout splits long unbroken words from synthetic metrics", "[markdown][layout]")
 {
     Document document;
     document.blocks.push_back(paragraph(std::string(240, 'w')));
 
-    auto service = make_initialized_service();
-    const auto metrics_lookup = metrics_from(service);
-    service.clear_atlas_dirty();
+    const auto metrics_lookup = synthetic_metrics();
 
     const auto layout = layout_markdown_document(
         document,
@@ -256,8 +226,6 @@ TEST_CASE("markdown layout splits long unbroken words without rasterizing text",
         REQUIRE(row.runs.size() == 1);
         REQUIRE(row.runs.front().text.size() < 240);
     }
-    REQUIRE_FALSE(service.atlas_dirty());
-
 }
 
 TEST_CASE("markdown layout indents subsection headings and content", "[markdown][layout]")
@@ -602,8 +570,7 @@ TEST_CASE("markdown layout draws task markers as accent-colored glyphs", "[markd
     document.blocks.push_back(task_item("Ship it", true));
     document.blocks.push_back(task_item("Still open", false));
 
-    auto service = make_initialized_service();
-    const auto metrics_lookup = metrics_from(service);
+    const auto metrics_lookup = synthetic_metrics();
     const auto theme = default_markdown_theme(12.0f);
     const auto layout = layout_markdown_document(
         document,
@@ -627,18 +594,6 @@ TEST_CASE("markdown layout draws task markers as accent-colored glyphs", "[markd
     REQUIRE(*checked.color == theme.accent);
     REQUIRE(checked.baseline == layout.rows[0].baseline);
     REQUIRE(checked.x < layout.rows[0].runs.front().x);
-
-    // Both markers must rasterize from the primary font and stay monochrome:
-    // a color-emoji glyph would ignore the accent tint applied above.
-    for (const auto* marker : { &checked, &unchecked })
-    {
-        const auto cluster = service.resolve_cluster(marker->text, theme.body.rich_text);
-        INFO("marker: " << marker->text);
-        CHECK(cluster.atlas.bitmap_size.x > 0);
-        CHECK(cluster.atlas.bitmap_size.y > 0);
-        CHECK_FALSE(cluster.atlas.is_color);
-        CHECK(cluster.advance_px > 0.0f);
-    }
 
 }
 

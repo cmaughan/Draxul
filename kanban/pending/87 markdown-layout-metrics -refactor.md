@@ -27,15 +27,17 @@
 - [x] Cover narrow/wide/tall metrics, emphasis/base-style line heights, wrapping, tables, padding, and Unicode cell widths.
 - [x] Retain representative real-font host/drawing integration coverage.
 - [x] Add `draxul-test-markdown-layout` linked to `draxul-markdown`, excluding host/Kanban targets; avoid duplicate test registration.
-- [ ] Enable `cmake --build <cache> --config Debug --target draxul-test-markdown-layout --parallel`.
-- [ ] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-markdown-layout-shard-' --parallel 4 --output-on-failure`.
+- [x] Enable `cmake --build <cache> --config Debug --target draxul-test-markdown-layout --parallel`.
+- [x] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-markdown-layout-shard-' --parallel 4 --output-on-failure`.
 
 #### Cross-platform validation
 
-- [ ] Compare deterministic layout on MSVC and Apple Clang.
-- [ ] Verify host metrics and drawing remain aligned across font-size/DPI changes.
-- [ ] Run `python3 do.py test debug`, then `python3 do.py smoke debug --skip-build`.
-- [ ] Run affected Markdown render coverage on Vulkan and Metal without changing rendering policy.
+- [x] Compare deterministic layout on Apple Clang.
+- [ ] Compare deterministic layout on MSVC (requires a Windows validation host).
+- [x] Verify host metrics and drawing remain aligned across font-size/DPI changes.
+- [x] Run `python3 do.py test debug`, then `python3 do.py smoke debug --skip-build`.
+- [x] Run affected Markdown render coverage on Metal without changing rendering policy.
+- [ ] Run affected Markdown render coverage on Vulkan (requires a Windows validation host).
 
 #### Agent documentation/tooling
 
