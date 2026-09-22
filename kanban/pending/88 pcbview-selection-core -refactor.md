@@ -33,14 +33,15 @@
 
 - [x] Confirm the core acquires no SDK, SDL, ImGui, NanoVG, Vulkan, or Metal dependency.
 - [x] Preserve main-thread runtime ownership and identical world-space calculations on Windows/macOS.
-- [ ] Run `python3 do.py test debug --pcbview`, then `python3 do.py smoke debug --skip-build`.
-- [ ] Verify PCB render/interaction behavior on Vulkan and Metal; preserve existing selection visuals.
+- [x] Run `python3 do.py test debug --pcbview`, then `python3 do.py smoke debug --skip-build`.
+- [x] Verify PCB render/interaction behavior on Metal; preserve existing selection visuals.
+- [ ] Verify PCB render/interaction behavior on Vulkan (requires a Windows validation host).
 
 #### Agent documentation/tooling
 
 - [x] Document selection ownership in PCBView’s module guidance.
 - [x] Keep test additions in the existing product target and aggregate.
-- [ ] Commit in the PCBView repository and adopt its pointer deliberately in core.
+- [x] Commit in the PCBView repository (`6c20875`) and adopt its pointer deliberately in core.
 
 #### Acceptance criteria
 
@@ -51,10 +52,9 @@
 Implementation note: `SelectionState` and all hit/highlight decisions now live
 in the graphics-free core API. Runtime code retains ImGui arbitration,
 screen-to-world conversion, pixel-derived tolerance, camera behavior, and
-presentation. Source and regression tests are prepared; build, CTest,
-and the 11-test core + PCBView aggregate passed. `src/selection.cpp` is
-registered in `draxul-pcbview-core`. The same-cache smoke remains unsuccessful:
-Metal initialized, then the smoke client hung for more than three minutes
-despite its 3-second deadline and had to be stopped by exact PID. The clientless
-server it spawned was shut down gracefully. Render interaction, Windows/Vulkan
-validation, the PCBView commit, and parent submodule adoption remain pending.
+presentation. The focused PCB target and shard passed, followed by the 25-entry
+core + PCBView aggregate and bounded same-cache smoke. The aggregate includes a
+deterministic macOS Metal capture and the selection policy suite; the latter now
+distinguishes routed-copper precedence from an overlapping airwire with a
+different connection index. PCBView commit `6c20875` is pushed and adopted by
+the parent repository. Windows/Vulkan validation remains pending.

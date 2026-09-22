@@ -189,7 +189,7 @@
       "status": "developer",
       "requires_target": "draxul-pcbview-plugin",
       "test_scope": "pcbview",
-      "platforms": ["windows"],
+      "platforms": ["windows", "macos"],
       "ctest": true,
       "reference_required": true,
       "renderall": true,

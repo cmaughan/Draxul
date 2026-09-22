@@ -19,15 +19,15 @@
 
 - [x] Move audio and selected permission sources into the static target; remove duplicate compilation.
 - [x] Add the target to product `PRODUCT_TARGETS`, retaining PIC and product sanitizer/coverage/MSVC policy.
-- [ ] Add private injectable device, permission, and wait operations plus an explicitly owned test registry.
+- [x] Add private injectable device, permission, and wait operations plus an explicitly owned test registry.
 - [x] Retain production sharing and existing `AudioAnalyzer` callers.
 - [x] Add proposed `draxul-test-rezonality-audio` with no renderer/App dependency.
 
 #### Unit tests
 
-- [ ] Cover permission pending/granted/denied; initialization, device lookup, open, and resume failure.
-- [ ] Cover cancellation during opening, exactly-once cleanup, same/distinct-device sharing, and visibility reference counts.
-- [ ] Cover final-hidden pause/clear, backlog limits, and existing Synthetic/Silent outputs.
+- [x] Cover permission pending/granted/denied; initialization, device lookup, open, and resume failure.
+- [x] Cover cancellation during opening, exactly-once cleanup, same/distinct-device sharing, and visibility reference counts.
+- [x] Cover final-hidden pause/clear, backlog limits, and existing Synthetic/Silent outputs.
 - [x] Retain real module/edit/reload and synthetic-audio render coverage.
 - [x] Enable `cmake --build <cache> --config Debug --target draxul-test-rezonality-audio --parallel`.
 - [x] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-rezonality-audio-shard-' --parallel 4 --output-on-failure`.
@@ -37,18 +37,18 @@
 - [x] Preserve Apple module header-only SDL linkage and host symbol resolution; test executables supply SDL implementation.
 - [ ] Preserve ARC/AVFoundation permissions and Windows SDL/stub behavior.
 - [x] Keep Vulkan/Metal analysis texture contents and generations unchanged.
-- [x] Run `python3 do.py test debug --rezonality`, then `python3 do.py smoke debug --skip-build`.
+- [x] Run `python3 do.py test debug --rezonality`, then `python3 do.py smoke debug --skip-build`. (macOS: focused audio 6/6 cases and 55 assertions; final core + Rezonality aggregate 29/29 CTest entries in 106.53s; same-cache Metal startup smoke passed.)
 - [x] Leave unavailable manual microphone and Metal golden checks explicitly pending.
 
 #### Agent documentation/tooling
 
 - [x] Register the focused suite in product aggregates, `do.py` patterns, and runner selection tests.
 - [x] Preserve absent-product conditional registration and classify moved tests once.
-- [x] Update Rezonality guidance with the value-only audio boundary; product commit/pointer adoption remain pending.
+- [x] Update Rezonality guidance with the value-only audio boundary and adopt Rezonality commit `0a96351` in the parent repository.
 
 #### Acceptance criteria
 
 - [x] Audio implementation has one library owner.
-- [ ] Capture failure/lifecycle tests require neither physical input nor App/native rendering.
+- [x] Capture failure/lifecycle tests require neither physical input nor App/native rendering.
 - [x] The CPU project target remains independent of SDL implementation.
 - [x] Existing sharing, visibility, shutdown, module loading, and rendered audio behavior remain compatible.
