@@ -223,9 +223,9 @@
     },
     {
       "name": "megacity-plugin",
-      "purpose": "Dynamic MegaCity Vulkan composition using a deterministic semantic-city fixture",
+      "purpose": "Dynamic MegaCity GPU composition using a deterministic semantic-city fixture",
       "status": "regression",
-      "platforms": ["windows"],
+      "platforms": ["windows", "macos"],
       "ctest": true,
       "reference_required": true,
       "renderall": true,

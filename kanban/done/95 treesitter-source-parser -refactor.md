@@ -13,7 +13,7 @@
 
 - [x] Capture record order, path normalization, query reuse/fallback, parse-error records, and progress semantics.
 - [x] Preserve null-tree skip behavior and increment parsed count only after successful parsing (`treesitter.cpp:582–588`).
-- [x] Keep downstream model/layout work in `plugins/megacity/kanban/pending/05 megacity-model-layout-routing-library -refactor.md`.
+- [x] Keep downstream model/layout work in `plugins/megacity/kanban/done/05 megacity-model-layout-routing-library -refactor.md`.
 
 #### Implementation and migration
 

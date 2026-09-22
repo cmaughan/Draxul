@@ -372,7 +372,7 @@ Static inspection cannot validate generated dependency closure, native linking, 
 
 - [ ] Capture record order, path normalization, query reuse/fallback, parse-error records, and progress semantics.
 - [ ] Preserve null-tree skip behavior and increment parsed count only after successful parsing (`treesitter.cpp:582–588`).
-- [ ] Keep downstream model/layout work in `plugins/megacity/kanban/pending/05 megacity-model-layout-routing-library -refactor.md`.
+- [ ] Keep downstream model/layout work in `plugins/megacity/kanban/done/05 megacity-model-layout-routing-library -refactor.md`.
 
 #### Implementation and migration
 
