@@ -7,13 +7,24 @@
 #include <draxul/bmp.h>
 #include <draxul/log.h>
 
+#include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string_view>
+
+#include <nlohmann/json.hpp>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
 namespace draxul
 {
 
@@ -42,6 +53,7 @@ std::string expand_placeholders(std::string value, const std::filesystem::path& 
     const std::array replacements = {
         std::pair<std::string_view, std::string>{ "${SCENARIO_DIR}", normalized_path_string(scenario_dir) },
         std::pair<std::string_view, std::string>{ "${PROJECT_ROOT}", normalized_path_string(std::filesystem::path{ DRAXUL_PROJECT_ROOT }) },
+        std::pair<std::string_view, std::string>{ "${BUILD_ROOT}", normalized_path_string(std::filesystem::path{ DRAXUL_BUILD_ROOT }) },
     };
 
     for (const auto& [needle, replacement] : replacements)
@@ -54,6 +66,40 @@ std::string expand_placeholders(std::string value, const std::filesystem::path& 
         }
     }
     return value;
+}
+
+bool atomic_replace_file(const std::filesystem::path& temporary,
+    const std::filesystem::path& destination, std::string& error)
+{
+#ifdef _WIN32
+    DWORD last_error = ERROR_SUCCESS;
+    for (DWORD attempt = 0; attempt < 20; ++attempt)
+    {
+        if (MoveFileExW(temporary.c_str(), destination.c_str(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+            return true;
+        last_error = GetLastError();
+        if (last_error != ERROR_ACCESS_DENIED
+            && last_error != ERROR_SHARING_VIOLATION)
+            break;
+        Sleep(std::min<DWORD>(25 * (attempt + 1), 100));
+    }
+    error = "Unable to atomically replace plugin publication marker (error "
+        + std::to_string(last_error) + ")";
+    return false;
+#else
+    if (::rename(temporary.c_str(), destination.c_str()) == 0)
+        return true;
+    error = "Unable to atomically replace plugin publication marker";
+    return false;
+#endif
+}
+
+bool valid_generation_name(std::string_view value)
+{
+    return !value.empty() && value != "." && value != ".."
+        && value.find('/') == std::string_view::npos
+        && value.find('\\') == std::string_view::npos;
 }
 
 } // namespace
@@ -284,6 +330,13 @@ std::optional<RenderTestScenario> load_render_test_scenario(const std::filesyste
             *document, "plugin_config_json"))
         scenario.plugin_config_json
             = expand_placeholders(*plugin_config, scenario_dir);
+    if (auto reload_plugin_id = toml_support::get_string(
+            *document, "reload_plugin_id"))
+        scenario.reload_plugin_id = *reload_plugin_id;
+    if (auto reload_plugin_package = toml_support::get_string(
+            *document, "reload_plugin_package"))
+        scenario.reload_plugin_package = std::filesystem::path(
+            expand_placeholders(*reload_plugin_package, scenario_dir));
     if (auto nvim_args = toml_support::get_string_array(*document, "nvim_args"))
     {
         scenario.host_args.clear();
@@ -311,8 +364,165 @@ std::optional<RenderTestScenario> load_render_test_scenario(const std::filesyste
             *error_message = "Render test scenario requires at least one startup command";
         return std::nullopt;
     }
+    if (scenario.reload_plugin_id.empty()
+        != scenario.reload_plugin_package.empty())
+    {
+        if (error_message)
+            *error_message = "Render-test plugin reload requires both reload_plugin_id and reload_plugin_package";
+        return std::nullopt;
+    }
 
     return scenario;
+}
+
+std::optional<RenderTestPluginPublication>
+publish_render_test_plugin_generation(
+    const std::filesystem::path& published_source_root,
+    const std::filesystem::path& destination_root,
+    std::string* error_message)
+{
+    PERF_MEASURE();
+    std::filesystem::path installed_generation;
+    std::filesystem::path temporary_marker;
+    try
+    {
+        const auto source_pointer = published_source_root / "current.json";
+        std::ifstream pointer_input(source_pointer, std::ios::binary);
+        if (!pointer_input)
+            throw std::runtime_error(
+                "Replacement plugin package has no current.json");
+        const auto pointer = nlohmann::json::parse(pointer_input);
+        const std::string generation = pointer.value("generation", "");
+        if (!valid_generation_name(generation))
+            throw std::runtime_error(
+                "Replacement plugin package has an invalid generation");
+
+        const auto source_generation = published_source_root / "generations"
+            / generation;
+        if (!std::filesystem::is_regular_file(
+                source_generation / "plugin.toml"))
+            throw std::runtime_error(
+                "Replacement plugin generation has no plugin.toml");
+
+        std::filesystem::create_directories(destination_root / "generations");
+        static std::atomic<uint64_t> serial{ 0 };
+        const auto incoming = destination_root
+            / (".render-test-incoming-"
+                + std::to_string(serial.fetch_add(1)));
+        const auto destination_generation = destination_root / "generations"
+            / generation;
+        installed_generation = destination_generation;
+        std::error_code filesystem_error;
+        std::filesystem::remove_all(incoming, filesystem_error);
+        if (std::filesystem::exists(destination_generation))
+            throw std::runtime_error(
+                "Replacement plugin generation is already published: "
+                + generation);
+        std::filesystem::copy(source_generation, incoming,
+            std::filesystem::copy_options::recursive,
+            filesystem_error);
+        if (filesystem_error)
+            throw std::runtime_error(
+                "Unable to copy replacement plugin generation: "
+                + filesystem_error.message());
+        std::filesystem::rename(incoming, destination_generation,
+            filesystem_error);
+        if (filesystem_error)
+        {
+            std::filesystem::remove_all(incoming);
+            throw std::runtime_error(
+                "Unable to publish replacement plugin generation: "
+                + filesystem_error.message());
+        }
+
+        RenderTestPluginPublication publication;
+        publication.destination_root = destination_root;
+        publication.published_generation = destination_generation;
+        const auto destination_pointer = destination_root / "current.json";
+        if (std::filesystem::is_regular_file(destination_pointer))
+        {
+            std::ifstream previous(destination_pointer, std::ios::binary);
+            if (!previous)
+                throw std::runtime_error(
+                    "Unable to read the current plugin publication marker");
+            publication.previous_pointer.assign(
+                std::istreambuf_iterator<char>(previous), {});
+            publication.had_previous_pointer = true;
+        }
+
+        const auto temporary = destination_root
+            / ("current.json.render-test-"
+                + std::to_string(serial.fetch_add(1)));
+        temporary_marker = temporary;
+        std::filesystem::copy_file(source_pointer, temporary,
+            std::filesystem::copy_options::overwrite_existing);
+        std::string replace_error;
+        if (!atomic_replace_file(temporary, destination_pointer,
+                replace_error))
+        {
+            std::filesystem::remove(temporary);
+            std::filesystem::remove_all(destination_generation);
+            throw std::runtime_error(replace_error);
+        }
+        return publication;
+    }
+    catch (const std::exception& exception)
+    {
+        std::error_code cleanup_error;
+        if (!temporary_marker.empty())
+            std::filesystem::remove(temporary_marker, cleanup_error);
+        if (!installed_generation.empty())
+            std::filesystem::remove_all(
+                installed_generation, cleanup_error);
+        if (error_message)
+            *error_message = exception.what();
+        return std::nullopt;
+    }
+}
+
+bool restore_render_test_plugin_generation(
+    const RenderTestPluginPublication& publication,
+    std::string* error_message)
+{
+    PERF_MEASURE();
+    try
+    {
+        const auto pointer = publication.destination_root / "current.json";
+        if (publication.had_previous_pointer)
+        {
+            const auto temporary = publication.destination_root
+                / "current.json.render-test-restore";
+            {
+                std::ofstream output(temporary,
+                    std::ios::binary | std::ios::trunc);
+                output << publication.previous_pointer;
+                if (!output)
+                    throw std::runtime_error(
+                        "Unable to write restored plugin publication marker");
+            }
+            std::string replace_error;
+            if (!atomic_replace_file(temporary, pointer, replace_error))
+                throw std::runtime_error(replace_error);
+        }
+        else
+        {
+            std::filesystem::remove(pointer);
+        }
+        std::error_code cleanup_error;
+        std::filesystem::remove_all(
+            publication.published_generation, cleanup_error);
+        if (cleanup_error)
+            throw std::runtime_error(
+                "Unable to remove render-test plugin generation: "
+                + cleanup_error.message());
+        return true;
+    }
+    catch (const std::exception& exception)
+    {
+        if (error_message)
+            *error_message = exception.what();
+        return false;
+    }
 }
 
 bool finalize_render_test_result(const RenderTestScenario& scenario, const CapturedFrame& frame, bool bless_reference, std::string* error_message)

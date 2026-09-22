@@ -6,6 +6,7 @@ import io
 import json
 import pathlib
 import signal
+import shutil
 import stat
 import subprocess
 import sys
@@ -484,6 +485,148 @@ class BuildTreeLockTests(unittest.TestCase):
             self.assertEqual(130, result["return_code"])
 
 
+class WindowsServerHelperPreflightTests(unittest.TestCase):
+    def _run_preflight(
+        self,
+        root: pathlib.Path,
+        executable: pathlib.Path,
+        helper: pathlib.Path,
+        process_path: pathlib.Path,
+        *,
+        clients: int = 2,
+        checkpoint_state: str = "clean",
+    ):
+        status = {
+            "server_pid": 4242,
+            "connected_clients": clients,
+            "checkpoint_state": checkpoint_state,
+            "checkpoint_error": "",
+        }
+        runtime = root / "runtime"
+        runtime.mkdir()
+        with (
+            mock.patch.object(draxul_do.sys, "platform", "win32"),
+            mock.patch.object(
+                draxul_do,
+                "_capture_owned_process",
+                return_value=(0, json.dumps(status)),
+            ) as capture,
+            mock.patch.object(
+                draxul_do, "_process_is_running", return_value=True
+            ),
+            mock.patch.object(
+                draxul_do,
+                "_windows_process_executable",
+                return_value=process_path,
+            ),
+        ):
+            result = draxul_do._preflight_windows_server_helper(
+                root, executable, None, runtime_directory=runtime
+            )
+        self.assertEqual(
+            [
+                str(executable),
+                "--server-status",
+                "--server-runtime-dir",
+                str(runtime),
+                "--json",
+            ],
+            capture.call_args.args[0],
+        )
+        self.assertEqual(helper, executable.parent / "draxul-server.exe")
+        return result
+
+    def test_compatible_selected_helper_continues_with_live_server_details(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            executable = root / "build" / "draxul.exe"
+            helper = executable.with_name("draxul-server.exe")
+            executable.parent.mkdir()
+            executable.write_bytes(b"same-build")
+            shutil.copy2(executable, helper)
+
+            result = self._run_preflight(
+                root, executable, helper, helper, clients=3, checkpoint_state="saved"
+            )
+
+        self.assertTrue(result.ok)
+        self.assertIn("helper is unchanged", result.summary)
+        self.assertIn("server PID: 4242", result.summary)
+        self.assertIn("attached clients: 3", result.summary)
+        self.assertIn("checkpoint health: saved", result.summary)
+
+    def test_unrelated_build_helper_continues_even_when_selected_copy_differs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            executable = root / "build" / "draxul.exe"
+            helper = executable.with_name("draxul-server.exe")
+            executable.parent.mkdir()
+            executable.write_bytes(b"new")
+            helper.write_bytes(b"old")
+            other_helper = root / "other-build" / "draxul-server.exe"
+
+            result = self._run_preflight(
+                root, executable, helper, other_helper
+            )
+
+        self.assertTrue(result.ok)
+        self.assertIn("unrelated live server", result.summary)
+
+    def test_stale_selected_helper_blocks_with_exact_recovery_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            executable = root / "build" / "draxul.exe"
+            helper = executable.with_name("draxul-server.exe")
+            executable.parent.mkdir()
+            executable.write_bytes(b"new-build")
+            helper.write_bytes(b"old")
+
+            result = self._run_preflight(
+                root,
+                executable,
+                helper,
+                helper,
+                clients=4,
+                checkpoint_state="write_failed",
+            )
+
+        self.assertFalse(result.ok)
+        self.assertIn("replacement required", result.summary)
+        self.assertIn("server PID: 4242", result.summary)
+        self.assertIn("attached clients: 4", result.summary)
+        self.assertIn("checkpoint health: write_failed", result.summary)
+        self.assertIn("--shutdown-server --yes", result.summary)
+        self.assertIn("--server-runtime-dir", result.summary)
+
+    def test_test_workflow_stops_before_ctest_when_refresh_is_blocked(self) -> None:
+        executable = ROOT / "build-ninja-debug" / "draxul.exe"
+        with (
+            mock.patch.object(draxul_do.sys, "platform", "win32"),
+            mock.patch.object(
+                draxul_do,
+                "_configure_and_build",
+                return_value=(
+                    0,
+                    ROOT / "build-ninja-debug",
+                    "Debug",
+                    {"TEST": "1"},
+                ),
+            ),
+            mock.patch.object(draxul_do, "draxul_exe", return_value=executable),
+            mock.patch.object(pathlib.Path, "is_file", return_value=True),
+            mock.patch.object(
+                draxul_do,
+                "_run_windows_server_helper_preflight",
+                return_value=125,
+            ) as preflight,
+            mock.patch.object(draxul_do, "_ctest_selection_count") as inventory,
+        ):
+            self.assertEqual(125, draxul_do.cmd_test(ROOT, []))
+
+        preflight.assert_called_once_with(ROOT, executable, {"TEST": "1"})
+        inventory.assert_not_called()
+
+
 class RunCommandTests(unittest.TestCase):
     def test_windows_gui_launch_returns_after_starting_app(self) -> None:
         executable = ROOT / "build-ninja-release" / "draxul.exe"
@@ -637,6 +780,9 @@ class TestCommandTests(unittest.TestCase):
             mock.patch.object(
                 draxul_do, "_ctest_selection_count", return_value=(0, 14, "")
             ),
+            mock.patch.object(
+                draxul_do, "_run_windows_server_helper_preflight", return_value=0
+            ),
         ):
             self.assertEqual(0, draxul_do.main())
 
@@ -733,6 +879,9 @@ class TestCommandTests(unittest.TestCase):
             mock.patch.object(draxul_do, "run", return_value=0) as run_mock,
             mock.patch.object(
                 draxul_do, "_ctest_selection_count", return_value=(0, 2, "")
+            ),
+            mock.patch.object(
+                draxul_do, "_run_windows_server_helper_preflight", return_value=0
             ),
         ):
             self.assertEqual(
@@ -862,6 +1011,9 @@ class TestCommandTests(unittest.TestCase):
                 "_capture_owned_process",
                 return_value=(0, "3 matching test cases\n"),
             ) as capture,
+            mock.patch.object(
+                draxul_do, "_run_windows_server_helper_preflight", return_value=0
+            ),
             mock.patch.object(draxul_do, "run", return_value=0) as run_mock,
         ):
             self.assertEqual(
@@ -903,6 +1055,9 @@ class TestCommandTests(unittest.TestCase):
                 draxul_do,
                 "_capture_owned_process",
                 return_value=(0, "0 matching test cases\n"),
+            ),
+            mock.patch.object(
+                draxul_do, "_run_windows_server_helper_preflight", return_value=0
             ),
             mock.patch.object(draxul_do, "run") as run_mock,
         ):
@@ -1151,6 +1306,11 @@ class FinalValidationCommandTests(unittest.TestCase):
                 ) as build_mock,
                 mock.patch.object(draxul_do, "draxul_exe", return_value=executable),
                 mock.patch.object(
+                    draxul_do,
+                    "_run_windows_server_helper_preflight",
+                    return_value=0,
+                ),
+                mock.patch.object(
                     draxul_do, "_ctest_selection_count", return_value=(0, 37, "")
                 ),
                 mock.patch.object(
@@ -1171,7 +1331,7 @@ class FinalValidationCommandTests(unittest.TestCase):
             self.assertIn("unit", ctest_command)
             self.assertIn("targets built: draxul, draxul-tests", output.getvalue())
             self.assertIn("tests selected: 37 CTest entries", output.getvalue())
-            self.assertIn("steps: 3/3 passed", output.getvalue())
+            self.assertIn("steps: 4/4 passed", output.getvalue())
 
     def test_final_summary_reports_retained_failure_log_and_category(self) -> None:
         step = draxul_do.ValidationStepResult(
@@ -1347,11 +1507,9 @@ class HygieneCommandTests(unittest.TestCase):
                 "megacity-linux-drivers-mesh.bmp",
                 "NUL.obj",
                 "debug.log",
-                "default.profraw",
                 ".DS_Store",
                 ".!75583!.DS_Store",
                 "sub/dir/.DS_Store",
-                "coverage/report.profdata",
             ]
         )
         self.assertEqual(
@@ -1359,9 +1517,7 @@ class HygieneCommandTests(unittest.TestCase):
                 ".!75583!.DS_Store",
                 ".DS_Store",
                 "NUL.obj",
-                "coverage/report.profdata",
                 "debug.log",
-                "default.profraw",
                 "key.txt",
                 "megacity-linux-drivers-mesh.bmp",
                 "sub/dir/.DS_Store",

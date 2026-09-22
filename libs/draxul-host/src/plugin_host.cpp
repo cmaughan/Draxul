@@ -895,6 +895,13 @@ std::string PluginHost::status_text() const
     return {};
 }
 
+std::optional<std::filesystem::path>
+PluginHost::published_package_root() const
+{
+    return manager_ ? manager_->published_package_root(plugin_id_)
+                    : std::nullopt;
+}
+
 Color PluginHost::default_background() const
 {
     if (const auto state = presentation_snapshot())

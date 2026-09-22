@@ -167,7 +167,7 @@ Cards use the requested sequence beginning at `00`; the trusted runner can norma
 - [ ] Repeated successful reloads produce correct counts without lifetime violations.
 - [ ] Failed reloads and resize recreation retain valid active state.
 
-### kanban/pending/10 vulkan-capture-resize-bounds -bug.md
+### kanban/done/10 vulkan-capture-resize-bounds -bug.md
 
 # Keep capture dimensions tied to the recorded image
 
@@ -235,7 +235,7 @@ Cards use the requested sequence beginning at `00`; the trusted runner can norma
 **Acceptance criteria**
 
 - [ ] Every failure frees resources once, with no double-free or leak.
-- [ ] Normal initialization and teardown remain valid under sanitizers.
+- [ ] Normal initialization and teardown pass the deterministic ownership checks.
 
 ### kanban/pending/18 codex-indented-features-header -bug.md
 
@@ -330,7 +330,7 @@ Cards use the requested sequence beginning at `00`; the trusted runner can norma
 - [ ] Oversized inputs fail diagnostically before overflow or excessive allocation.
 - [ ] Supported boards still route, and a rejected board cannot terminate Draxul.
 
-### kanban/pending/36 satview-vulkan-stream-buffer-lifetime -bug.md
+### kanban/done/36 satview-vulkan-stream-buffer-lifetime -bug.md
 
 # Keep SatView vertex streams valid across in-flight frames
 

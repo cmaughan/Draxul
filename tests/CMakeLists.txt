@@ -273,6 +273,7 @@ function(draxul_add_test_target target label shard_count)
     target_compile_definitions(${target} PRIVATE
         DRAXUL_RPC_FAKE_PATH="$<TARGET_FILE:draxul-rpc-fake>"
         DRAXUL_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
+        DRAXUL_BUILD_ROOT="${CMAKE_BINARY_DIR}"
         DRAXUL_ENABLE_RENDER_TESTS
     )
 

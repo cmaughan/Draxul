@@ -117,9 +117,6 @@ if errorlevel 1 exit /b !errorlevel!
 exit /b 0
 
 :cache_is_standard
-findstr /b /c:"DRAXUL_ENABLE_SANITIZERS:BOOL=ON" "%CACHE_FILE%" >nul && exit /b 1
-findstr /b /c:"DRAXUL_ENABLE_TSAN:BOOL=ON" "%CACHE_FILE%" >nul && exit /b 1
-findstr /b /c:"DRAXUL_ENABLE_COVERAGE:BOOL=ON" "%CACHE_FILE%" >nul && exit /b 1
 findstr /b /c:"DRAXUL_ENABLE_RENDER_TESTS:BOOL=ON" "%CACHE_FILE%" >nul || exit /b 1
 exit /b 0
 

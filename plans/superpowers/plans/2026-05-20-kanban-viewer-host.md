@@ -67,7 +67,7 @@
 - Modify `app/command_palette.cpp`
   - Include `Kanban` in host-kind actions. Markdown is intentionally omitted there because it needs a concrete source file path.
 - Modify root `CMakeLists.txt` and `tests/CMakeLists.txt`
-  - Add `draxul-kanban` to build, tests, sanitizers, and app link.
+  - Add `draxul-kanban` to the build, tests, target policy, and app link.
 - Create `tests/kanban_board_tests.cpp`
   - Model/icon/default ordering tests.
 - Create `tests/kanban_store_tests.cpp`
@@ -2155,7 +2155,7 @@ Register after Markdown:
 
 In root `CMakeLists.txt`:
 
-- Add `draxul-kanban` to the sanitizer/coverage library list.
+- Add `draxul-kanban` to the project-owned target policy.
 - Link `draxul` with `draxul-kanban`:
 
 ```cmake

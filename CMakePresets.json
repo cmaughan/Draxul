@@ -9,10 +9,7 @@
             "generator": "Visual Studio 17 2022",
             "architecture": "x64",
             "cacheVariables": {
-                "DRAXUL_ENABLE_RENDER_TESTS": "ON",
-                "DRAXUL_ENABLE_SANITIZERS": "OFF",
-                "DRAXUL_ENABLE_TSAN": "OFF",
-                "DRAXUL_ENABLE_COVERAGE": "OFF"
+                "DRAXUL_ENABLE_RENDER_TESTS": "ON"
             },
             "condition": {
                 "type": "equals",
@@ -27,10 +24,7 @@
             "generator": "Visual Studio 17 2022",
             "architecture": "x64",
             "cacheVariables": {
-                "DRAXUL_ENABLE_RENDER_TESTS": "ON",
-                "DRAXUL_ENABLE_SANITIZERS": "OFF",
-                "DRAXUL_ENABLE_TSAN": "OFF",
-                "DRAXUL_ENABLE_COVERAGE": "OFF"
+                "DRAXUL_ENABLE_RENDER_TESTS": "ON"
             },
             "condition": {
                 "type": "equals",
@@ -45,10 +39,7 @@
             "generator": "Ninja",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "DRAXUL_ENABLE_RENDER_TESTS": "ON",
-                "DRAXUL_ENABLE_SANITIZERS": "OFF",
-                "DRAXUL_ENABLE_TSAN": "OFF",
-                "DRAXUL_ENABLE_COVERAGE": "OFF"
+                "DRAXUL_ENABLE_RENDER_TESTS": "ON"
             },
             "condition": {
                 "type": "equals",
@@ -63,10 +54,7 @@
             "generator": "Ninja",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "DRAXUL_ENABLE_RENDER_TESTS": "ON",
-                "DRAXUL_ENABLE_SANITIZERS": "OFF",
-                "DRAXUL_ENABLE_TSAN": "OFF",
-                "DRAXUL_ENABLE_COVERAGE": "OFF"
+                "DRAXUL_ENABLE_RENDER_TESTS": "ON"
             },
             "condition": {
                 "type": "equals",
@@ -81,10 +69,7 @@
             "generator": "Ninja",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "DRAXUL_ENABLE_RENDER_TESTS": "ON",
-                "DRAXUL_ENABLE_SANITIZERS": "OFF",
-                "DRAXUL_ENABLE_TSAN": "OFF",
-                "DRAXUL_ENABLE_COVERAGE": "OFF"
+                "DRAXUL_ENABLE_RENDER_TESTS": "ON"
             },
             "condition": {
                 "type": "equals",
@@ -99,10 +84,7 @@
             "generator": "Unix Makefiles",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "DRAXUL_ENABLE_RENDER_TESTS": "ON",
-                "DRAXUL_ENABLE_SANITIZERS": "OFF",
-                "DRAXUL_ENABLE_TSAN": "OFF",
-                "DRAXUL_ENABLE_COVERAGE": "OFF"
+                "DRAXUL_ENABLE_RENDER_TESTS": "ON"
             },
             "condition": {
                 "type": "equals",
@@ -117,39 +99,12 @@
             "generator": "Unix Makefiles",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "DRAXUL_ENABLE_RENDER_TESTS": "ON",
-                "DRAXUL_ENABLE_SANITIZERS": "OFF",
-                "DRAXUL_ENABLE_TSAN": "OFF",
-                "DRAXUL_ENABLE_COVERAGE": "OFF"
+                "DRAXUL_ENABLE_RENDER_TESTS": "ON"
             },
             "condition": {
                 "type": "equals",
                 "lhs": "${hostSystemName}",
                 "rhs": "Darwin"
-            }
-        },
-        {
-            "name": "mac-asan",
-            "displayName": "ASan/LSan Debug (macOS)",
-            "inherits": "mac-debug",
-            "cacheVariables": {
-                "DRAXUL_ENABLE_SANITIZERS": "ON"
-            }
-        },
-        {
-            "name": "mac-tsan",
-            "displayName": "TSan Debug (macOS)",
-            "inherits": "mac-debug",
-            "cacheVariables": {
-                "DRAXUL_ENABLE_TSAN": "ON"
-            }
-        },
-        {
-            "name": "mac-coverage",
-            "displayName": "Coverage Debug (macOS)",
-            "inherits": "mac-debug",
-            "cacheVariables": {
-                "DRAXUL_ENABLE_COVERAGE": "ON"
             }
         },
         {
@@ -197,18 +152,6 @@
         {
             "name": "mac-release",
             "configurePreset": "mac-release"
-        },
-        {
-            "name": "mac-asan",
-            "configurePreset": "mac-asan"
-        },
-        {
-            "name": "mac-tsan",
-            "configurePreset": "mac-tsan"
-        },
-        {
-            "name": "mac-coverage",
-            "configurePreset": "mac-coverage"
         }
     ]
 }

@@ -6,6 +6,8 @@
 
 #include <draxul/agent_model.h>
 
+#include "support/test_support.h"
+
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -154,22 +156,32 @@ TEST_CASE("UnixPtyProcess observes an agent started by hand inside the shell",
     const auto fake_agent = bin / "claude";
     std::filesystem::create_symlink(versioned, fake_agent);
 
-    // zsh, because that is what Draxul actually spawns on macOS and because a
-    // job-control shell puts the command in its OWN foreground process group —
-    // which is precisely what tcgetpgrp() has to resolve.
-    // Point zsh at an EMPTY config directory. A login shell would otherwise
-    // source the developer's real rc files, whose cost (plugin managers,
-    // version managers) varies wildly and made this test's timing depend on
-    // whoever happened to run it.
+    // Use the platform's normal interactive shell without loading developer
+    // configuration. A job-control shell puts the command in its OWN
+    // foreground process group, which is precisely what tcgetpgrp() has to
+    // resolve before the Linux implementation reads the group from /proc.
+#ifdef __APPLE__
     const auto zdotdir = root / "zdot";
     std::filesystem::create_directories(zdotdir);
+    const std::string shell = "/bin/zsh";
+    const std::vector<std::string> shell_args;
+    const bool login_shell = true;
+    const std::vector<std::pair<std::string, std::string>> shell_environment{
+        { "ZDOTDIR", zdotdir.string() },
+    };
+#else
+    const std::string shell = "/bin/bash";
+    const std::vector<std::string> shell_args{ "--noprofile", "--norc" };
+    const bool login_shell = false;
+    const std::vector<std::pair<std::string, std::string>> shell_environment;
+#endif
 
     UnixPtyProcess process;
-    REQUIRE(process.spawn("/bin/zsh", {}, root.string(), [] {}, 80, 24,
-        /*login_shell=*/true, { { "ZDOTDIR", zdotdir.string() } }));
+    REQUIRE(process.spawn(shell, shell_args, root.string(), [] {}, 80, 24,
+        login_shell, shell_environment));
 
     // Anything written before the shell starts reading is lost, and there is
-    // no reliable way to observe "zsh is ready" from outside. Rather than
+    // no reliable way to observe "the shell is ready" from outside. Rather than
     // guess at a settling delay — which is what made this flake under parallel
     // shards — re-send the command while polling, so a write that lands too
     // early simply gets repeated. Re-typing while the agent already runs just

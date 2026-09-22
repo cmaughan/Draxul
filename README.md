@@ -216,7 +216,6 @@ The root `do.py` script is the recommended entry point for common tasks:
 ./do.py api          # build local Doxygen API docs
 ./do.py docs         # build all documentation artifacts
 ./do.py shot         # regenerate the README hero screenshot
-./do.py coverage     # macOS: export build/coverage.lcov and refresh db/coverage.lcov
 ```
 
 On Windows, use `py do.py <command>`.
@@ -260,7 +259,16 @@ prints one status line. A failure prints only its diagnostic tail, retains the c
 log below `<build-tree>/validation-logs/`, and appears in the final summary as a build,
 startup, snapshot, product-test, or validation-environment failure.
 
-On Windows, a long-lived Draxul server keeps its selected cache's `draxul-server.exe` open. If the Debug app has since been relinked, run process-launch tests before starting that server or safely stop that exact server after checking for connected clients and live terminals. Do not switch the entire test pass to another generator merely to avoid the helper lock.
+On Windows, `do.py test` and `do.py validate` preflight the default live server after
+the selected cache is built. An unchanged same-cache helper and a server running from
+another build cache are left alone. If the selected cache's live
+`draxul-server.exe` is stale and must be replaced, the workflow stops before tests and
+prints the exact server PID, runtime directory, attached-client count, checkpoint
+health, and explicit shutdown command. Inspect its live terminals before running that
+command; the workflow never stops a server implicitly. Detached-server integration
+tests stage their app and helper under a unique test runtime, so an unrelated default
+server cannot lock their helper. Do not switch the entire test pass to another
+generator merely to avoid a reported helper lock.
 
 The `t.sh`, `t.bat`, and `scripts/run_tests.*` wrappers remain available for an explicitly requested broad or multi-configuration validation pass. They are not the normal edit-build-test path and should not be stacked with equivalent `do.py` validation.
 

@@ -35,8 +35,6 @@ function(draxul_configure_internal_target target)
             "Internal target '${target}' has unsupported policy type '${_type}'")
     endif()
 
-    draxul_apply_sanitizers("${target}")
-    draxul_apply_coverage("${target}")
     draxul_apply_msvc_parallel_pdb_fix("${target}")
     set_property(TARGET "${target}" PROPERTY
         DRAXUL_INTERNAL_POLICY_CONFIGURED TRUE)

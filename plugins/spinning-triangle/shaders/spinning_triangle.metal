@@ -41,5 +41,9 @@ vertex VertexOut triangle_vertex(uint vertex_id [[vertex_id]],
 }
 
 fragment float4 triangle_fragment(VertexOut in [[stage_in]]) {
+#ifdef DRAXUL_RELOAD_RENDER_VARIANT
+    return float4(1.0 - in.color, 1.0);
+#else
     return float4(in.color, 1.0);
+#endif
 }

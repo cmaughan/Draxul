@@ -147,4 +147,78 @@ TEST_CASE("render test driver reports capture timeout phase")
     CHECK(result.error.find("capture_requested=true") != std::string::npos);
 }
 
+TEST_CASE("render test driver runs hook between original and captured frames",
+    "[render][reload]")
+{
+    FakeCaptureRenderer capture;
+    auto env = make_env(capture);
+    HostRuntimeState state;
+    state.content_ready = true;
+    uint64_t frame_count = 1;
+    bool frame_requested = false;
+    int hook_calls = 0;
+
+    env.pump_once = [&](std::optional<std::chrono::steady_clock::time_point>) {
+        if (frame_requested)
+        {
+            ++frame_count;
+            frame_requested = false;
+        }
+        if (capture.requested)
+            capture.available = true;
+        return true;
+    };
+    env.request_frame = [&]() { frame_requested = true; };
+    env.is_running = []() { return true; };
+    env.saw_frame = []() { return true; };
+    env.rendered_frame_count = [&]() { return frame_count; };
+    env.frame_requested = [&]() { return frame_requested; };
+    env.active_host_state = [&]() -> std::optional<HostRuntimeState> {
+        return state;
+    };
+    env.before_capture = [&]() {
+        ++hook_calls;
+        frame_requested = true;
+        return std::string{};
+    };
+
+    const auto result = run_render_test_driver(env,
+        { std::chrono::milliseconds(250), std::chrono::milliseconds(0) });
+
+    REQUIRE(result.frame.has_value());
+    CHECK(result.error.empty());
+    CHECK(hook_calls == 1);
+    CHECK(frame_count >= 2);
+}
+
+TEST_CASE("render test driver reports before-capture hook failure",
+    "[render][reload]")
+{
+    FakeCaptureRenderer capture;
+    auto env = make_env(capture);
+    HostRuntimeState state;
+    state.content_ready = true;
+    env.pump_once
+        = [](std::optional<std::chrono::steady_clock::time_point>) {
+              return true;
+          };
+    env.is_running = []() { return true; };
+    env.saw_frame = []() { return true; };
+    env.rendered_frame_count = []() { return uint64_t{ 1 }; };
+    env.frame_requested = []() { return false; };
+    env.active_host_state = [&]() -> std::optional<HostRuntimeState> {
+        return state;
+    };
+    env.before_capture = []() {
+        return std::string("replacement publication failed");
+    };
+
+    const auto result = run_render_test_driver(env,
+        { std::chrono::milliseconds(250), std::chrono::milliseconds(0) });
+
+    CHECK_FALSE(result.frame.has_value());
+    CHECK(result.error == "replacement publication failed");
+    CHECK_FALSE(capture.requested);
+}
+
 } // namespace draxul

@@ -108,6 +108,9 @@ KanbanNavigationCommand KanbanNavigationState::on_key(const draxul::KeyEvent& ev
     case SDLK_P:
         pending_g_ = false;
         return KanbanNavigationCommand::TogglePreview;
+    case SDLK_B:
+        pending_g_ = false;
+        return KanbanNavigationCommand::CycleSourceFilter;
     default:
         pending_g_ = false;
         return KanbanNavigationCommand::None;

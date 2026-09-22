@@ -11,4 +11,4 @@ only test the fake. Add cases only where a concrete host exposes an observable r
 - [ ] Reuse existing concrete-host fixtures and add only uncovered fault transitions.
 - [ ] Verify partial initialization cannot leak callbacks, processes, subscriptions, or
       render passes.
-- [ ] Run available sanitizer and platform lifecycle coverage.
+- [ ] Run deterministic repeated lifecycle cases on Windows and macOS plus the normal aggregate gate.

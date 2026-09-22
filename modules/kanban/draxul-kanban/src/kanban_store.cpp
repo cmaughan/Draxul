@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <fstream>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 
@@ -278,6 +279,170 @@ void write_string_array(std::ostream& out, const OrderedNames& names)
     out << "]";
 }
 
+std::filesystem::path normalized_path(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    auto normalized = std::filesystem::weakly_canonical(path, ec);
+    if (ec)
+        normalized = std::filesystem::absolute(path, ec);
+    return ec ? path.lexically_normal() : normalized;
+}
+
+bool path_is_within(
+    const std::filesystem::path& parent,
+    const std::filesystem::path& child)
+{
+    const auto relative = child.lexically_relative(parent);
+    if (relative.empty() || relative.is_absolute())
+        return false;
+    const auto first = relative.begin();
+    return first == relative.end() || *first != "..";
+}
+
+std::string unquote_path(std::string value)
+{
+    value = trim(value);
+    if (value.size() >= 2
+        && ((value.front() == '"' && value.back() == '"')
+            || (value.front() == '\'' && value.back() == '\'')))
+    {
+        value = value.substr(1, value.size() - 2);
+    }
+    return value;
+}
+
+void discover_submodule_boards(
+    const std::filesystem::path& repository_root,
+    const std::filesystem::path& workspace_root,
+    std::set<std::filesystem::path>& visited_repositories,
+    std::vector<KanbanSource>& sources,
+    std::vector<std::string>& warnings)
+{
+    const auto normalized_repository = normalized_path(repository_root);
+    if (!visited_repositories.insert(normalized_repository).second)
+        return;
+
+    const auto modules_path = normalized_repository / ".gitmodules";
+    std::error_code ec;
+    if (!std::filesystem::exists(modules_path, ec))
+        return;
+    if (ec)
+    {
+        warnings.push_back("failed to inspect " + modules_path.string() + ": " + ec.message());
+        return;
+    }
+
+    std::ifstream modules(modules_path);
+    if (!modules)
+    {
+        warnings.push_back("failed to open " + modules_path.string());
+        return;
+    }
+
+    std::string line;
+    while (std::getline(modules, line))
+    {
+        const auto stripped = trim(line);
+        const auto equals = stripped.find('=');
+        if (equals == std::string::npos
+            || trim(std::string_view(stripped).substr(0, equals)) != "path")
+        {
+            continue;
+        }
+
+        const auto configured_path = std::filesystem::path(
+            unquote_path(stripped.substr(equals + 1)));
+        if (configured_path.empty() || configured_path.is_absolute())
+        {
+            warnings.push_back("ignored invalid submodule path in " + modules_path.string());
+            continue;
+        }
+
+        const auto submodule_root = normalized_path(
+            normalized_repository / configured_path);
+        if (!path_is_within(workspace_root, submodule_root))
+        {
+            warnings.push_back("ignored submodule path outside workspace: "
+                + submodule_root.string());
+            continue;
+        }
+
+        const bool submodule_exists = std::filesystem::exists(submodule_root, ec);
+        if (ec)
+        {
+            warnings.push_back("failed to inspect submodule "
+                + submodule_root.string() + ": " + ec.message());
+            ec.clear();
+            continue;
+        }
+        if (!submodule_exists || !std::filesystem::is_directory(submodule_root, ec))
+        {
+            if (ec)
+            {
+                warnings.push_back("failed to inspect submodule "
+                    + submodule_root.string() + ": " + ec.message());
+                ec.clear();
+            }
+            continue;
+        }
+
+        const auto board_root = submodule_root / "kanban";
+        const bool board_exists = std::filesystem::exists(board_root, ec);
+        if (ec)
+        {
+            warnings.push_back("failed to inspect submodule board "
+                + board_root.string() + ": " + ec.message());
+            ec.clear();
+        }
+        else if (board_exists && std::filesystem::is_directory(board_root, ec) && !ec)
+        {
+            sources.push_back(KanbanSource{
+                .name = submodule_root.filename().string(),
+                .root = normalized_path(board_root),
+            });
+        }
+        else if (ec)
+        {
+            warnings.push_back("failed to inspect submodule board "
+                + board_root.string() + ": " + ec.message());
+            ec.clear();
+        }
+
+        discover_submodule_boards(
+            submodule_root,
+            workspace_root,
+            visited_repositories,
+            sources,
+            warnings);
+        ec.clear();
+    }
+}
+
+KanbanColumn* find_column(KanbanBoard& board, std::string_view name)
+{
+    const auto it = std::ranges::find(board.columns, name, &KanbanColumn::name);
+    return it == board.columns.end() ? nullptr : &*it;
+}
+
+std::string unique_source_name(
+    std::string preferred,
+    const std::filesystem::path& repository_root,
+    const std::filesystem::path& workspace_root,
+    const std::vector<KanbanSource>& existing)
+{
+    if (std::ranges::none_of(existing, [&](const auto& source) {
+            return source.name == preferred;
+        }))
+    {
+        return preferred;
+    }
+
+    auto relative = repository_root.lexically_relative(workspace_root).generic_string();
+    if (relative.empty() || relative == ".")
+        relative = preferred;
+    return relative;
+}
+
 } // namespace
 
 std::shared_ptr<KanbanDirectoryOperations>
@@ -358,6 +523,11 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
 
     KanbanBoard board;
     board.root = root;
+    const auto repository_root = root.parent_path();
+    board.sources.push_back(KanbanSource{
+        .name = repository_root.filename().string(),
+        .root = root,
+    });
 
     std::error_code ec;
     if (!std::filesystem::exists(root, ec) || !std::filesystem::is_directory(root, ec))
@@ -440,6 +610,9 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
                 .file_name = file_name,
                 .path = entry.path(),
                 .kind = card_kind_for_file(file_name),
+                .source_index = 0,
+                .source_name = board.sources.front().name,
+                .source_root = root,
             });
         }
 
@@ -464,9 +637,94 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
     return board;
 }
 
+KanbanBoard load_kanban_workspace(
+    const std::filesystem::path& root,
+    std::string* error)
+{
+    clear_error(error);
+
+    KanbanBoard workspace;
+    workspace.root = root;
+
+    const auto repository_root = normalized_path(root.parent_path());
+    std::vector<KanbanSource> discovered{
+        KanbanSource{
+            .name = repository_root.filename().string(),
+            .root = normalized_path(root),
+        },
+    };
+    std::set<std::filesystem::path> visited_repositories;
+    discover_submodule_boards(
+        repository_root,
+        repository_root,
+        visited_repositories,
+        discovered,
+        workspace.warnings);
+
+    std::set<std::filesystem::path> visited_boards;
+    for (auto source : discovered)
+    {
+        source.root = normalized_path(source.root);
+        if (!visited_boards.insert(source.root).second)
+            continue;
+
+        source.name = unique_source_name(
+            source.name,
+            source.root.parent_path(),
+            repository_root,
+            workspace.sources);
+
+        std::string source_error;
+        auto local = load_kanban_board(source.root, &source_error);
+        if (!source_error.empty())
+        {
+            if (workspace.sources.empty())
+            {
+                set_error(error, std::move(source_error));
+                return workspace;
+            }
+            workspace.warnings.push_back(
+                source.name + ": " + source_error);
+            continue;
+        }
+
+        const size_t source_index = workspace.sources.size();
+        workspace.sources.push_back(source);
+        for (auto& local_column : local.columns)
+        {
+            auto* destination = find_column(workspace, local_column.name);
+            if (!destination)
+            {
+                workspace.columns.push_back(KanbanColumn{
+                    .name = local_column.name,
+                    .directory = workspace.root / local_column.name,
+                });
+                destination = &workspace.columns.back();
+            }
+
+            for (auto& card : local_column.cards)
+            {
+                card.source_index = source_index;
+                card.source_name = source.name;
+                card.source_root = source.root;
+                destination->cards.push_back(std::move(card));
+            }
+        }
+    }
+
+    return workspace;
+}
+
 bool save_kanban_order(const KanbanBoard& board, std::string* error)
 {
     clear_error(error);
+
+    if (board.sources.size() > 1)
+    {
+        set_error(error,
+            "aggregate kanban order must be saved for one source at a time");
+        return false;
+    }
 
     std::error_code ec;
     std::filesystem::create_directories(board.root, ec);
@@ -572,6 +830,50 @@ bool save_kanban_order(const KanbanBoard& board, std::string* error)
     return true;
 }
 
+bool save_kanban_order_for_source(
+    const KanbanBoard& board,
+    size_t source_index,
+    std::string* error)
+{
+    clear_error(error);
+    if (source_index >= board.sources.size())
+    {
+        set_error(error, "kanban source index is out of range");
+        return false;
+    }
+
+    const auto& source = board.sources[source_index];
+    KanbanBoard local;
+    local.root = source.root;
+    local.sources.push_back(source);
+
+    std::error_code ec;
+    for (const auto& column : board.columns)
+    {
+        const auto directory = source.root / column.name;
+        KanbanColumn local_column{
+            .name = column.name,
+            .directory = directory,
+        };
+        for (const auto& card : column.cards)
+        {
+            if (card.source_index == source_index)
+                local_column.cards.push_back(card);
+        }
+
+        const bool directory_exists = std::filesystem::is_directory(directory, ec);
+        if (ec)
+        {
+            set_error(error, "failed to inspect kanban source column: " + ec.message());
+            return false;
+        }
+        if (directory_exists || !local_column.cards.empty())
+            local.columns.push_back(std::move(local_column));
+    }
+
+    return save_kanban_order(local, error);
+}
+
 bool reorder_card(KanbanBoard& board, KanbanSelection selection, int row_delta, std::string* error)
 {
     clear_error(error);
@@ -582,14 +884,33 @@ bool reorder_card(KanbanBoard& board, KanbanSelection selection, int row_delta, 
     }
 
     auto& cards = board.columns[static_cast<size_t>(selection.column)].cards;
-    const auto source = static_cast<int64_t>(selection.card);
-    const auto target = std::clamp(
-        source + static_cast<int64_t>(row_delta),
-        int64_t{ 0 },
-        static_cast<int64_t>(cards.size()) - 1);
-    if (source != target)
+    const auto card_index = static_cast<size_t>(selection.card);
+    const size_t source_index = cards[card_index].source_index;
+
+    std::vector<size_t> source_cards;
+    for (size_t index = 0; index < cards.size(); ++index)
     {
-        std::swap(cards[static_cast<size_t>(source)], cards[static_cast<size_t>(target)]);
+        if (cards[index].source_index == source_index)
+            source_cards.push_back(index);
+    }
+
+    const auto source_position = std::ranges::find(source_cards, card_index);
+    if (source_position == source_cards.end())
+    {
+        set_error(error, "kanban source group does not contain selected card");
+        return false;
+    }
+    const auto position = static_cast<int64_t>(
+        std::distance(source_cards.begin(), source_position));
+    const auto target_position = std::clamp(
+        position + static_cast<int64_t>(row_delta),
+        int64_t{ 0 },
+        static_cast<int64_t>(source_cards.size()) - 1);
+    if (position != target_position)
+    {
+        std::swap(
+            cards[source_cards[static_cast<size_t>(position)]],
+            cards[source_cards[static_cast<size_t>(target_position)]]);
     }
     return true;
 }
@@ -622,12 +943,29 @@ bool move_card_to_column(
     auto& destination_column = board.columns[static_cast<size_t>(target_column)];
     const auto source_index = static_cast<size_t>(selection.card);
     KanbanCard moving = source_column.cards[source_index];
-    const auto destination_path = destination_column.directory / moving.file_name;
+    size_t source_position = 0;
+    for (size_t index = 0; index < source_index; ++index)
+    {
+        if (source_column.cards[index].source_index == moving.source_index)
+            ++source_position;
+    }
+    const auto owner_root = moving.source_root.empty()
+        ? board.root
+        : moving.source_root;
+    const auto destination_directory = owner_root / destination_column.name;
+    const auto destination_path = destination_directory / moving.file_name;
 
     std::error_code ec;
     if (std::filesystem::exists(destination_path, ec))
     {
         set_error(error, "destination kanban card already exists: " + destination_path.string());
+        return false;
+    }
+
+    std::filesystem::create_directories(destination_directory, ec);
+    if (ec)
+    {
+        set_error(error, "failed to create destination kanban column: " + ec.message());
         return false;
     }
 
@@ -640,9 +978,24 @@ bool move_card_to_column(
 
     moving.path = destination_path;
     source_column.cards.erase(source_column.cards.begin() + static_cast<std::ptrdiff_t>(source_index));
-    const auto insert_index = std::min(
-        static_cast<size_t>(selection.card),
-        destination_column.cards.size());
+    const auto group_begin = std::ranges::find_if(
+        destination_column.cards,
+        [&](const KanbanCard& card) {
+            return card.source_index >= moving.source_index;
+        });
+    const auto group_end = std::ranges::find_if(
+        group_begin,
+        destination_column.cards.end(),
+        [&](const KanbanCard& card) {
+            return card.source_index > moving.source_index;
+        });
+    const size_t group_size = static_cast<size_t>(
+        std::distance(group_begin, group_end));
+    const auto insert = std::next(
+        group_begin,
+        static_cast<std::ptrdiff_t>(std::min(source_position, group_size)));
+    const auto insert_index = static_cast<size_t>(
+        std::distance(destination_column.cards.begin(), insert));
     destination_column.cards.insert(
         destination_column.cards.begin() + static_cast<std::ptrdiff_t>(insert_index),
         std::move(moving));

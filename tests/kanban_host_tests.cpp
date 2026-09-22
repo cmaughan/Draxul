@@ -105,6 +105,7 @@ struct KanbanHostFixture
     TextService text_service;
     KanbanCallbacks callbacks;
     KanbanHost host;
+    std::filesystem::path board_root;
     std::filesystem::path card_path;
 
     explicit KanbanHostFixture(
@@ -112,11 +113,13 @@ struct KanbanHostFixture
         int column_count = 1,
         glm::ivec2 grid_size = { 80, 12 },
         bool populate_all_columns = true,
-        bool zero_pad_cards = false)
+        bool zero_pad_cards = false,
+        bool aggregate_sources = false)
     {
+        board_root = aggregate_sources ? temp.path / "workspace" / "kanban" : temp.path;
         for (int column = 0; column < column_count; ++column)
         {
-            const auto column_dir = temp.path / (column_count == 1 ? std::string("todo") : ("column-" + std::to_string(column + 1)));
+            const auto column_dir = board_root / (column_count == 1 ? std::string("todo") : ("column-" + std::to_string(column + 1)));
             std::filesystem::create_directories(column_dir);
             const int cards_in_column = (populate_all_columns || column == 0) ? card_count : 0;
             for (int i = 0; i < cards_in_column; ++i)
@@ -131,11 +134,22 @@ struct KanbanHostFixture
             }
         }
 
+        if (aggregate_sources)
+        {
+            const auto workspace = board_root.parent_path();
+            const auto product_todo = workspace / "plugins" / "product" / "kanban" / "todo";
+            std::filesystem::create_directories(product_todo);
+            std::ofstream(product_todo / "product-feature.md") << "# Product card\n";
+            std::ofstream(workspace / ".gitmodules")
+                << "[submodule \"plugins/product\"]\n"
+                   "  path = plugins/product\n";
+        }
+
         draxul::tests::init_text_service(text_service);
 
         HostLaunchOptions launch;
         launch.kind = HostKind::Kanban;
-        launch.source_path = temp.path.string();
+        launch.source_path = board_root.string();
 
         HostViewport viewport;
         viewport.grid_size = grid_size;
@@ -163,6 +177,34 @@ TEST_CASE("kanban host initializes and reports board status", "[kanban][host]")
     REQUIRE(fixture.host.status_text().find("kanban") != std::string::npos);
     REQUIRE(fixture.host.status_text().find("card-1-feature.md") != std::string::npos);
     REQUIRE(fixture.renderer.create_grid_handle_calls == 1);
+}
+
+TEST_CASE("kanban host aggregates and filters repository boards with b",
+    "[kanban][host][workspace][input]")
+{
+    KanbanHostFixture fixture(1, 1, { 80, 12 }, true, false, true);
+
+    CHECK(fixture.host.status_text().find("2 cards") != std::string::npos);
+    CHECK(fixture.host.status_text().find("2 boards") != std::string::npos);
+    CHECK(fixture.host.status_text().find("filter: all") != std::string::npos);
+    CHECK(fixture.host.status_text().find("[workspace] card-1-feature.md")
+        != std::string::npos);
+
+    fixture.host.on_key(key_event(SDLK_B));
+    fixture.host.pump();
+    CHECK(fixture.host.status_text().find("filter: workspace") != std::string::npos);
+    CHECK(fixture.host.status_text().find("[workspace] card-1-feature.md")
+        != std::string::npos);
+
+    fixture.host.on_key(key_event(SDLK_B));
+    fixture.host.pump();
+    CHECK(fixture.host.status_text().find("filter: product") != std::string::npos);
+    CHECK(fixture.host.status_text().find("[product] product-feature.md")
+        != std::string::npos);
+
+    fixture.host.on_key(key_event(SDLK_B));
+    fixture.host.pump();
+    CHECK(fixture.host.status_text().find("filter: all") != std::string::npos);
 }
 
 TEST_CASE("kanban host preserves its board when a reload scan fails",

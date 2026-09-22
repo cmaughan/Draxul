@@ -110,7 +110,9 @@ public:
     bool dispatch_gui_action(std::string_view action);
     std::optional<CapturedFrame> run_screenshot(std::chrono::milliseconds delay);
     std::optional<CapturedFrame> run_render_test(std::chrono::milliseconds timeout,
-        std::chrono::milliseconds settle);
+        std::chrono::milliseconds settle,
+        std::string reload_plugin_id = {},
+        std::filesystem::path reload_plugin_package = {});
     const std::string& last_render_test_error() const
     {
         return last_render_test_error_;
@@ -308,6 +310,7 @@ private:
     bool running_ = false;
     bool pending_window_activation_ = true;
     bool saw_frame_ = false;
+    uint64_t rendered_frame_count_ = 0;
     bool frame_requested_ = false;
     bool print_capture_pending_ = false;
     PaneDescriptor print_pane_rect_{};

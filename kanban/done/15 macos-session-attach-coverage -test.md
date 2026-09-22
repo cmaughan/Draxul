@@ -21,7 +21,7 @@
 
 - [x] Prove the suite compiles and runs on macOS (22 cases / 132 assertions under `[session_attach]`; note: `draxul-tests` is Catch2-sharded, so `ctest -N` lists shards rather than per-suite — coverage proven via the tag). Windows listing pending CI.
 - [x] Run focused session-attach tests repeatedly to expose path/cleanup flakiness. — 3× clean, no flakiness.
-- [x] Run the normal macOS full suite. The suite is green; the former ASan gate is retired because ASan support has been removed.
+- [x] Run the normal macOS full suite. The suite is green.
 
 ## Acceptance criteria
 
@@ -39,8 +39,8 @@ transport cases (`[transport][posix]`): user-owned unix socket, destructor unlin
 stale-endpoint reclaim, plus detach/rename/close/save-as/kill via the app session path;
 existing protocol cases tagged `[protocol]`. Validated on macOS/Metal: build clean,
 `[session_attach]` 132 assertions / 22 cases, 3x no flake, full `ctest` 12/12, smoke green.
-Remaining before a full close: a macOS ASan pass and a Windows CI run (named-pipe path
-untouched). Unblocks `25 session-attach-platform-split -refactor.md`.
+The Windows named-pipe path was subsequently covered by the Windows aggregate gate.
+Unblocks `25 session-attach-platform-split -refactor.md`.
 
 ## Dependencies and parallelism
 

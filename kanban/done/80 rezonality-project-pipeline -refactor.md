@@ -19,7 +19,7 @@
 #### Implementation and migration
 
 - [x] Move existing CPU sources into the static target first; link the module/tests to it and remove duplicate CPU source compilation.
-- [x] Register the target in product `PRODUCT_TARGETS`; preserve PIC and product-owned sanitizer/coverage/MSVC policy.
+- [x] Register the target in product `PRODUCT_TARGETS`; preserve PIC and product-owned MSVC policy.
 - [x] Expose synchronous `parse_scene_text(...)` and `build_candidate(...)` seams with injectable compiler results.
 - [x] Separate syntax parsing from model/image resolution while preserving declaration order, path resolution, and diagnostic provenance.
 - [x] Preserve per-instance temporary-output isolation and existing watch/debounce publication.

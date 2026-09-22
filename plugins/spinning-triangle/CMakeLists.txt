@@ -113,6 +113,26 @@ if(NOT DRAXUL_TRIANGLE_STANDALONE)
         set(_triangle_payload
             "${TRIANGLE_METALLIB}=>spinning_triangle.metallib")
         set(_triangle_payload_dependencies "${TRIANGLE_METALLIB}")
+
+        set(TRIANGLE_RELOAD_METAL_AIR
+            ${CMAKE_CURRENT_BINARY_DIR}/spinning_triangle_reload.air)
+        set(TRIANGLE_RELOAD_METALLIB
+            ${CMAKE_CURRENT_BINARY_DIR}/spinning_triangle_reload.metallib)
+        add_custom_command(
+            OUTPUT ${TRIANGLE_RELOAD_METALLIB}
+            COMMAND xcrun -sdk macosx metal
+                -D DRAXUL_RELOAD_RENDER_VARIANT=1 -c
+                ${CMAKE_CURRENT_SOURCE_DIR}/shaders/spinning_triangle.metal
+                -o ${TRIANGLE_RELOAD_METAL_AIR}
+            COMMAND xcrun -sdk macosx metallib
+                ${TRIANGLE_RELOAD_METAL_AIR}
+                -o ${TRIANGLE_RELOAD_METALLIB}
+            DEPENDS
+                ${CMAKE_CURRENT_SOURCE_DIR}/shaders/spinning_triangle.metal
+            VERBATIM)
+        set(_triangle_reload_payload
+            "${TRIANGLE_RELOAD_METALLIB}=>spinning_triangle.metallib")
+        set(_triangle_reload_dependencies ${TRIANGLE_RELOAD_METALLIB})
     else()
         set(_triangle_payload
             "${TRIANGLE_VERTEX_SPV}=>spinning_triangle.vert.spv"
@@ -120,6 +140,23 @@ if(NOT DRAXUL_TRIANGLE_STANDALONE)
         set(_triangle_payload_dependencies
             "${TRIANGLE_VERTEX_SPV}"
             "${TRIANGLE_FRAGMENT_SPV}")
+
+        set(TRIANGLE_RELOAD_FRAGMENT_SPV
+            ${CMAKE_CURRENT_BINARY_DIR}/spinning_triangle_reload.frag.spv)
+        add_custom_command(
+            OUTPUT ${TRIANGLE_RELOAD_FRAGMENT_SPV}
+            COMMAND ${Vulkan_GLSLC_EXECUTABLE}
+                -DDRAXUL_RELOAD_RENDER_VARIANT=1
+                ${CMAKE_CURRENT_SOURCE_DIR}/shaders/spinning_triangle.frag
+                -o ${TRIANGLE_RELOAD_FRAGMENT_SPV}
+            DEPENDS
+                ${CMAKE_CURRENT_SOURCE_DIR}/shaders/spinning_triangle.frag
+            VERBATIM)
+        set(_triangle_reload_payload
+            "${TRIANGLE_VERTEX_SPV}=>spinning_triangle.vert.spv"
+            "${TRIANGLE_RELOAD_FRAGMENT_SPV}=>spinning_triangle.frag.spv")
+        set(_triangle_reload_dependencies
+            ${TRIANGLE_VERTEX_SPV} ${TRIANGLE_RELOAD_FRAGMENT_SPV})
     endif()
 
     draxul_register_bundled_plugin(
@@ -128,6 +165,54 @@ if(NOT DRAXUL_TRIANGLE_STANDALONE)
         MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.toml"
         COPY_FILES ${_triangle_payload}
         DEPENDS ${_triangle_payload_dependencies})
+
+    if(DRAXUL_ENABLE_RENDER_TESTS)
+        # Render tests need a genuinely different immutable package to publish
+        # after the original generation has rendered. Build it with the
+        # production publisher so package.json/current.json exercise the same
+        # whole-package contract on Vulkan and Metal.
+        set(_triangle_reload_root
+            ${CMAKE_CURRENT_BINARY_DIR}/reload-package)
+        set(_triangle_reload_incoming
+            ${_triangle_reload_root}/.incoming)
+        set(_triangle_reload_commands
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                ${_triangle_reload_root}
+            COMMAND ${CMAKE_COMMAND} -E remove_directory
+                ${_triangle_reload_incoming}
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                ${_triangle_reload_incoming}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CMAKE_CURRENT_SOURCE_DIR}/plugin.toml
+                ${_triangle_reload_incoming}/plugin.toml
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:draxul-spinning-triangle>
+                ${_triangle_reload_incoming}/$<TARGET_FILE_NAME:draxul-spinning-triangle>)
+        foreach(_mapping IN LISTS _triangle_reload_payload)
+            _draxul_split_plugin_mapping(
+                "${_mapping}" _reload_source _reload_destination)
+            list(APPEND _triangle_reload_commands
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${_reload_source}
+                    ${_triangle_reload_incoming}/${_reload_destination})
+        endforeach()
+        list(APPEND _triangle_reload_commands
+            COMMAND "${Python3_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tools/publish_plugin.py"
+                --root "${_triangle_reload_root}"
+                --incoming "${_triangle_reload_incoming}")
+        add_custom_command(
+            OUTPUT ${_triangle_reload_root}/current.json
+            ${_triangle_reload_commands}
+            DEPENDS
+                draxul-spinning-triangle
+                ${CMAKE_CURRENT_SOURCE_DIR}/plugin.toml
+                ${_triangle_reload_dependencies}
+                "${PROJECT_SOURCE_DIR}/tools/publish_plugin.py"
+            VERBATIM)
+        add_custom_target(draxul-spinning-triangle-reload-package
+            DEPENDS ${_triangle_reload_root}/current.json)
+    endif()
 endif()
 
 draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

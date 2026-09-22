@@ -22,12 +22,11 @@ installs its callbacks, from renderer initialization, and from initial font-atla
 creation. The focused target built successfully; both CTest shards passed on macOS,
 and the live Metal ownership filter passed 24 assertions across two test cases.
 Each failure records one backend allocation and one deletion, and the normal path
-records one callback-driven deletion after successful creation. ASan is retired
-from the project, so no sanitizer result is claimed.
+records one callback-driven deletion after successful creation.
 The final Debug validation passed all 45 unit CTest entries, the same-cache
 startup smoke, and all five default Metal render comparisons.
 
 **Acceptance criteria**
 
 - [x] Every injected failure frees the backend once, with no double-free or retained owner.
-- [x] Normal initialization and teardown pass the live Metal ownership gate (ASan retired/N/A).
+- [x] Normal initialization and teardown pass the live Metal ownership gate.

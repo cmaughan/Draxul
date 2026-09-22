@@ -17,5 +17,10 @@
 **Acceptance criteria**
 
 - [x] Raw and denoised AO views use their intended images.
-- [ ] Toggling debug modes produces no descriptor-update validation errors.
+- [x] Toggling debug modes produces no descriptor-update validation errors.
 - [x] Preserve Metal’s corresponding visual behavior.
+
+**Validation evidence (2026-09-22)**
+
+- `py do.py test debug --megacity` passed all 27 selected core and MegaCity CTest entries.
+- Debug Vulkan validation-layer City and Biology runs exercised the per-frame AO descriptor selection before its first bind across both buffered frame slots. The live GBuffer debug view displayed distinct raw and denoised AO images, and the logs contained no descriptor-update errors or `vkUpdateDescriptorSets` VUIDs. The only validation output was the pre-existing unused-vertex-input performance warning.

@@ -95,12 +95,6 @@ should_configure() {
     return 0
   fi
 
-  for option in DRAXUL_ENABLE_SANITIZERS DRAXUL_ENABLE_TSAN DRAXUL_ENABLE_COVERAGE; do
-    if [ "$(cache_value "$option" || true)" = "ON" ]; then
-      return 0
-    fi
-  done
-
   [ "$(cache_value DRAXUL_ENABLE_RENDER_TESTS || true)" != "ON" ]
 }
 

@@ -84,11 +84,11 @@ route contract before exposing the mutation.
 - [x] Cover moves across Spaces with different roots without misreporting cwd.
 - [x] Cover source-tab collapse, final-pane rejection, capacity rejection,
       companion-pane rejection, and rollback after a forced destination failure.
-- [ ] Run a two-UI test proving both clients converge while focus remains local,
+- [x] Run a two-UI test proving both clients converge while focus remains local,
       including detach, move, and reconnect.
 - [x] Run the focused integration cases, product-scoped aggregate, and
       same-cache smoke on macOS/Metal.
-- [ ] Run the Release build, full cross-platform `ctest`, and Windows/Vulkan
+- [x] Run the Release build, full cross-platform `ctest`, and Windows/Vulkan
       smoke.
 
 ## Non-goals
@@ -128,5 +128,20 @@ route contract before exposing the mutation.
 - The focused `[pane-move]` run passed 266 assertions in 7 cases. The elevated
   core plus Rezonality aggregate passed 30/30 CTest entries, followed by a
   passing same-cache macOS/Metal smoke.
-- Still open: a true two-UI detach/move/reconnect focus test, Release/full-suite
-  validation, and Windows/Vulkan coverage.
+
+## Two-UI convergence closeout (2026-09-22)
+
+- Added a real-server integration case with two independent topology clients
+  and two independent `TopologyProjection` instances.
+- One client disconnects while the controller moves a live server pane between
+  tabs. The connected projection chooses a source-tab fallback without stealing
+  destination focus; the disconnected projection reconnects, converges to the
+  same authoritative snapshot, retains its own source/destination focus, and
+  preserves the moved pane's local leaf identity.
+- The focused `[pane-move][two-ui]` run passed 32 assertions in one case.
+- The final Windows Release products aggregate passed all 48 registered CTest
+  entries. The same-cache Vulkan smoke then passed with `--skip-build`.
+- One initial aggregate attempt hit a transient atomic control-metadata rename
+  failure in the pre-existing server recovery test. Both focused recovery cases
+  passed immediately afterward (14 assertions), and the complete 48-entry
+  aggregate passed on the clean rerun.

@@ -336,6 +336,19 @@ const PluginManifest* PluginManager::find(std::string_view id) const
     return found == index_.end() ? nullptr : &manifests_[found->second];
 }
 
+std::optional<std::filesystem::path>
+PluginManager::published_package_root(std::string_view id) const
+{
+    std::scoped_lock lock(mutex_);
+    const auto found = index_.find(std::string(id));
+    if (found == index_.end())
+        return std::nullopt;
+    const auto& directory = manifests_[found->second].directory;
+    if (directory.parent_path().filename() == "generations")
+        return directory.parent_path().parent_path();
+    return directory;
+}
+
 std::shared_ptr<LoadedPlugin> PluginManager::load(std::string_view id, std::string& error)
 {
     PERF_MEASURE();

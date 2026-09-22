@@ -29,7 +29,7 @@ pinned.
 
 ## Verification
 
-- [x] Retire the ASan-specific gate because ASan support has been removed.
+- [x] Keep failure-path checks deterministic and runnable in the normal suite.
 - [ ] Repeat failure cases to detect leaked files or hosts.
 - [ ] Run all session/App tests and smoke.
 

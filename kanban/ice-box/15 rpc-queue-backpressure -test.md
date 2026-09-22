@@ -17,7 +17,7 @@ Verify that the notification queue correctly handles burst traffic, that no noti
 - [ ] Enqueue 600 notifications rapidly — assert the warn-depth warning fires at 512 and the queue still delivers all 600.
 - [ ] Enqueue 4096+ notifications — determine and assert the documented behaviour (block? drop? both are acceptable but must be explicit and not UB).
 - [ ] After a burst, verify the drain rate: with a synthetic consumer calling `drain_notifications()`, assert all in-flight notifications are processed in FIFO order.
-- [ ] Thread-safety check: producer on a background thread, consumer on main thread — run under TSan and assert no races.
+- [ ] Thread-safety check: producer on a background thread, consumer on main thread — use seeded repeated runs and assert queue invariants at every handoff.
 - [ ] Assert that a warning log is emitted at the warn threshold (use a fake log sink or check the structured log output).
 
 ---
@@ -26,7 +26,7 @@ Verify that the notification queue correctly handles burst traffic, that no noti
 
 - Drive the test entirely through the `NvimRpc` notification API using `replay_fixture.h` helper builders — no live `nvim` process needed.
 - The test exercises `libs/draxul-nvim/src/rpc.cpp`'s queue implementation.
-- Run under TSan: `cmake --preset mac-tsan && cmake --build build --target draxul-tests && ctest -R rpc-queue-backpressure`.
+- Run the focused test repeatedly on Windows and macOS, then run the normal aggregate gate.
 
 ---
 

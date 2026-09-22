@@ -18,7 +18,7 @@
 #### Implementation and migration
 
 - [x] Move audio and selected permission sources into the static target; remove duplicate compilation.
-- [x] Add the target to product `PRODUCT_TARGETS`, retaining PIC and product sanitizer/coverage/MSVC policy.
+- [x] Add the target to product `PRODUCT_TARGETS`, retaining PIC and product MSVC policy.
 - [x] Add private injectable device, permission, and wait operations plus an explicitly owned test registry.
 - [x] Retain production sharing and existing `AudioAnalyzer` callers.
 - [x] Add proposed `draxul-test-rezonality-audio` with no renderer/App dependency.

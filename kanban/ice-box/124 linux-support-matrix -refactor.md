@@ -6,7 +6,7 @@
 ## Current state
 
 The earlier "dead Linux code" premise is no longer true. POSIX runtime paths,
-Unix PTY/process handling, Neovim process spawning, non-Apple sanitizers, and the
+Unix PTY/process handling, Neovim process spawning, and the
 non-Apple Vulkan build path are active shared infrastructure. Removing Linux guards
 or adding a platform fatal error would regress supported headless/POSIX components.
 

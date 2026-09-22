@@ -60,10 +60,13 @@ when the replacement cannot start.
       successful rollback; keep rollback-failure placeholder coverage pending.
 - [x] Test no-extension, incompatible, invalid, oversized, and successful
       reload-state transfer paths.
-- [ ] Add Vulkan reload render-smoke coverage.
+- [x] Add Vulkan reload render-smoke coverage. The platform-neutral harness
+      published the alternate shader package, reloaded one live pane, required
+      a newer frame, and exported the visibly inverted Vulkan result.
 - [ ] Add Metal reload render-smoke coverage. The current render-test harness
-      supports startup commands and one settled capture, but has no deterministic
-      hook to publish a replacement and reload it between rendered frames.
+      now publishes a complete alternate-shader package after the original frame,
+      reloads it, requires a post-reload frame, captures, and restores the package
+      marker. The Metal test is registered but still needs execution on macOS.
 - [x] Add shared-server two-client local-generation coverage. On macOS, the
       focused test reloads one UI manager from fixture v1 to rebuilt fixture v2
       while a second manager for the same pane descriptor stays interactive on v1.
@@ -96,8 +99,31 @@ The Windows integration suite loads v1 from a UI-private staged path, replaces
 the published package image with the rebuilt v2 fixture while v1 remains
 resident, prepares v2 at a distinct staged path, and activates it without
 restarting Draxul. It also keeps a second UI manager interactive on its resident
-v1 generation. `py do.py test debug --products` passed. The Vulkan and Metal
-reload-between-frames render harness boxes remain intentionally open.
+v1 generation. `py do.py test debug --products` passed. A deterministic
+render-test hook now uses the production publisher's immutable replacement
+fixture, atomically publishes it into the running app package between frames,
+reloads every matching local pane, requires a newer frame, and restores the
+original marker after capture. The Windows/Vulkan gate is complete; only the
+macOS/Metal execution remains open above.
+
+## Reload render-smoke validation (2026-09-22)
+
+- The focused harness tests passed all 15 `[render]` cases and 64 assertions,
+  including hook ordering, post-hook-frame gating, failure propagation,
+  build-root expansion, and atomic publication-marker restoration.
+- `draxul-render-spinning-triangle-reload-smoke` passed three consecutive times
+  on Windows/Vulkan (2.42 s, 2.12 s, and 2.17 s). The app log reported one pane
+  reloaded to a distinct runtime generation, and the exported 960x640 frame
+  contains the replacement shader's inverted background and triangle colours.
+- Each run restored the original application `current.json`; the replacement
+  fixture generation did not remain in the live package's retained generation
+  list.
+- Remaining macOS gate: run `python3 do.py build debug`, then
+  `ctest --test-dir build -R '^draxul-render-spinning-triangle-reload-smoke$'
+  --output-on-failure -V`. Inspect
+  `build/render-test-exports/spinning-triangle-reload.macos.bmp` for the inverted
+  light background and multicolour triangle, then tick the Metal checkbox and
+  move this card to done if the test passes without Metal validation errors.
 
 ## Dependencies and ownership
 

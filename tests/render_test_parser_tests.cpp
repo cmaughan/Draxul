@@ -220,6 +220,81 @@ TEST_CASE("render test parser: plugin identity and configuration flow to app opt
     std::filesystem::remove_all(dir, ec);
 }
 
+TEST_CASE("render test parser: plugin reload package expands build root",
+    "[render][plugin][reload]")
+{
+    const auto dir = std::filesystem::temp_directory_path()
+        / "draxul-render-test-parser-plugin-reload";
+    const auto path = dir / "plugin-reload.toml";
+    write_text_file(path,
+        "host = \"plugin\"\n"
+        "plugin_id = \"dev.draxul.spinning-triangle\"\n"
+        "reload_plugin_id = \"dev.draxul.spinning-triangle\"\n"
+        "reload_plugin_package = \"${BUILD_ROOT}/reload-package\"\n"
+        "commands = [\"\"]\n");
+    std::string error;
+    const auto scenario = draxul::load_render_test_scenario(path, &error);
+    INFO(error);
+    REQUIRE(scenario);
+    CHECK(scenario->reload_plugin_id
+        == "dev.draxul.spinning-triangle");
+    CHECK(scenario->reload_plugin_package.lexically_normal()
+        == (std::filesystem::path{ DRAXUL_BUILD_ROOT }
+               / "reload-package")
+               .lexically_normal());
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
+TEST_CASE("render test plugin publication swaps and restores current generation",
+    "[render][plugin][reload]")
+{
+    const auto dir = std::filesystem::temp_directory_path()
+        / "draxul-render-test-plugin-publication";
+    std::error_code cleanup_error;
+    std::filesystem::remove_all(dir, cleanup_error);
+    const auto source = dir / "source";
+    const auto destination = dir / "destination";
+    write_text_file(source / "generations" / "replacement"
+            / "plugin.toml",
+        "schema_version = 1\n");
+    write_text_file(source / "generations" / "replacement"
+            / "package.json",
+        R"({"schema_version":1,"build_id":"replacement","files":{}})");
+    write_text_file(source / "current.json",
+        R"({"schema_version":1,"generation":"replacement"})");
+    write_text_file(destination / "generations" / "original"
+            / "plugin.toml",
+        "schema_version = 1\n");
+    const std::string original_pointer
+        = R"({"schema_version":1,"generation":"original"})";
+    write_text_file(destination / "current.json", original_pointer);
+
+    std::string error;
+    const auto publication
+        = draxul::publish_render_test_plugin_generation(
+            source, destination, &error);
+    INFO(error);
+    REQUIRE(publication);
+    CHECK(std::filesystem::is_regular_file(destination / "generations"
+        / "replacement" / "plugin.toml"));
+    std::ifstream active_pointer(destination / "current.json");
+    const std::string active((std::istreambuf_iterator<char>(active_pointer)),
+        {});
+    CHECK(active.find("replacement") != std::string::npos);
+    active_pointer.close();
+
+    REQUIRE(draxul::restore_render_test_plugin_generation(
+        *publication, &error));
+    std::ifstream restored_pointer(destination / "current.json");
+    const std::string restored(
+        (std::istreambuf_iterator<char>(restored_pointer)), {});
+    CHECK(restored == original_pointer);
+    CHECK_FALSE(std::filesystem::exists(destination / "generations"
+        / "replacement"));
+    std::filesystem::remove_all(dir, cleanup_error);
+}
+
 TEST_CASE("render test parser: source path flows to non-terminal hosts", "[render][markdown]")
 {
     const auto dir = std::filesystem::temp_directory_path()

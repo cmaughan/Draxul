@@ -4,6 +4,7 @@
 #include "support/server_kernel_test_support.h"
 
 #include <draxul/topology_layout.h>
+#include <draxul/topology_projection.h>
 
 using namespace draxul;
 using draxul::tests::TempDir;
@@ -1422,6 +1423,197 @@ TEST_CASE("real server keeps terminal process and scrollback across a tab move",
     CHECK(reconnected.projection().pane().process_id
         == process_before);
     REQUIRE(wait_for_text(reconnected, "__MOVE_AFTER__", error));
+    run_guard.join();
+}
+
+TEST_CASE("two UI projections converge across detach move and reconnect without stealing focus",
+    "[server][client][topology][pane-move][two-ui]")
+{
+    TempDir temp("draxul-cross-tab-two-ui");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "two-ui-move-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    TopologyClient controller({
+        .runtime_directory = temp.path,
+        .client_id = "move-ui-controller",
+    });
+    std::string error;
+    REQUIRE(controller.refresh(error));
+    const TopologySpace initial_space
+        = controller.snapshot().spaces.front();
+    const TopologyTab initial_tab = initial_space.tabs.front();
+    const TopologyPane moved_pane = initial_tab.panes.front();
+
+    TopologyCommand split_source{
+        .command_id = "move-two-ui-source-survivor",
+        .expected_revision = controller.snapshot().revision,
+        .kind = TopologyCommandKind::SplitPane,
+        .space_id = initial_space.space_id,
+        .tab_id = initial_tab.tab_id,
+        .pane_id = moved_pane.pane_id,
+        .name = "Source survivor",
+        .direction = TopologySplitDirection::Horizontal,
+        .pane_domain = TopologyPaneDomain::ClientLocal,
+        .client_host_kind = "nvim",
+    };
+    TopologyCommandResult split_result;
+    REQUIRE(controller.execute(split_source, split_result, error));
+    const std::string source_survivor_id = split_result.created_id;
+
+    TopologyCommand create_destination{
+        .command_id = "move-two-ui-destination",
+        .expected_revision = controller.snapshot().revision,
+        .kind = TopologyCommandKind::CreateTab,
+        .space_id = initial_space.space_id,
+        .name = "Destination",
+        .pane_domain = TopologyPaneDomain::ClientLocal,
+        .client_host_kind = "markdown",
+    };
+    TopologyCommandResult created;
+    REQUIRE(controller.execute(create_destination, created, error));
+    const TopologyTab destination_tab
+        = created.snapshot.spaces.front().tabs.back();
+    const std::string destination_pane_id
+        = destination_tab.panes.front().pane_id;
+
+    TopologyProjection controller_projection;
+    TopologyProjection observer_projection;
+    LeafId observer_source_focus = kInvalidLeaf;
+    LeafId observer_destination_focus = kInvalidLeaf;
+    LeafId observer_moved_leaf = kInvalidLeaf;
+    {
+        TopologyClient observer({
+            .runtime_directory = temp.path,
+            .client_id = "move-ui-observer",
+        });
+        REQUIRE(observer.refresh(error));
+        REQUIRE(observer.snapshot() == controller.snapshot());
+
+        const TopologySpace* space = find_space(
+            observer.snapshot(), initial_space.space_id);
+        REQUIRE(space);
+        const TopologyTab* source
+            = find_tab(*space, initial_tab.tab_id);
+        const TopologyTab* destination
+            = find_tab(*space, destination_tab.tab_id);
+        REQUIRE(source);
+        REQUIRE(destination);
+
+        auto controller_source = controller_projection.project_tab(
+            *source, kInvalidLeaf, HostKind::PowerShell, error);
+        REQUIRE(controller_source);
+        controller_projection.commit_tab(
+            source->tab_id, *controller_source);
+        auto controller_destination
+            = controller_projection.project_tab(*destination,
+                kInvalidLeaf, HostKind::PowerShell, error);
+        REQUIRE(controller_destination);
+        controller_projection.commit_tab(
+            destination->tab_id, *controller_destination);
+
+        auto observer_source = observer_projection.project_tab(
+            *source, kInvalidLeaf, HostKind::PowerShell, error);
+        REQUIRE(observer_source);
+        observer_projection.commit_tab(
+            source->tab_id, *observer_source);
+        auto observer_destination
+            = observer_projection.project_tab(*destination,
+                kInvalidLeaf, HostKind::PowerShell, error);
+        REQUIRE(observer_destination);
+        observer_projection.commit_tab(
+            destination->tab_id, *observer_destination);
+
+        observer_source_focus
+            = observer_projection.local_pane(source_survivor_id).value();
+        observer_destination_focus
+            = observer_projection.local_pane(destination_pane_id).value();
+        observer_moved_leaf
+            = observer_projection.local_pane(moved_pane.pane_id).value();
+    }
+
+    const LeafId controller_moved_focus
+        = controller_projection.local_pane(moved_pane.pane_id).value();
+    const LeafId controller_destination_focus
+        = controller_projection.local_pane(destination_pane_id).value();
+
+    TopologyCommand move{
+        .command_id = "move-two-ui-live-pane",
+        .expected_revision = controller.snapshot().revision,
+        .kind = TopologyCommandKind::MovePane,
+        .space_id = initial_space.space_id,
+        .tab_id = initial_tab.tab_id,
+        .destination_space_id = initial_space.space_id,
+        .destination_tab_id = destination_tab.tab_id,
+        .pane_id = moved_pane.pane_id,
+        .target_pane_id = destination_pane_id,
+        .direction = TopologySplitDirection::Vertical,
+        .ratio = 0.5f,
+    };
+    TopologyCommandResult moved;
+    REQUIRE(controller.execute(move, moved, error));
+
+    const TopologySpace* updated_space = find_space(
+        controller.snapshot(), initial_space.space_id);
+    REQUIRE(updated_space);
+    const TopologyTab* updated_source
+        = find_tab(*updated_space, initial_tab.tab_id);
+    const TopologyTab* updated_destination
+        = find_tab(*updated_space, destination_tab.tab_id);
+    REQUIRE(updated_source);
+    REQUIRE(updated_destination);
+
+    const auto controller_source = controller_projection.project_tab(
+        *updated_source, controller_moved_focus,
+        HostKind::PowerShell, error);
+    REQUIRE(controller_source);
+    REQUIRE(controller_projection.local_pane(source_survivor_id));
+    CHECK(controller_source->layout.tree.focused_id
+        == *controller_projection.local_pane(source_survivor_id));
+    const auto controller_destination
+        = controller_projection.project_tab(*updated_destination,
+            controller_destination_focus,
+            HostKind::PowerShell, error);
+    REQUIRE(controller_destination);
+    CHECK(controller_destination->layout.tree.focused_id
+        == controller_destination_focus);
+
+    TopologyClient reconnected({
+        .runtime_directory = temp.path,
+        .client_id = "move-ui-observer",
+    });
+    REQUIRE(reconnected.refresh(error));
+    REQUIRE(reconnected.snapshot() == controller.snapshot());
+    const TopologySpace* reconnected_space = find_space(
+        reconnected.snapshot(), initial_space.space_id);
+    REQUIRE(reconnected_space);
+    const TopologyTab* reconnected_source
+        = find_tab(*reconnected_space, initial_tab.tab_id);
+    const TopologyTab* reconnected_destination
+        = find_tab(*reconnected_space, destination_tab.tab_id);
+    REQUIRE(reconnected_source);
+    REQUIRE(reconnected_destination);
+
+    const auto observer_source = observer_projection.project_tab(
+        *reconnected_source, observer_source_focus,
+        HostKind::PowerShell, error);
+    REQUIRE(observer_source);
+    CHECK(observer_source->layout.tree.focused_id
+        == observer_source_focus);
+    const auto observer_destination
+        = observer_projection.project_tab(*reconnected_destination,
+            observer_destination_focus,
+            HostKind::PowerShell, error);
+    REQUIRE(observer_destination);
+    CHECK(observer_destination->layout.tree.focused_id
+        == observer_destination_focus);
+    CHECK(observer_projection.local_pane(moved_pane.pane_id)
+        == observer_moved_leaf);
+
     run_guard.join();
 }
 

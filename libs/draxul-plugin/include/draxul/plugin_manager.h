@@ -65,6 +65,8 @@ public:
 
     const std::vector<PluginManifest>& manifests() const noexcept { return manifests_; }
     const PluginManifest* find(std::string_view id) const;
+    std::optional<std::filesystem::path> published_package_root(
+        std::string_view id) const;
     std::shared_ptr<LoadedPlugin> load(std::string_view id, std::string& error);
     std::shared_ptr<LoadedPlugin> prepare_reload(
         std::string_view id, std::string& error);

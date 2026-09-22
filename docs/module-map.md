@@ -333,7 +333,7 @@ Good place for:
 | `plugins/rezonality/` | `DRAXUL_ENABLE_REZONALITY` | Submodule → [draxul-rezonality](https://github.com/cmaughan/draxul-rezonality). Fault-tolerant live graphics product ported from VkLive; owns its watched project loader, compiler tools, immutable raster/ray candidates, Assimp, cameras, PBR/HDR resources, Vulkan ray pipelines and acceleration structures, native Metal ray kernels, examples, bounded agent diagnostics, transient-state handoff, layout tooling, and tests |
 
 All optional product directories own their third-party dependency
-declarations, sanitizer/coverage target lists, shader compilation, package
+declarations, project target policy, shader compilation, package
 payload, test source inventory, and focused CTest wiring. The root build contains
 only their feature switches and mount-point `add_subdirectory` calls. SatView's
 catalog and texture generators likewise live under `plugins/satview/tools/`, so

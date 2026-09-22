@@ -24,9 +24,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(DRAXUL_ENABLE_SANITIZERS "Enable AddressSanitizer (and LeakSanitizer on non-Windows)" OFF)
-option(DRAXUL_ENABLE_TSAN "Enable ThreadSanitizer (Clang/GCC only, incompatible with ASan)" OFF)
-option(DRAXUL_ENABLE_COVERAGE "Enable LLVM source-based code coverage (Clang/Apple Clang only)" OFF)
 option(DRAXUL_ENABLE_MEGACITY "Build and bundle the MegaCity/BioView plugin" ON)
 option(DRAXUL_ENABLE_SATVIEW "Build and bundle the SatView plugin" ON)
 option(DRAXUL_ENABLE_PCBVIEW "Build and bundle the PCBView plugin" ON)
@@ -60,86 +57,6 @@ set(DRAXUL_PCBVIEW_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/pcbview"
     CACHE PATH "Mounted PCBView plugin source directory")
 set(DRAXUL_REZONALITY_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/rezonality"
     CACHE PATH "Mounted Rezonality plugin source directory")
-
-# Low-level policy helpers. InternalTargetPolicy.cmake applies these beside
-# project target definitions and audits completeness after configuration;
-# FetchContent and mounted product targets are outside this repository's policy.
-function(draxul_apply_sanitizers target)
-    get_target_property(_draxul_target_type ${target} TYPE)
-    if(_draxul_target_type STREQUAL "EXECUTABLE"
-       OR _draxul_target_type STREQUAL "SHARED_LIBRARY"
-       OR _draxul_target_type STREQUAL "MODULE_LIBRARY")
-        set(_draxul_target_links TRUE)
-    else()
-        set(_draxul_target_links FALSE)
-    endif()
-    if(DRAXUL_ENABLE_TSAN)
-        if(DRAXUL_ENABLE_SANITIZERS)
-            message(FATAL_ERROR "DRAXUL_ENABLE_TSAN and DRAXUL_ENABLE_SANITIZERS are mutually exclusive (TSan is incompatible with ASan).")
-        endif()
-        if(MSVC)
-            message(FATAL_ERROR "ThreadSanitizer is not supported on MSVC.")
-        endif()
-        target_compile_options(${target} PRIVATE
-            -fsanitize=thread
-            -fno-omit-frame-pointer
-            -g
-        )
-        if(_draxul_target_links)
-            target_link_options(${target} PRIVATE -fsanitize=thread)
-        endif()
-        return()
-    endif()
-    if(NOT DRAXUL_ENABLE_SANITIZERS)
-        return()
-    endif()
-    if(MSVC)
-        # MSVC records the required ASan runtime in each instrumented object;
-        # link.exe infers those libraries by default via /INFERASANLIBS.
-        target_compile_options(${target} PRIVATE /fsanitize=address)
-        # Keep the STL container annotation ABI compatible with uninstrumented
-        # third-party static libraries. Memory-access instrumentation remains
-        # enabled; only vector/string spare-capacity poisoning is disabled.
-        target_compile_definitions(${target} PRIVATE
-            _DISABLE_VECTOR_ANNOTATION
-            _DISABLE_STRING_ANNOTATION)
-    elseif(APPLE)
-        # Apple Clang: LSan is bundled inside ASan; -fsanitize=leak alone is not supported
-        target_compile_options(${target} PRIVATE
-            -fsanitize=address,undefined
-            -fno-omit-frame-pointer
-        )
-        if(_draxul_target_links)
-            target_link_options(${target} PRIVATE -fsanitize=address,undefined)
-        endif()
-    else()
-        # Linux/non-Apple Clang/GCC: explicit leak sanitizer support
-        target_compile_options(${target} PRIVATE
-            -fsanitize=address,leak,undefined
-            -fno-omit-frame-pointer
-        )
-        if(_draxul_target_links)
-            target_link_options(${target} PRIVATE -fsanitize=address,leak,undefined)
-        endif()
-    endif()
-endfunction()
-
-# Coverage helper — LLVM source-based coverage (Clang/Apple Clang only)
-function(draxul_apply_coverage target)
-    if(NOT DRAXUL_ENABLE_COVERAGE)
-        return()
-    endif()
-    target_compile_options(${target} PRIVATE
-        -fprofile-instr-generate
-        -fcoverage-mapping
-    )
-    get_target_property(_draxul_target_type ${target} TYPE)
-    if(_draxul_target_type STREQUAL "EXECUTABLE"
-       OR _draxul_target_type STREQUAL "SHARED_LIBRARY"
-       OR _draxul_target_type STREQUAL "MODULE_LIBRARY")
-        target_link_options(${target} PRIVATE -fprofile-instr-generate)
-    endif()
-endfunction()
 
 include(cmake/InternalTargetPolicy.cmake)
 
@@ -363,6 +280,10 @@ target_link_libraries(draxul PRIVATE
 )
 draxul_check_core_product_isolation()
 draxul_stage_registered_plugins(draxul)
+if(TARGET draxul-spinning-triangle-reload-package)
+    add_dependencies(draxul
+        draxul-spinning-triangle-reload-package)
+endif()
 if(DRAXUL_ENABLE_RENDER_TESTS)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_RENDER_TESTS)
 endif()
@@ -582,6 +503,36 @@ if(BUILD_TESTING)
                 message(STATUS "Render scenario '${DRAXUL_RENDER_NAME}' explicitly excludes ${DRAXUL_RENDER_PLATFORM}")
             endif()
         endforeach()
+
+        # This scenario deliberately captures a newly published plugin
+        # generation rather than comparing a platform reference. A successful
+        # export proves the original frame settled, publication/reload
+        # succeeded, and a newer GPU frame was rendered before capture. The
+        # same test is registered on Metal; its execution remains a macOS gate.
+        if(WIN32 OR APPLE)
+            file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/render-test-exports)
+            set(DRAXUL_RELOAD_RENDER_SCENARIO
+                ${CMAKE_SOURCE_DIR}/tests/render/spinning-triangle-reload.toml)
+            set(DRAXUL_RELOAD_RENDER_EXPORT
+                ${CMAKE_BINARY_DIR}/render-test-exports/spinning-triangle-reload.${DRAXUL_RENDER_PLATFORM}.bmp)
+            if(WIN32)
+                add_test(NAME draxul-render-spinning-triangle-reload-smoke
+                    COMMAND $<TARGET_FILE:draxul> --console
+                        --render-test ${DRAXUL_RELOAD_RENDER_SCENARIO}
+                        --export-render-test ${DRAXUL_RELOAD_RENDER_EXPORT})
+            else()
+                add_test(NAME draxul-render-spinning-triangle-reload-smoke
+                    COMMAND $<TARGET_FILE:draxul>
+                        --render-test ${DRAXUL_RELOAD_RENDER_SCENARIO}
+                        --export-render-test ${DRAXUL_RELOAD_RENDER_EXPORT})
+            endif()
+            set_tests_properties(
+                draxul-render-spinning-triangle-reload-smoke
+                PROPERTIES
+                    LABELS "render;plugin;reload"
+                    RESOURCE_LOCK draxul_gpu
+                    TIMEOUT 30)
+        endif()
 
         file(GLOB DRAXUL_RENDER_TOML_FILES RELATIVE ${CMAKE_SOURCE_DIR}/tests/render
             ${CMAKE_SOURCE_DIR}/tests/render/*.toml)

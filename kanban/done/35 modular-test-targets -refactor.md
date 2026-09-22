@@ -16,14 +16,14 @@ The single `draxul-tests` executable links App and every enabled product module,
 - [x] Link a ScoreView host-focused target to `draxul-scoreview-host` so microphone/NanoVG/host lifecycle tests do not force every core test to take the full product dependency.
 - [x] Link each test target only to the public/internal test interface it needs; remove private `src/` includes by reopening the existing boundary card where required.
 - [x] Keep a top-level `draxul-tests` build target that depends on all enabled test executables for workflow compatibility.
-- [x] Update sanitizer, coverage, RPC-helper dependencies, scripts, and CI discovery.
+- [x] Update RPC-helper dependencies, scripts, and CI discovery.
 - [x] Ensure optional-off configurations omit only their own test targets, including `DRAXUL_ENABLE_SCOREVIEW=OFF`.
 
 ## Tests and acceptance
 
 - [x] Compare test case/tag counts before and after; no case disappears.
 - [x] `ctest -j` can run independent targets concurrently and reports module labels.
-- [x] Windows/macOS presets, sanitizers, coverage, `t.bat`/`t.sh`, and smoke remain usable.
+- [x] Windows/macOS presets, `t.bat`/`t.sh`, aggregate tests, and smoke remain usable.
 - [x] Record measured link/test improvement or revert splits that add complexity without benefit.
 
 ## Implementation record (2026-07-21)
@@ -45,9 +45,8 @@ The single `draxul-tests` executable links App and every enabled product module,
   an existing invalid iterator in ScoreView analysis. Test execution was then
   stopped at the user's request; the iterator was fixed separately and the
   affected targets were rebuilt without launching executables.
-- Sanitizer/coverage helpers are applied to every executable and the RPC
-  helper; macOS LCOV export now combines all enabled test binaries. Existing
-  `t.bat`, `t.sh`, and unit scripts continue to build the aggregate target.
+- Project target policy is applied to every executable and the RPC helper.
+  Existing `t.bat`, `t.sh`, and unit scripts continue to build the aggregate target.
 - Optional products are gated around both target creation and CTest discovery.
   A fresh all-optionals-off configure was attempted but dependency setup timed
   out after 300 seconds, so that configuration still needs a successful live

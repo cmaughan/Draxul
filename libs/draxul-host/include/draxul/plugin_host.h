@@ -61,6 +61,7 @@ public:
 
     std::string_view plugin_id() const noexcept { return plugin_id_; }
     std::shared_ptr<LoadedPlugin> loaded_plugin() const noexcept { return plugin_; }
+    std::optional<std::filesystem::path> published_package_root() const;
     std::shared_ptr<LoadedPlugin> prepare_reload(std::string& error);
     void quiesce_for_reload(std::string& warning);
     bool reload(const std::shared_ptr<LoadedPlugin>& candidate,

@@ -34,6 +34,7 @@
 #include <draxul/remote_session_client.h>
 #include <draxul/remote_session_coordinator.h>
 #include <draxul/remote_terminal_host.h>
+#include <draxul/render_test.h>
 #include <draxul/render_test_driver.h>
 #include <draxul/sdl_window.h>
 #include <draxul/server_client.h>
@@ -2031,7 +2032,10 @@ void App::finish_print_capture(const CapturedFrame& frame)
     }
 }
 
-std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds timeout, std::chrono::milliseconds settle)
+std::optional<CapturedFrame> App::run_render_test(
+    std::chrono::milliseconds timeout, std::chrono::milliseconds settle,
+    std::string reload_plugin_id,
+    std::filesystem::path reload_plugin_package)
 {
     PERF_MEASURE();
     last_render_test_error_.clear();
@@ -2043,6 +2047,7 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
     env.request_frame = [this]() { request_frame(); };
     env.is_running = [this]() { return running_; };
     env.saw_frame = [this]() { return saw_frame_; };
+    env.rendered_frame_count = [this]() { return rendered_frame_count_; };
     env.frame_requested = [this]() { return frame_requested_; };
     env.active_host_state = [this]() -> std::optional<HostRuntimeState> {
         const Tab* tab = find_active_tab();
@@ -2066,11 +2071,75 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
         return diagnostics_host_->last_render_time();
     };
 
+    std::optional<RenderTestPluginPublication> publication;
+    if (!reload_plugin_id.empty() && !reload_plugin_package.empty())
+    {
+        env.before_capture = [this, &publication,
+                                 reload_plugin_id = std::move(reload_plugin_id),
+                                 reload_plugin_package
+                                 = std::move(reload_plugin_package)]() {
+            PluginHost* package_host = nullptr;
+            for (const auto& space : space_controller_.spaces())
+            {
+                for (const auto& tab : space->tab_controller.tabs())
+                {
+                    tab->pane_manager.for_each_host(
+                        [&](LeafId, IHost& host) {
+                            auto* plugin_host
+                                = dynamic_cast<PluginHost*>(&host);
+                            if (!package_host && plugin_host
+                                && plugin_host->plugin_id()
+                                    == reload_plugin_id)
+                                package_host = plugin_host;
+                        });
+                }
+            }
+            if (!package_host)
+                return std::string(
+                    "Render-test reload found no matching plugin pane");
+            const auto package_root
+                = package_host->published_package_root();
+            if (!package_root)
+                return std::string(
+                    "Render-test reload could not resolve the published plugin package");
+            std::string publish_error;
+            publication = publish_render_test_plugin_generation(
+                reload_plugin_package, *package_root, &publish_error);
+            if (!publication)
+                return "Render-test plugin publication failed: "
+                    + publish_error;
+            const auto reloaded = reload_plugin(reload_plugin_id);
+            if (!reloaded.error.empty())
+                return "Render-test plugin reload failed: "
+                    + reloaded.error;
+            if (reloaded.matched <= 0
+                || reloaded.reloaded != reloaded.matched)
+                return std::string(
+                    "Render-test plugin reload did not replace its full local cohort");
+            DRAXUL_LOG_INFO(LogCategory::Test,
+                "Render-test reloaded %d pane(s) of '%s' to generation %s",
+                reloaded.reloaded, reload_plugin_id.c_str(),
+                reloaded.generation.c_str());
+            return std::string{};
+        };
+    }
+
     RenderTestDriverOptions driver_options;
     driver_options.timeout = timeout;
     driver_options.settle = settle;
     driver_options.want_diagnostics = options_.show_diagnostics_in_render_test;
     auto result = run_render_test_driver(env, driver_options);
+    if (publication)
+    {
+        std::string restore_error;
+        if (!restore_render_test_plugin_generation(
+                *publication, &restore_error))
+        {
+            result.frame.reset();
+            result.error = "Render-test plugin publication restore failed: "
+                + restore_error;
+        }
+    }
     last_render_test_error_ = std::move(result.error);
     return std::move(result.frame);
 }
@@ -2277,6 +2346,7 @@ bool App::render_frame()
     walk_draw(render_root_, *frame);
 
     saw_frame_ = true;
+    ++rendered_frame_count_;
     renderer_.grid()->end_frame();
 
     // A pending print_pane capture is fulfilled by end_frame(); consume it

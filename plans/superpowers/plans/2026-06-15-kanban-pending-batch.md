@@ -18,7 +18,7 @@ Implement:
 - `kanban/pending/01 rpc-spurious-notification-callback -bug.md`
 
 Plan/defer:
-- POSIX process cards: `02`, `04`, `06` need macOS/Linux sanitizer validation.
+- POSIX process cards: `02`, `04`, `06` need macOS/Linux process and fault-path validation.
 - Large feature/refactor cards: `20`, `24`, `27`, `39`, `55`, `82`, `125`, `126`, `127`, `135`.
 - Blocked cards: `26` waits on `22`; `39` waits on `26`; `27` waits on atlas tests/refactor closeout.
 

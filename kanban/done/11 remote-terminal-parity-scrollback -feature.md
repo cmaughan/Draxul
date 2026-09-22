@@ -33,7 +33,7 @@ full-screen terminal use while preserving independent client view state.
 - [x] Local and remote replay/randomized convergence, high-output/slow-client stress,
       alternate-screen/Unicode/scrollback tests, and a remote render scenario pass.
 - [x] Release build, full CTest, and smoke pass on Windows.
-- [ ] A live two-client full-screen/agent-style demonstration passes on Windows;
+- [x] A live two-client full-screen/agent-style demonstration passes on Windows;
       macOS source wiring remains valid and any runtime execution gap is recorded.
 
 ## Validation checkpoint (2026-07-29)
@@ -54,3 +54,16 @@ full-screen terminal use while preserving independent client view state.
 The fake endpoint and complete-snapshot protocol fallback remain diagnostic
 seams. Production shell terminals are server-owned; rollback means reverting
 the server/client change, not selecting a second local runtime path.
+
+## Windows live closeout (2026-09-22)
+
+- Started an isolated real server and PowerShell terminal from the Debug build.
+- Attached two real Draxul UI processes concurrently. `ui list` reported two
+  distinct control identities, and UI-targeted focus requests succeeded for both.
+- Drove the shared terminal into an alternate-screen, agent-style display and
+  observed its unique marker through the semantic terminal read while both UIs
+  remained attached and responsive. Neither UI log contained an error.
+- Observed the post-alternate-screen completion marker, terminated only the two
+  validation UIs, and shut down the exact isolated server successfully.
+- The earlier macOS aggregate and source build remain the wiring evidence; a
+  second live macOS UI demonstration was unavailable in this Windows workspace.

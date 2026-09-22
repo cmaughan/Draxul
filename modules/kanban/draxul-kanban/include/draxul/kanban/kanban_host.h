@@ -58,6 +58,9 @@ private:
     void open_selected_card();
     void toggle_column_zoom();
     void toggle_card_preview();
+    void cycle_source_filter();
+    void rebuild_visible_board(
+        const std::optional<std::filesystem::path>& preferred_card = std::nullopt);
     void refresh_card_preview();
     std::optional<int> active_zoom_column() const;
     void keep_selection_visible();
@@ -67,6 +70,7 @@ private:
     void notify_error(std::string_view message);
 
     std::filesystem::path root_;
+    KanbanBoard workspace_board_;
     KanbanBoard board_;
     KanbanSelection selection_;
     KanbanNavigationState navigation_;
@@ -80,6 +84,7 @@ private:
     // selection. Both are pure view state owned by this host.
     bool column_zoom_ = false;
     bool preview_visible_ = false;
+    std::optional<size_t> source_filter_;
     int scroll_row_ = 0;
     std::optional<KanbanSelection> selection_before_redraw_;
     std::optional<KanbanNavigationCommand> held_selection_command_;

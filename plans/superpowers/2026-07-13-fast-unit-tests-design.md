@@ -71,7 +71,7 @@ All four entries carry a `unit` label. The Python suite is registered as a fifth
 
 Smoke and render entries retain their existing commands. They share a CTest resource lock so multiple application/GPU tests never run concurrently when the full validation scripts use parallel CTest. Unit shards may overlap with each other; the full scripts may either overlap unit work with the GPU lock or run the application checks after units, whichever proves more stable during verification.
 
-Coverage, sanitizer, and CI filters that currently match `draxul-tests` must be updated to include all shard entries. Coverage still exports the same `draxul-tests` executable, so no multi-binary merge is introduced.
+CI and developer filters that currently match `draxul-tests` must be updated to include all shard entries. The aggregate target remains the single compatibility entry point.
 
 ## Unit-Test Cleanup
 

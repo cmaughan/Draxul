@@ -70,6 +70,6 @@ palette's independent query buffer and fuzzy-matching path.
 ## Acceptance Criteria
 
 - [ ] All 5 cases pass under `ctest`.
-- [ ] Run under ASan — no memory errors.
+- [ ] Repeat boundary and malformed-input cases with no invalid access or crash.
 - [ ] If a backspace bug is found, fix it and add a regression assertion.
 - [ ] Smoke test passes.

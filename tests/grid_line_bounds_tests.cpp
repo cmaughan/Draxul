@@ -177,7 +177,7 @@ TEST_CASE("grid_line with col_start near max int does not overflow", "[grid_line
 
     // Either a WARN is emitted (if OOB check fires) or the cell is simply
     // silently dropped by set_cell's bounds check — either is acceptable.
-    // Most important: no crash and no ASAN error.
+    // Most important: the hostile input is handled without an invalid access.
 }
 
 TEST_CASE("valid grid_line events still work after bounds-checking additions", "[grid_line_bounds]")

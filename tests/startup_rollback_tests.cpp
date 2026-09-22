@@ -91,7 +91,7 @@ TEST_CASE("startup rollback: window creation failure leaves app in clean state [
     INFO("init_error describes the window failure");
     REQUIRE(app.init_error()
         == "Failed to create the application window.");
-    // App destructor / implicit shutdown runs here — must not crash under ASan
+    // App destructor / implicit shutdown runs here and must remain safe.
 }
 
 TEST_CASE("startup rollback: renderer init failure destroys window cleanly [integration]", "[startup]")

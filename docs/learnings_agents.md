@@ -64,7 +64,7 @@ Everything learned about agent-driven development from Draxul — a GPU-accelera
 39. The pre-commit clang-format hook means agents cannot ship unformatted code — if formatting fails, the commit is aborted; the agent re-stages and retries.
 40. Render snapshot testing with pixel-diff makes rendering regressions agent-detectable — change shaping code, run render tests, see concrete pixel mismatch.
 41. The `--smoke-test` CLI flag lets agents verify app startup without manual interaction.
-42. ASan/UBSan CI catches memory safety issues that agents introduce — the PTY EINTR and scrollback stale-stride bugs were ASan-detectable.
+42. Targeted fault and bounds tests catch memory-safety regressions that agents introduce — keep executable cases for the PTY EINTR and scrollback stale-stride bugs.
 43. Replay fixtures let agents write UI-parsing regression tests by constructing synthetic msgpack payloads without launching Neovim.
 44. `FakeWindow` and `FakeRenderer` enable end-to-end orchestration tests without real hardware — critical for agent-generated tests.
 45. CI runs both platforms and installs Neovim — agent-authored tests are validated cross-platform automatically.

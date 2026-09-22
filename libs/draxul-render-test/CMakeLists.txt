@@ -10,6 +10,7 @@ target_include_directories(draxul-render-test PUBLIC
 
 target_compile_definitions(draxul-render-test PRIVATE
     DRAXUL_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
+    DRAXUL_BUILD_ROOT="${CMAKE_BINARY_DIR}"
 )
 
 if(DRAXUL_ENABLE_RENDER_TESTS)

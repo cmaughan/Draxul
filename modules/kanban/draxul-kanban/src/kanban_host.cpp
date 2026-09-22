@@ -131,6 +131,8 @@ const char* command_name(KanbanNavigationCommand command)
         return "toggle_column_zoom";
     case KanbanNavigationCommand::TogglePreview:
         return "toggle_preview";
+    case KanbanNavigationCommand::CycleSourceFilter:
+        return "cycle_source_filter";
     }
     return "unknown";
 }
@@ -149,6 +151,35 @@ std::optional<KanbanCardRowLayout> find_card_row(const KanbanLayout& layout, Kan
             return row;
     }
     return std::nullopt;
+}
+
+std::optional<KanbanSelection> find_card_selection(
+    const KanbanBoard& board,
+    const std::filesystem::path& path)
+{
+    for (size_t column = 0; column < board.columns.size(); ++column)
+    {
+        const auto& cards = board.columns[column].cards;
+        for (size_t card = 0; card < cards.size(); ++card)
+        {
+            if (cards[card].path == path)
+            {
+                return KanbanSelection{
+                    .column = static_cast<int>(column),
+                    .card = static_cast<int>(card),
+                };
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+size_t card_count(const KanbanBoard& board)
+{
+    size_t result = 0;
+    for (const auto& column : board.columns)
+        result += column.cards.size();
+    return result;
 }
 
 } // namespace
@@ -355,6 +386,10 @@ void KanbanHost::configure_highlights()
 
 bool KanbanHost::reload_board()
 {
+    std::optional<std::filesystem::path> selected_path;
+    if (const auto* selected = selected_card(board_, selection_))
+        selected_path = selected->path;
+
     std::string error;
     const auto root = resolve_kanban_root(launch_options().source_path, launch_options().working_dir, &error);
     if (!error.empty())
@@ -363,7 +398,7 @@ bool KanbanHost::reload_board()
         return false;
     }
 
-    KanbanBoard loaded = load_kanban_board(root, &error);
+    KanbanBoard loaded = load_kanban_workspace(root, &error);
     if (!error.empty())
     {
         init_error_ = error;
@@ -372,8 +407,10 @@ bool KanbanHost::reload_board()
 
     init_error_.clear();
     root_ = root;
-    board_ = std::move(loaded);
-    clamp_selection(board_, selection_);
+    workspace_board_ = std::move(loaded);
+    if (source_filter_ && *source_filter_ >= workspace_board_.sources.size())
+        source_filter_.reset();
+    rebuild_visible_board(selected_path);
     keep_selection_visible();
     update_status();
     refresh_card_preview();
@@ -546,7 +583,11 @@ void KanbanHost::draw_card_row(const KanbanCardRowLayout& row)
     draw_text(row.x, row.y, icon, row.selected ? HlSelected : icon_highlight(card.kind), row.width);
     const int text_x = row.x + icon_cells + 1;
     const int text_width = row.width - icon_cells - 1;
-    draw_text(text_x, row.y, truncate_to_cells(card.file_name, text_width), card_hl, text_width);
+    std::string label;
+    if (workspace_board_.sources.size() > 1)
+        label = "[" + card.source_name + "] ";
+    label += card.file_name;
+    draw_text(text_x, row.y, truncate_to_cells(label, text_width), card_hl, text_width);
 }
 
 void KanbanHost::draw_status_row(const KanbanLayout& layout)
@@ -570,10 +611,16 @@ void KanbanHost::draw_status_row(const KanbanLayout& layout)
 void KanbanHost::update_status()
 {
     status_ = "kanban";
-    if (!root_.empty())
-        status_ += " | " + root_.string();
+    status_ += " | " + std::to_string(card_count(board_)) + " cards";
+    status_ += " | " + std::to_string(workspace_board_.sources.size()) + " boards";
+    if (source_filter_ && *source_filter_ < workspace_board_.sources.size())
+        status_ += " | filter: " + workspace_board_.sources[*source_filter_].name;
+    else
+        status_ += " | filter: all";
     if (const KanbanCard* card = selected_card(board_, selection_))
-        status_ += " | " + card->file_name;
+        status_ += " | [" + card->source_name + "] " + card->file_name;
+    if (!workspace_board_.warnings.empty())
+        status_ += " | " + std::to_string(workspace_board_.warnings.size()) + " warnings";
 }
 
 void KanbanHost::apply_navigation_command(KanbanNavigationCommand command)
@@ -631,6 +678,9 @@ void KanbanHost::apply_navigation_command(KanbanNavigationCommand command)
         break;
     case KanbanNavigationCommand::TogglePreview:
         toggle_card_preview();
+        break;
+    case KanbanNavigationCommand::CycleSourceFilter:
+        cycle_source_filter();
         break;
     case KanbanNavigationCommand::None:
         break;
@@ -771,48 +821,58 @@ void KanbanHost::jump_selection_to_card(int card_index)
 
 void KanbanHost::move_card(int column_delta, int row_delta)
 {
-    if (!selection_has_card(board_, selection_))
+    const KanbanCard* visible_card = selected_card(board_, selection_);
+    if (!visible_card)
         return;
+
+    const auto workspace_selection = find_card_selection(
+        workspace_board_, visible_card->path);
+    if (!workspace_selection)
+    {
+        notify_error("Selected kanban card is missing from its workspace board.");
+        return;
+    }
 
     std::string error;
     bool changed = false;
+    std::filesystem::path selected_path = visible_card->path;
+    const size_t source_index = visible_card->source_index;
     if (column_delta != 0)
     {
         const int target_column = selection_.column + column_delta;
         if (target_column < 0 || target_column >= static_cast<int>(board_.columns.size()))
             return;
 
-        if (!move_card_to_column(board_, selection_, target_column, &error))
+        selected_path = visible_card->source_root
+            / workspace_board_.columns[static_cast<size_t>(target_column)].name
+            / visible_card->file_name;
+        if (!move_card_to_column(
+                workspace_board_, *workspace_selection, target_column, &error))
         {
             notify_error(error.empty() ? "Failed to move kanban card." : error);
             return;
         }
-        selection_.column = target_column;
         changed = true;
     }
     else if (row_delta != 0)
     {
-        const auto& cards = board_.columns[static_cast<size_t>(selection_.column)].cards;
-        const int target_card = std::clamp(selection_.card + row_delta, 0, static_cast<int>(cards.size()) - 1);
-        if (target_card == selection_.card)
-            return;
-
-        if (!reorder_card(board_, selection_, row_delta, &error))
+        if (!reorder_card(
+                workspace_board_, *workspace_selection, row_delta, &error))
         {
             notify_error(error.empty() ? "Failed to reorder kanban card." : error);
             return;
         }
-        selection_.card = target_card;
         changed = true;
     }
 
     if (!changed)
         return;
 
-    clamp_selection(board_, selection_);
-    if (!save_kanban_order(board_, &error))
+    if (!save_kanban_order_for_source(
+            workspace_board_, source_index, &error))
         notify_error(error.empty() ? "Failed to save kanban order." : error);
 
+    rebuild_visible_board(selected_path);
     keep_selection_visible();
     update_status();
     refresh_card_preview();
@@ -861,6 +921,70 @@ void KanbanHost::toggle_card_preview()
 
     preview_visible_ = true;
     refresh_card_preview();
+}
+
+void KanbanHost::cycle_source_filter()
+{
+    if (workspace_board_.sources.empty())
+        return;
+
+    if (!source_filter_)
+        source_filter_ = 0;
+    else if (*source_filter_ + 1 < workspace_board_.sources.size())
+        ++*source_filter_;
+    else
+        source_filter_.reset();
+
+    rebuild_visible_board();
+    keep_selection_visible();
+    update_status();
+    refresh_card_preview();
+    selection_before_redraw_.reset();
+    clear_before_redraw_ = true;
+    redraw_needed_ = true;
+    callbacks().request_frame();
+}
+
+void KanbanHost::rebuild_visible_board(
+    const std::optional<std::filesystem::path>& preferred_card)
+{
+    board_ = workspace_board_;
+    if (source_filter_)
+    {
+        for (auto& column : board_.columns)
+        {
+            std::erase_if(column.cards, [&](const KanbanCard& card) {
+                return card.source_index != *source_filter_;
+            });
+        }
+    }
+
+    if (preferred_card)
+    {
+        if (const auto found = find_card_selection(board_, *preferred_card))
+            selection_ = *found;
+        else
+            selection_.card = 0;
+    }
+    else
+    {
+        selection_.card = 0;
+    }
+    clamp_selection(board_, selection_);
+    if (!selection_has_card(board_, selection_))
+    {
+        for (size_t column = 0; column < board_.columns.size(); ++column)
+        {
+            if (!board_.columns[column].cards.empty())
+            {
+                selection_ = KanbanSelection{
+                    .column = static_cast<int>(column),
+                    .card = 0,
+                };
+                break;
+            }
+        }
+    }
 }
 
 void KanbanHost::refresh_card_preview()

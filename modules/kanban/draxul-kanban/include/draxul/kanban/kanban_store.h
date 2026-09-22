@@ -16,7 +16,12 @@ std::filesystem::path resolve_kanban_root(
     std::string* error);
 
 KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* error);
+KanbanBoard load_kanban_workspace(const std::filesystem::path& root, std::string* error);
 bool save_kanban_order(const KanbanBoard& board, std::string* error);
+bool save_kanban_order_for_source(
+    const KanbanBoard& board,
+    size_t source_index,
+    std::string* error);
 bool reorder_card(KanbanBoard& board, KanbanSelection selection, int row_delta, std::string* error);
 bool move_card_to_column(
     KanbanBoard& board,

@@ -138,12 +138,30 @@ selection count, render names, pass count, durations, seed policy, failure categ
 and retained log paths. Python coverage exercises successful construction, retained
 failures, missing-command environment failures, and an injected Windows command seam.
 
-- [ ] Preflight whether a running Windows Draxul server holds a helper binary that the
+### Windows live-helper preflight checkpoint (2026-09-22)
+
+`do.py test` and `do.py validate` now inspect the default live server after their
+selected cache is built. The preflight resolves the published PID to its actual
+process image and mirrors the production helper-refresh size/timestamp check. It
+continues without mutation for an unchanged same-cache helper and for a server owned
+by another build cache. If the selected cache's live helper is stale, it exits as a
+validation-environment failure before starting tests and reports the exact PID,
+runtime directory, process image, attached-client count, checkpoint health/error, and
+an explicit exact-runtime shutdown command. It never stops a server itself.
+
+The detached-server process integration fixture already stages `draxul.exe` beneath
+its unique temporary runtime on Windows, which in turn gives that test a private
+sibling `draxul-server.exe`. A focused live run proved the process cases can launch
+and replace those private helpers while the unrelated default server remains alive.
+Python workflow coverage fixes the compatible, unrelated, and stale same-cache
+decisions and proves a blocked preflight prevents CTest inventory/execution.
+
+- [x] Preflight whether a running Windows Draxul server holds a helper binary that the
       requested build/test must replace.
-- [ ] If replacement is required, report the exact server PID, runtime directory,
+- [x] If replacement is required, report the exact server PID, runtime directory,
       attached-client count, and checkpoint health before requesting shutdown.
-- [ ] Avoid stopping a compatible live server when the helper binary is unchanged.
-- [ ] Make isolated server integration tests use a helper location or launch strategy
+- [x] Avoid stopping a compatible live server when the helper binary is unchanged.
+- [x] Make isolated server integration tests use a helper location or launch strategy
       that cannot be blocked by an unrelated default-runtime server where practical.
 - [x] Verify cleanup leaves no isolated server, compiler, linker, test, or render process
       running after success, failure, cancellation, or timeout.
@@ -154,8 +172,8 @@ failures, missing-command environment failures, and an injected Windows command 
       waits or exits cleanly without object-file corruption or permission errors.
 - [x] Exercise caller timeout/cancellation and prove the build is either cancelled as a
       complete process tree or remains discoverable with a collectable final result.
-- [ ] Run the focused workflow for core, app, server/RPC, and render-affecting changes.
-- [ ] Run with a compatible live server and with a stale helper-holding server; prove the
+- [x] Run the focused workflow for core, app, server/RPC, and render-affecting changes.
+- [x] Run with a compatible live server and with a stale helper-holding server; prove the
       preflight chooses the safe path in each case.
 - [x] Verify Windows multi-config and macOS single-config command construction and
       process cleanup.
@@ -178,7 +196,7 @@ failures, missing-command environment failures, and an injected Windows command 
 - [x] No supported workflow can accidentally overlap builds in the same output tree.
 - [x] Timeouts and cancellations leave either no descendants or a visible, collectable
       build result; agents do not need to guess whether compilation is still running.
-- [ ] The final validation command cannot fail merely because an unrelated compatible
+- [x] The final validation command cannot fail merely because an unrelated compatible
       Draxul server is running, and handles an incompatible helper lock explicitly.
 - [x] Zero-test filters fail early with actionable syntax instead of looking like a test
       run.
@@ -195,3 +213,38 @@ lease and completed 8/8 steps in 130.49 seconds: one `draxul` + `draxul-tests` b
 unit CTest entries (103.72s). Every snapshot passed, including an exact NanoVG match.
 No failure log was retained because every step passed. The live Windows helper
 preflight and two-platform timing matrix remain explicitly open above.
+
+## Windows helper-preflight evidence (2026-09-22)
+
+- The complete `tests/do_py_tests.py` workflow suite passed 84 tests (one
+  platform skip) in 1.41 seconds. Its focused 24-test workflow selection includes
+  compatible, unrelated-cache, stale-helper, blocked-before-CTest, and
+  final-validation seams.
+- With the user's existing Debug default server still running as PID `69092`, the
+  same-cache Debug preflight reported the helper unchanged and continued. The Release
+  preflight resolved that same PID to the Debug helper, classified it as unrelated to
+  the Release cache, and continued. The server was status-probed only and left running.
+- `py do.py test debug --target draxul-test-core --catch "[server][process]"`
+  passed 13 cases / 389 assertions in 24.12 seconds while PID `69092` remained alive.
+  This includes the private-helper detached-server process boundary.
+- `py do.py test debug --target draxul-test-app --catch "[app]"` passed 20 cases /
+  209 assertions in 0.22 seconds. Its required configure/generate refresh took
+  92.7 / 1.5 seconds.
+- `py do.py test debug --target draxul-test-render-contracts --catch
+  "[render-contracts]"` passed 1 case / 1 assertion in 0.03 seconds.
+- The final Release product aggregate passed all 48 selected CTest entries in
+  119.47 seconds, followed by a same-cache `py do.py smoke release --skip-build`
+  pass. The workflow unit test that mocks the build and CTest layers now also
+  mocks the Windows helper preflight, so it cannot inspect or depend on a real
+  developer server.
+- A private server at
+  `build-ninja-debug/validation/card35-helper-preflight-43aac5e2bf644a289cd348aa77fc74ba/runtime`
+  ran as PID `58920`. After changing only its private source-app timestamp, preflight
+  refused the stale held helper and reported PID `58920`, that exact runtime, zero
+  attached clients, checkpoint state `pending`, and the exact shutdown command. The
+  isolated server then shut down gracefully and PID `58920` was confirmed gone.
+
+The only remaining card checkbox is the complete two-platform timing matrix above.
+Windows configure/generate and representative focused timings are now recorded here;
+the already-recorded macOS final-tier run provides aggregate build/smoke/render/CTest
+timings, but it does not yet separate configure, compile, and link costs by generator.

@@ -12,6 +12,7 @@
 #include "vulkan/vk_renderer_operations.h"
 
 #include <cstdint>
+#include <functional>
 #include <type_traits>
 #include <vector>
 #endif
@@ -123,10 +124,18 @@ public:
     {
     }
     void cmd_copy_image_to_buffer(VkCommandBuffer, VkImage, VkImageLayout, VkBuffer,
-        uint32_t, const VkBufferImageCopy*) override
+        uint32_t region_count, const VkBufferImageCopy* regions) override
     {
+        if (region_count != 0 && regions)
+            copied_extent = regions[0].imageExtent;
     }
-    VkResult queue_present(VkQueue, const VkPresentInfoKHR*) override { return VK_SUCCESS; }
+    VkResult queue_present(VkQueue, const VkPresentInfoKHR*) override
+    {
+        ++present_count;
+        if (on_present)
+            on_present();
+        return VK_SUCCESS;
+    }
     VkResult invalidate_allocation(VmaAllocator, VmaAllocation, VkDeviceSize, VkDeviceSize size) override
     {
         invalidated_size = size;
@@ -139,6 +148,9 @@ public:
     bool replacement_fence_signaled = false;
     VkDeviceSize invalidated_size = 0;
     VkResult invalidate_result = VK_SUCCESS;
+    VkExtent3D copied_extent{};
+    int present_count = 0;
+    std::function<void()> on_present;
     VkSemaphore replacement_semaphore = fake_handle<VkSemaphore>(0x201);
     VkFence replacement_fence = fake_handle<VkFence>(0x202);
 };
@@ -224,6 +236,19 @@ struct VkRendererTestAccess
     static void finish_capture(VkRenderer& renderer)
     {
         renderer.finish_capture_readback();
+    }
+
+    static void set_swapchain_extent(VkRenderer& renderer,
+        uint32_t width, uint32_t height)
+    {
+        auto& swapchain
+            = const_cast<SwapchainInfo&>(renderer.ctx_.swapchain());
+        swapchain.extent = { width, height };
+    }
+
+    static VkExtent2D swapchain_extent(const VkRenderer& renderer)
+    {
+        return renderer.ctx_.swapchain().extent;
     }
 };
 
@@ -427,6 +452,65 @@ TEST_CASE("Vulkan capture readback rejects allocation overruns and preserves rec
     draxul::VkRendererTestAccess::finish_capture(*renderer);
     CHECK_FALSE(renderer->take_captured_frame().has_value());
     CHECK(operations.invalidated_size == 0);
+}
+
+TEST_CASE("Vulkan capture completes against its recorded extent when presentation changes size",
+    "[nanovg][vulkan][capture][resize][failure-injection]")
+{
+    struct ResizeCase
+    {
+        VkExtent2D recorded;
+        VkExtent2D presented;
+    };
+    constexpr ResizeCase cases[] = {
+        { { 2, 2 }, { 7, 5 } },
+        { { 7, 5 }, { 2, 2 } },
+    };
+
+    for (const auto& resize : cases)
+    {
+        DYNAMIC_SECTION(resize.recorded.width << "x" << resize.recorded.height
+                                             << " -> " << resize.presented.width
+                                             << "x" << resize.presented.height)
+        {
+            RecordingVulkanOperations operations;
+            auto renderer = draxul::VkRendererTestAccess::make(operations);
+            draxul::VkRendererTestAccess::arm_frame(*renderer);
+            draxul::VkRendererTestAccess::set_swapchain_extent(
+                *renderer, resize.recorded.width, resize.recorded.height);
+
+            const size_t byte_count = static_cast<size_t>(resize.recorded.width)
+                * resize.recorded.height * 4;
+            std::vector<uint8_t> bgra(byte_count, 0x7f);
+            draxul::VkRendererTestAccess::arm_capture(*renderer, bgra.data(),
+                bgra.size(), resize.recorded.width, resize.recorded.height,
+                byte_count);
+
+            // Model the surface extent becoming observable at presentation.
+            // Readback must already have consumed the recorded image by then.
+            operations.on_present = [&]() {
+                draxul::VkRendererTestAccess::set_swapchain_extent(*renderer,
+                    resize.presented.width, resize.presented.height);
+            };
+
+            REQUIRE(draxul::VkRendererTestAccess::flush(*renderer, true));
+            REQUIRE(operations.present_count == 1);
+            CHECK(operations.copied_extent.width == resize.recorded.width);
+            CHECK(operations.copied_extent.height == resize.recorded.height);
+            CHECK(operations.invalidated_size == byte_count);
+
+            const auto current_extent
+                = draxul::VkRendererTestAccess::swapchain_extent(*renderer);
+            CHECK(current_extent.width == resize.presented.width);
+            CHECK(current_extent.height == resize.presented.height);
+
+            const auto capture = renderer->take_captured_frame();
+            REQUIRE(capture.has_value());
+            CHECK(capture->width == static_cast<int>(resize.recorded.width));
+            CHECK(capture->height == static_cast<int>(resize.recorded.height));
+            CHECK(capture->rgba.size() == byte_count);
+        }
+    }
 }
 
 #endif

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -21,6 +22,15 @@ struct KanbanCard
     std::string file_name;
     std::filesystem::path path;
     CardKind kind = CardKind::Note;
+    size_t source_index = 0;
+    std::string source_name;
+    std::filesystem::path source_root;
+};
+
+struct KanbanSource
+{
+    std::string name;
+    std::filesystem::path root;
 };
 
 struct KanbanColumn
@@ -33,7 +43,9 @@ struct KanbanColumn
 struct KanbanBoard
 {
     std::filesystem::path root;
+    std::vector<KanbanSource> sources;
     std::vector<KanbanColumn> columns;
+    std::vector<std::string> warnings;
 };
 
 struct KanbanSelection

@@ -503,6 +503,206 @@ def _default_config_path() -> pathlib.Path:
     return base / "draxul" / "config.toml"
 
 
+class WindowsServerHelperPreflight:
+    """Result of checking whether the selected cache can refresh its helper."""
+
+    __slots__ = ("ok", "summary")
+
+    def __init__(self, ok: bool, summary: str) -> None:
+        self.ok = ok
+        self.summary = summary
+
+
+def _default_server_runtime_directory() -> pathlib.Path:
+    return _default_config_path().parent / "runtime" / "server-v1"
+
+
+def _windows_process_executable(pid: int) -> pathlib.Path | None:
+    """Return one live Windows process image without shelling out to task tools."""
+    if not sys.platform.startswith("win") or pid <= 0:
+        return None
+    import ctypes
+
+    process_query_limited_information = 0x1000
+    handle = ctypes.windll.kernel32.OpenProcess(
+        process_query_limited_information, False, pid
+    )
+    if not handle:
+        return None
+    try:
+        buffer = ctypes.create_unicode_buffer(32768)
+        size = ctypes.c_ulong(len(buffer))
+        if not ctypes.windll.kernel32.QueryFullProcessImageNameW(
+            handle, 0, buffer, ctypes.byref(size)
+        ):
+            return None
+        return pathlib.Path(buffer.value)
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
+def _same_windows_file_identity(first: pathlib.Path, second: pathlib.Path) -> bool:
+    """Mirror the app's size/timestamp helper-refresh compatibility check."""
+    try:
+        first_stat = first.stat()
+        second_stat = second.stat()
+    except OSError:
+        return False
+    return (
+        first_stat.st_size == second_stat.st_size
+        and first_stat.st_mtime_ns == second_stat.st_mtime_ns
+    )
+
+
+def _live_server_metadata(runtime_directory: pathlib.Path) -> dict[str, object] | None:
+    """Read the bounded ready-server record when the status RPC is unavailable."""
+    for path in sorted(runtime_directory.glob("*.control.json")):
+        try:
+            if path.stat().st_size > 16 * 1024:
+                continue
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(value, dict) or value.get("state") != "ready":
+            continue
+        pid = value.get("server_pid")
+        if isinstance(pid, int) and _process_is_running(pid):
+            return value
+    return None
+
+
+def _format_server_helper_details(
+    *,
+    pid: int,
+    runtime_directory: pathlib.Path,
+    process_path: pathlib.Path | None,
+    status: dict[str, object] | None,
+) -> str:
+    clients = status.get("connected_clients", "unknown") if status else "unknown"
+    checkpoint = status.get("checkpoint_state", "unknown") if status else "unknown"
+    checkpoint_error = status.get("checkpoint_error", "") if status else ""
+    details = [
+        f"server PID: {pid}",
+        f"runtime: {runtime_directory}",
+        f"server executable: {process_path or 'unknown'}",
+        f"attached clients: {clients}",
+        f"checkpoint health: {checkpoint}",
+    ]
+    if checkpoint_error:
+        details.append(f"checkpoint error: {checkpoint_error}")
+    return "\n".join(details)
+
+
+def _preflight_windows_server_helper(
+    root: pathlib.Path,
+    executable: pathlib.Path,
+    env: dict[str, str] | None,
+    *,
+    runtime_directory: pathlib.Path | None = None,
+) -> WindowsServerHelperPreflight:
+    """Identify a live helper that would block this cache's next refresh.
+
+    A server from another build cache is unrelated and a byte-compatible helper
+    in this cache needs no replacement.  A live same-cache helper whose source
+    app has changed is reported, never stopped implicitly.
+    """
+    if not sys.platform.startswith("win"):
+        return WindowsServerHelperPreflight(True, "not required on this platform")
+
+    runtime = runtime_directory or _default_server_runtime_directory()
+    helper = executable.parent / "draxul-server.exe"
+    command = [
+        str(executable),
+        "--server-status",
+        "--server-runtime-dir",
+        str(runtime),
+        "--json",
+    ]
+    try:
+        status_rc, status_output = _capture_owned_process(
+            command, root, env=env, timeout_seconds=5
+        )
+    except OSError as error:
+        status_rc, status_output = 125, str(error)
+    status: dict[str, object] | None = None
+    if status_rc == 0:
+        try:
+            parsed = json.loads(status_output)
+            if isinstance(parsed, dict):
+                status = parsed
+        except ValueError:
+            pass
+
+    metadata = _live_server_metadata(runtime)
+    pid_value = status.get("server_pid") if status else None
+    if not isinstance(pid_value, int) and metadata:
+        pid_value = metadata.get("server_pid")
+    if not isinstance(pid_value, int) or not _process_is_running(pid_value):
+        return WindowsServerHelperPreflight(
+            True, f"no live server owns a helper for runtime {runtime}"
+        )
+
+    process_path = _windows_process_executable(pid_value)
+    details = _format_server_helper_details(
+        pid=pid_value,
+        runtime_directory=runtime,
+        process_path=process_path,
+        status=status,
+    )
+    if process_path is None:
+        return WindowsServerHelperPreflight(
+            False,
+            "could not verify the live server helper identity; refusing a "
+            f"potentially locked refresh\n{details}",
+        )
+
+    try:
+        same_helper_path = process_path.resolve() == helper.resolve()
+    except OSError:
+        same_helper_path = process_path.absolute() == helper.absolute()
+    if not same_helper_path:
+        return WindowsServerHelperPreflight(
+            True,
+            "compatible unrelated live server does not own the selected cache helper\n"
+            + details,
+        )
+    if _same_windows_file_identity(executable, helper):
+        return WindowsServerHelperPreflight(
+            True,
+            "compatible live server helper is unchanged; continuing\n" + details,
+        )
+
+    shutdown = shlex.join(
+        [
+            str(executable),
+            "--shutdown-server",
+            "--yes",
+            "--server-runtime-dir",
+            str(runtime),
+        ]
+    )
+    return WindowsServerHelperPreflight(
+        False,
+        "replacement required: the live server owns the stale helper that this "
+        "cache must refresh\n"
+        + details
+        + "\nInspect its clients and live terminals, then stop that exact server:\n  "
+        + shutdown,
+    )
+
+
+def _run_windows_server_helper_preflight(
+    root: pathlib.Path,
+    executable: pathlib.Path,
+    env: dict[str, str] | None,
+) -> int:
+    result = _preflight_windows_server_helper(root, executable, env)
+    stream = sys.stdout if result.ok else sys.stderr
+    print("\n=== Windows server-helper preflight ===", file=stream)
+    print(result.summary, file=stream)
+    return 0 if result.ok else 125
+
+
 def _toml_string(value: str) -> str:
     return json.dumps(value)
 
@@ -1011,6 +1211,14 @@ def cmd_test(root: pathlib.Path, args: list[str]) -> int:
     )
     if rc != 0:
         return rc
+
+    executable = draxul_exe(bd, config)
+    if sys.platform.startswith("win") and executable.is_file():
+        preflight_rc = _run_windows_server_helper_preflight(
+            root, executable, env
+        )
+        if preflight_rc != 0:
+            return preflight_rc
 
     if focused_target is not None:
         return _run_focused_test_target(
@@ -1875,6 +2083,29 @@ def cmd_validate(root: pathlib.Path, args: list[str]) -> int:
                 )
             )
         else:
+            if sys.platform.startswith("win"):
+                preflight_started = time.monotonic()
+                preflight_rc = _run_windows_server_helper_preflight(
+                    root, executable, env
+                )
+                steps.append(
+                    ValidationStepResult(
+                        "server helper preflight",
+                        "environment",
+                        preflight_rc,
+                        time.monotonic() - preflight_started,
+                    )
+                )
+                if preflight_rc != 0:
+                    final_return_code = preflight_rc
+                    _print_final_validation_summary(
+                        targets=targets,
+                        selected_tests=None,
+                        render_names=render_names,
+                        steps=steps,
+                    )
+                    lock.finish(final_return_code)
+                    return final_return_code
             steps.append(
                 _run_logged_validation_command(
                     [str(executable), "--console", "--smoke-test"],
@@ -2027,34 +2258,6 @@ def ensure_built(root: pathlib.Path) -> int:
     return rc
 
 
-def _configure_and_build_coverage(root: pathlib.Path) -> int:
-    """Configure/build the coverage cache under the normal build-tree lock."""
-    bd = build_dir(root)
-    lock = BuildTreeLock(bd)
-    try:
-        lock.acquire()
-    except BuildTreeBusyError as error:
-        print(f"ERROR: {error}", file=sys.stderr)
-        return 3
-    try:
-        rc = run(["cmake", "--preset", "mac-coverage"], root)
-        if rc == 0:
-            rc = run(
-                [
-                    "cmake", "--build", str(bd), "--target",
-                    "draxul-tests", "draxul-rpc-fake",
-                ],
-                root,
-            )
-        lock.finish(rc)
-        return rc
-    except BaseException:
-        lock.finish(130, status="interrupted")
-        raise
-    finally:
-        lock.release()
-
-
 def cmd_clean(root: pathlib.Path) -> int:
     directories = build_dirs(root)
     if not directories:
@@ -2083,13 +2286,12 @@ def cmd_clean(root: pathlib.Path) -> int:
 
 # --- Repository hygiene -----------------------------------------------------
 #
-# Artifacts that must never be tracked. OS/coverage temps are forbidden anywhere
-# in the tree; log/object/bitmap files are forbidden only at the repo root, so
+# Artifacts that must never be tracked. OS and partial-transfer temps are
+# forbidden anywhere in the tree; log/object/bitmap files are forbidden only at the repo root, so
 # legitimate assets keep working (mesh `*.obj` under module dirs, render-test
 # reference `*.bmp` under tests/render/reference/).
 FORBIDDEN_ANYWHERE_NAMES = frozenset({".DS_Store"})
 FORBIDDEN_ANYWHERE_PREFIXES = (".!",)  # partial-transfer temps, e.g. ".!75583!.DS_Store"
-FORBIDDEN_ANYWHERE_SUFFIXES = (".profraw", ".profdata")
 FORBIDDEN_ROOT_NAMES = frozenset({"key.txt", "megacity-linux-drivers-mesh.bmp", "NUL.obj"})
 FORBIDDEN_ROOT_SUFFIXES = (".log", ".obj", ".bmp")
 
@@ -2110,7 +2312,6 @@ def forbidden_artifacts(tracked_relpaths: list[str]) -> list[str]:
         if (
             name in FORBIDDEN_ANYWHERE_NAMES
             or name.startswith(FORBIDDEN_ANYWHERE_PREFIXES)
-            or name.endswith(FORBIDDEN_ANYWHERE_SUFFIXES)
             or (at_root and (name in FORBIDDEN_ROOT_NAMES or name.endswith(FORBIDDEN_ROOT_SUFFIXES)))
         ):
             offenders.add(norm)
@@ -2260,7 +2461,8 @@ Single-word shortcuts:
   validate [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja]
            [--render <scenario>]... [--no-render]
                Build app + full test inventory once, then run smoke, selected
-               snapshots, and full CTest with retained failure logs
+               snapshots, and full CTest with retained failure logs. On Windows,
+               test/validate report a live helper owner before replacement
   score-shot-check  Regression guard (kanban 74): ScoreView plugin --screenshot-size + .musicxml
   test [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--verbose]
        [--label <label>]
@@ -2275,7 +2477,6 @@ Single-word shortcuts:
   shot         Regenerate the README hero screenshot
   api          Build local Doxygen API docs
   docs         Build all docs artifacts
-  coverage     macOS: build with LLVM coverage, export build/coverage.lcov, copy to db/coverage.lcov
   syncboard    Sync kanban pending and ice-box to the GitHub project board
   hygiene      Check for forbidden tracked artifacts and duplicate feature docs
   kanban-report  Summarize kanban lanes; flag done cards with unchecked boxes
@@ -2369,100 +2570,6 @@ def main() -> int:
 
     if command == "docs":
         return run([sys.executable, str(root / "scripts" / "build_docs.py")], root)
-
-    if command == "coverage":
-        if not sys.platform.startswith("darwin"):
-            print("ERROR: coverage export is currently supported only on macOS; local coverage writes build/coverage.lcov and refreshes db/coverage.lcov.")
-            return 1
-        bd = build_dir(root)
-        # 1-2. Configure and build under the same per-tree ownership lock used
-        # by normal build/test/run workflows.
-        rc = _configure_and_build_coverage(root)
-        if rc != 0:
-            return rc
-        # 3. Run tests under coverage instrumentation
-        import os
-        env = os.environ.copy()
-        env["LLVM_PROFILE_FILE"] = str(bd / "coverage-%p.profraw")
-        print(f"> ctest --test-dir {bd} --label-regex unit --parallel 4 --output-on-failure")
-        rc = run(
-            [
-                "ctest", "--test-dir", str(bd),
-                "--label-regex", "unit", "--parallel", "4", "--output-on-failure",
-            ],
-            root,
-            env=env,
-        )
-        if rc != 0:
-            return rc
-        # 4. Merge raw profiles
-        import glob as globmod
-        profraw_files = globmod.glob(str(bd / "coverage-*.profraw"))
-        if not profraw_files:
-            print("ERROR: no .profraw files found")
-            return 1
-        profdata = bd / "coverage.profdata"
-        rc = run(["xcrun", "llvm-profdata", "merge", "-sparse"] + profraw_files + ["-o", str(profdata)], root)
-        if rc != 0:
-            return rc
-        # 5. Export LCOV from every focused test executable. llvm-cov accepts
-        # additional instrumented objects via -object, so the modular test
-        # targets retain one combined report just like the former monolith.
-        lcov_file = bd / "coverage.lcov"
-        test_dir = bd / "tests"
-        test_executables = [
-            test_dir / name
-            for name in (
-                "draxul-test-core",
-                "draxul-test-app",
-                "draxul-test-markdown-kanban",
-                "draxul-test-kanban-core",
-                "draxul-test-kanban-host",
-                "draxul-test-megacity",
-                "draxul-test-satview",
-                "draxul-test-scoreview",
-                "draxul-test-scoreview-runtime",
-                "draxul-test-pcbview",
-                "draxul-test-rezonality",
-                "draxul-test-rezonality-project",
-                "draxul-test-rezonality-runtime",
-                "draxul-test-rezonality-audio",
-            )
-            if (test_dir / name).is_file()
-        ]
-        if not test_executables:
-            print("ERROR: no modular test executables found")
-            return 1
-        cov_command = ["xcrun", "llvm-cov", "export", str(test_executables[0])]
-        for test_exe in test_executables[1:]:
-            cov_command.extend(["-object", str(test_exe)])
-        cov_command.extend([
-            f"--instr-profile={profdata}",
-            "--format=lcov",
-            "--ignore-filename-regex=(build/_deps|tests/)",
-        ])
-        rc = subprocess.run(
-            cov_command,
-            stdout=open(lcov_file, "w"), cwd=root, check=False,
-        ).returncode
-        if rc != 0:
-            return rc
-        import shutil
-        db_lcov_file = root / "db" / "coverage.lcov"
-        shutil.copyfile(lcov_file, db_lcov_file)
-        print(f"\nCoverage report written to: {lcov_file}")
-        print(f"Coverage report copied to:  {db_lcov_file}")
-        # Quick summary
-        fn_total = 0
-        fn_hit = 0
-        for line in open(lcov_file):
-            if line.startswith("FNF:"):
-                fn_total += int(line[4:].strip())
-            elif line.startswith("FNH:"):
-                fn_hit += int(line[4:].strip())
-        if fn_total > 0:
-            print(f"Functions: {fn_hit}/{fn_total} ({fn_hit * 100.0 / fn_total:.1f}%)")
-        return 0
 
     if command == "syncboard":
         return run([sys.executable, str(root / "scripts" / "sync_project_board.py")], root)

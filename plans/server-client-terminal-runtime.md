@@ -639,7 +639,7 @@ state directly.
 - Client writes are serialized and bounded; disconnect cancels outstanding operations
   without blocking UI shutdown.
 
-Run macOS TSan against the client/server integration path once both sides are active.
+Run seeded concurrent client/server integration stress once both sides are active.
 
 ## Persistence and restore
 
@@ -1554,7 +1554,7 @@ Work:
   and one guarded stop flow with a conditional force-stop fallback;
 - update user documentation, command palette, help, packaging, and logs;
 - ensure app updates detect incompatible live servers without killing them;
-- run extended Windows/macOS soak and sanitizer coverage; and
+- run extended Windows/macOS soak and fault-path coverage; and
 - retain fake transports and protocol snapshots as diagnostic seams without a
   second production shell backend.
 
@@ -1868,12 +1868,12 @@ objects across process boundaries.
 - font/DPI differences between two clients; and
 - long-running detach/reconnect soak.
 
-### Cross-platform and sanitizers
+### Cross-platform validation
 
 - Windows Debug and Release app/tests/smoke;
 - macOS Debug and Release app/tests/smoke;
-- macOS ASan for lifetime and decoder errors;
-- macOS TSan for server/client/PTY queues and shutdown;
+- repeated lifetime and malformed-decoder cases on both platforms;
+- seeded server/client/PTY queue and shutdown stress;
 - malformed/oversized protocol corpus on both platforms; and
 - CMake link-isolation checks for server/core/protocol headers.
 

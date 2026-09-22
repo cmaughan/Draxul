@@ -265,7 +265,7 @@ Static inspection cannot validate generated dependency closure, native linking, 
 #### Implementation and migration
 
 - [ ] Move audio and selected permission sources into the static target; remove duplicate compilation.
-- [ ] Add the target to product `PRODUCT_TARGETS`, retaining PIC and product sanitizer/coverage/MSVC policy.
+- [ ] Add the target to product `PRODUCT_TARGETS`, retaining PIC and product MSVC policy.
 - [ ] Add private injectable device, permission, and wait operations plus an explicitly owned test registry.
 - [ ] Retain production sharing and existing `AudioAnalyzer` callers.
 - [ ] Add proposed `draxul-test-rezonality-audio` with no renderer/App dependency.

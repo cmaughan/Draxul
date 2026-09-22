@@ -7,7 +7,7 @@
 
 **Investigation**
 
-- [ ] Exercise capture with presentation-triggered swapchain recreation, growing and shrinking.
+- [x] Exercise capture with presentation-triggered swapchain recreation, growing and shrinking.
 
 **Fix strategy**
 
@@ -29,13 +29,21 @@ broader aggregate is currently blocked linking unrelated PCBView symbols, and
 the same-cache smoke could not connect to the existing Draxul server.
 Vulkan/Windows runtime validation is still required.
 
-**Coverage note (2026-09-22):** Windows white-box coverage now supplies a
+**Regression note (2026-09-22):** Windows white-box tests now supply a
 mapped allocation through the renderer's Vulkan operation seam. It verifies
 that readback uses the recorded extent and byte count, invalidates only that
 bounded range, and rejects a byte count larger than the allocation. The
 resize/render runtime gate remains pending.
 
 **Windows validation note (2026-09-22):** `py do.py test debug --products`
-passed with the bounded-readback coverage in the normal MSVC/Vulkan build.
+passed with the bounded-readback tests in the normal MSVC/Vulkan build.
 That aggregate does not force presentation-triggered swapchain growth or
 shrink during capture, so the investigation box remains open.
+
+**Completion note (2026-09-22):** The Vulkan operation-seam regression now
+drives both grow and shrink transitions at the presentation boundary and
+asserts that copy extent, invalidation range, returned dimensions, and byte
+count all remain tied to the recorded image. A live Debug screenshot run then
+performed 47 alternating window resizes, causing 49 swapchain creations while
+capture was pending; it exited successfully with a valid 2216x1511 frame and
+no Vulkan validation or renderer warning/error messages.

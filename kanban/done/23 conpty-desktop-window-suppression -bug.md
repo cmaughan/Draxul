@@ -26,8 +26,8 @@ ConPTY spawn polls every top-level desktop window for eight seconds and hides an
 
 - [x] Draxul never hides a console window owned by an unrelated process.
 - [x] Failed spawns start no suppression worker.
-- [ ] Terminal spawning remains free of unwanted Draxul-owned console flashes.
-- [ ] Windows spawn and smoke tests pass.
+- [x] Terminal spawning remains free of unwanted Draxul-owned console flashes.
+- [x] Windows spawn and smoke tests pass.
 
 ## Windows validation (2026-09-22)
 
@@ -35,5 +35,16 @@ The Windows ConPTY suite now covers failed spawn followed by a successful retry
 and statically rejects `EnumWindows`, `ConsoleWindowClass`, and `ShowWindow(` in
 the production spawn path. Removing every desktop-wide enumeration/hide API is
 stronger than timing a concurrent unrelated console: there is no remaining path
-that can discover or hide it. `py do.py test debug --products` passed; the
-same-cache smoke and the manual no-flash observation remain open above.
+that can discover or hide it. The remaining spawn and smoke evidence is recorded
+below.
+
+## No-flash closeout (2026-09-22)
+
+- A Win32 `SetWinEventHook(EVENT_OBJECT_SHOW)` probe watched the interactive
+  desktop while the real `[conpty_process][windows][spawn]` cases ran 50 times.
+  All 50 iterations passed and the probe observed zero visible
+  `ConsoleWindowClass` show events, including short-lived windows that ordinary
+  polling could miss.
+- The final Windows Release products aggregate passed all 48 registered CTest
+  entries, including the ConPTY spawn cases, and the same-cache Vulkan smoke
+  passed with `--skip-build`.

@@ -50,5 +50,5 @@ If `sysconf(_SC_OPEN_MAX)` returns `−1` (valid on some configurations), the fa
 
 - [ ] After the fix, no FDs > 2 are open in the spawned nvim or shell child (verify with `/proc/self/fd` or `lsof` in a test)
 - [ ] `sysconf(_SC_OPEN_MAX)` returning `−1` no longer results in a 1024-only sweep
-- [ ] Smoke test passes; `mac-asan` build shows no FD-related errors
+- [ ] Aggregate tests and smoke pass; a real child-process probe shows no inherited FD leaks
 - [ ] Windows path is unaffected (this is macOS/Linux only)

@@ -2,8 +2,9 @@
 
 ## Status and goal
 
-**Status:** core implementation complete (2026-08-18); macOS and multi-client
-acceptance coverage remains tracked on the kanban card. This design extends the existing trusted, client-local
+**Status:** core implementation and deterministic reload-between-frames render
+harness complete (2026-09-22); the Metal execution gate remains tracked on the
+kanban card. This design extends the existing trusted, client-local
 native plugin system so a newly built plugin package can replace the active
 implementation without restarting Draxul.  It is a core runtime seam: product
 repositories consume the contract, while loader, host, control, and packaging
@@ -198,11 +199,22 @@ which client owns a failure.
 ## Validation matrix
 
 The Windows debug/product aggregates, reload-focused integration cases, Python
-publisher test, same-cache smoke, Vulkan reference-plugin render scenario, and
-Release startup gate passed on 2026-08-18. macOS/Metal and
-shared-server two-client cases remain CI/follow-up acceptance work because the
-reload operation is deliberately client-local and this implementation does not
-add a cross-client coordinator.
+publisher test, same-cache smoke, reference-plugin render scenarios, and
+Release startup gate passed during implementation. The render harness now waits
+for an original-generation frame, publishes a complete prebuilt immutable
+replacement, reloads the local cohort, and refuses capture until a newer frame
+has rendered. The package marker is restored after capture so the same scenario
+is repeatable. macOS/Metal execution remains a follow-up acceptance gate; the
+shared-server two-client behavior is covered because reload is deliberately
+client-local and does not add a cross-client coordinator.
+
+On Windows/Vulkan, the reload render smoke passed three consecutive times on
+2026-09-22. The
+960x640 export visibly contained the alternate inverted shader, the log reported
+one pane replaced by a distinct runtime generation, and the original publication
+marker was restored after each capture. The remaining command on macOS is:
+`python3 do.py build debug`, then `ctest --test-dir build -R
+'^draxul-render-spinning-triangle-reload-smoke$' --output-on-failure -V`.
 
 - Core plugin-manager and PluginHost integration tests, including real staged
   module loading from the application package.

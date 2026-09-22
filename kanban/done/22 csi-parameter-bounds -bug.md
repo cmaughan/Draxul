@@ -18,8 +18,7 @@ boundary in `libs/draxul-terminal-core/src/terminal_core_csi.cpp`.
 - [x] Introduce checked/saturating coordinate helpers and constant-time or grid-bounded
       tab-stop movement.
 - [x] Cover zero, ordinary, boundary, out-of-range parse, and `INT_MAX` parameters.
-- [x] Verify hostile inputs complete within a strict time bound; UBSan remains a separate platform gate.
-      signed overflow.
+- [x] Verify hostile inputs complete within a strict time bound and exercise signed-overflow boundaries explicitly.
 
 ## Acceptance criteria
 

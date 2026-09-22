@@ -19,7 +19,7 @@ Existing tests cover some ToastHost/grid-handle failures, but command palette, c
 
 ## Verification
 
-- [x] Repeat construct/shutdown in the normal macOS Debug suite. The suite is green; the former ASan gate is retired because ASan support has been removed.
+- [x] Repeat construct/shutdown in the normal macOS Debug suite. The suite is green.
 - [x] Run with diagnostics/toasts enabled and disabled.
 - [x] Ensure existing ToastHost lifecycle tests remain the source for toast timing behavior.
 
@@ -37,4 +37,4 @@ Safety net before item 23; independent of the Unicode content fix in item 08.
 
 ## Status 2026-07-19
 
-Implemented on macOS/Metal. Added `tests/overlay_allocation_failure_tests.cpp` — 7 cases (`[overlay][alloc_failure][...]`) forcing allocation failure one overlay at a time for the command palette (+ recovery), toast (x2), chrome text, diagnostics, and tooltip, reusing the existing fake grid/renderer allocation controls (no new parallel mocks). Asserts init rolls back or degrades with a single error, no null handle reaches draw, and input capture / frame requests do not stay active for a failed overlay. Validated: build clean, `[overlay]` 25 cases / 560 assertions, `[alloc_failure]` 7 cases, full `ctest` 12/12, smoke green. No production bug surfaced (the contracts already held). Remaining: a macOS ASan pass. Unblocks refactor card 23.
+Implemented on macOS/Metal. Added `tests/overlay_allocation_failure_tests.cpp` — 7 cases (`[overlay][alloc_failure][...]`) forcing allocation failure one overlay at a time for the command palette (+ recovery), toast (x2), chrome text, diagnostics, and tooltip, reusing the existing fake grid/renderer allocation controls (no new parallel mocks). Asserts init rolls back or degrades with a single error, no null handle reaches draw, and input capture / frame requests do not stay active for a failed overlay. Validated: build clean, `[overlay]` 25 cases / 560 assertions, `[alloc_failure]` 7 cases, full `ctest` 12/12, smoke green. No production bug surfaced (the contracts already held). Unblocks refactor card 23.

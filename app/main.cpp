@@ -1234,7 +1234,9 @@ static int draxul_main(std::vector<std::string> args)
     if (render_test)
     {
         auto frame = app.run_render_test(std::chrono::milliseconds(render_test->timeout_ms),
-            std::chrono::milliseconds(render_test->settle_ms));
+            std::chrono::milliseconds(render_test->settle_ms),
+            render_test->reload_plugin_id,
+            render_test->reload_plugin_package);
         if (!frame)
         {
             draxul::write_render_test_failure_report(*render_test, app.last_render_test_error());

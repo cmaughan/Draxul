@@ -44,5 +44,5 @@ The narrowing cast from `size_t` to `int` is implementation-defined if `cells_.s
 
 - [ ] No `(int)` cast on any `size()` return value in the patched files
 - [ ] No signed `row * cols` multiplication in `renderer_state.cpp`
-- [ ] `draxul-tests` passes under `mac-asan` and `mac-tsan` presets
+- [ ] Aggregate tests pass on Windows and macOS, including extreme-dimension regression cases
 - [ ] Compiler warnings for implicit narrowing (if enabled) do not fire on the changed lines

@@ -12,6 +12,8 @@ enum class RenderTestPhase
 {
     kWaitingForContent,
     kSettlingContent,
+    kWaitingForPostHookFrame,
+    kSettlingPostHookContent,
     kEnablingDiagnostics,
     kSettlingForCapture,
     kCapturing,
@@ -25,6 +27,10 @@ const char* render_test_phase_name(RenderTestPhase p)
         return "WaitingForContent";
     case RenderTestPhase::kSettlingContent:
         return "SettlingContent";
+    case RenderTestPhase::kWaitingForPostHookFrame:
+        return "WaitingForPostHookFrame";
+    case RenderTestPhase::kSettlingPostHookContent:
+        return "SettlingPostHookContent";
     case RenderTestPhase::kEnablingDiagnostics:
         return "EnablingDiagnostics";
     case RenderTestPhase::kSettlingForCapture:
@@ -40,6 +46,8 @@ struct RenderTestContext
     RenderTestPhase phase = RenderTestPhase::kWaitingForContent;
     std::chrono::steady_clock::time_point settle_start{};
     bool quiet_observed = false;
+    bool before_capture_ran = false;
+    uint64_t pre_hook_frame_count = 0;
     std::optional<std::chrono::steady_clock::time_point> diagnostics_enabled_at;
 };
 
@@ -65,6 +73,11 @@ std::optional<HostRuntimeState> active_host_state(RenderTestDriverEnv& env)
 bool env_saw_frame(RenderTestDriverEnv& env)
 {
     return env.saw_frame && env.saw_frame();
+}
+
+uint64_t env_rendered_frame_count(RenderTestDriverEnv& env)
+{
+    return env.rendered_frame_count ? env.rendered_frame_count() : 0;
 }
 
 bool env_frame_requested(RenderTestDriverEnv& env)
@@ -108,6 +121,9 @@ std::string timeout_error(RenderTestDriverEnv& env, const RenderTestContext& ctx
         << ", saw_frame=" << (env_saw_frame(env) ? "true" : "false")
         << ", frame_requested=" << (env_frame_requested(env) ? "true" : "false")
         << ", diagnostics_enabled=" << (ctx.diagnostics_enabled_at.has_value() ? "true" : "false")
+        << ", before_capture_ran=" << (ctx.before_capture_ran ? "true" : "false")
+        << ", post_hook_frame="
+        << (env_rendered_frame_count(env) > ctx.pre_hook_frame_count ? "true" : "false")
         << ", capture_requested=" << (ctx.phase == RenderTestPhase::kCapturing ? "true" : "false")
         << ", post_diagnostics_frame=" << (post_diagnostics_frame ? "true" : "false")
         << ", diagnostics_age_ms=" << diagnostics_age_ms << ")";
@@ -133,6 +149,7 @@ RenderTestDriverResult run_render_test_driver(RenderTestDriverEnv& env, const Re
     {
         auto wait_deadline = deadline;
         if (ctx.phase == RenderTestPhase::kSettlingContent
+            || ctx.phase == RenderTestPhase::kSettlingPostHookContent
             || ctx.phase == RenderTestPhase::kEnablingDiagnostics
             || ctx.phase == RenderTestPhase::kSettlingForCapture)
         {
@@ -174,6 +191,20 @@ RenderTestDriverResult run_render_test_driver(RenderTestDriverEnv& env, const Re
             }
             if (now - ctx.settle_start >= options.settle)
             {
+                if (env.before_capture && !ctx.before_capture_ran)
+                {
+                    ctx.pre_hook_frame_count
+                        = env_rendered_frame_count(env);
+                    ctx.before_capture_ran = true;
+                    if (const std::string error = env.before_capture();
+                        !error.empty())
+                    {
+                        result.error = error;
+                        return result;
+                    }
+                    ctx.phase = RenderTestPhase::kWaitingForPostHookFrame;
+                    break;
+                }
                 if (options.want_diagnostics)
                 {
                     if (env.enable_diagnostics_panel)
@@ -186,6 +217,42 @@ RenderTestDriverResult run_render_test_driver(RenderTestDriverEnv& env, const Re
                 {
                     if (content_quiet)
                         ctx.settle_start = now;
+                    ctx.phase = RenderTestPhase::kSettlingForCapture;
+                }
+            }
+            break;
+
+        case RenderTestPhase::kWaitingForPostHookFrame:
+            if (env_rendered_frame_count(env) > ctx.pre_hook_frame_count
+                && content_ready)
+            {
+                ctx.settle_start = now;
+                ctx.phase = RenderTestPhase::kSettlingPostHookContent;
+            }
+            break;
+
+        case RenderTestPhase::kSettlingPostHookContent:
+            if (!content_ready
+                || env_rendered_frame_count(env)
+                    <= ctx.pre_hook_frame_count)
+            {
+                ctx.phase = RenderTestPhase::kWaitingForPostHookFrame;
+                break;
+            }
+            if (now - ctx.settle_start >= options.settle)
+            {
+                if (options.want_diagnostics)
+                {
+                    if (env.enable_diagnostics_panel)
+                        env.enable_diagnostics_panel();
+                    ctx.diagnostics_enabled_at = now;
+                    ctx.settle_start = now;
+                    ctx.phase = RenderTestPhase::kEnablingDiagnostics;
+                }
+                else
+                {
+                    ctx.quiet_observed = false;
+                    ctx.settle_start = now;
                     ctx.phase = RenderTestPhase::kSettlingForCapture;
                 }
             }

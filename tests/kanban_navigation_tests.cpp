@@ -92,6 +92,18 @@ TEST_CASE("kanban navigation maps zoom and preview toggles", "[kanban][navigatio
     REQUIRE(navigation.on_key(key_event(SDLK_P, kModShift)) == KanbanNavigationCommand::None);
 }
 
+TEST_CASE("kanban navigation maps the source filter toggle", "[kanban][navigation]")
+{
+    KanbanNavigationState navigation;
+
+    REQUIRE(navigation.on_key(key_event(SDLK_B))
+        == KanbanNavigationCommand::CycleSourceFilter);
+    REQUIRE(navigation.on_key(key_event(SDLK_B, kModCaps))
+        == KanbanNavigationCommand::CycleSourceFilter);
+    REQUIRE(navigation.on_key(key_event(SDLK_B, kModCtrl))
+        == KanbanNavigationCommand::SelectPageUp);
+}
+
 TEST_CASE("kanban zoom toggle clears a pending g prefix", "[kanban][navigation]")
 {
     KanbanNavigationState navigation;

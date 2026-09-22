@@ -72,7 +72,7 @@
 52. Replay fixtures (`tests/support/replay_fixture.h`) are the preferred way to reproduce UI parsing bugs without launching Neovim.
 53. Always build and run the smoke test before committing — it catches broken includes, link errors, and basic startup failures.
 54. Add focused geometry tests: vertex/index counts, monotonic branch radii, monotonic UV V coordinates, unit-length normals, orthogonal tangents, byte-identical output for identical seeds.
-55. Tests under ASan/UBSan catch real bugs that code review misses — the PTY EINTR and scrollback stale-stride bugs were ASan-detectable.
+55. Targeted fault and bounds tests catch real bugs that code review misses — the PTY EINTR and scrollback stale-stride bugs need executable regression cases.
 
 **Build System**
 

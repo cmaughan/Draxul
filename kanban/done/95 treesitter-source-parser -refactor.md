@@ -3,7 +3,7 @@
 **Priority:** P2 — removes filesystem/thread fixtures from grammar cases while preserving immutable scan publication.  
 **Proposed by:** OpenAI Codex GPT-6 Astra, finding 6.  
 **Owner:** One MegaCity parser/scanner agent.  
-**Dependencies:** No newly accepted production-boundary prerequisite; `kanban/pending/00 internal-target-build-policy -refactor.md` applies to the proposed focused test target.
+**Dependencies:** No newly accepted production-boundary prerequisite; `kanban/done/00 internal-target-build-policy -refactor.md` applies to the focused test target.
 
 **Evidence:** `plugins/megacity/product/draxul-treesitter/src/treesitter.cpp:504–782` combines parser/query resources, traversal, reading, progress, parsing, and publication. Grammar tests start workers on temporary files (`plugins/megacity/tests/treesitter_tests.cpp:48–78`). Existing `draxul-treesitter STATIC` owns Tree-sitter core/grammar and support-type dependencies.
 
@@ -35,7 +35,7 @@
 #### Cross-platform validation
 
 - [x] Verify record/path behavior on macOS and preserve downstream City/Biology inputs on Metal.
-- [ ] Compare record/path behavior on Windows and preserve downstream City/Biology inputs on Vulkan.
+- [x] Compare record/path behavior on Windows and preserve downstream City/Biology inputs on Vulkan.
 - [x] Keep the parser free of renderer/host dependencies and preserve MegaCity enabled/disabled build support.
 - [x] Run `python3 do.py test debug --megacity`, then `python3 do.py smoke debug --skip-build`. (macOS: focused parser 4/4 cases and 52 assertions; core + MegaCity aggregate 26/26 CTest entries in 37.16s; same-cache Metal startup smoke passed.)
 
@@ -51,3 +51,15 @@
 - [x] Parser resources remain private and reused efficiently.
 - [x] Scanner API, immutable snapshots, progress/completion semantics, and parsed records remain compatible.
 - [x] The focused parser test build excludes host and renderer targets.
+
+#### Windows validation evidence (2026-09-22)
+
+- `py do.py test debug --target draxul-test-megacity-parser` built the focused
+  parser target from the normal MSVC/Vulkan cache and passed all 52 assertions
+  in its 4 in-memory parser cases.
+- The completed Windows core + product aggregate passed 48/48 registered test
+  entries, including the MegaCity semantic City/Biology consumers, followed by
+  the same-cache Debug startup smoke.
+- Together with the recorded macOS run, this confirms deterministic parser
+  records and paths across both supported rendering platforms without adding a
+  host or renderer dependency to the focused parser target.

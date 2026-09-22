@@ -20,7 +20,7 @@ SatView has many pure-unit tests but no direct fake-renderer host fixture coveri
 ## Verification
 
 - [x] Run with `DRAXUL_ENABLE_SATVIEW=ON` and prove the test is absent/clean when OFF.
-- [x] Repeat construct/shutdown cycles in the normal macOS Debug suite. The suite is green; the former ASan gate is retired because ASan support has been removed.
+- [x] Repeat construct/shutdown cycles in the normal macOS Debug suite. The suite is green.
 - [x] Keep runtime deterministic and suitable for normal CTest.
 
 ## Acceptance criteria
@@ -37,4 +37,4 @@ Follows active SatView work and precedes item 26. Suitable for a SatView-specifi
 
 ## Status 2026-07-19
 
-Implemented on macOS/Metal. Added `tests/satview_host_smoke_tests.cpp` (7 cases) + `tests/support/satview_host_fixture.h` (CPU-only: fake clock/renderer/callbacks, no GPU or network) plus a `TestHooks` seam on `SatViewHost`. Exercises offline construct/init/draw/shutdown, `[satview]` config apply/readback/persist-through-shutdown, camera POV transition, selection track+clear, and frame-request/dirty-flag settling when paused. Validated: build clean, `[satview][host]` 67 assertions / 7 cases, full `ctest` 12/12, smoke green. SATVIEW=OFF: the file name matches the existing `satview_*_tests.cpp` GLOB-exclusion in `tests/CMakeLists.txt` and the fixture is `#ifdef DRAXUL_ENABLE_SATVIEW`-guarded, so it is excluded when OFF (a full OFF configure is the CI check). Remaining: a macOS ASan pass. Unblocks refactor card 26.
+Implemented on macOS/Metal. Added `tests/satview_host_smoke_tests.cpp` (7 cases) + `tests/support/satview_host_fixture.h` (CPU-only: fake clock/renderer/callbacks, no GPU or network) plus a `TestHooks` seam on `SatViewHost`. Exercises offline construct/init/draw/shutdown, `[satview]` config apply/readback/persist-through-shutdown, camera POV transition, selection track+clear, and frame-request/dirty-flag settling when paused. Validated: build clean, `[satview][host]` 67 assertions / 7 cases, full `ctest` 12/12, smoke green. SATVIEW=OFF: the file name matches the existing `satview_*_tests.cpp` GLOB-exclusion in `tests/CMakeLists.txt` and the fixture is `#ifdef DRAXUL_ENABLE_SATVIEW`-guarded, so it is excluded when OFF (a full OFF configure is the CI check). Unblocks refactor card 26.

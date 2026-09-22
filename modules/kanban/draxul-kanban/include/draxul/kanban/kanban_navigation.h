@@ -24,6 +24,7 @@ enum class KanbanNavigationCommand
     Reload,
     ToggleColumnZoom,
     TogglePreview,
+    CycleSourceFilter,
 };
 
 class KanbanNavigationState

@@ -124,7 +124,7 @@ homes: `draxul-types` (`string_util.h`, `input_types.h`, `process_util.h`,
 ### J. Build scaffolding (~130 lines + pins ×3)
 
 Shader-compile loops re-implemented in 4 plugin CMakeLists (only SatView gets
-include-dependency tracking right); the sanitizer/coverage foreach
+include-dependency tracking right); the project-policy foreach
 byte-identical ×3; shader-payload mapping ×4; ScoreView re-pins SDL3, json,
 glm, nanovg, imgui, VMA at the same tags as root (three places to
 desynchronize). Fix: `draxul_plugin_compile_shaders()` +

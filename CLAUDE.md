@@ -52,17 +52,9 @@ python3 do.py build debug                            # Configure/build Debug
 python3 do.py run debug                              # Incremental Debug build and launch
 python3 do.py test debug                             # Same Debug cache; parallel core unit tests
 python3 do.py run release                            # Final Release build and startup confirmation
-cmake --preset mac-asan                              # Configure (Debug + AddressSanitizer/LSan)
-cmake --preset mac-tsan                              # Configure (Debug + ThreadSanitizer)
 ```
 
 Run: `./build/draxul.app/Contents/MacOS/draxul` or `open ./build/draxul.app` (requires `nvim` on PATH).
-
-To run the unit test suite under ASan: `cmake --preset mac-asan && cmake --build build --target draxul-tests --parallel && ctest --test-dir build -R draxul-tests --parallel 4`.
-
-To run the unit test suite under TSan (ThreadSanitizer — mutually exclusive with ASan, so it uses its own preset): `cmake --preset mac-tsan && cmake --build build --target draxul-tests --parallel && ctest --test-dir build -R draxul-tests --parallel 4`.
-
-TSan suppressions for third-party library noise (SDL3, Metal, system frameworks) live in `tsan.supp` at the repo root. When running TSan locally, set `TSAN_OPTIONS="suppressions=tsan.supp"`.
 
 ### Convenience scripts
 
@@ -78,7 +70,7 @@ TSan suppressions for third-party library noise (SDL3, Metal, system frameworks)
 
 Every internal CMake directory that declares targets must finish with
 `draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")`.
-This applies sanitizer, coverage, and MSVC parallel-PDB policy by target type;
+This applies MSVC parallel-PDB policy by target type;
 the final configure-time audit rejects an internal target that omits the call.
 Mounted product repositories own their corresponding target policy.
 
@@ -297,12 +289,15 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
   steps stay concise; a failed step prints a short tail and retains its complete log
   under `<build-tree>/validation-logs/`, with the final summary classifying build,
   startup, snapshot, product-test, and validation-environment failures.
-- On Windows, run process-launch tests before starting a long-lived server from
-  that build tree where practical. A server intentionally keeps
-  `draxul-server.exe` open; after `draxul.exe` is relinked, helper-refresh tests
-  cannot replace that same-cache helper until the exact server is safely stopped.
-  Inspect connected clients and live terminals before stopping it; do not evade
-  the lock by silently switching the whole validation pass to another generator.
+- On Windows, `do.py test` and `do.py validate` preflight the default live server
+  after building. They continue when the selected helper is unchanged or the server
+  belongs to another cache. When a same-cache helper is stale, they stop before tests
+  and report its exact PID, runtime directory, attached-client count, checkpoint
+  health, and explicit shutdown command. Inspect live terminals before deliberately
+  stopping that server; the workflow never stops it implicitly. Detached-server
+  integration tests stage their app/helper in a unique test runtime so the default
+  server cannot lock them. Do not evade a reported lock by silently switching the
+  whole validation pass to another generator.
 - Finish a completed feature or bug fix with `py do.py run release` and confirm
   startup. In a headless/non-interactive environment, use
   `py do.py run release --console -- --smoke-test` so the Release run exits

@@ -17,5 +17,11 @@
 **Acceptance criteria**
 
 - [x] Same-size, shrinking, and growing rebuilds preserve in-flight data.
-- [ ] Vulkan synchronization validation remains clean.
+- [x] Vulkan synchronization validation remains clean.
 - [x] Review Metal’s corresponding mesh lifetime.
+
+**Validation evidence (2026-09-22)**
+
+- `py do.py test debug --megacity` passed all 27 selected core and MegaCity CTest entries.
+- Debug Vulkan validation-layer runs loaded a deterministic one-file city, published its asynchronous custom-mesh generation, and rendered both buffered frame slots in City and Biology modes. Both runs completed without synchronization, lifetime, destroyed-resource, or in-use validation errors. The only validation output was the pre-existing unused-vertex-input performance warning.
+

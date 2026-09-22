@@ -86,7 +86,7 @@ not the required boundary for an in-tree submodule.
 - Move product dependency fetching out of `cmake/FetchDependencies.cmake`:
   SGP4 to SatView; Tree-sitter/its C++ grammar and EnTT to MegaCity; all Verovio,
   audio, MIDI, font, and notation dependencies to ScoreView.
-- Move product sanitizer/coverage target lists, shader compilation, bundle
+- Move product target policy, shader compilation, bundle
   staging, runtime-library copying, and focused test declarations into each
   plugin directory. Use generic Draxul helper functions rather than repeating
   platform staging logic.

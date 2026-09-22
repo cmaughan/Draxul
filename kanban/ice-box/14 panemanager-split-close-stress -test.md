@@ -20,7 +20,7 @@ Verify that PaneManager's split-tree remains structurally valid and all pane des
   - All registered pane descriptors have a corresponding live node in the tree.
   - No pane descriptor IDs are duplicated.
 - [ ] Zoom during a pending split: open a split, zoom a pane, close another, un-zoom — assert tree is valid.
-- [ ] Rename during shutdown: rename a pane, then immediately close it — assert no use-after-free (run under ASan).
+- [ ] Rename during shutdown: rename a pane, then immediately close it — assert all callbacks and descriptors refer only to live panes.
 - [ ] Verify that splitting produces correct initial viewport sizes (no zero-dimension panes).
 
 ---
@@ -30,7 +30,7 @@ Verify that PaneManager's split-tree remains structurally valid and all pane des
 - Use `PaneManager` with the current shared fake-host/test-support fixtures.
 - No GPU renderer needed — pass a `NullRenderer` or `FakeRenderer`.
 - This test should be runnable with `ctest -R panemanager-split-close-stress` on both macOS and Windows.
-- Run the stress portion under ASan to catch any use-after-free in the tree mutation paths.
+- Run the stress portion repeatedly with deterministic seeds and assert tree ownership after every mutation.
 
 ---
 

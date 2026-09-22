@@ -276,3 +276,136 @@ TEST_CASE("kanban store refuses cross-column filename collisions", "[kanban][sto
     REQUIRE(board.columns[0].cards.size() == 1);
     REQUIRE(board.columns[1].cards.size() == 1);
 }
+
+TEST_CASE("kanban workspace merges initialized recursive submodule boards",
+    "[kanban][store][workspace]")
+{
+    draxul::tests::TempDir temp("draxul-kanban-workspace");
+    const auto workspace = temp.path / "workspace";
+    const auto root = workspace / "kanban";
+    const auto megacity_root = workspace / "plugins" / "megacity" / "kanban";
+    const auto nested_root = workspace / "plugins" / "megacity" / "vendor" / "notes" / "kanban";
+    std::filesystem::create_directories(root / "pending");
+    std::filesystem::create_directories(root / "done");
+    std::filesystem::create_directories(megacity_root / "pending");
+    std::filesystem::create_directories(nested_root / "pending");
+    write_file(root / "pending" / "same-feature.md");
+    write_file(megacity_root / "pending" / "same-feature.md");
+    write_file(nested_root / "pending" / "nested-bug.md");
+    write_file(workspace / ".gitmodules",
+        "[submodule \"plugins/megacity\"]\n"
+        "  path = plugins/megacity\n"
+        "[submodule \"plugins/uninitialized\"]\n"
+        "  path = plugins/uninitialized\n");
+    write_file(workspace / "plugins" / "megacity" / ".gitmodules",
+        "[submodule \"vendor/notes\"]\n"
+        "  path = vendor/notes\n");
+
+    std::string error;
+    const auto board = load_kanban_workspace(root, &error);
+
+    REQUIRE(error.empty());
+    REQUIRE(board.warnings.empty());
+    REQUIRE(board.sources.size() == 3);
+    REQUIRE(board.sources[0].name == "workspace");
+    REQUIRE(board.sources[1].name == "megacity");
+    REQUIRE(board.sources[2].name == "notes");
+    REQUIRE(board.columns.size() == 2);
+    REQUIRE(board.columns[0].name == "pending");
+    REQUIRE(board.columns[0].cards.size() == 3);
+    CHECK(board.columns[0].cards[0].source_name == "workspace");
+    CHECK(board.columns[0].cards[1].source_name == "megacity");
+    CHECK(board.columns[0].cards[2].source_name == "notes");
+    CHECK(board.columns[0].cards[0].file_name == "same-feature.md");
+    CHECK(board.columns[0].cards[1].file_name == "same-feature.md");
+    CHECK(board.columns[0].cards[0].path != board.columns[0].cards[1].path);
+}
+
+TEST_CASE("kanban workspace moves and orders cards within their owning board",
+    "[kanban][store][workspace][mutation]")
+{
+    draxul::tests::TempDir temp("draxul-kanban-workspace-move");
+    const auto workspace = temp.path / "workspace";
+    const auto root = workspace / "kanban";
+    const auto product_root = workspace / "plugins" / "product" / "kanban";
+    std::filesystem::create_directories(root / "pending");
+    std::filesystem::create_directories(root / "done");
+    std::filesystem::create_directories(product_root / "pending");
+    std::filesystem::create_directories(product_root / "done");
+    write_file(root / "pending" / "same-feature.md", "root");
+    write_file(root / "done" / "same-feature.md", "root done");
+    write_file(product_root / "pending" / "a-feature.md", "product a");
+    write_file(product_root / "pending" / "same-feature.md", "product same");
+    write_file(workspace / ".gitmodules",
+        "[submodule \"plugins/product\"]\n"
+        "  path = plugins/product\n");
+
+    std::string error;
+    auto board = load_kanban_workspace(root, &error);
+    REQUIRE(error.empty());
+    REQUIRE(board.sources.size() == 2);
+    REQUIRE(board.columns[0].name == "pending");
+    REQUIRE(board.columns[1].name == "done");
+
+    REQUIRE(reorder_card(
+        board,
+        KanbanSelection{ .column = 0, .card = 2 },
+        -1,
+        &error));
+    CHECK(board.columns[0].cards[0].source_name == "workspace");
+    CHECK(board.columns[0].cards[1].file_name == "same-feature.md");
+    CHECK(board.columns[0].cards[1].source_name == "product");
+    CHECK(board.columns[0].cards[2].file_name == "a-feature.md");
+
+    REQUIRE(move_card_to_column(
+        board,
+        KanbanSelection{ .column = 0, .card = 1 },
+        1,
+        &error));
+    CHECK(std::filesystem::exists(root / "pending" / "same-feature.md"));
+    CHECK(std::filesystem::exists(root / "done" / "same-feature.md"));
+    CHECK_FALSE(std::filesystem::exists(product_root / "pending" / "same-feature.md"));
+    CHECK(std::filesystem::exists(product_root / "done" / "same-feature.md"));
+
+    REQUIRE(save_kanban_order_for_source(board, 1, &error));
+    CHECK_FALSE(std::filesystem::exists(root / std::string(kKanbanMetadataFileName)));
+    const auto metadata = draxul::tests::read_file(
+        product_root / std::string(kKanbanMetadataFileName));
+    CHECK_THAT(metadata,
+        Catch::Matchers::ContainsSubstring("pending = [\"a-feature.md\"]"));
+    CHECK_THAT(metadata,
+        Catch::Matchers::ContainsSubstring("done = [\"same-feature.md\"]"));
+}
+
+TEST_CASE("kanban workspace keeps healthy boards when a submodule scan fails",
+    "[kanban][store][workspace][scan-error]")
+{
+    draxul::tests::TempDir temp("draxul-kanban-workspace-scan-error");
+    const auto workspace = temp.path / "workspace";
+    const auto root = workspace / "kanban";
+    const auto product_root = workspace / "plugins" / "product" / "kanban";
+    std::filesystem::create_directories(root / "pending");
+    std::filesystem::create_directories(product_root / "pending");
+    write_file(root / "pending" / "root-feature.md");
+    write_file(product_root / "pending" / "product-feature.md");
+    write_file(workspace / ".gitmodules",
+        "[submodule \"plugins/product\"]\n"
+        "  path = plugins/product\n");
+
+    draxul::tests::FaultInjectingKanbanDirectoryOperations operations(
+        product_root / "pending",
+        draxul::tests::KanbanScanFailurePoint::Construction);
+    std::string error;
+    KanbanBoard board;
+    {
+        ScopedKanbanDirectoryOperationsOverride override(operations);
+        board = load_kanban_workspace(root, &error);
+    }
+
+    CHECK(error.empty());
+    REQUIRE(board.sources.size() == 1);
+    REQUIRE(board.warnings.size() == 1);
+    CHECK(board.columns[0].cards.size() == 1);
+    CHECK(board.columns[0].cards[0].file_name == "root-feature.md");
+    CHECK_THAT(board.warnings[0], Catch::Matchers::ContainsSubstring("product"));
+}
