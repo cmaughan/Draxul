@@ -34,20 +34,31 @@
 #### Cross-platform validation
 
 - [x] Preserve PIC, module symbol isolation, NanoVG shader staging, and Metal ARC.
-- [ ] Preserve bundled macOS SDL header-only linkage versus standalone/Windows SDL linkage.
-- [ ] Run `cmake --build <cache> --config Debug --target draxul-scoreview-extraction-smoke --parallel`; this is a custom target, not a CTest entry.
-- [ ] Run `python3 do.py test debug --products`, then `python3 do.py smoke debug --skip-build`.
-- [ ] Verify PCBView and ScoreView native rendering on Vulkan and Metal.
+- [x] Preserve bundled macOS SDL header-only linkage versus standalone/Windows SDL linkage.
+- [x] Run `cmake --build <cache> --config Debug --target draxul-scoreview-extraction-smoke --parallel`; this is a custom target, not a CTest entry.
+- [x] Run `python3 do.py test debug --products`, then `python3 do.py smoke debug --skip-build`.
+- [x] Verify the shared adapter, PCBView, and ScoreView native rendering on macOS/Metal.
+- [ ] Verify PCBView and ScoreView native rendering on Windows/Vulkan.
 
 #### Agent documentation/tooling
 
 - [x] Register focused tests in core aggregates and runner selection.
 - [x] Document support dependencies and standalone staging in core/product guides.
-- [ ] Land core support first, then product commits and deliberate pointer adoption.
+- [x] Keep product adoption in product commits and deliberately pin both product revisions from the root repository.
 
 #### Acceptance criteria
 
 - [x] Both products use one adapter implementation per backend.
 - [x] Support has no app, renderer, window, or product dependency.
-- [ ] ScoreView’s copied-tree build and render smoke remain valid.
+- [x] ScoreView’s copied-tree build and render smoke remain valid.
 - [x] Existing platform behavior is preserved without introducing unrelated parity changes.
+
+## Validation
+
+- macOS focused adapter and paint targets: 4/4 CTest shards passed.
+- macOS copied-tree `draxul-scoreview-extraction-smoke`: standalone build, module load, and extracted ScoreView Metal render passed.
+- macOS `python3 do.py test debug --products`: 39/39 core and product CTest entries passed.
+- macOS shared NanoVG render comparison: exact match, 0 changed pixels.
+- macOS native plugin render exports: PCBView produced a 960x700 32-bit frame with 16,203 colors; bundled ScoreView produced a 960x640 32-bit frame with 3,724 colors.
+- macOS `python3 do.py smoke debug --skip-build`: passed with Metal on Apple M5.
+- Windows/Vulkan source paths and resource-provider wiring remain intact, but no Windows runtime was available for native render validation.
