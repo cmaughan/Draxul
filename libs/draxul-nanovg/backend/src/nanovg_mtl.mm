@@ -3,8 +3,9 @@
 
 // nanovg.h must come before our backend header so NVGparams etc. are defined.
 #include "nanovg.h"
-#include "nanovg_paint.h"
 #import "nanovg_mtl_shaders.h"
+#include "nanovg_mtl_test_hooks.h"
+#include "nanovg_paint.h"
 #import <draxul/nanovg_mtl.h>
 
 #include <algorithm>
@@ -14,6 +15,27 @@
 
 namespace draxul
 {
+
+namespace
+{
+
+struct MtlNVGTestState
+{
+    bool active = false;
+    nanovg_mtl_test::FailurePoint failure
+        = nanovg_mtl_test::FailurePoint::None;
+    nanovg_mtl_test::Lifecycle lifecycle;
+};
+
+thread_local MtlNVGTestState g_mtl_nvg_test_state;
+
+bool inject_mtl_nvg_failure(nanovg_mtl_test::FailurePoint point)
+{
+    return g_mtl_nvg_test_state.active
+        && g_mtl_nvg_test_state.failure == point;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Internal types matching the NanoVG GL reference backend
@@ -83,6 +105,18 @@ struct MtlNVGCreation;
 
 struct MtlNVGcontext
 {
+    MtlNVGcontext()
+    {
+        if (g_mtl_nvg_test_state.active)
+            ++g_mtl_nvg_test_state.lifecycle.backend_allocations;
+    }
+
+    ~MtlNVGcontext()
+    {
+        if (g_mtl_nvg_test_state.active)
+            ++g_mtl_nvg_test_state.lifecycle.backend_deletions;
+    }
+
     // Set only while nvgCreateInternal() is running. Its renderDelete callback
     // releases this temporary owner before deleting the backend itself.
     MtlNVGCreation* creation = nullptr;
@@ -254,6 +288,17 @@ static void mtlnvg__ensureStencilTexture(MtlNVGcontext* mtl, int w, int h)
 static int mtlnvg__renderCreate(void* uptr)
 {
     MtlNVGcontext* mtl = static_cast<MtlNVGcontext*>(uptr);
+    if (g_mtl_nvg_test_state.active)
+        ++g_mtl_nvg_test_state.lifecycle.render_create_calls;
+    if (inject_mtl_nvg_failure(
+            nanovg_mtl_test::FailurePoint::RendererInitialization))
+        return 0;
+    // Atlas-failure tests need NanoVG to advance to renderCreateTexture. The
+    // renderer resources are deliberately omitted because that callback is
+    // the ownership boundary under test, not Metal pipeline construction.
+    if (inject_mtl_nvg_failure(
+            nanovg_mtl_test::FailurePoint::AtlasAllocation))
+        return 1;
 
     // Compile shaders from source
     NSError* error = nil;
@@ -475,6 +520,11 @@ static int mtlnvg__renderCreate(void* uptr)
 static int mtlnvg__renderCreateTexture(void* uptr, int type, int w, int h, int imageFlags, const unsigned char* data)
 {
     MtlNVGcontext* mtl = static_cast<MtlNVGcontext*>(uptr);
+    if (g_mtl_nvg_test_state.active)
+        ++g_mtl_nvg_test_state.lifecycle.atlas_create_calls;
+    if (inject_mtl_nvg_failure(
+            nanovg_mtl_test::FailurePoint::AtlasAllocation))
+        return 0;
 
     MTLPixelFormat format = (type == NVG_TEXTURE_RGBA) ? MTLPixelFormatRGBA8Unorm : MTLPixelFormatR8Unorm;
     MTLTextureDescriptor* desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
@@ -977,6 +1027,8 @@ static void mtlnvg__renderFlush(void* uptr)
 static void mtlnvg__renderDelete(void* uptr)
 {
     MtlNVGcontext* mtl = static_cast<MtlNVGcontext*>(uptr);
+    if (g_mtl_nvg_test_state.active)
+        ++g_mtl_nvg_test_state.lifecycle.render_delete_calls;
     if (mtl->creation)
         mtl->creation->backend.release();
     delete mtl;
@@ -994,6 +1046,13 @@ NVGcontext* nvgCreateMtl(id<MTLDevice> device, int flags)
     mtl->creation = &creation;
     mtl->device = device;
     mtl->flags = flags;
+
+    // This models nvgCreateInternal's first malloc returning null: NanoVG has
+    // not copied the callback table yet, so the temporary owner is solely
+    // responsible for destroying the backend.
+    if (inject_mtl_nvg_failure(
+            nanovg_mtl_test::FailurePoint::InitialContextAllocation))
+        return nullptr;
 
     NVGparams params;
     memset(&params, 0, sizeof(params));
@@ -1031,6 +1090,29 @@ void nvgDeleteMtl(NVGcontext* ctx)
 {
     nvgDeleteInternal(ctx);
 }
+
+namespace nanovg_mtl_test
+{
+
+Lifecycle exercise_creation(FailurePoint failure)
+{
+    g_mtl_nvg_test_state = {};
+    g_mtl_nvg_test_state.active = true;
+    g_mtl_nvg_test_state.failure = failure;
+
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    g_mtl_nvg_test_state.lifecycle.device_available = device != nil;
+    NVGcontext* ctx = nvgCreateMtl(device, 0);
+    g_mtl_nvg_test_state.lifecycle.context_created = ctx != nullptr;
+    if (ctx)
+        nvgDeleteMtl(ctx);
+
+    Lifecycle result = g_mtl_nvg_test_state.lifecycle;
+    g_mtl_nvg_test_state = {};
+    return result;
+}
+
+} // namespace nanovg_mtl_test
 
 void nvgMtlSetFrameState(NVGcontext* ctx,
     id<MTLCommandBuffer> commandBuffer,

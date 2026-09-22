@@ -177,6 +177,50 @@ TEST_CASE("grid rendering pipeline redraws the leader when a continuation change
     REQUIRE(handle.update_batches[0][1].glyph.bitmap_size.x > 0);
 }
 
+TEST_CASE("grid rendering pipeline clears every cell displaced by an overlapping wide write",
+    "[grid][wide]")
+{
+    Grid grid;
+    grid.resize(7, 1);
+    grid.set_cell(5, 0, "old", 3, true);
+
+    HighlightTable highlights;
+    FakeGlyphAtlas atlas;
+    atlas.register_glyph("old", { { 0.0f, 0.0f, 0.25f, 0.5f }, { 1, 2 }, { 14, 9 }, 0, false });
+    atlas.register_glyph("new", { { 0.25f, 0.0f, 0.5f, 0.5f }, { 1, 2 }, { 15, 9 }, 0, false });
+    FakeGridPipelineRenderer renderer;
+    FakeGridPipelineHandle handle;
+    GridRenderingPipeline pipeline(grid, highlights, atlas);
+    pipeline.set_renderer(&renderer);
+    pipeline.set_grid_handle(&handle);
+    pipeline.flush();
+
+    handle.reset();
+    grid.set_cell(4, 0, "new", 4, true);
+    pipeline.flush();
+
+    REQUIRE(handle.update_batches.size() == 1);
+    const auto& updates = handle.update_batches.front();
+    // Ligature invalidation may also replay the cell immediately to the left;
+    // the three cells touched by the wide-pair replacement must all be here.
+    REQUIRE(updates.size() >= 3);
+    const auto update_at = [&updates](int col) -> const CellUpdate* {
+        for (const CellUpdate& update : updates)
+        {
+            if (update.col == col)
+                return &update;
+        }
+        return nullptr;
+    };
+    REQUIRE(update_at(4));
+    CHECK(update_at(4)->glyph.bitmap_size.x == 15);
+    REQUIRE(update_at(5));
+    CHECK(update_at(5)->glyph.bitmap_size.x == 0);
+    REQUIRE(update_at(6));
+    CHECK(update_at(6)->glyph.bitmap_size.x == 0);
+    CHECK_FALSE(grid.get_cell(6, 0).double_width_cont);
+}
+
 Grid make_three_cell_ligature_grid()
 {
     Grid grid;

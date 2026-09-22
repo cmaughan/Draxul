@@ -3,6 +3,7 @@
 #include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_protocol.h>
 #include <draxul/session_protocol.h>
+#include <draxul/terminal_snapshot.h>
 #include <draxul/topology_protocol.h>
 
 #include <nlohmann/json.hpp>
@@ -563,6 +564,47 @@ TEST_CASE("remote terminal protocol round-trips snapshots and deltas",
         remote_terminal_event_to_json(clipboard), error);
     INFO(error);
     REQUIRE(decoded_clipboard == clipboard);
+}
+
+TEST_CASE("remote terminal snapshots serialize normalized overlapping wide glyphs",
+    "[server][protocol][remote-terminal][grid]")
+{
+    Grid grid;
+    grid.resize(7, 1);
+    grid.set_cell(5, 0, "old", 3, true);
+    grid.clear_dirty();
+    grid.set_cell(4, 0, "new", 4, true);
+
+    HighlightTable highlights;
+    const TerminalSemanticSnapshot snapshot
+        = capture_terminal_semantic_snapshot(grid, highlights, {});
+    REQUIRE(snapshot.cells.size() == 7);
+    CHECK(snapshot.cells[4].text == "new");
+    CHECK(snapshot.cells[4].double_width);
+    CHECK(snapshot.cells[5].double_width_continuation);
+    CHECK_FALSE(snapshot.cells[6].double_width_continuation);
+
+    RemoteTerminalEvent event{
+        .kind = RemoteTerminalEventKind::Snapshot,
+        .version = {
+            .server_epoch = "epoch",
+            .terminal_id = "terminal",
+            .generation = 1,
+            .sequence = 1,
+        },
+        .snapshot = snapshot,
+    };
+    std::string error;
+    const auto decoded = remote_terminal_event_from_json(
+        remote_terminal_event_to_json(event), error);
+    INFO(error);
+    REQUIRE(decoded);
+    REQUIRE(decoded->snapshot);
+    REQUIRE(decoded->snapshot->cells.size() == 7);
+    CHECK(decoded->snapshot->cells[4].text == "new");
+    CHECK(decoded->snapshot->cells[4].double_width);
+    CHECK(decoded->snapshot->cells[5].double_width_continuation);
+    CHECK_FALSE(decoded->snapshot->cells[6].double_width_continuation);
 }
 
 TEST_CASE("remote terminal protocol rejects incomplete full snapshots",

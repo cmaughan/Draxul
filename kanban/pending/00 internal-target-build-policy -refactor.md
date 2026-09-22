@@ -42,7 +42,8 @@ MSVC `/FS` with one target-local helper plus a configure-time completeness audit
 
 - [ ] Windows/MSVC: build compiled targets in parallel and verify `/FS` is applied.
 - [ ] Windows: verify supported sanitizer configuration still configures and links.
-- [ ] macOS: configure/build `mac-asan`, `mac-tsan`, and coverage presets.
+- [x] macOS ASan gate retired by project decision; no ASan run is required for this card.
+- [ ] macOS: configure/build the remaining `mac-tsan` and coverage presets.
 - [ ] Verify both Metal and Vulkan OBJECT targets are considered without applying link
   options to OBJECT libraries.
 - [ ] Configure with each mounted product disabled or absent and prove external product
@@ -58,7 +59,10 @@ MSVC `/FS` with one target-local helper plus a configure-time completeness audit
 - [x] No manually maintained global list determines which internal targets receive policy.
 - [x] Every internal compiled target is configured or explicitly exempted with a reason.
 - [x] Third-party/FetchContent targets receive no project flags accidentally.
-- [ ] Configure, focused builds, full `draxul-tests`, and smoke remain green.
+- [x] Configure, focused builds, full `draxul-tests`, and smoke remain green. The
+      2026-09-21 Debug validation built `draxul` and `draxul-tests`, passed all
+      45 unit CTest entries, rendered all five default Metal snapshots, and passed
+      the same-cache startup smoke.
 
 ## Dependencies and ownership
 

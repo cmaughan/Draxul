@@ -41,11 +41,13 @@
 
 - [x] Document tokenizer ownership separately from catalog semantics and binary framing.
 - [x] Keep tests in the existing product classification and record a focused Catch tag.
-- [ ] Commit in SatView and adopt its pointer deliberately.
+- [x] Commit in SatView and adopt its pointer deliberately. The extraction landed in
+      SatView commit `8468698`; the root now records descendant pointer `034d757`.
 
 #### Acceptance criteria
 
 - [x] All four consumers use one lexical implementation.
 - [x] Diagnostics, partial output, empty-row behavior, and domain validation remain compatible.
 - [x] Lexical cases require no graphics initialization; no graphics-free claim is made for the existing broad product test build.
-- [ ] Each migration step builds independently.
+- [x] Each migration step builds independently. The callers were migrated in one
+      buildable product checkpoint, followed by focused SatView and aggregate gates.

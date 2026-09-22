@@ -169,6 +169,39 @@ struct LocalSbSetup
     {
         host.on_key(shift_key(SDLK_HOME));
     }
+
+    void scroll_end()
+    {
+        host.on_key(shift_key(SDLK_END));
+    }
+
+    void click_cell(int col, int row, int mod = 0)
+    {
+        MouseButtonEvent event;
+        event.button = 1;
+        event.pressed = true;
+        event.pos = { col * 8, row * 16 };
+        event.mod = static_cast<uint16_t>(mod);
+        host.on_mouse_button(event);
+    }
+
+    void select_cells(int first_col, int row, int last_col)
+    {
+        MouseButtonEvent press;
+        press.button = 1;
+        press.pressed = true;
+        press.pos = { first_col * 8, row * 16 };
+        host.on_mouse_button(press);
+
+        MouseMoveEvent move;
+        move.pos = { last_col * 8, row * 16 };
+        host.on_mouse_move(move);
+
+        MouseButtonEvent release = press;
+        release.pressed = false;
+        release.pos = move.pos;
+        host.on_mouse_button(release);
+    }
 };
 
 } // namespace
@@ -340,6 +373,92 @@ TEST_CASE("scrollback: shrink grow round trip preserves visible content and curs
     REQUIRE(ts.host.cell_text(0, 2) == "C");
     REQUIRE(ts.host.row() == initial_row);
     REQUIRE(ts.host.col() == initial_col);
+}
+
+TEST_CASE("scrollback: OSC 8 links survive history display and live restoration",
+    "[terminal][scrollback][osc8][restoration]")
+{
+    LocalSbSetup ts(8, 2);
+    REQUIRE(ts.ok);
+
+    ts.host.feed("\x1B]8;;https://history.example\x1B\\HIST\x1B]8;;\x1B\\\r\n"
+                 "\x1B]8;;https://live.example\x1B\\LIVE\x1B]8;;\x1B\\\r\n"
+                 "TAIL");
+
+    ts.scroll_home();
+    CHECK(ts.host.cell_link_uri(0, 0) == "https://history.example");
+    CHECK(ts.host.cell_link_uri(0, 1) == "https://live.example");
+    ts.click_cell(0, 0);
+    REQUIRE(ts.window.opened_urls_.size() == 1);
+    CHECK(ts.window.opened_urls_.back() == "https://history.example");
+
+    ts.scroll_end();
+    CHECK(ts.host.cell_text(0, 0) == "L");
+    CHECK(ts.host.cell_link_uri(0, 0) == "https://live.example");
+    ts.click_cell(0, 0);
+    REQUIRE(ts.window.opened_urls_.size() == 2);
+    CHECK(ts.window.opened_urls_.back() == "https://live.example");
+}
+
+TEST_CASE("scrollback: resize restoration preserves wide hyperlink cells",
+    "[terminal][scrollback][resize][osc8][restoration]")
+{
+    LocalSbSetup ts(4, 3);
+    REQUIRE(ts.ok);
+
+    ts.host.feed("\x1B]8;;https://wide.example\x1B\\\xE7\x95\x8C\x1B]8;;\x1B\\\r\n"
+                 "BBBB\r\nCCCC");
+    const uint16_t link = ts.host.cell_link(0, 0);
+    REQUIRE(link != 0);
+
+    HostViewport smaller;
+    smaller.grid_size = { 4, 2 };
+    ts.host.set_viewport(smaller);
+    HostViewport larger;
+    larger.grid_size = { 4, 3 };
+    ts.host.set_viewport(larger);
+
+    const Cell& leader = ts.host.cell(0, 0);
+    const Cell& continuation = ts.host.cell(1, 0);
+    CHECK(leader.double_width);
+    CHECK_FALSE(leader.double_width_cont);
+    CHECK_FALSE(continuation.double_width);
+    CHECK(continuation.double_width_cont);
+    CHECK(leader.hyperlink_id == link);
+    CHECK(continuation.hyperlink_id == link);
+    CHECK(ts.host.cell_link_uri(1, 0) == "https://wide.example");
+
+    ts.click_cell(1, 0);
+    REQUIRE(ts.window.opened_urls_.size() == 1);
+    CHECK(ts.window.opened_urls_.back() == "https://wide.example");
+}
+
+TEST_CASE("scrollback: resize-restored detected URL remains selectable",
+    "[terminal][scrollback][resize][url][selection][restoration]")
+{
+    LocalSbSetup ts(24, 3);
+    REQUIRE(ts.ok);
+
+    constexpr std::string_view url = "https://example.test";
+    ts.host.feed("TOP\r\nhttps://example.test\r\nBOTTOM");
+    ts.host.flush_for_test();
+    REQUIRE(ts.host.cell_link_uri(0, 1) == url);
+
+    HostViewport smaller;
+    smaller.grid_size = { 24, 2 };
+    ts.host.set_viewport(smaller);
+    HostViewport larger;
+    larger.grid_size = { 24, 3 };
+    ts.host.set_viewport(larger);
+
+    CHECK(ts.host.cell_link_uri(0, 1) == url);
+    ts.click_cell(0, 1, kModCtrl);
+    REQUIRE(ts.window.opened_urls_.size() == 1);
+    CHECK(ts.window.opened_urls_.back() == url);
+
+    ts.select_cells(0, 1, static_cast<int>(url.size()) - 1);
+    REQUIRE(ts.host.dispatch_action("copy"));
+    CHECK(ts.window.clipboard_ == url);
 }
 
 TEST_CASE("scrollback: erase display 2 preserves nonblank visible rows", "[terminal][scrollback]")

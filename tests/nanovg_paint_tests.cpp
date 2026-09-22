@@ -1,4 +1,7 @@
 #include "../libs/draxul-nanovg/backend/src/nanovg_paint.h"
+#if defined(__APPLE__)
+#include "../libs/draxul-nanovg/backend/src/nanovg_mtl_test_hooks.h"
+#endif
 
 #include <nanovg.h>
 
@@ -195,3 +198,63 @@ TEST_CASE("NanoVG paint preserves partial output when texture metadata is missin
         [](float value) { return value == 0.0f; }));
     CHECK(all_zero(output.padding, output.padding + sizeof(output.padding)));
 }
+
+#if defined(__APPLE__)
+TEST_CASE("NanoVG Metal creation failures delete each backend exactly once",
+    "[nanovg][metal][ownership]")
+{
+    using draxul::nanovg_mtl_test::exercise_creation;
+    using draxul::nanovg_mtl_test::FailurePoint;
+
+    SECTION("initial NanoVG context allocation fails before callbacks install")
+    {
+        const auto result
+            = exercise_creation(FailurePoint::InitialContextAllocation);
+        CHECK_FALSE(result.context_created);
+        CHECK(result.backend_allocations == 1);
+        CHECK(result.backend_deletions == 1);
+        CHECK(result.render_create_calls == 0);
+        CHECK(result.atlas_create_calls == 0);
+        CHECK(result.render_delete_calls == 0);
+    }
+
+    SECTION("renderer initialization failure uses NanoVG cleanup")
+    {
+        const auto result
+            = exercise_creation(FailurePoint::RendererInitialization);
+        CHECK_FALSE(result.context_created);
+        CHECK(result.backend_allocations == 1);
+        CHECK(result.backend_deletions == 1);
+        CHECK(result.render_create_calls == 1);
+        CHECK(result.atlas_create_calls == 0);
+        CHECK(result.render_delete_calls == 1);
+    }
+
+    SECTION("initial font atlas failure uses NanoVG cleanup")
+    {
+        const auto result = exercise_creation(FailurePoint::AtlasAllocation);
+        CHECK_FALSE(result.context_created);
+        CHECK(result.backend_allocations == 1);
+        CHECK(result.backend_deletions == 1);
+        CHECK(result.render_create_calls == 1);
+        CHECK(result.atlas_create_calls == 1);
+        CHECK(result.render_delete_calls == 1);
+    }
+}
+
+TEST_CASE("NanoVG Metal normal creation transfers ownership to teardown",
+    "[nanovg][metal][ownership]")
+{
+    const auto result = draxul::nanovg_mtl_test::exercise_creation(
+        draxul::nanovg_mtl_test::FailurePoint::None);
+    if (!result.device_available)
+        SKIP("no Metal device is available");
+
+    REQUIRE(result.context_created);
+    CHECK(result.backend_allocations == 1);
+    CHECK(result.backend_deletions == 1);
+    CHECK(result.render_create_calls == 1);
+    CHECK(result.atlas_create_calls == 1);
+    CHECK(result.render_delete_calls == 1);
+}
+#endif

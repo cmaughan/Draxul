@@ -27,6 +27,21 @@ public:
         return std::string(grid().get_cell(col, row).text.view());
     }
 
+    const Cell& cell(int col, int row) const
+    {
+        return grid().get_cell(col, row);
+    }
+
+    uint16_t cell_link(int col, int row) const
+    {
+        return grid().effective_link_id(col, row);
+    }
+
+    std::string cell_link_uri(int col, int row) const
+    {
+        return std::string(grid().link_uri(cell_link(col, row)));
+    }
+
     void flush_for_test()
     {
         flush_grid();

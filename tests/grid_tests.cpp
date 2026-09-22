@@ -42,6 +42,25 @@ static bool is_valid_utf8(std::string_view s)
     return true;
 }
 
+bool has_consistent_wide_pairs(const Grid& grid)
+{
+    for (int row = 0; row < grid.rows(); ++row)
+    {
+        for (int col = 0; col < grid.cols(); ++col)
+        {
+            const Cell& cell = grid.get_cell(col, row);
+            if (cell.double_width_cont
+                && (col == 0 || !grid.get_cell(col - 1, row).double_width))
+                return false;
+            if (cell.double_width
+                && (col + 1 >= grid.cols()
+                    || !grid.get_cell(col + 1, row).double_width_cont))
+                return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 TEST_CASE("grid tracks double-width continuations", "[grid]")
@@ -191,6 +210,7 @@ TEST_CASE("grid clears a displaced wide glyph continuation during an overlapping
     CHECK(grid.is_dirty(4, 0));
     CHECK(grid.is_dirty(5, 0));
     CHECK(grid.is_dirty(6, 0));
+    CHECK(has_consistent_wide_pairs(grid));
 }
 
 TEST_CASE("grid clears the previous leader when an overlapping wide write starts at its continuation", "[grid]")
@@ -209,6 +229,7 @@ TEST_CASE("grid clears the previous leader when an overlapping wide write starts
     CHECK(grid.is_dirty(4, 0));
     CHECK(grid.is_dirty(5, 0));
     CHECK(grid.is_dirty(6, 0));
+    CHECK(has_consistent_wide_pairs(grid));
 }
 
 TEST_CASE("grid scroll preserves double-width cells and continuations together", "[grid]")
@@ -282,7 +303,7 @@ TEST_CASE("grid scroll preserves wide pairs fully inside a partial region", "[gr
     REQUIRE(grid.get_cell(5, 0).text == std::string("z"));
 }
 
-TEST_CASE("grid scroll clears orphaned continuations at the left boundary without touching outside columns", "[grid]")
+TEST_CASE("grid scroll clears split wide pairs at the left boundary", "[grid]")
 {
     Grid grid;
     grid.resize(5, 2);
@@ -311,9 +332,14 @@ TEST_CASE("grid scroll clears orphaned continuations at the left boundary withou
     REQUIRE(grid.get_cell(3, 0).text == std::string("b"));
     INFO("tail cells keep their scrolled value");
     REQUIRE(grid.get_cell(4, 0).text == std::string("c"));
+    INFO("the stationary leader whose continuation was cleared is normalized too");
+    CHECK(grid.get_cell(0, 1).text == std::string(" "));
+    CHECK_FALSE(grid.get_cell(0, 1).double_width);
+    CHECK(grid.is_dirty(0, 1));
+    CHECK(has_consistent_wide_pairs(grid));
 }
 
-TEST_CASE("grid scroll does not clobber wide leaders outside a partial region", "[grid]")
+TEST_CASE("grid scroll clears a leader outside a partial region when its continuation moves", "[grid]")
 {
     Grid grid;
     grid.resize(5, 1);
@@ -325,19 +351,21 @@ TEST_CASE("grid scroll does not clobber wide leaders outside a partial region", 
 
     grid.scroll(0, 1, 1, 5, 0, 1);
 
-    INFO("leader outside the region stays untouched");
-    REQUIRE(grid.get_cell(0, 0).text == std::string("W"));
-    INFO("outside-region leader keeps its wide flag");
-    REQUIRE(grid.get_cell(0, 0).double_width);
+    INFO("leader outside the region is cleared when its continuation moves");
+    REQUIRE(grid.get_cell(0, 0).text == std::string(" "));
+    INFO("outside-region leader no longer claims a missing continuation");
+    REQUIRE_FALSE(grid.get_cell(0, 0).double_width);
     INFO("scrolled text stays aligned after boundary repair");
     REQUIRE(grid.get_cell(1, 0).text == std::string("a"));
     INFO("middle cells continue to shift left");
     REQUIRE(grid.get_cell(2, 0).text == std::string("b"));
     INFO("tail cells continue to shift left");
     REQUIRE(grid.get_cell(3, 0).text == std::string("c"));
+    CHECK(grid.is_dirty(0, 0));
+    CHECK(has_consistent_wide_pairs(grid));
 }
 
-TEST_CASE("grid scroll clears leaders at the right boundary without touching outside continuations", "[grid]")
+TEST_CASE("grid scroll clears both halves of a pair split at the right boundary", "[grid]")
 {
     Grid grid;
     grid.resize(5, 1);
@@ -357,8 +385,11 @@ TEST_CASE("grid scroll clears leaders at the right boundary without touching out
     REQUIRE(grid.get_cell(2, 0).text == std::string(" "));
     INFO("cleared leader resets the double-width flag");
     REQUIRE(grid.get_cell(2, 0).double_width == false);
-    INFO("continuation outside the region is left untouched");
-    REQUIRE(grid.get_cell(4, 0).double_width_cont);
+    INFO("continuation outside the region is cleared with its displaced leader");
+    REQUIRE_FALSE(grid.get_cell(4, 0).double_width_cont);
+    CHECK(grid.get_cell(4, 0).text.empty());
+    CHECK(grid.is_dirty(4, 0));
+    CHECK(has_consistent_wide_pairs(grid));
 }
 
 TEST_CASE("grid scroll full-width repair clears orphaned continuations", "[grid]")
@@ -383,9 +414,10 @@ TEST_CASE("grid scroll full-width repair clears orphaned continuations", "[grid]
     REQUIRE(grid.get_cell(2, 0).text == std::string("b"));
     INFO("tail cells keep their shifted value");
     REQUIRE(grid.get_cell(3, 0).text == std::string("c"));
+    CHECK(has_consistent_wide_pairs(grid));
 }
 
-TEST_CASE("grid ignores double-width continuation when placed at the right edge", "[grid]")
+TEST_CASE("grid normalizes a double-width write at the right edge", "[grid]")
 {
     Grid grid;
     grid.resize(2, 1);
@@ -394,10 +426,24 @@ TEST_CASE("grid ignores double-width continuation when placed at the right edge"
 
     INFO("edge cell text is written");
     REQUIRE(grid.get_cell(1, 0).text == std::string("X"));
-    INFO("edge cell keeps the double-width flag");
-    REQUIRE(grid.get_cell(1, 0).double_width == true);
+    INFO("edge cell cannot lead a pair without room for its continuation");
+    REQUIRE(grid.get_cell(1, 0).double_width == false);
     INFO("neighboring cells are untouched");
     REQUIRE(grid.get_cell(0, 0).text == std::string(" "));
+    CHECK(has_consistent_wide_pairs(grid));
+}
+
+TEST_CASE("grid resize removes a wide leader whose continuation is truncated", "[grid][resize]")
+{
+    Grid grid;
+    grid.resize(4, 1);
+    grid.set_cell(2, 0, "W", 7, true);
+
+    grid.resize(3, 1);
+
+    CHECK(grid.get_cell(2, 0).text == std::string(" "));
+    CHECK_FALSE(grid.get_cell(2, 0).double_width);
+    CHECK(has_consistent_wide_pairs(grid));
 }
 
 TEST_CASE("set_cell warns when cluster exceeds CellText::kMaxLen", "[grid]")

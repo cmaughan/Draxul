@@ -68,6 +68,52 @@ struct CellIndexer
 
 using DirtyFn = std::function<void(int)>;
 
+// Repair wide-glyph metadata after a bulk mutation. A partial scroll can move
+// only one half of a pair while leaving the other half just outside the scroll
+// rectangle, so the seam cells on both sides of the rectangle must be
+// considered as part of the mutation. Scanning the affected rows keeps the
+// invariant simple: every continuation has a leader immediately to its left,
+// and every leader has a continuation immediately to its right.
+void normalize_wide_pairs(
+    std::vector<Cell>& cells, CellIndexer idx, int cols, int first_row,
+    int last_row, const DirtyFn& mark_dirty)
+{
+    for (int row = first_row; row < last_row; ++row)
+    {
+        for (int col = 0; col < cols; ++col)
+        {
+            const int index = static_cast<int>(idx(row, col));
+            auto& cell = cells[static_cast<size_t>(index)];
+
+            if (cell.double_width_cont)
+            {
+                if (col == 0 || !cells[static_cast<size_t>(index) - 1].double_width)
+                {
+                    clear_continuation(cell);
+                    mark_dirty(index);
+                }
+                else if (cell.double_width)
+                {
+                    // A continuation cannot simultaneously lead another pair.
+                    // Clearing the leader bit lets the following iteration
+                    // remove any continuation that depended on it.
+                    cell.double_width = false;
+                    mark_dirty(index);
+                }
+                continue;
+            }
+
+            if (cell.double_width
+                && (col + 1 >= cols
+                    || !cells[static_cast<size_t>(index) + 1].double_width_cont))
+            {
+                cell = make_blank_cell();
+                mark_dirty(index);
+            }
+        }
+    }
+}
+
 // Scroll the cells within the region by `delta` rows.
 // Positive delta = scroll up (content moves up, new blank rows appear at bottom).
 // Negative delta = scroll down (content moves down, new blank rows appear at top).
@@ -214,6 +260,10 @@ void Grid::resize(int cols, int rows)
     rows_ = rows;
     dirty_cells_.clear();
     full_dirty_ = true;
+
+    CellIndexer idx{ cols_ };
+    normalize_wide_pairs(cells_, idx, cols_, 0, rows_,
+        [this](int index) { mark_dirty_index(index); });
 }
 
 void Grid::clear()
@@ -288,11 +338,15 @@ void Grid::set_cell(int col, int row, const std::string& text, uint16_t hl_id, b
     cell.hyperlink_id = 0;
     cell.detected_url_id = 0;
     cell.dirty = false;
-    cell.double_width = double_width;
+    // A wide leader is valid only when its continuation fits on this row.
+    // Terminal wrapping normally prevents an edge write, but keeping the grid
+    // invariant here also protects direct restore and protocol callers.
+    const bool store_double_width = double_width && col + 1 < cols_;
+    cell.double_width = store_double_width;
     cell.double_width_cont = false;
     mark_dirty_index(static_cast<int>(index));
 
-    if (double_width && col + 1 < cols_)
+    if (store_double_width)
     {
         auto& next = cells_[index + 1];
         next.text = CellText{};
@@ -560,32 +614,10 @@ void Grid::scroll(int top, int bot, int left, int right, int rows, int cols)
     if (cols != 0)
         scroll_cols(cells_, idx, top, bot, left, right, cols, mark_dirty);
 
-    // Fix up double-width pairs that were split by the scroll.
-    for (int r = top; r < bot; ++r)
-    {
-        for (int c = left; c < right; ++c)
-        {
-            const int index = static_cast<int>(idx(r, c));
-            auto& cell = cells_[static_cast<size_t>(index)];
-
-            const bool continuation_in_region = c + 1 < right;
-            if (cell.double_width
-                && (!continuation_in_region || !cells_[static_cast<size_t>(index) + 1].double_width_cont))
-            {
-                cell = make_blank_cell();
-                mark_dirty_index(index);
-                continue;
-            }
-
-            const bool leader_in_region = c > left;
-            if (cell.double_width_cont
-                && (!leader_in_region || !cells_[static_cast<size_t>(index) - 1].double_width))
-            {
-                clear_continuation(cell);
-                mark_dirty_index(index);
-            }
-        }
-    }
+    // Fix pairs split by the scroll, including the stationary seam cells just
+    // outside a partial-width region. Leaving either stationary half in place
+    // would make a later snapshot or render observe orphaned metadata.
+    normalize_wide_pairs(cells_, idx, cols_, top, bot, mark_dirty);
 }
 
 bool Grid::is_dirty(int col, int row) const
