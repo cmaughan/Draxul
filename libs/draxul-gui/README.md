@@ -37,8 +37,9 @@ All code sits in the `draxul::gui` namespace.
 ## Dependencies
 
 `draxul-types` (Color/CellUpdate/AtlasRegion), `draxul-font` (`TextService`
-glyph resolution), `draxul-renderer` (renderer-facing types). Nothing else —
-keep it that way.
+glyph resolution), and `draxul-plugin-tooltip-support` (shared overlay text and
+tooltip rasterization). The library has no concrete renderer dependency; keep
+it usable from pure data-oriented consumers.
 
 ## When does code belong here?
 

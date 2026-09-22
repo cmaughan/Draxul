@@ -30,10 +30,11 @@
 
 ## Cross-platform validation
 
-- [ ] Compare deterministic results on MSVC and Apple Clang.
+- [x] Apple Clang deterministic results match the pinned shell geometry/state fixtures.
+- [ ] Compare the same deterministic results on MSVC.
 - [x] Verify no renderer/window/host/Nvim/NanoVG/ImGui link enters the target.
-- [ ] Run App tests and render smoke on both backends. Apple Clang App tests and
-      Metal startup smoke passed; an MSVC/Vulkan runtime was unavailable.
+- [x] Run Apple Clang App tests and Metal startup smoke.
+- [ ] Run App tests and render smoke on MSVC/Vulkan; that runtime was unavailable.
 
 ## Agent documentation/tooling
 

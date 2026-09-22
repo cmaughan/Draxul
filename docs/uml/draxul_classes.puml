@@ -35,9 +35,64 @@ __
 +file_path : std::string
 +min_level : LogLevel
 }
+class "PerfTimingTag" as C_0015407292391212685414
+class C_0015407292391212685414 {
+__
++file : const char *
++function : const char *
++pretty_function : const char *
+}
+class "RuntimePerfFunctionTiming" as C_0003628885627773300772
+class C_0003628885627773300772 {
+__
++call_count : uint32_t
++frame_fraction : float
++frame_microseconds : uint64_t
++function_name : std::string
++normalized_heat : float
++owner_qualified_name : std::string
++pretty_function : std::string
++smoothed_frame_fraction : float
++smoothed_microseconds : uint64_t
++source_file_path : std::string
+}
+class "RuntimePerfSnapshot" as C_0011981549758110973255
+class C_0011981549758110973255 {
+__
++frame_index : uint64_t
++frame_time_microseconds : uint64_t
++functions : std::vector<RuntimePerfFunctionTiming>
++generation : uint64_t
+}
+class "RuntimePerfCollector" as C_0010421543049065794256
+class C_0010421543049065794256 {
++begin_frame() : void
++cancel_frame() : void
++enabled() const : bool
++end_frame() : void
++latest_snapshot() const : RuntimePerfSnapshot
++report_timing() : void
++reset() : void
++set_enabled() : void
+__
+}
+class "ScopedPerfMeasure" as C_0016825769897772161412
+class C_0016825769897772161412 {
++ScopedPerfMeasure() : void
++ScopedPerfMeasure() = deleted : void
++~ScopedPerfMeasure() : void
+..
++operator=() = deleted : ScopedPerfMeasure &
+__
+-active_ : bool
+-start_microseconds_ : uint64_t
+-tag_ : const PerfTimingTag *
+}
 class "LoggerState" as C_0010528801699873211081
 class C_0010528801699873211081 {
 __
++atomic_category_mask : std::atomic<uint32_t>
++atomic_min_level : std::atomic<int>
 +enable_stderr : bool
 +enabled_categories : std::unordered_set<LogCategory>
 +file : FILE *
@@ -45,30 +100,20 @@ __
 +mutex : std::mutex
 +sink : LogSink
 }
-class "Color" as C_0003050016618736941186
-class C_0003050016618736941186 {
-+operator==() constexpr const = default : bool
-..
-{static} +from_rgb() : Color
-{static} +from_rgba() : Color
+class "SpawnDetachedOptions" as C_0015341991306379799492
+class C_0015341991306379799492 {
 __
-+a : float
-+b : float
-+g : float
-+r : float
++hide_window : bool
++working_directory : std::filesystem::path
 }
 class "AtlasRegion" as C_0001601078392939988737
 class C_0001601078392939988737 {
 __
-+bearing_x : int
-+bearing_y : int
-+height : int
++advance_px : int
++bitmap_bearing : glm::ivec2
++bitmap_size : glm::ivec2
 +is_color : bool
-+u0 : float
-+u1 : float
-+v0 : float
-+v1 : float
-+width : int
++uv : glm::vec4
 }
 enum "AmbiWidth" as C_0010895279360614319154
 enum C_0010895279360614319154 {
@@ -85,6 +130,13 @@ enum C_0017202156351621465061 {
 Block
 Horizontal
 Vertical
+}
+enum "MouseCursor" as C_0000143809655918850617
+enum C_0000143809655918850617 {
+Default
+ResizeLeftRight
+ResizeUpDown
+Pointer
 }
 class "CursorStyle" as C_0001063800618844957218
 class C_0001063800618844957218 {
@@ -114,11 +166,32 @@ __
 +rgba : std::vector<uint8_t>
 +width : int
 }
+class "DisplayCluster" as C_0013612645996584822247
+class C_0013612645996584822247 {
+__
++byte_end : size_t
++byte_start : size_t
++cell_width : int
++replacement : bool
++text : std::string
+}
+class "UnicodeRange" as C_0001829803731265143804
+class C_0001829803731265143804 {
+__
++first : uint32_t
++last : uint32_t
+}
+class "sdl::ApplicationEventTypes" as C_0007998983339403655555
+class C_0007998983339403655555 {
++operator bool() const : bool
+__
++file_dialog : Uint32
++wake : Uint32
+}
 class "WindowResizeEvent" as C_0002340459692765138514
 class C_0002340459692765138514 {
 __
-+height : int
-+width : int
++size : glm::ivec2
 }
 class "KeyEvent" as C_0010565110385499149884
 class C_0010565110385499149884 {
@@ -131,39 +204,38 @@ __
 class "TextInputEvent" as C_0011070493512026716506
 class C_0011070493512026716506 {
 __
-+text : const char *
++text : std::string
 }
 class "TextEditingEvent" as C_0011519682376657739126
 class C_0011519682376657739126 {
 __
 +length : int
 +start : int
-+text : const char *
++text : std::string
 }
 class "MouseButtonEvent" as C_0013373323923961518899
 class C_0013373323923961518899 {
 __
 +button : int
++clicks : int
 +mod : ModifierFlags
++pos : glm::ivec2
 +pressed : bool
-+x : int
-+y : int
 }
 class "MouseMoveEvent" as C_0005177588658906065630
 class C_0005177588658906065630 {
 __
++buttons : uint32_t
++delta : glm::vec2
 +mod : ModifierFlags
-+x : int
-+y : int
++pos : glm::ivec2
 }
 class "MouseWheelEvent" as C_0009958399031821783594
 class C_0009958399031821783594 {
 __
-+dx : float
-+dy : float
++delta : glm::vec2
 +mod : ModifierFlags
-+x : int
-+y : int
++pos : glm::ivec2
 }
 class "DisplayScaleEvent" as C_0002620409691651640904
 class C_0002620409691651640904 {
@@ -172,14 +244,35 @@ __
 }
 abstract "IWindow" as C_0008754152141087198468
 abstract C_0008754152141087198468 {
-+~IWindow() = default : void
++IWindow() : void
++IWindow() = deleted : void
++IWindow() = deleted : void
++~IWindow() : void
 ..
++operator=() = deleted : IWindow &
++operator=() = deleted : IWindow &
+..
++activate() : void
++clear_callbacks() : void
++clear_input_callbacks() : void
++clear_lifecycle_callbacks() : void
 {abstract} +clipboard_text() const = 0 : std::string
++connect_input_callbacks() : CallbackConnection
++connect_lifecycle_callbacks() : CallbackConnection
 {abstract} +display_ppi() const = 0 : float
+{static} -guarded_callback<Args...>() : std::function<void (Args...)>
++height_logical() const : int
++height_pixels() const : int
 {abstract} +initialize() = 0 : bool
++is_minimized() const : bool
 {abstract} +native_handle() = 0 : void *
++normalize_render_target_window_size() : void
++open_url() : bool
 {abstract} +poll_events() = 0 : bool
++set_clamp_to_display() : void
 {abstract} +set_clipboard_text() = 0 : bool
++set_hidden() : void
++set_mouse_cursor() : void
 {abstract} +set_text_input_area() = 0 : void
 {abstract} +set_title() = 0 : void
 +set_title_bar_color() : void
@@ -187,6 +280,36 @@ abstract C_0008754152141087198468 {
 {abstract} +shutdown() = 0 : void
 {abstract} +size_logical() const = 0 : std::pair<int,int>
 {abstract} +size_pixels() const = 0 : std::pair<int,int>
++wait_events() : bool
++wake() : void
++width_logical() const : int
++width_pixels() const : int
+__
+-callback_state_ : std::shared_ptr<CallbackState>
++on_close_requested : std::function<void ()>
++on_display_scale_changed : std::function<void (const DisplayScaleEvent &)>
++on_drop_file : std::function<void (std::string_view)>
++on_key : std::function<void (const KeyEvent &)>
++on_mouse_button : std::function<void (const MouseButtonEvent &)>
++on_mouse_move : std::function<void (const MouseMoveEvent &)>
++on_mouse_wheel : std::function<void (const MouseWheelEvent &)>
++on_quit_requested : std::function<void ()>
++on_resize : std::function<void (const WindowResizeEvent &)>
++on_text_editing : std::function<void (const TextEditingEvent &)>
++on_text_input : std::function<void (const TextInputEvent &)>
+}
+enum "IWindow::CallbackGroup" as C_0012815696766307447264
+enum C_0012815696766307447264 {
+Input
+Lifecycle
+}
+class "IWindow::CallbackLifetime" as C_0010283076795572126360
+class C_0010283076795572126360 {
+__
++connected : std::atomic<bool>
+}
+class "IWindow::InputCallbacks" as C_0006498195981623169702
+class C_0006498195981623169702 {
 __
 +on_display_scale_changed : std::function<void (const DisplayScaleEvent &)>
 +on_drop_file : std::function<void (std::string_view)>
@@ -198,18 +321,60 @@ __
 +on_text_editing : std::function<void (const TextEditingEvent &)>
 +on_text_input : std::function<void (const TextInputEvent &)>
 }
+class "IWindow::LifecycleCallbacks" as C_0011114664387270343788
+class C_0011114664387270343788 {
+__
++on_close_requested : std::function<void ()>
++on_quit_requested : std::function<void ()>
+}
+class "IWindow::CallbackConnection" as C_0004457314763869120386
+class C_0004457314763869120386 {
++operator=() = deleted : CallbackConnection &
++operator=() noexcept : CallbackConnection &
+..
++CallbackConnection() constexpr = default : void
++CallbackConnection() = deleted : void
++CallbackConnection() noexcept : void
+-CallbackConnection() : void
++connected() const : bool
++reset() : void
++~CallbackConnection() : void
+__
+-generation_ : std::uint64_t
+-group_ : CallbackGroup
+-lifetime_ : std::shared_ptr<CallbackLifetime>
+-state_ : std::weak_ptr<CallbackState>
+}
+class "IWindow::CallbackState" as C_0002010631925230647196
+class C_0002010631925230647196 {
++CallbackState() : void
+__
++input_generation : std::uint64_t
++input_lifetime : std::weak_ptr<CallbackLifetime>
++lifecycle_generation : std::uint64_t
++lifecycle_lifetime : std::weak_ptr<CallbackLifetime>
++owner : IWindow *
+}
 class "SdlWindow" as C_0017708234387737448190
 class C_0017708234387737448190 {
++~SdlWindow() : void
+..
 +activate() : void
 +clipboard_text() const : std::string
 +display_ppi() const : float
+-ensure_cursor() : SDL_Cursor *
+-flush_text_input_area() : void
 -handle_event() : bool
 +initialize() : bool
++is_minimized() const : bool
 +native_handle() : void *
++normalize_render_target_window_size() : void
++open_url() : bool
 +poll_events() : bool
 +set_clamp_to_display() : void
 +set_clipboard_text() : bool
 +set_hidden() : void
++set_mouse_cursor() : void
 +set_size_logical() : void
 +set_text_input_area() : void
 +set_title() : void
@@ -219,33 +384,66 @@ class C_0017708234387737448190 {
 +size_logical() const : std::pair<int,int>
 +size_pixels() const : std::pair<int,int>
 +wait_events() : bool
-+wake() const : void
++wake() : void
 __
+-active_cursor_ : MouseCursor
 -clamp_to_display_ : bool
+-cursor_default_ : SDL_Cursor *
+-cursor_ew_ : SDL_Cursor *
+-cursor_ns_ : SDL_Cursor *
+-cursor_pointer_ : SDL_Cursor *
 -file_dialog_event_type_ : unsigned int
 -hidden_ : bool
+-text_input_area_dirty_ : bool
+-text_input_h_ : int
+-text_input_w_ : int
+-text_input_x_ : int
+-text_input_y_ : int
 -wake_event_type_ : unsigned int
 -window_ : SDL_Window *
+}
+class "RenderViewport" as C_0002203274076516956389
+class C_0002203274076516956389 {
+__
++height : int
++width : int
++x : int
++y : int
+}
+abstract "IFrameContext" as C_0009310960260238018051
+abstract C_0009310960260238018051 {
++~IFrameContext() constexpr = default : void
+..
+{abstract} +draw_grid_handle() = 0 : void
+{abstract} +flush_submit_chunk() = 0 : void
+{abstract} +record_render_pass() = 0 : void
+{abstract} +render_imgui() = 0 : void
+__
 }
 abstract "IBaseRenderer" as C_0005851409022089412705
 abstract C_0005851409022089412705 {
 +~IBaseRenderer() constexpr = default : void
 ..
-{abstract} +begin_frame() = 0 : bool
+{abstract} +begin_frame() = 0 : IFrameContext *
 {abstract} +end_frame() = 0 : void
 {abstract} +initialize() = 0 : bool
 {abstract} +resize() = 0 : void
 {abstract} +set_default_background() = 0 : void
 {abstract} +shutdown() = 0 : void
++wait_idle() : void
 __
 }
 abstract "IRenderContext" as C_0002769108603782251559
 abstract C_0002769108603782251559 {
 +~IRenderContext() constexpr = default : void
 ..
++buffered_frame_count() const : uint32_t
++frame_index() const : uint32_t
 {abstract} +height() const = 0 : int
-{abstract} +native_command_buffer() const = 0 : void *
-{abstract} +native_render_encoder() const = 0 : void *
++viewport_h() const : int
++viewport_w() const : int
++viewport_x() const : int
++viewport_y() const : int
 {abstract} +width() const = 0 : int
 __
 }
@@ -254,40 +452,8 @@ abstract C_0013689547638217019403 {
 +~IRenderPass() constexpr = default : void
 ..
 {abstract} +record() = 0 : void
-__
-}
-abstract "I3DRenderer" as C_0005125093399792312103
-abstract C_0005125093399792312103 {
-{abstract} +register_render_pass() = 0 : void
-{abstract} +unregister_render_pass() = 0 : void
-__
-}
-abstract "IGridRenderer" as C_0010068086230632788976
-abstract C_0010068086230632788976 {
-+~IGridRenderer() constexpr = default : void
-..
-{abstract} +cell_size_pixels() const = 0 : std::pair<int,int>
-{abstract} +padding() const = 0 : int
-{abstract} +set_ascender() = 0 : void
-{abstract} +set_atlas_texture() = 0 : void
-{abstract} +set_cell_size() = 0 : void
-{abstract} +set_cursor() = 0 : void
-{abstract} +set_grid_size() = 0 : void
-{abstract} +set_overlay_cells() = 0 : void
-{abstract} +set_scroll_offset() = 0 : void
-{abstract} +update_atlas_region() = 0 : void
-{abstract} +update_cells() = 0 : void
-__
-}
-abstract "IImGuiHost" as C_0014662174383410826506
-abstract C_0014662174383410826506 {
-+~IImGuiHost() constexpr = default : void
-..
-{abstract} +begin_imgui_frame() = 0 : void
-{abstract} +initialize_imgui_backend() = 0 : bool
-{abstract} +rebuild_imgui_font_texture() = 0 : void
-{abstract} +set_imgui_draw_data() = 0 : void
-{abstract} +shutdown_imgui_backend() = 0 : void
++record_prepass() : void
++requires_main_depth_attachment() const : bool
 __
 }
 abstract "ICaptureRenderer" as C_0009066721086004078893
@@ -298,55 +464,88 @@ abstract C_0009066721086004078893 {
 {abstract} +take_captured_frame() = 0 : std::optional<CapturedFrame>
 __
 }
-class "IRenderer" as C_0010528545404535368578
-class C_0010528545404535368578 {
-+~IRenderer() constexpr = default : void
+abstract "IImGuiHost" as C_0014662174383410826506
+abstract C_0014662174383410826506 {
++~IImGuiHost() constexpr = default : void
+..
+{abstract} +begin_imgui_frame() = 0 : void
+{abstract} +initialize_imgui_backend() = 0 : bool
+{abstract} +rebuild_imgui_font_texture() = 0 : void
++render_imgui_draw_data() : bool
+{abstract} +shutdown_imgui_backend() = 0 : void
+__
+}
+class "PaneDescriptor" as C_0012119305397175798910
+class C_0012119305397175798910 {
+__
++pixel_pos : glm::ivec2
++pixel_size : glm::ivec2
+}
+abstract "IGridHandle" as C_0009128363640940518284
+abstract C_0009128363640940518284 {
++~IGridHandle() constexpr = default : void
+..
+{abstract} +set_cursor() = 0 : void
+{abstract} +set_cursor_visible() = 0 : void
+{abstract} +set_default_background() = 0 : void
+{abstract} +set_grid_size() = 0 : void
+{abstract} +set_overlay_cells() = 0 : void
+{abstract} +set_scroll_offset() = 0 : void
+{abstract} +set_viewport() = 0 : void
+{abstract} +update_cells() = 0 : void
+__
+}
+abstract "IGridRenderer" as C_0010068086230632788976
+abstract C_0010068086230632788976 {
++~IGridRenderer() constexpr = default : void
+..
+{abstract} +cell_size_pixels() const = 0 : std::pair<int,int>
+{abstract} +create_grid_handle() = 0 : std::unique_ptr<IGridHandle>
+{abstract} +padding() const = 0 : int
+{abstract} +set_ascender() = 0 : void
+{abstract} +set_atlas_texture() = 0 : void
+{abstract} +set_cell_size() = 0 : void
+{abstract} +update_atlas_region() = 0 : void
 __
 }
 class "RendererBundle" as C_0002198398896520044869
 class C_0002198398896520044869 {
++RendererBundle() = default : void
++RendererBundle<T>() : void
+..
 +capture() const : ICaptureRenderer *
 +grid() const : IGridRenderer *
 +imgui() const : IImGuiHost *
 +operator bool() const : bool
-+threed() const : I3DRenderer *
++reset() : void
++reset<T>() : void
 __
-+impl : std::unique_ptr<IRenderer>
++capture_renderer : ICaptureRenderer *
++imgui_host : IImGuiHost *
++impl : std::unique_ptr<IGridRenderer>
+}
+class "RendererOptions" as C_0000365585350073279892
+class C_0000365585350073279892 {
+__
++wait_for_vblank : bool
 }
 class "GpuCell" as C_0011925734863400406368
 class C_0011925734863400406368 {
 +operator==() constexpr const = default : bool
 __
 +_pad : std::array<uint32_t,3>
-+bg_a : float
-+bg_b : float
-+bg_g : float
-+bg_r : float
-+fg_a : float
-+fg_b : float
-+fg_g : float
-+fg_r : float
-+glyph_offset_x : float
-+glyph_offset_y : float
-+glyph_size_x : float
-+glyph_size_y : float
-+pos_x : float
-+pos_y : float
-+size_x : float
-+size_y : float
-+sp_a : float
-+sp_b : float
-+sp_g : float
-+sp_r : float
++bg : glm::vec4
++fg : glm::vec4
++glyph_offset : glm::vec2
++glyph_size : glm::vec2
++pos : glm::vec2
++size : glm::vec2
++sp : glm::vec4
 +style_flags : uint32_t
-+uv_x0 : float
-+uv_x1 : float
-+uv_y0 : float
-+uv_y1 : float
++uv : glm::vec4
 }
 class "RendererState" as C_0004074277629754559155
 class C_0004074277629754559155 {
-+apply_cursor() : void
 -apply_update_to_cell() const : void
 +bg_instances() const : int
 +buffer_size_bytes() const : size_t
@@ -358,6 +557,7 @@ class C_0004074277629754559155 {
 +dirty_cell_offset_bytes() const : size_t
 +dirty_cell_size_bytes() const : size_t
 +fg_instances() const : int
++force_dirty() : void
 +grid_cols() const : int
 +grid_rows() const : int
 +has_dirty_cells() const : bool
@@ -366,11 +566,12 @@ class C_0004074277629754559155 {
 +overlay_offset_bytes() const : size_t
 +overlay_region_dirty() const : bool
 +overlay_region_size_bytes() const : size_t
+-rebuild_cursor_overlay() : void
 -relayout() : void
-+restore_cursor() : void
 +set_ascender() : void
 +set_cell_size() : void
 +set_cursor() : void
++set_cursor_visible() : void
 +set_default_background() : void
 +set_grid_size() : void
 +set_overlay_cells() : void
@@ -381,12 +582,13 @@ __
 -ascender_ : int
 -cell_h_ : int
 -cell_w_ : int
--cursor_applied_ : bool
 -cursor_col_ : int
 -cursor_overlay_active_ : bool
+-cursor_overlay_has_glyph_ : bool
+-cursor_position_known_ : bool
 -cursor_row_ : int
--cursor_saved_cell_ : GpuCell
 -cursor_style_ : CursorStyle
+-cursor_visible_ : bool
 -default_bg_ : Color
 -dirty_cell_begin_ : size_t
 -dirty_cell_end_ : size_t
@@ -399,72 +601,6 @@ __
 -overlay_dirty_ : bool
 -padding_ : int
 }
-class "MetalRenderer" as C_0013902377354588180664
-class C_0013902377354588180664 {
-+MetalRenderer() : void
-+~MetalRenderer() : void
-..
-+begin_frame() : bool
-+begin_imgui_frame() : void
-+cell_size_pixels() const : std::pair<int,int>
-+end_frame() : void
--ensure_capture_buffer() : bool
-+initialize() : bool
-+initialize_imgui_backend() : bool
-+padding() const : int
-+rebuild_imgui_font_texture() : void
-+register_render_pass() : void
-+request_frame_capture() : void
-+resize() : void
-+set_ascender() : void
-+set_atlas_texture() : void
-+set_cell_size() : void
-+set_cursor() : void
-+set_default_background() : void
-+set_grid_size() : void
-+set_imgui_draw_data() : void
-+set_overlay_cells() : void
-+set_scroll_offset() : void
-+shutdown() : void
-+shutdown_imgui_backend() : void
-+take_captured_frame() : std::optional<CapturedFrame>
-+unregister_render_pass() : void
-+update_atlas_region() : void
-+update_cells() : void
--upload_dirty_state() : void
-__
-{static} +MAX_FRAMES_IN_FLIGHT : const int
--ascender_ : int
--atlas_sampler_ : void *
--atlas_size_ : int
--atlas_texture_ : void *
--bg_pipeline_ : void *
--capture_buffer_ : void *
--capture_buffer_size_ : size_t
--capture_bytes_per_row_ : size_t
--capture_requested_ : bool
--captured_frame_ : std::optional<CapturedFrame>
--cell_h_ : int
--cell_w_ : int
--clear_b_ : float
--clear_g_ : float
--clear_r_ : float
--command_queue_ : void *
--current_drawable_ : void *
--device_ : void *
--fg_pipeline_ : void *
--frame_semaphore_ : void *
--grid_buffer_ : void *
--imgui_draw_data_ : const ImDrawData *
--imgui_initialized_ : bool
--layer_ : void *
--padding_ : int
--pixel_h_ : int
--pixel_w_ : int
--render_pass_ : std::shared_ptr<IRenderPass>
--scroll_offset_px_ : float
--state_ : RendererState
-}
 class "FontMetrics" as C_0013707134870063899134
 class C_0013707134870063899134 {
 __
@@ -473,11 +609,107 @@ __
 +cell_width : int
 +descender : int
 }
+enum "ErrorKind" as C_0002065950959508946984
+enum C_0002065950959508946984 {
+Unknown
+SpawnFailed
+IoError
+ConfigLoadFailed
+ConfigParseFailed
+ConfigApplyFailed
+RpcError
+InitFailed
+FontGlyphLoadFailed
+GlyphRasterizationFailed
+InvalidGlyphBitmap
+AtlasOverflow
+InvalidArgument
+NotFound
+}
+class "Error" as C_0009603250930800987314
+class C_0009603250930800987314 {
++Error() = default : void
++Error() : void
+..
+{static} +config_apply() : Error
+{static} +config_load() : Error
+{static} +config_parse() : Error
+{static} +init() : Error
+{static} +invalid_argument() : Error
+{static} +io() : Error
+{static} +not_found() : Error
+{static} +rpc() : Error
+{static} +spawn() : Error
+__
++kind : ErrorKind
++message : std::string
+}
+class "ErrorTag" as C_0002930139472050693845
+class C_0002930139472050693845 {
+__
+}
+class "OkTag" as C_0017971187124134967253
+class C_0017971187124134967253 {
+__
+}
+class "Result<T,E=Error>" as C_0007113032304115891872
+class C_0007113032304115891872 {
++Result() : void
++Result() : void
++Result() : void
+..
++operator*() : T &
++operator*() const : const T &
++operator*() : T &&
++operator->() : T *
++operator->() const : const T *
+..
+{static} +err() : Result<T,E>
++error() : E &
++error() const : const E &
++error() : E &&
++has_value() const noexcept : bool
+{static} +ok() : Result<T,E>
++operator bool() const noexcept : bool
++value() : T &
++value() const : const T &
++value() : T &&
++value_or<U>() const : T
+__
+-storage_ : std::variant<T,E>
+}
+class "Result<void,E>" as C_0003244246928613285654
+class C_0003244246928613285654 {
++Result() : void
++Result() : void
++Result() : void
+..
+{static} +err() : Result<void,E>
++error() : E &
++error() const : const E &
++error() : E &&
++has_value() const noexcept : bool
+{static} +ok() : Result<void,E>
++operator bool() const noexcept : bool
++value() const : void
+__
+-error_ : E
+-has_value_ : bool
+}
+class "GlyphRasterOperations" as C_0012716137199814826919
+class C_0012716137199814826919 {
+__
++convert_bitmap : ConvertBitmapFn
++load_glyph : LoadGlyphFn
++render_glyph : RenderGlyphFn
++reserve_region : ReserveRegionFn
+}
 class "FontManager" as C_0013960298743490800107
 class C_0013960298743490800107 {
 +FontManager() = default : void
 +FontManager() = deleted : void
 +FontManager() noexcept : void
++~FontManager() constexpr = default : void
 ..
 +operator=() = deleted : FontManager &
 +operator=() noexcept : FontManager &
@@ -526,6 +758,10 @@ __
 -enable_ligatures_ : bool
 -font_ : hb_font_t *
 }
+class "Result<AtlasRegion,Error>" as C_0017122348115286493368
+class C_0017122348115286493368 {
+__
+}
 class "GlyphCache" as C_0014199559189985453081
 class C_0014199559189985453081 {
 +atlas_data() const : const uint8_t *
@@ -535,24 +771,32 @@ class C_0014199559189985453081 {
 +clear_dirty() : void
 +consume_overflowed() : bool
 +dirty_rect() const : const DirtyRect &
++face_generation() const : uint32_t
++get_box_glyph() : const AtlasRegion &
 +get_cluster() : const AtlasRegion &
++get_cluster_result() : Result<AtlasRegion,Error>
 +glyph_count() const : size_t
 +initialize() : bool
--rasterize_cluster() : bool
+-rasterize_cluster() : Result<AtlasRegion,Error>
 -reserve_region() : bool
 +reset() : void
++set_cell_aligned_clusters() : void
++set_raster_operations_for_testing() : void
 +usage_ratio() const : float
 +used_pixels() const : size_t
 __
 -atlas_ : std::vector<uint8_t>
 -atlas_size_ : int
+-cell_aligned_clusters_ : bool
 -cluster_cache_ : std::unordered_map<ClusterKey,AtlasRegion,ClusterKeyHash>
 -dirty_ : bool
 -dirty_rect_ : DirtyRect
 -empty_region_ : AtlasRegion
 -face_ : FT_Face
+-face_generation_ : uint32_t
 -overflowed_ : bool
 -pixel_size_ : int
+-raster_operations_ : GlyphRasterOperations
 -shelf_height_ : int
 -shelf_x_ : int
 -shelf_y_ : int
@@ -561,10 +805,8 @@ __
 class "GlyphCache::DirtyRect" as C_0012516551186305172251
 class C_0012516551186305172251 {
 __
-+h : int
-+w : int
-+x : int
-+y : int
++pos : glm::ivec2
++size : glm::ivec2
 }
 class "GlyphCache::ClusterKey" as C_0003903673933831035415
 class C_0003903673933831035415 {
@@ -588,19 +830,6 @@ __
 +top : int
 +width : int
 }
-class "NvimProcess" as C_0015913343513510731058
-class C_0015913343513510731058 {
-+NvimProcess() : void
-+~NvimProcess() : void
-..
-+is_running() const : bool
-+read() const : int
-+shutdown() : void
-+spawn() : bool
-+write() const : bool
-__
--impl_ : std::unique_ptr<Impl>
-}
 class "MpackValue" as C_0016018736370340727756
 class C_0016018736370340727756 {
 +as_array() const : const ArrayStorage &
@@ -610,6 +839,13 @@ class C_0016018736370340727756 {
 +as_map() const : const MapStorage &
 +as_str() const : const std::string &
 +is_nil() const : bool
+{static} +make_array() : MpackValue
+{static} +make_bool() : MpackValue
+{static} +make_int() : MpackValue
+{static} +make_map() : MpackValue
+{static} +make_nil() : MpackValue
+{static} +make_str() : MpackValue
+{static} +make_uint() : MpackValue
 +type() const : Type
 __
 +storage : Storage
@@ -645,14 +881,9 @@ __
 +msgid : uint32_t
 +result : MpackValue
 }
-class "RpcResult" as C_0009056198548702880599
-class C_0009056198548702880599 {
-+is_error() const : bool
-+ok() const : bool
+class "Result<MpackValue,Error>" as C_0012673888551319633471
+class C_0012673888551319633471 {
 __
-+error : MpackValue
-+result : MpackValue
-+transport_ok : bool
 }
 abstract "IRpcChannel" as C_0003241142074092069901
 abstract C_0003241142074092069901 {
@@ -662,6 +893,29 @@ abstract C_0003241142074092069901 {
 {abstract} +request() = 0 : RpcResult
 __
 }
+class "Result<void,Error>" as C_0011602459433813445297
+class C_0011602459433813445297 {
+__
+}
+class "NvimProcess" as C_0015913343513510731058
+class C_0015913343513510731058 {
++NvimProcess() : void
++~NvimProcess() : void
+..
++is_running() const : bool
++read() const : int
++shutdown() : void
++spawn() : Result<void,Error>
++write() const : bool
+__
+-impl_ : std::unique_ptr<Impl>
+}
+class "RpcCallbacks" as C_0003017873229639932469
+class C_0003017873229639932469 {
+__
++on_notification_available : std::function<void ()>
++on_request : std::function<MpackValue (const std::string &,const std::vector<MpackValue> &)>
+}
 class "NvimRpc" as C_0011344315874693246311
 class C_0011344315874693246311 {
 +NvimRpc() : void
@@ -669,6 +923,10 @@ class C_0011344315874693246311 {
 ..
 +close() : void
 +connection_failed() const : bool
+-dispatch_rpc_message() : void
+-dispatch_rpc_notification() : void
+-dispatch_rpc_request() : void
+-dispatch_rpc_response() : void
 +drain_notifications() : std::vector<RpcNotification>
 +initialize() : bool
 {static} +make_array() : MpackValue
@@ -678,478 +936,49 @@ class C_0011344315874693246311 {
 {static} +make_nil() : MpackValue
 {static} +make_str() : MpackValue
 {static} +make_uint() : MpackValue
++notification_queue_depth() const : size_t
 +notify() : void
 -reader_thread_func() : void
 -reply_to_request() : void
 +request() : RpcResult
++set_main_thread_id() : void
 +shutdown() : void
 __
+-callbacks_ : RpcCallbacks
 -impl_ : std::unique_ptr<Impl>
-+on_notification_available : std::function<void ()>
-+on_request : std::function<MpackValue (const std::string &,const std::vector<MpackValue> &)>
+-main_thread_id_ : std::thread::id
 }
 class "NvimProcess::Impl" as C_0012226307655649286802
 class C_0012226307655649286802 {
 __
-+child_pid_ : pid_t
-+child_stdin_write_ : int
-+child_stdout_read_ : int
-+started_ : bool
++child_pid_ : std::atomic<pid_t>
++child_stdin_write_ : std::atomic<int>
++child_stdout_read_ : std::atomic<int>
++started_ : std::atomic<bool>
 }
 class "NvimRpc::Impl" as C_0012750730958052982030
 class C_0012750730958052982030 {
-__
-}
-class "GuiActionHandler" as C_0015344056630990463416
-class C_0015344056630990463416 {
-+GuiActionHandler() : void
-..
--change_font_size() : void
--copy() : void
-+execute() : bool
--font_decrease() : void
--font_increase() : void
--font_reset() : void
--open_file_dialog() const : void
--paste() : void
--toggle_diagnostics() : void
-__
--deps_ : Deps
-}
-class "GuiActionHandler::Deps" as C_0004320916333352057094
-class C_0004320916333352057094 {
-__
-+config : AppConfig *
-+host : IHost *
-+imgui_host : IImGuiHost *
-+on_config_changed : std::function<void ()>
-+on_font_changed : std::function<void ()>
-+on_open_file_dialog : std::function<void ()>
-+on_panel_toggled : std::function<void ()>
-+text_service : TextService *
-+ui_panel : UiPanel *
-}
-enum "HostKind" as C_0005670466736100490416
-enum C_0005670466736100490416 {
-Nvim
-PowerShell
-Bash
-Zsh
-Wsl
-MegaCity
-}
-class "HostLaunchOptions" as C_0016411363752645256527
-class C_0016411363752645256527 {
-__
-+args : std::vector<std::string>
-+command : std::string
-+enable_ligatures : bool
-+kind : HostKind
-+startup_commands : std::vector<std::string>
-+working_dir : std::string
-}
-class "HostViewport" as C_0002498117424196147261
-class C_0002498117424196147261 {
-__
-+cols : int
-+padding : int
-+pixel_height : int
-+pixel_scale : float
-+pixel_width : int
-+pixel_x : int
-+pixel_y : int
-+rows : int
-}
-class "HostDebugState" as C_0006380951599488864125
-class C_0006380951599488864125 {
-__
-+dirty_cells : size_t
-+grid_cols : int
-+grid_rows : int
-+name : std::string
-}
-class "HostRuntimeState" as C_0011793774128741621277
-class C_0011793774128741621277 {
-__
-+content_ready : bool
-+last_activity_time : std::chrono::steady_clock::time_point
-}
-class "HostCallbacks" as C_0013151736059362932950
-class C_0013151736059362932950 {
-__
-+request_frame : std::function<void ()>
-+request_quit : std::function<void ()>
-+set_text_input_area : std::function<void (int,int,int,int)>
-+set_window_title : std::function<void (const std::string &)>
-+wake_window : std::function<void ()>
-}
-class "HostContext" as C_0016717144239347233716
-class C_0016717144239347233716 {
-__
-+display_ppi : float
-+grid_renderer : IGridRenderer &
-+initial_viewport : HostViewport
-+launch_options : HostLaunchOptions
-+text_service : TextService &
-+window : IWindow &
-}
-abstract "IHost" as C_0009529973734970143048
-abstract C_0009529973734970143048 {
-+~IHost() constexpr = default : void
-..
-{abstract} +debug_state() const = 0 : HostDebugState
-{abstract} +default_background() const = 0 : Color
-{abstract} +dispatch_action() = 0 : bool
-{abstract} +init_error() const = 0 : std::string
-{abstract} +initialize() = 0 : bool
-{abstract} +is_running() const = 0 : bool
-{abstract} +next_deadline() const = 0 : std::optional<std::chrono::steady_clock::time_point>
-{abstract} +on_font_metrics_changed() = 0 : void
-{abstract} +on_key() = 0 : void
-{abstract} +on_mouse_button() = 0 : void
-{abstract} +on_mouse_move() = 0 : void
-{abstract} +on_mouse_wheel() = 0 : void
-{abstract} +on_text_editing() = 0 : void
-{abstract} +on_text_input() = 0 : void
-{abstract} +pump() = 0 : void
-{abstract} +request_close() = 0 : void
-{abstract} +runtime_state() const = 0 : HostRuntimeState
-{abstract} +set_viewport() = 0 : void
-{abstract} +shutdown() = 0 : void
-__
-}
-abstract "I3DHost" as C_0009174255010398071322
-abstract C_0009174255010398071322 {
-{abstract} +attach_3d_renderer() = 0 : void
-{abstract} +detach_3d_renderer() = 0 : void
-__
-}
-class "IGridHost" as C_0010202254357218365197
-class C_0010202254357218365197 {
-__
-}
-class "PaneManager" as C_0006767731107981727121
-class C_0006767731107981727121 {
-+PaneManager() : void
-..
-+create() : bool
-+error() const : const std::string &
-+host() const : IHost *
-+set_host() : void
-+shutdown() : void
-__
--deps_ : Deps
--error_ : std::string
--host_ : std::unique_ptr<IHost>
-}
-class "PaneManager::Deps" as C_0017675893223522493133
-class C_0017675893223522493133 {
-__
-+config : const AppConfig *
-+display_ppi : const float *
-+get_viewport : std::function<HostViewport ()>
-+grid_renderer : IGridRenderer *
-+options : const AppOptions *
-+text_service : TextService *
-+window : IWindow *
-}
-class "InputDispatcher" as C_0017662050381851980314
-class C_0017662050381851980314 {
-+InputDispatcher() : void
-..
-+connect() : void
-+gui_action_for_key_event() const : std::optional<std::string_view>
-+scroll_fraction() const : float
-__
--deps_ : Deps
--pending_scroll_y_ : float
-}
-class "InputDispatcher::Deps" as C_0012361970431903790474
-class C_0012361970431903790474 {
-__
-+gui_action_handler : GuiActionHandler *
-+host : IHost *
-+keybindings : const std::vector<GuiKeybinding> *
-+on_display_scale_changed : std::function<void (float)>
-+on_resize : std::function<void (int,int)>
-+request_frame : std::function<void ()>
-+smooth_scroll : bool
-+ui_panel : UiPanel *
-}
-class "AtlasDirtyRect" as C_0006142460100207035646
-class C_0006142460100207035646 {
-__
-+h : int
-+w : int
-+x : int
-+y : int
-}
-abstract "IGlyphAtlas" as C_0011906851200581065566
-abstract C_0011906851200581065566 {
-+~IGlyphAtlas() constexpr = default : void
-..
-{abstract} +atlas_data() const = 0 : const uint8_t *
-{abstract} +atlas_dirty() const = 0 : bool
-{abstract} +atlas_dirty_rect() const = 0 : AtlasDirtyRect
-{abstract} +atlas_height() const = 0 : int
-{abstract} +atlas_width() const = 0 : int
-{abstract} +clear_atlas_dirty() = 0 : void
-{abstract} +consume_atlas_reset() = 0 : bool
-{abstract} +ligature_cell_span() = 0 : int
-{abstract} +resolve_cluster() = 0 : AtlasRegion
-__
-}
-class "TextServiceConfig" as C_0005145284113847430245
-class C_0005145284113847430245 {
-__
-{static} +DEFAULT_FONT_CHOICE_CACHE_LIMIT : const size_t
-+bold_font_path : std::string
-+bold_italic_font_path : std::string
-+enable_ligatures : bool
-+fallback_paths : std::vector<std::string>
-+font_choice_cache_limit : size_t
-+font_path : std::string
-+italic_font_path : std::string
-}
-class "TextService" as C_0007094459942163548211
-class C_0007094459942163548211 {
-+TextService() : void
-+TextService() = deleted : void
-+TextService() noexcept : void
-+~TextService() : void
-..
-+operator=() = deleted : TextService &
-+operator=() noexcept : TextService &
-..
-+atlas_data() const : const uint8_t *
-+atlas_dirty() const : bool
-+atlas_dirty_rect() const : AtlasDirtyRect
-+atlas_glyph_count() const : size_t
-+atlas_height() const : int
-+atlas_reset_count() const : int
-+atlas_usage_ratio() const : float
-+atlas_width() const : int
-+clear_atlas_dirty() : void
-+consume_atlas_reset() : bool
-+font_choice_cache_size() const : size_t
-+initialize() : bool
-+initialize() : bool
-+ligature_cell_span() : int
-+ligature_cell_span() : int
-+metrics() const : const FontMetrics &
-+point_size() const : float
-+primary_font_path() const : const std::string &
-+resolve_cluster() : AtlasRegion
-+resolve_cluster() : AtlasRegion
-+set_point_size() : bool
-+shutdown() : void
-__
-{static} +DEFAULT_POINT_SIZE : const float
-{static} +MAX_POINT_SIZE : const float
-{static} +MIN_POINT_SIZE : const float
--impl_ : std::unique_ptr<Impl>
-}
-class "GuiKeybinding" as C_0012943441053662818710
-class C_0012943441053662818710 {
-__
-+action : std::string
-+key : int32_t
-+modifiers : ModifierFlags
-}
-class "AppConfig" as C_0010304326697326195617
-class C_0010304326697326195617 {
-+AppConfig() : void
-..
-{static} +load() : AppConfig
-{static} +load_from_path() : AppConfig
-{static} +parse() : AppConfig
-+save() const : void
-+save_to_path() const : void
-+serialize() const : std::string
-__
-+atlas_size : int
-+bold_font_path : std::string
-+bold_italic_font_path : std::string
-+enable_ligatures : bool
-+fallback_paths : std::vector<std::string>
-+font_path : std::string
-+font_size : float
-+italic_font_path : std::string
-+keybindings : std::vector<GuiKeybinding>
-+smooth_scroll : bool
-+window_height : int
-+window_width : int
-}
-class "AppConfigOverrides" as C_0008822150083529173387
-class C_0008822150083529173387 {
-__
-+atlas_size : std::optional<int>
-+bold_font_path : std::optional<std::string>
-+bold_italic_font_path : std::optional<std::string>
-+enable_ligatures : std::optional<bool>
-+fallback_paths : std::optional<std::vector<std::string>>
-+font_path : std::optional<std::string>
-+font_size : std::optional<float>
-+italic_font_path : std::optional<std::string>
-+window_height : std::optional<int>
-+window_width : std::optional<int>
-}
-class "AppOptions" as C_0004573737265847298989
-class C_0004573737265847298989 {
-__
-+activate_window_on_startup : bool
-+clamp_window_to_display : bool
-+config_overrides : AppConfigOverrides
-+host_args : std::vector<std::string>
-+host_command : std::string
-+host_kind : HostKind
-+host_working_dir : std::string
-+load_user_config : bool
-+override_display_ppi : std::optional<float>
-+render_target_pixel_height : int
-+render_target_pixel_width : int
-+renderer_create_fn : std::function<RendererBundle (int)>
-+save_user_config : bool
-+show_diagnostics_on_startup : bool
-+show_render_test_window : bool
-+startup_commands : std::vector<std::string>
-+window_init_fn : std::function<bool ()>
-}
-class "StartupStep" as C_0006199028389812970130
-class C_0006199028389812970130 {
-__
-+label : std::string
-+ms : double
-}
-class "DiagnosticPanelState" as C_0006759011979937922770
-class C_0006759011979937922770 {
-__
-+atlas_glyph_count : size_t
-+atlas_reset_count : int
-+atlas_usage_ratio : float
-+average_frame_ms : double
-+cell_height : int
-+cell_width : int
-+dirty_cells : size_t
-+display_ppi : float
-+frame_ms : double
-+grid_cols : int
-+grid_rows : int
-+startup_steps : std::vector<StartupStep>
-+startup_total_ms : double
-+visible : bool
-}
-class "PanelLayout" as C_0010939797581728659442
-class C_0010939797581728659442 {
-+contains_panel_point() const : bool
-__
-+grid_cols : int
-+grid_rows : int
-+panel_height : int
-+panel_y : int
-+pixel_scale : float
-+terminal_height : int
-+visible : bool
-+window_height : int
-+window_width : int
-}
-class "UiPanel" as C_0010065214798730932279
-class C_0010065214798730932279 {
-+UiPanel() : void
-+~UiPanel() : void
-..
-+begin_frame() : void
-+initialize() : bool
-+layout() const : const PanelLayout &
-+on_key() : void
-+on_mouse_button() : void
-+on_mouse_move() : void
-+on_mouse_wheel() : void
-+on_text_input() : void
-+render() : const ImDrawData *
-+set_font() : void
-+set_visible() : void
-+set_window_metrics() : void
-+shutdown() : void
-+toggle_visible() : void
-+update_diagnostic_state() : void
-+visible() const : bool
-+wants_keyboard() const : bool
-__
--impl_ : std::unique_ptr<Impl>
-}
-class "App" as C_0004474198408368591089
-class C_0004474198408368591089 {
-+App() : void
-..
--apply_font_metrics() : void
--average_frame_ms() const : double
--current_host_viewport() const : HostViewport
-+init_error() const : const std::string &
-+initialize() : bool
--initialize_host() : bool
--initialize_text_service() : bool
--on_display_scale_changed() : void
--on_resize() : void
--pump_once() : bool
--refresh_window_layout() : void
--request_frame() : void
--request_quit() : void
-+run() : void
-+run_smoke_test() : bool
-+shutdown() : void
--update_diagnostics_panel() : void
--wait_timeout_ms() const : int
--wire_window_callbacks() : void
-__
--config_ : AppConfig
--display_ppi_ : float
--frame_requested_ : bool
--gui_action_handler_ : GuiActionHandler
--pane_manager_ : PaneManager
--input_dispatcher_ : InputDispatcher
--last_activity_time_ : std::chrono::steady_clock::time_point
--last_frame_ms_ : double
--last_init_error_ : std::string
--last_panel_frame_time_ : std::chrono::steady_clock::time_point
--options_ : AppOptions
--pending_window_activation_ : bool
--recent_frame_ms_ : std::array<double,32>
--recent_frame_ms_count_ : size_t
--recent_frame_ms_index_ : size_t
--renderer_ : RendererBundle
--running_ : bool
--saw_frame_ : bool
--startup_steps_ : std::vector<StartupStep>
--startup_total_ms_ : double
--text_service_ : TextService
--ui_panel_ : UiPanel
--window_ : SdlWindow
-}
-class "UiPanel::Impl" as C_0002608485120571348914
-class C_0002608485120571348914 {
-__
-}
-class "TextService::Impl" as C_0003400465826989566136
-class C_0003400465826989566136 {
 __
 }
 C_0008883142978388318680 o-- C_0008850243814207404840 : +level
 C_0008883142978388318680 o-- C_0001755011471046237637 : +category
 C_0000477619316652426514 o-- C_0008850243814207404840 : +min_level
 C_0000477619316652426514 o-- C_0001755011471046237637 : +enabled_categories
+C_0011981549758110973255 o-- C_0003628885627773300772 : +functions
+C_0010421543049065794256 ..> C_0015407292391212685414
+C_0010421543049065794256 ..> C_0011981549758110973255
+C_0016825769897772161412 --> C_0015407292391212685414 : -tag_
 C_0010528801699873211081 o-- C_0008850243814207404840 : +min_level
 C_0010528801699873211081 o-- C_0001755011471046237637 : +enabled_categories
 C_0010528801699873211081 --> C_0008883142978388318680 : +sink
 C_0005211499706792277500 o-- C_0010895279360614319154 : +ambiwidth
 C_0001063800618844957218 o-- C_0017202156351621465061 : +shape
-C_0001063800618844957218 o-- C_0003050016618736941186 : +fg
-C_0001063800618844957218 o-- C_0003050016618736941186 : +bg
-C_0002204542886704690444 o-- C_0003050016618736941186 : +bg
-C_0002204542886704690444 o-- C_0003050016618736941186 : +fg
-C_0002204542886704690444 o-- C_0003050016618736941186 : +sp
 C_0002204542886704690444 o-- C_0001601078392939988737 : +glyph
-C_0008754152141087198468 ..> C_0003050016618736941186
+C_0008754152141087198468 ..> C_0000143809655918850617
+C_0008754152141087198468 ..> C_0006498195981623169702
+C_0008754152141087198468 ..> C_0004457314763869120386
+C_0008754152141087198468 ..> C_0011114664387270343788
+C_0008754152141087198468 ..> C_0010283076795572126360
 C_0008754152141087198468 --> C_0002340459692765138514 : +on_resize
 C_0008754152141087198468 --> C_0002620409691651640904 : +on_display_scale_changed
 C_0008754152141087198468 --> C_0010565110385499149884 : +on_key
@@ -1158,46 +987,68 @@ C_0008754152141087198468 --> C_0011519682376657739126 : +on_text_editing
 C_0008754152141087198468 --> C_0013373323923961518899 : +on_mouse_button
 C_0008754152141087198468 --> C_0005177588658906065630 : +on_mouse_move
 C_0008754152141087198468 --> C_0009958399031821783594 : +on_mouse_wheel
-C_0017708234387737448190 ..> C_0003050016618736941186
+C_0008754152141087198468 --> C_0002010631925230647196 : -callback_state_
+C_0012815696766307447264 --+ C_0008754152141087198468
+C_0010283076795572126360 --+ C_0008754152141087198468
+C_0006498195981623169702 --+ C_0008754152141087198468
+C_0006498195981623169702 --> C_0002340459692765138514 : +on_resize
+C_0006498195981623169702 --> C_0002620409691651640904 : +on_display_scale_changed
+C_0006498195981623169702 --> C_0010565110385499149884 : +on_key
+C_0006498195981623169702 --> C_0011070493512026716506 : +on_text_input
+C_0006498195981623169702 --> C_0011519682376657739126 : +on_text_editing
+C_0006498195981623169702 --> C_0013373323923961518899 : +on_mouse_button
+C_0006498195981623169702 --> C_0005177588658906065630 : +on_mouse_move
+C_0006498195981623169702 --> C_0009958399031821783594 : +on_mouse_wheel
+C_0011114664387270343788 --+ C_0008754152141087198468
+C_0004457314763869120386 --+ C_0008754152141087198468
+C_0004457314763869120386 --> C_0002010631925230647196 : -state_
+C_0004457314763869120386 o-- C_0012815696766307447264 : -group_
+C_0004457314763869120386 --> C_0010283076795572126360 : -lifetime_
+C_0004457314763869120386 <.. C_0008754152141087198468 : +<<friend>>
+C_0002010631925230647196 --+ C_0008754152141087198468
+C_0002010631925230647196 --> C_0008754152141087198468 : +owner
+C_0002010631925230647196 --> C_0010283076795572126360 : +input_lifetime
+C_0002010631925230647196 --> C_0010283076795572126360 : +lifecycle_lifetime
+C_0017708234387737448190 o-- C_0000143809655918850617 : -active_cursor_
 C_0008754152141087198468 <|-- C_0017708234387737448190
+C_0009310960260238018051 ..> C_0009128363640940518284
+C_0009310960260238018051 ..> C_0013689547638217019403
+C_0009310960260238018051 ..> C_0002203274076516956389
 C_0005851409022089412705 ..> C_0008754152141087198468
-C_0005851409022089412705 ..> C_0003050016618736941186
+C_0005851409022089412705 ..> C_0009310960260238018051
 C_0013689547638217019403 ..> C_0002769108603782251559
-C_0005125093399792312103 ..> C_0013689547638217019403
-C_0005851409022089412705 <|-- C_0005125093399792312103
-C_0010068086230632788976 ..> C_0002204542886704690444
-C_0010068086230632788976 ..> C_0001063800618844957218
-C_0005125093399792312103 <|-- C_0010068086230632788976
 C_0009066721086004078893 ..> C_0014355790039425046038
-C_0010068086230632788976 <|-- C_0010528545404535368578
-C_0014662174383410826506 <|-- C_0010528545404535368578
-C_0009066721086004078893 <|-- C_0010528545404535368578
-C_0002198398896520044869 ..> C_0010068086230632788976
-C_0002198398896520044869 ..> C_0014662174383410826506
-C_0002198398896520044869 ..> C_0009066721086004078893
-C_0002198398896520044869 ..> C_0005125093399792312103
-C_0002198398896520044869 o-- C_0010528545404535368578 : +impl
+C_0009128363640940518284 ..> C_0002204542886704690444
+C_0009128363640940518284 ..> C_0001063800618844957218
+C_0009128363640940518284 ..> C_0012119305397175798910
+C_0010068086230632788976 ..> C_0009128363640940518284
+C_0005851409022089412705 <|-- C_0010068086230632788976
+C_0002198398896520044869 o-- C_0010068086230632788976 : +impl
+C_0002198398896520044869 --> C_0014662174383410826506 : +imgui_host
+C_0002198398896520044869 --> C_0009066721086004078893 : +capture_renderer
 C_0004074277629754559155 ..> C_0002204542886704690444
-C_0004074277629754559155 o-- C_0003050016618736941186 : -default_bg_
 C_0004074277629754559155 o-- C_0001063800618844957218 : -cursor_style_
 C_0004074277629754559155 o-- C_0011925734863400406368 : -gpu_cells_
 C_0004074277629754559155 o-- C_0011925734863400406368 : -overlay_cells_
 C_0004074277629754559155 o-- C_0011925734863400406368 : -overlay_cell_
-C_0004074277629754559155 o-- C_0011925734863400406368 : -cursor_saved_cell_
-C_0013902377354588180664 ..> C_0008754152141087198468
-C_0013902377354588180664 ..> C_0002204542886704690444
-C_0013902377354588180664 ..> C_0001063800618844957218
-C_0013902377354588180664 ..> C_0003050016618736941186
-C_0013902377354588180664 o-- C_0004074277629754559155 : -state_
-C_0013902377354588180664 o-- C_0014355790039425046038 : -captured_frame_
-C_0013902377354588180664 --> C_0013689547638217019403 : -render_pass_
-C_0010528545404535368578 <|-- C_0013902377354588180664
+C_0009603250930800987314 o-- C_0002065950959508946984 : +kind
+C_0007113032304115891872 ..> C_0002930139472050693845
+C_0003244246928613285654 ..|> C_0007113032304115891872
+C_0003244246928613285654 ..> C_0017971187124134967253
+C_0003244246928613285654 ..> C_0002930139472050693845
 C_0013960298743490800107 o-- C_0013707134870063899134 : -metrics_
 C_0001012062279727924561 ..> C_0003903428271444624477
+C_0017122348115286493368 ..> C_0001601078392939988737
+C_0017122348115286493368 ..> C_0009603250930800987314
+C_0017122348115286493368 ..|> C_0007113032304115891872
 C_0014199559189985453081 ..> C_0001012062279727924561
+C_0014199559189985453081 ..> C_0017122348115286493368
+C_0014199559189985453081 ..> C_0007113032304115891872
+C_0014199559189985453081 ..> C_0009603250930800987314
 C_0014199559189985453081 o-- C_0001601078392939988737 : -cluster_cache_
 C_0014199559189985453081 o-- C_0012516551186305172251 : -dirty_rect_
 C_0014199559189985453081 o-- C_0001601078392939988737 : -empty_region_
+C_0014199559189985453081 o-- C_0012716137199814826919 : -raster_operations_
 C_0012516551186305172251 --+ C_0014199559189985453081
 C_0003903673933831035415 --+ C_0014199559189985453081
 C_0002289317367470524016 --+ C_0014199559189985453081
@@ -1210,96 +1061,30 @@ C_0011252515339556629560 --+ C_0016018736370340727756
 C_0000883610631005797400 o-- C_0016018736370340727756 : +params
 C_0011076614151414470895 o-- C_0016018736370340727756 : +error
 C_0011076614151414470895 o-- C_0016018736370340727756 : +result
-C_0009056198548702880599 o-- C_0016018736370340727756 : +result
-C_0009056198548702880599 o-- C_0016018736370340727756 : +error
+C_0012673888551319633471 ..> C_0016018736370340727756
+C_0012673888551319633471 ..> C_0009603250930800987314
+C_0012673888551319633471 ..|> C_0007113032304115891872
 C_0003241142074092069901 ..> C_0016018736370340727756
-C_0003241142074092069901 ..> C_0009056198548702880599
+C_0003241142074092069901 ..> C_0012673888551319633471
+C_0003241142074092069901 ..> C_0007113032304115891872
+C_0003241142074092069901 ..> C_0009603250930800987314
+C_0011602459433813445297 ..> C_0009603250930800987314
+C_0011602459433813445297 ..|> C_0003244246928613285654
+C_0015913343513510731058 ..> C_0011602459433813445297
+C_0015913343513510731058 ..> C_0007113032304115891872
+C_0015913343513510731058 ..> C_0009603250930800987314
+C_0003017873229639932469 --> C_0016018736370340727756 : +on_request
 C_0011344315874693246311 ..> C_0015913343513510731058
-C_0011344315874693246311 ..> C_0009056198548702880599
+C_0011344315874693246311 ..> C_0016018736370340727756
+C_0011344315874693246311 ..> C_0012673888551319633471
+C_0011344315874693246311 ..> C_0007113032304115891872
+C_0011344315874693246311 ..> C_0009603250930800987314
 C_0011344315874693246311 ..> C_0000883610631005797400
-C_0011344315874693246311 --> C_0016018736370340727756 : +on_request
+C_0011344315874693246311 o-- C_0003017873229639932469 : -callbacks_
 C_0003241142074092069901 <|-- C_0011344315874693246311
 C_0012226307655649286802 --+ C_0015913343513510731058
 C_0012750730958052982030 --+ C_0011344315874693246311
-C_0015344056630990463416 o-- C_0004320916333352057094 : -deps_
-C_0004320916333352057094 --+ C_0015344056630990463416
-C_0004320916333352057094 --> C_0007094459942163548211 : +text_service
-C_0004320916333352057094 --> C_0010065214798730932279 : +ui_panel
-C_0004320916333352057094 --> C_0009529973734970143048 : +host
-C_0004320916333352057094 --> C_0014662174383410826506 : +imgui_host
-C_0004320916333352057094 --> C_0010304326697326195617 : +config
-C_0016411363752645256527 o-- C_0005670466736100490416 : +kind
-C_0016717144239347233716 --> C_0008754152141087198468 : +window
-C_0016717144239347233716 --> C_0010068086230632788976 : +grid_renderer
-C_0016717144239347233716 --> C_0007094459942163548211 : +text_service
-C_0016717144239347233716 o-- C_0016411363752645256527 : +launch_options
-C_0016717144239347233716 o-- C_0002498117424196147261 : +initial_viewport
-C_0009529973734970143048 ..> C_0016717144239347233716
-C_0009529973734970143048 ..> C_0013151736059362932950
-C_0009529973734970143048 ..> C_0002498117424196147261
-C_0009529973734970143048 ..> C_0010565110385499149884
-C_0009529973734970143048 ..> C_0011070493512026716506
-C_0009529973734970143048 ..> C_0011519682376657739126
-C_0009529973734970143048 ..> C_0013373323923961518899
-C_0009529973734970143048 ..> C_0005177588658906065630
-C_0009529973734970143048 ..> C_0009958399031821783594
-C_0009529973734970143048 ..> C_0003050016618736941186
-C_0009529973734970143048 ..> C_0011793774128741621277
-C_0009529973734970143048 ..> C_0006380951599488864125
-C_0009174255010398071322 ..> C_0005125093399792312103
-C_0009529973734970143048 <|-- C_0009174255010398071322
-C_0009174255010398071322 <|-- C_0010202254357218365197
-C_0006767731107981727121 ..> C_0013151736059362932950
-C_0006767731107981727121 o-- C_0017675893223522493133 : -deps_
-C_0006767731107981727121 o-- C_0009529973734970143048 : -host_
-C_0017675893223522493133 --+ C_0006767731107981727121
-C_0017675893223522493133 --> C_0004573737265847298989 : +options
-C_0017675893223522493133 --> C_0010304326697326195617 : +config
-C_0017675893223522493133 --> C_0008754152141087198468 : +window
-C_0017675893223522493133 --> C_0010068086230632788976 : +grid_renderer
-C_0017675893223522493133 --> C_0007094459942163548211 : +text_service
-C_0017675893223522493133 ..> C_0002498117424196147261 : +get_viewport
-C_0017662050381851980314 ..> C_0017708234387737448190
-C_0017662050381851980314 ..> C_0010565110385499149884
-C_0017662050381851980314 o-- C_0012361970431903790474 : -deps_
-C_0012361970431903790474 --+ C_0017662050381851980314
-C_0012361970431903790474 --> C_0012943441053662818710 : +keybindings
-C_0012361970431903790474 --> C_0015344056630990463416 : +gui_action_handler
-C_0012361970431903790474 --> C_0010065214798730932279 : +ui_panel
-C_0012361970431903790474 --> C_0009529973734970143048 : +host
-C_0011906851200581065566 ..> C_0001601078392939988737
-C_0011906851200581065566 ..> C_0006142460100207035646
-C_0007094459942163548211 ..> C_0005145284113847430245
-C_0007094459942163548211 ..> C_0013707134870063899134
-C_0007094459942163548211 ..> C_0001601078392939988737
-C_0007094459942163548211 ..> C_0006142460100207035646
-C_0011906851200581065566 <|-- C_0007094459942163548211
-C_0010304326697326195617 o-- C_0012943441053662818710 : +keybindings
-C_0004573737265847298989 o-- C_0008822150083529173387 : +config_overrides
-C_0004573737265847298989 o-- C_0005670466736100490416 : +host_kind
-C_0004573737265847298989 ..> C_0002198398896520044869 : +renderer_create_fn
-C_0006759011979937922770 o-- C_0006199028389812970130 : +startup_steps
-C_0010065214798730932279 ..> C_0010939797581728659442
-C_0010065214798730932279 ..> C_0006759011979937922770
-C_0010065214798730932279 ..> C_0010565110385499149884
-C_0010065214798730932279 ..> C_0005177588658906065630
-C_0010065214798730932279 ..> C_0013373323923961518899
-C_0010065214798730932279 ..> C_0009958399031821783594
-C_0010065214798730932279 ..> C_0011070493512026716506
-C_0004474198408368591089 ..> C_0002498117424196147261
-C_0004474198408368591089 o-- C_0004573737265847298989 : -options_
-C_0004474198408368591089 o-- C_0010304326697326195617 : -config_
-C_0004474198408368591089 o-- C_0017708234387737448190 : -window_
-C_0004474198408368591089 o-- C_0002198398896520044869 : -renderer_
-C_0004474198408368591089 o-- C_0007094459942163548211 : -text_service_
-C_0004474198408368591089 o-- C_0010065214798730932279 : -ui_panel_
-C_0004474198408368591089 o-- C_0006767731107981727121 : -pane_manager_
-C_0004474198408368591089 o-- C_0015344056630990463416 : -gui_action_handler_
-C_0004474198408368591089 o-- C_0017662050381851980314 : -input_dispatcher_
-C_0004474198408368591089 o-- C_0006199028389812970130 : -startup_steps_
-C_0002608485120571348914 --+ C_0010065214798730932279
-C_0003400465826989566136 --+ C_0007094459942163548211
 
-'Generated with clang-uml, version 0.6.2
-'LLVM version Homebrew clang version 21.1.8
+'Generated with clang-uml, version 0.6.3
+'LLVM version Homebrew clang version 22.1.8
 @enduml

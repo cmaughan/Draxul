@@ -806,6 +806,7 @@ def _test_scope_selection(
         r"draxul-test-nvim-protocol-shard-[0-9]+",
         r"draxul-test-nvim-transport-shard-[0-9]+",
         r"draxul-test-plugin-nanovg-shard-[0-9]+",
+        r"draxul-test-render-contracts-shard-[0-9]+",
         r"draxul-do-py-tests",
         r"draxul-review-skill-py-tests",
     ]

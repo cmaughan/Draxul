@@ -34,7 +34,8 @@
 
 #### Cross-platform validation
 
-- [ ] Compare record/path behavior on Windows/macOS and preserve downstream City/Biology inputs on Vulkan/Metal.
+- [x] Verify record/path behavior on macOS and preserve downstream City/Biology inputs on Metal.
+- [ ] Compare record/path behavior on Windows and preserve downstream City/Biology inputs on Vulkan.
 - [x] Keep the parser free of renderer/host dependencies and preserve MegaCity enabled/disabled build support.
 - [x] Run `python3 do.py test debug --megacity`, then `python3 do.py smoke debug --skip-build`. (macOS: focused parser 4/4 cases and 52 assertions; core + MegaCity aggregate 26/26 CTest entries in 37.16s; same-cache Metal startup smoke passed.)
 

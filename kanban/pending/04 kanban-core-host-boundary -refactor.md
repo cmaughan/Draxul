@@ -37,8 +37,10 @@ Keep board, storage, layout, and navigation in `draxul-kanban`, and move
 
 ## Cross-platform validation
 
-- [ ] Exercise filesystem ordering/moves on Windows and macOS path semantics.
-- [ ] Exercise SDL navigation key constants on both platforms.
+- [x] Exercise filesystem ordering/moves on macOS path semantics.
+- [ ] Exercise filesystem ordering/moves on Windows path semantics.
+- [x] Exercise SDL navigation key constants on macOS.
+- [ ] Exercise SDL navigation key constants on Windows.
 - [x] Confirm host rendering behaves the same through the existing grid contract.
 - [x] Confirm no Vulkan/Metal backend-specific API enters core.
 

@@ -19,14 +19,9 @@ output_directory: ./docs/uml
 add_compile_flags:
   - -D_CRT_SECURE_NO_WARNINGS
   - -Wno-nullability-completeness
-  # macOS: clang-uml's bundled libclang does not inherit the system compiler's
-  # implicit header search paths.  Supply them explicitly so it can find both
-  # the SDK headers (<functional>, <string>, …) and the compiler built-ins
-  # (stdarg.h, __builtin_va_list, …).
-  - -isysroot
-  - /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk
-  - -resource-dir
-  - /opt/homebrew/Cellar/llvm@21/21.1.8/lib/clang/21
+  # gen_uml.py supplies the active macOS SDK and clang resource directory.
+  # Keeping versioned Homebrew/Xcode paths out of this shared config prevents
+  # the generated-doc workflow from going stale after compiler upgrades.
 
 diagrams:
 
@@ -52,7 +47,9 @@ diagrams:
       # input.cpp excluded: triggers SIGBUS in clang-uml 0.6.2
       # mpack_codec.cpp excluded: triggers SIGBUS in clang-uml 0.6.2
       # ui_events.cpp excluded: triggers a clang-uml 0.6.2 crash (STATUS_ILLEGAL_INSTRUCTION)
-      - app/app.cpp
+      # app.cpp excluded: clang-uml 0.6.3 on Apple Silicon raises SIGBUS after
+      # parsing its current template-heavy host graph. App-facing contracts
+      # still appear through the selected renderer/window translation units.
     include:
       namespaces:
         - draxul

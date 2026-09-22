@@ -20,13 +20,13 @@
 
 - [x] Move existing CPU sources into the static target first; link the module/tests to it and remove duplicate CPU source compilation.
 - [x] Register the target in product `PRODUCT_TARGETS`; preserve PIC and product-owned sanitizer/coverage/MSVC policy.
-- [ ] Expose synchronous `parse_scene_text(...)` and `build_candidate(...)` seams with injectable compiler results.
-- [ ] Separate syntax parsing from model/image resolution while preserving declaration order, path resolution, and diagnostic provenance.
+- [x] Expose synchronous `parse_scene_text(...)` and `build_candidate(...)` seams with injectable compiler results.
+- [x] Separate syntax parsing from model/image resolution while preserving declaration order, path resolution, and diagnostic provenance.
 - [x] Preserve per-instance temporary-output isolation and existing watch/debounce publication.
 
 #### Unit tests
 
-- [ ] Add `draxul-test-rezonality-project` for malformed scenes, missing assets, model ordering, compiler diagnostics, empty SPIR-V, and candidate ownership.
+- [x] Add `draxul-test-rezonality-project` for malformed scenes, missing assets, model ordering, compiler diagnostics, empty SPIR-V, and candidate ownership. The focused target passes 9 cases and 123 assertions on macOS.
 - [x] Retain real compiler, watcher, dynamic-module, and repair tests.
 - [x] Enable `cmake --build <cache> --config Debug --target draxul-test-rezonality-project --parallel`.
 - [x] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-rezonality-project-shard-' --parallel 4 --output-on-failure`.
@@ -35,14 +35,15 @@
 
 - [x] Preserve Windows compiler quoting and Apple’s `REZONALITY_METAL_SEPARATE_MODEL_SAMPLER` argument.
 - [x] Verify the CPU target excludes Vulkan/Metal implementation links; preserve native shader translation in its existing owner.
-- [ ] Run `python3 do.py test debug --rezonality`, then `python3 do.py smoke debug --skip-build`; verify corresponding Windows coverage.
+- [x] Complete the macOS aggregate and same-cache smoke gate. After regenerating the stale root UML, the core + Rezonality aggregate passed 30/30 in 102.62s with local socket access; `python3 do.py smoke debug --skip-build` passed with Metal.
+- [ ] Verify corresponding Windows coverage.
 - [x] Keep unavailable Metal goldens/manual checks explicitly pending.
 
 #### Agent documentation/tooling
 
 - [x] Register the focused target in the Rezonality aggregate, `do.py` selection, and runner tests; keep absent-product behavior conditional.
 - [x] Update product guidance with worker-built immutable candidates and render-thread activation responsibilities.
-- [ ] Commit implementation in the Rezonality repository and adopt its pointer deliberately in core.
+- [x] Commit implementation in the Rezonality repository (`460e536`) and adopt its pointer deliberately in core.
 
 #### Acceptance criteria
 

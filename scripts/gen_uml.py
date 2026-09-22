@@ -80,6 +80,39 @@ def run(cmd: list[str], *, cwd: Path | None = None, dry_run: bool) -> None:
         subprocess.run(cmd, cwd=cwd, check=True)
 
 
+def platform_compile_flags() -> list[str]:
+    """Return clang-uml flags for platform-owned implicit include paths."""
+    if platform.system() != "Darwin":
+        return []
+
+    sdk = subprocess.run(
+        ["xcrun", "--show-sdk-path"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    compiler = next(
+        (
+            str(candidate)
+            for candidate in (
+                Path("/opt/homebrew/opt/llvm/bin/clang++"),
+                Path("/usr/local/opt/llvm/bin/clang++"),
+            )
+            if candidate.exists()
+        ),
+        "clang++",
+    )
+    resource_dir = subprocess.run(
+        [compiler, "--print-resource-dir"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    return [
+        "--add-compile-flag=-isysroot",
+        f"--add-compile-flag={sdk}",
+        "--add-compile-flag=-resource-dir",
+        f"--add-compile-flag={resource_dir}",
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output", default="docs/uml", help="Output directory (default: docs/uml)")
@@ -130,8 +163,13 @@ def main() -> int:
         if not diagrams:
             raise RuntimeError("Could not enumerate diagrams from .clang-uml config")
 
+    compile_flags = platform_compile_flags()
     for name in diagrams:
-        run([clang_uml, "--config", config, "-n", name], cwd=repo_root, dry_run=args.dry_run)
+        run(
+            [clang_uml, "--config", config, *compile_flags, "-n", name],
+            cwd=repo_root,
+            dry_run=args.dry_run,
+        )
 
     if args.puml_only or args.dry_run:
         if not args.dry_run:
@@ -143,7 +181,11 @@ def main() -> int:
 
     # --- Render .puml → image ---
     assert plantuml is not None
-    puml_files = sorted(output_dir.glob("*.puml"))
+    puml_files = (
+        [output_dir / f"{args.diagram}.puml"]
+        if args.diagram
+        else sorted(output_dir.glob("*.puml"))
+    )
     if not puml_files:
         print("No .puml files found — did clang-uml produce any output?")
         return 1

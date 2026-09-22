@@ -98,6 +98,12 @@ set(DRAXUL_KANBAN_CORE_TEST_SOURCES
 set(DRAXUL_KANBAN_HOST_TEST_SOURCES kanban_host_tests.cpp)
 set(DRAXUL_NANOVG_PAINT_TEST_SOURCES nanovg_paint_tests.cpp)
 set(DRAXUL_PLUGIN_NANOVG_TEST_SOURCES plugin_nanovg_pass_tests.cpp)
+set(DRAXUL_RENDER_CONTRACT_TEST_SOURCES
+    overlay_unicode_tests.cpp
+    render_contract_tests.cpp
+    ui_panel_backend_tests.cpp
+    ui_panel_layout_tests.cpp
+)
 list(REMOVE_ITEM DRAXUL_MARKDOWN_TEST_SOURCES
     ${DRAXUL_MARKDOWN_LAYOUT_TEST_SOURCES})
 
@@ -115,6 +121,7 @@ set(DRAXUL_CLASSIFIED_TEST_SOURCES
     ${DRAXUL_KANBAN_HOST_TEST_SOURCES}
     ${DRAXUL_NANOVG_PAINT_TEST_SOURCES}
     ${DRAXUL_PLUGIN_NANOVG_TEST_SOURCES}
+    ${DRAXUL_RENDER_CONTRACT_TEST_SOURCES}
     ${DRAXUL_PLUGIN_TEST_SOURCES}
 )
 list(LENGTH DRAXUL_CLASSIFIED_TEST_SOURCES DRAXUL_CLASSIFIED_COUNT)
@@ -385,6 +392,21 @@ draxul_add_test_target(draxul-test-plugin-nanovg "plugin;nanovg" 2
 target_link_libraries(draxul-test-plugin-nanovg PRIVATE
     Draxul::PluginSupport::NanoVGPass draxul-types)
 
+# These tests deliberately avoid draxul-test-core's broad renderer closure.
+# UiPanel's fake implements IFrameContext directly through render support;
+# GUI overlays consume their public text contract; and the NanoVG isolation
+# executable below forces the platform pass factory to link independently.
+draxul_add_test_target(draxul-test-render-contracts "render-contracts" 1
+    ${DRAXUL_RENDER_CONTRACT_TEST_SOURCES})
+target_link_libraries(draxul-test-render-contracts PRIVATE
+    draxul-gui
+    draxul-nanovg
+    draxul-ui
+    draxul-plugin-render-support
+)
+draxul_reject_transitive_links(draxul-test-render-contracts
+    draxul-renderer)
+
 add_library(draxul-plugin-fixture MODULE fixtures/plugin_fixture.cpp)
 target_link_libraries(draxul-plugin-fixture PRIVATE
     Draxul::PluginSDK Draxul::PluginSupport::Runtime)
@@ -607,6 +629,32 @@ target_link_libraries(draxul-client-link-isolation PRIVATE draxul-client)
 add_executable(draxul-server-link-isolation link_isolation/server_public_header.cpp)
 target_link_libraries(draxul-server-link-isolation PRIVATE draxul-server)
 
+add_executable(draxul-gui-render-contract-isolation
+    link_isolation/gui_render_contract.cpp)
+target_link_libraries(draxul-gui-render-contract-isolation PRIVATE draxul-gui)
+
+add_executable(draxul-ui-render-contract-isolation
+    link_isolation/ui_render_contract.cpp)
+target_link_libraries(draxul-ui-render-contract-isolation PRIVATE draxul-ui)
+
+add_executable(draxul-nanovg-render-contract-isolation
+    link_isolation/nanovg_render_contract.cpp)
+target_link_libraries(draxul-nanovg-render-contract-isolation PRIVATE
+    draxul-nanovg)
+
+foreach(_render_contract_consumer
+    draxul-gui-render-contract-isolation
+    draxul-ui-render-contract-isolation
+    draxul-nanovg-render-contract-isolation)
+    draxul_reject_transitive_links(${_render_contract_consumer}
+        draxul-renderer)
+endforeach()
+
+add_dependencies(draxul-test-render-contracts
+    draxul-gui-render-contract-isolation
+    draxul-ui-render-contract-isolation
+    draxul-nanovg-render-contract-isolation)
+
 add_dependencies(draxul-tests
     draxul-bmp-link-isolation
     draxul-plugin-sdk-c-link-isolation
@@ -626,6 +674,9 @@ add_dependencies(draxul-tests
     draxul-protocol-link-isolation
     draxul-client-link-isolation
     draxul-server-link-isolation
+    draxul-gui-render-contract-isolation
+    draxul-ui-render-contract-isolation
+    draxul-nanovg-render-contract-isolation
 )
 
 # Developer-facing scoped aggregates. `do.py test` builds the core aggregate by
@@ -646,6 +697,7 @@ add_dependencies(draxul-tests-core
     draxul-test-kanban-host
     draxul-test-nanovg-paint
     draxul-test-plugin-nanovg
+    draxul-test-render-contracts
     draxul-bmp-link-isolation
     draxul-plugin-sdk-c-link-isolation
     draxul-performance-link-isolation
@@ -664,6 +716,9 @@ add_dependencies(draxul-tests-core
     draxul-protocol-link-isolation
     draxul-client-link-isolation
     draxul-server-link-isolation
+    draxul-gui-render-contract-isolation
+    draxul-ui-render-contract-isolation
+    draxul-nanovg-render-contract-isolation
 )
 
 add_test(NAME draxul-dependency-boundary-positive

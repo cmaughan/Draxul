@@ -7,7 +7,8 @@
 
 **Investigation**
 
-- [ ] Exercise malformed versions through POSIX and Windows control transports.
+- [x] Exercise malformed versions through the POSIX control transport on macOS.
+- [ ] Exercise malformed versions through the Windows control transport.
 
 **Fix strategy**
 

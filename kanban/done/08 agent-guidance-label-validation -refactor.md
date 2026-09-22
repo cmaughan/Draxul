@@ -41,9 +41,19 @@ the owning core aggregate.
 
 ## Acceptance criteria
 
-- [ ] Canonical and generated current documentation names only live interfaces, paths,
+- [x] Canonical and generated current documentation names only live interfaces, paths,
       targets, and validation commands.
 - [x] Root guidance remains the shared source; product guidance stays in its owning
       plugin repository.
-- [ ] Focused validation has one documented interface and tested Windows/macOS command
+- [x] Focused validation has one documented interface and tested Windows/macOS command
       construction.
+
+## Final validation
+
+- Regenerated the linked class-diagram source and SVG with current interfaces; the
+  generated artifacts no longer contain `I3DRenderer` or retired product paths.
+- The generator now discovers active macOS SDK/compiler resource paths instead of
+  pinning a stale Homebrew compiler version, and a named-diagram run renders only
+  that diagram.
+- `python3 -m unittest tests.do_py_tests` passed 74 tests (one platform-only skip),
+  including command construction and generated/current guidance checks.

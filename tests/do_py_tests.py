@@ -153,6 +153,13 @@ class AgentGuidanceReferenceTests(unittest.TestCase):
         current_guidance = "\n".join(
             path.read_text(encoding="utf-8") for path in guidance_paths
         )
+        generated_guidance = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (
+                ROOT / "docs" / "uml" / "draxul_classes.puml",
+                ROOT / "docs" / "uml" / "draxul_classes.svg",
+            )
+        )
         for retired in (
             "modules/megacity/",
             "modules/satview/",
@@ -160,6 +167,7 @@ class AgentGuidanceReferenceTests(unittest.TestCase):
             "I3DRenderer",
         ):
             self.assertNotIn(retired, current_guidance)
+            self.assertNotIn(retired, generated_guidance)
 
         megacity_guidance = guidance_paths[-1].read_text(encoding="utf-8")
         self.assertNotIn("build-ninja-release", megacity_guidance)
@@ -646,6 +654,7 @@ class TestCommandTests(unittest.TestCase):
         self.assertIn("draxul-test-kanban-host-shard", ctest_filter[1])
         self.assertIn("draxul-test-nanovg-paint-shard", ctest_filter[1])
         self.assertIn("draxul-test-plugin-nanovg-shard", ctest_filter[1])
+        self.assertIn("draxul-test-render-contracts-shard", ctest_filter[1])
         run_mock.assert_called_once_with(
             [
                 "ctest",

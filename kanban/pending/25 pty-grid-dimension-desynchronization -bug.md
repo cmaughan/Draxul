@@ -25,4 +25,5 @@ Windows and Unix PTY backends clamp dimensions to 320×200 while the terminal gr
 
 - [x] The child-reported terminal size always matches the rendered grid size through the shared normalization boundary.
 - [x] Widths above 320 and heights above 200 work up to the portable 32767-cell dimension limit.
-- [ ] Windows ConPTY and macOS Unix PTY resize validation passes.
+- [x] macOS Unix PTY resize validation passes above both legacy clamp thresholds.
+- [ ] Windows ConPTY resize validation passes.

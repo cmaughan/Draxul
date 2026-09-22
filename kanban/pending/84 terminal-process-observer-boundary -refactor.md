@@ -32,9 +32,11 @@
 
 #### Cross-platform validation
 
-- [ ] Preserve macOS foreground-group reliability, Windows job/tree policy, and existing Linux `/proc` behavior.
+- [x] Preserve macOS foreground-group reliability.
+- [ ] Preserve Windows job/tree policy and existing Linux `/proc` behavior.
 - [ ] Verify shutdown interrupts native waits without accessing closed resources.
-- [ ] Run `python3 do.py test debug`, then `python3 do.py smoke debug --skip-build`, with Windows equivalents.
+- [x] Run `python3 do.py test debug`, then `python3 do.py smoke debug --skip-build` on macOS.
+- [ ] Run the Windows equivalents.
 - [x] Confirm no Vulkan/Metal/window dependency enters the process library.
 
 #### Agent documentation/tooling

@@ -53,7 +53,9 @@ Input-capture routing against the layout is covered by
 
 Public: `draxul-types`, `draxul-imgui-core` (`IImGuiHost`, the scancode
 table), `imgui` (the API exposes `ImGuiKey` and takes ImGui-adjacent state).
-Private: `SDL3`, `draxul-renderer` (`IFrameContext`).
+Private: `SDL3`, `draxul-performance`, and the backend-neutral
+`draxul-plugin-render-support` contract (`IFrameContext`). The concrete
+`draxul-renderer` remains a downstream application concern.
 
 ## When does code belong here?
 

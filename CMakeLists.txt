@@ -192,8 +192,8 @@ add_subdirectory(libs/draxul-window)
 add_subdirectory(libs/draxul-font)
 add_subdirectory(libs/draxul-imgui-core)
 # Before draxul-plugin-support so the Draxul::PluginSupport::NanoVG alias can
-# name draxul-nanovg-backend. The pass half links draxul-renderer by name;
-# CMake resolves that when the renderer target is defined below.
+# name draxul-nanovg-backend. The pass half names the backend-neutral render
+# support target; CMake resolves it when plugin support is defined below.
 add_subdirectory(libs/draxul-nanovg)
 add_subdirectory(libs/draxul-plugin-support)
 add_subdirectory(plugins/support/nanovg)

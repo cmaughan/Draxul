@@ -24,25 +24,36 @@
 
 #### Unit tests
 
-- [ ] Create narrowly linked contract consumers/focused tests, including `ui_panel_backend_tests.cpp` and relevant overlay/layout cases.
-- [ ] Ensure the test closure does not reintroduce the concrete renderer indirectly.
-- [ ] Enable `cmake --build <cache> --config Debug --target draxul-gui draxul-ui draxul-nanovg draxul-test-render-contracts --parallel`.
-- [ ] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-render-contracts-shard-' --parallel 4 --output-on-failure`.
+- [x] Create narrowly linked contract consumers/focused tests, including `ui_panel_backend_tests.cpp` and relevant overlay/layout cases.
+- [x] Ensure the test closure does not reintroduce the concrete renderer indirectly.
+- [x] Enable `cmake --build <cache> --config Debug --target draxul-gui draxul-ui draxul-nanovg draxul-test-render-contracts --parallel`.
+- [x] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-render-contracts-shard-' --parallel 4 --output-on-failure`.
 
 #### Cross-platform validation
 
-- [ ] Verify Windows Vulkan linking has one VMA implementation and macOS retains its framework/ARC behavior.
-- [ ] Build the platform app and verify panel/NanoVG rendering on both backends.
-- [ ] Run `python3 do.py test debug --products`, then `python3 do.py smoke debug --skip-build`; run affected registered render cases not included in that aggregate.
+- [x] Verify macOS retains its Metal framework/ARC behavior.
+- [ ] Verify Windows Vulkan linking has one VMA implementation (requires a Windows host).
+- [x] Build the macOS app and verify panel/NanoVG rendering on Metal.
+- [ ] Build the Windows app and verify panel/NanoVG rendering on Vulkan (requires a Windows host).
+- [x] Run `python3 do.py test debug --products`, then `python3 do.py smoke debug --skip-build`; run affected registered render cases not included in that aggregate.
 
 #### Agent documentation/tooling
 
-- [ ] Register focused tests in core aggregates, `do.py`, and selection tests.
+- [x] Register focused tests in core aggregates, `do.py`, and selection tests.
 - [x] Correct dependency comments in GUI/UI documentation, NanoVG CMake, and the module map.
 - [x] Document reduced target closure without claiming GPU-independent root configuration.
 
 #### Acceptance criteria
 
 - [x] None of the three libraries directly or transitively depends on the concrete renderer.
-- [ ] Contract tests do not rely on the broad core test target to mask missing links.
-- [ ] Existing interfaces, visuals, and platform linkage remain compatible.
+- [x] Contract tests do not rely on the broad core test target to mask missing links.
+- [x] Existing interfaces, visuals, and macOS Metal linkage remain compatible.
+- [ ] Windows Vulkan visuals/linkage remain compatible (requires a Windows host).
+
+#### Validation evidence (macOS Metal)
+
+- Exact GUI/UI/NanoVG, isolation-consumer, and focused-contract target build passed.
+- Focused render-contract shard passed 1/1; products aggregate passed 41/41.
+- Same-cache smoke passed in 6.51 seconds on Apple M5.
+- Panel render comparison passed; NanoVG comparison matched its reference exactly
+  (0/912000 changed pixels).

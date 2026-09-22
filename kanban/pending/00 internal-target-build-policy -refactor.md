@@ -35,8 +35,8 @@ MSVC `/FS` with one target-local helper plus a configure-time completeness audit
 
 - [x] Add a configure-time negative fixture for an unconfigured internal compiled target.
 - [x] Add positive coverage for STATIC, OBJECT, executable, INTERFACE, and explicit skip cases.
-- [ ] Run `python -m unittest tests.do_py_tests` if Python drives any audit fixture.
-- [ ] Build `draxul-renderer-core` and `draxul-tests` under the normal preset.
+- [x] Run `python -m unittest tests.do_py_tests` if Python drives any audit fixture. (74 tests passed on macOS; one platform-only case skipped.)
+- [x] Build `draxul-renderer-core` and `draxul-tests` under the normal Debug preset.
 
 ## Cross-platform validation
 

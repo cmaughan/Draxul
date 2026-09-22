@@ -49,7 +49,7 @@ needed before a persistent endpoint; that endpoint also waits for the server own
 ## Cross-platform validation
 
 - [x] Windows: ACLs, named-pipe ownership, overlapped cancellation, and abandonment.
-- [ ] macOS: locks, socket ownership, accepted-fd blocking mode, `EINTR`, and shutdown.
+- [x] macOS: locks, socket ownership, accepted-fd blocking mode, `EINTR`, and shutdown.
 - [x] Compare timeout/error/reconnect behavior across platforms in the extracted implementation; confirm the POSIX suite on macOS CI.
 
 ## Agent documentation/tooling
@@ -65,7 +65,7 @@ needed before a persistent endpoint; that endpoint also waits for the server own
       card 40 without exposing platform backend types publicly.
 - [x] No long-lived request consumes a synchronous control listener worker.
 - [x] Focused transport tests no longer require `draxul-app`.
-- [ ] Both platform suites and smoke remain green.
+- [x] Both platform suites and smoke remain green. Windows evidence is recorded below; Apple Clang control coverage passed in the current core aggregate followed by the same-cache Metal smoke.
 
 ## Implementation status — 2026-08-17
 
@@ -78,4 +78,5 @@ ownership/cancellation hazards found during the inventory: a POSIX incumbent tha
 abandons its endpoint can no longer unlink a successor socket during shutdown, and a
 pending Win32 `ConnectNamedPipe` is cancelled and drained before its `OVERLAPPED`
 storage is released. Debug tests and smoke plus a clean Release smoke are green on
-Windows. The card remains pending only for macOS CI proof.
+Windows. The macOS control coverage subsequently passed in the Apple Clang core
+aggregate, followed by the same-cache Metal startup smoke.

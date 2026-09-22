@@ -80,7 +80,8 @@ service library or collaborator.
 
 ## Cross-platform validation
 
-- [ ] Validate publication, process identity, eviction, signals, and terminal lifecycle on Windows and macOS.
+- [x] Validate publication, process identity, eviction, signals, and terminal lifecycle on macOS.
+- [ ] Validate the same behavior on Windows.
 - [x] Confirm the server remains renderer/window/host/product free.
 
 ## Agent documentation/tooling
