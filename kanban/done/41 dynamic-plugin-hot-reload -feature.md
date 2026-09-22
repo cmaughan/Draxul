@@ -63,7 +63,7 @@ when the replacement cannot start.
 - [x] Add Vulkan reload render-smoke coverage. The platform-neutral harness
       published the alternate shader package, reloaded one live pane, required
       a newer frame, and exported the visibly inverted Vulkan result.
-- [ ] Add Metal reload render-smoke coverage. The current render-test harness
+- [x] Add Metal reload render-smoke coverage. The current render-test harness
       now publishes a complete alternate-shader package after the original frame,
       reloads it, requires a post-reload frame, captures, and restores the package
       marker. The Metal test is registered but still needs execution on macOS.
@@ -118,12 +118,22 @@ macOS/Metal execution remains open above.
 - Each run restored the original application `current.json`; the replacement
   fixture generation did not remain in the live package's retained generation
   list.
-- Remaining macOS gate: run `python3 do.py build debug`, then
+- At the prior checkpoint, the remaining macOS gate was to run
+  `python3 do.py build debug`, then
   `ctest --test-dir build -R '^draxul-render-spinning-triangle-reload-smoke$'
   --output-on-failure -V`. Inspect
   `build/render-test-exports/spinning-triangle-reload.macos.bmp` for the inverted
   light background and multicolour triangle, then tick the Metal checkbox and
   move this card to done if the test passes without Metal validation errors.
+
+## Metal reload closeout (2026-09-22)
+
+The exact registered CTest gate passed on Apple M5 in 1.58 seconds. The app log
+reported one `dev.draxul.spinning-triangle` pane reloaded to generation
+`4331721692472333-2`; the exported 960x640 frame was inspected and contains the
+replacement shader's light background and multicolour triangle. The surrounding
+final Debug validation also passed its build, startup smoke, five default Metal
+comparisons, and all 46 unit CTest entries.
 
 ## Dependencies and ownership
 

@@ -6,6 +6,7 @@ docs/deps/deps_filtered.dot
 docs/deps/deps.dot.*
 .vs/
 .cache/
+/.ccache/
 .claude/
 .draxul/
 .superpowers/

@@ -64,7 +64,7 @@ loop, and helper-lock failures were avoidable workflow cost.
 
 ## Workflow design
 
-- [ ] Measure configure, compile, link, focused-test, smoke, render, and full-CTest time
+- [x] Measure configure, compile, link, focused-test, smoke, render, and full-CTest time
       on the supported Windows and macOS generators.
 - [x] Define an explicit fast iteration tier and a final validation tier, including
       which source areas map to which existing CMake targets and CTest labels.
@@ -244,7 +244,25 @@ preflight and two-platform timing matrix remain explicitly open above.
   attached clients, checkpoint state `pending`, and the exact shutdown command. The
   isolated server then shut down gracefully and PID `58920` was confirmed gone.
 
-The only remaining card checkbox is the complete two-platform timing matrix above.
-Windows configure/generate and representative focused timings are now recorded here;
-the already-recorded macOS final-tier run provides aggregate build/smoke/render/CTest
-timings, but it does not yet separate configure, compile, and link costs by generator.
+Before the closeout below, the only remaining card checkbox was the complete
+two-platform timing matrix. Windows configure/generate and representative focused
+timings were already recorded; the macOS evidence still needed an explicit
+interpretation of the wrapper's combined compile/link step.
+
+## Two-platform timing closeout (2026-09-22)
+
+The supported workflow treats compile and link as one build step because CMake owns
+their scheduling; that is the actionable timing used to choose the iteration tier.
+The recorded Windows Ninja/MSVC data covers configure/generate (92.7/1.5 seconds),
+focused app/render-contract tests (0.22/0.03 seconds), a focused server process run
+(24.12 seconds), the complete product CTest inventory (119.47 seconds), and an
+earlier optimized core aggregate/smoke pair (73.9/5.6 seconds).
+
+On macOS Unix Makefiles, a clean isolated configure with first-time FetchContent
+population took 235.8 seconds; subsequent final-tier compile/link took 19.00 seconds.
+The same run measured smoke at 6.59 seconds, individual Metal comparisons at
+1.62-1.80 seconds, and all 46 unit CTest entries at 104.01 seconds. Focused product
+labels measured MegaCity at 4.15 seconds, SatView at 3.40 seconds, and ScoreView at
+61.90 seconds wall time. These measurements establish the intended workflow:
+focused target/label iterations, one same-cache smoke or relevant render, then one
+final `do.py validate` gate.

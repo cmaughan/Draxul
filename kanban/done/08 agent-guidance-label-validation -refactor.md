@@ -32,7 +32,7 @@ the owning core aggregate.
       Keep root `AGENTS.md` a pointer to `CLAUDE.md` and update product guidance in
       its owning repository.
 - [x] Decide the remaining exact-label/Catch selection interface together with
-      `kanban/pending/35 streamline-local-build-validation-workflow -refactor.md`;
+      `kanban/done/35 streamline-local-build-validation-workflow -refactor.md`;
       do not add a second competing test runner here. `do.py test --label <label>`
       now composes an anchored CTest label filter with the selected core/product
       scope and fails when the intersection contains no tests.

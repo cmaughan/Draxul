@@ -54,7 +54,7 @@ Use the private filesystem-operation seam introduced by the storage extraction f
 
 Add the new ownership/test mapping to its existing documentation audit. Correct MegaCity’s hardcoded `build-ninja-release` development example to the canonical selected Debug cache. Keep root `AGENTS.md` a pointer to `CLAUDE.md`; update product guidance locally.
 
-**`kanban/pending/35 streamline-local-build-validation-workflow -refactor.md`**
+**`kanban/done/35 streamline-local-build-validation-workflow -refactor.md`**
 
 Ensure new focused executables are included in both aggregate dependencies and `do.py` selection patterns. Current selection at `do.py:530–569` enumerates exact patterns; registration alone does not make a new suite run. Preserve the existing scope for supported Catch/label selection and zero-match detection.
 
