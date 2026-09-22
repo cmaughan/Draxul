@@ -13,22 +13,22 @@
 
 - [x] Capture record order, path normalization, query reuse/fallback, parse-error records, and progress semantics.
 - [x] Preserve null-tree skip behavior and increment parsed count only after successful parsing (`treesitter.cpp:582–588`).
-- [ ] Keep downstream model/layout work in `plugins/megacity/kanban/pending/05 megacity-model-layout-routing-library -refactor.md`.
+- [x] Keep downstream model/layout work in `plugins/megacity/kanban/pending/05 megacity-model-layout-routing-library -refactor.md`.
 
 #### Implementation and migration
 
 - [x] Extract RAII parser/query ownership with one reusable parser context per scan.
 - [x] Move per-source extraction into the synchronous operation.
 - [x] Delegate the worker’s parsing step without changing traversal or publication.
-- [ ] Move grammar-focused cases to in-memory fixtures.
+- [x] Move grammar-focused cases to in-memory fixtures.
 - [x] Add proposed product-owned `draxul-test-megacity-parser`, linked only to the parser library and test support; retain scanner integration cases in their existing suite.
 
 #### Unit tests
 
-- [ ] Cover functions/methods, forward declarations, fields/references, inheritance, abstract classes, includes, and malformed source.
+- [x] Cover functions/methods, forward declarations, fields/references, inheritance, abstract classes, includes, and malformed source.
 - [x] Preserve optional-query fallback and successful-versus-skipped parse accounting.
 - [x] Retain restart, path-filter, cancellation, completion, and semantic-consumer integration tests.
-- [ ] Keep deferred cap/mixed-file coverage in `plugins/megacity/kanban/ice-box/13 codebasescanner-parse-error-cap -test.md`.
+- [x] Keep deferred cap/mixed-file coverage in `plugins/megacity/kanban/ice-box/13 codebasescanner-parse-error-cap -test.md`.
 - [x] Enable `cmake --build <cache> --config Debug --target draxul-treesitter draxul-test-megacity-parser --parallel`.
 - [x] Enable `ctest --test-dir <cache> -C Debug -R '^draxul-test-megacity-parser-shard-' --parallel 4 --output-on-failure`.
 
@@ -36,17 +36,17 @@
 
 - [ ] Compare record/path behavior on Windows/macOS and preserve downstream City/Biology inputs on Vulkan/Metal.
 - [x] Keep the parser free of renderer/host dependencies and preserve MegaCity enabled/disabled build support.
-- [ ] Run `python3 do.py test debug --megacity`, then `python3 do.py smoke debug --skip-build`. (Smoke and all MegaCity registrations pass; the aggregate currently stops on an unrelated core reconnect-replay failure.)
+- [x] Run `python3 do.py test debug --megacity`, then `python3 do.py smoke debug --skip-build`. (macOS: focused parser 4/4 cases and 52 assertions; core + MegaCity aggregate 26/26 CTest entries in 37.16s; same-cache Metal startup smoke passed.)
 
 #### Agent documentation/tooling
 
 - [x] Partition product test globs exactly once and add the focused target to product aggregates and `do.py` selection.
 - [x] Update nested guidance with synchronous-parser versus scanner ownership and the selected Debug cache.
-- [ ] Commit implementation in MegaCity and adopt its pointer deliberately.
+- [x] Commit implementation in MegaCity (`70feb80`) and adopt its pointer deliberately.
 
 #### Acceptance criteria
 
-- [ ] Grammar tests require no temporary source files, worker polling, or graphics initialization.
+- [x] Grammar tests require no temporary source files, worker polling, or graphics initialization.
 - [x] Parser resources remain private and reused efficiently.
 - [x] Scanner API, immutable snapshots, progress/completion semantics, and parsed records remain compatible.
 - [x] The focused parser test build excludes host and renderer targets.

@@ -4,9 +4,9 @@
 
 #include <draxul/text_service.h>
 
-#include "../libs/draxul-font/src/font_resolver.h"
-#include "../libs/draxul-font/src/font_selector.h"
-#include "../libs/draxul-font/src/font_style.h"
+#include "font_resolver.h"
+#include "font_selector.h"
+#include "font_style.h"
 
 #include <filesystem>
 #include <set>

@@ -5,8 +5,8 @@
 
 #include <draxul/text_service.h>
 
-#include "../libs/draxul-font/src/font_resolver.h"
-#include "../libs/draxul-font/src/font_selector.h"
+#include "font_resolver.h"
+#include "font_selector.h"
 
 #include <algorithm>
 #include <array>

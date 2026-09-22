@@ -28,27 +28,29 @@
 - [x] Retain font/style/fallback/raster-error coverage without duplicating implementation-mirroring tests.
 - [x] Verify the isolated public consumer builds/links and does not inherit native compile include requirements.
 - [x] Verify white-box consumers receive those requirements only through explicit test access.
-- [ ] Enable `cmake --build <cache> --config Debug --target draxul-font-link-isolation draxul-test-core --parallel`.
-- [ ] During iteration run `ctest --test-dir <cache> -C Debug -R '^draxul-test-core-shard-' --parallel 4 --output-on-failure`.
+- [x] Enable `cmake --build <cache> --config Debug --target draxul-font-link-isolation draxul-test-core --parallel`.
+- [x] During iteration run `ctest --test-dir <cache> -C Debug -R '^draxul-test-core-shard-' --parallel 4 --output-on-failure`.
 
 #### Cross-platform validation
 
-- [ ] Verify MSVC and Apple Clang compilation and retained native final links.
-- [ ] Build affected plugin/font consumers and preserve Vulkan/Metal text rendering.
-- [ ] Run `python3 do.py test debug --products`, then `python3 do.py smoke debug --skip-build`; retain affected font/style render checks.
+- [x] Verify Apple Clang compilation and retained native final links.
+- [ ] Verify MSVC compilation and retained native final links (requires a Windows validation host).
+- [x] Build affected plugin/font consumers and preserve Metal text rendering.
+- [ ] Preserve Vulkan text rendering (requires a Windows validation host).
+- [x] Run `python3 do.py test debug --products`, then `python3 do.py smoke debug --skip-build`; retain affected font/style render checks.
 
 #### Agent documentation/tooling
 
 - [x] Register the build-only consumer in the appropriate aggregate.
 - [x] Document public font contracts versus private native/test requirements.
-- [ ] Preserve the completed scope and outstanding validation of `kanban/done/30 font-style-model -refactor.md`.
+- [x] Preserve the completed scope and outstanding validation of `kanban/done/30 font-style-model -refactor.md`.
 
 #### Acceptance criteria
 
 - [x] Production consumers no longer inherit FreeType/HarfBuzz compile interfaces through `draxul-font`.
 - [x] White-box tests declare their private dependencies explicitly.
 - [x] Public font APIs, shaping/rasterization behavior, and final links remain compatible.
-- [ ] The report distinguishes compile-interface cleanup from dependency build-cost reduction.
+- [x] The report distinguishes compile-interface cleanup from dependency build-cost reduction.
 
 ## Final target/module map
 

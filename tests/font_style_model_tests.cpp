@@ -1,6 +1,6 @@
 #include <catch2/catch_all.hpp>
 
-#include "../libs/draxul-font/src/font_style.h"
+#include "font_style.h"
 
 #include <set>
 #include <string>

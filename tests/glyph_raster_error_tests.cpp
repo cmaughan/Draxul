@@ -1,9 +1,9 @@
 #include <catch2/catch_all.hpp>
 
-#include "../libs/draxul-font/src/font_engine.h"
-#include "../libs/draxul-font/src/font_resolver.h"
-#include "../libs/draxul-font/src/font_selector.h"
-#include "../libs/draxul-font/src/glyph_atlas_manager.h"
+#include "font_engine.h"
+#include "font_resolver.h"
+#include "font_selector.h"
+#include "glyph_atlas_manager.h"
 
 #include <draxul/text_service.h>
 

@@ -254,7 +254,9 @@ Text pipeline and atlas management.
 The public target exposes Draxul text/value contracts only. FreeType and
 HarfBuzz are private compile dependencies; white-box tests opt into the explicit
 `draxul-font-test-internals` interface, while final static links still retain the
-native libraries required by the implementation.
+native libraries required by the implementation. This removes native headers and
+compile options from public consumers; it does not reduce dependency build cost,
+because building and finally linking `draxul-font` still requires both libraries.
 
 Owns:
 - primary/fallback font loading

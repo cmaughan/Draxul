@@ -4,7 +4,7 @@
 
 #include <draxul/text_service.h>
 
-#include "../libs/draxul-font/src/box_drawing.h"
+#include "box_drawing.h"
 
 #include <cmath>
 #include <filesystem>
