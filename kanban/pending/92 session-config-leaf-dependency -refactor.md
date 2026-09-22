@@ -25,15 +25,16 @@
 #### Unit tests
 
 - [x] Add meaningful configure fixtures proving an indirect forbidden edge fails and the intended leaf closure passes.
-- [ ] Retain existing Session codec, checkpoint, default-path, and durability regressions.
-- [ ] Build `cmake --build <cache> --config Debug --target draxul-session-model draxul-protocol-link-isolation draxul-client-link-isolation draxul-server-link-isolation --parallel`.
-- [ ] Verify the isolated consumer link closures, not merely successful compilation through the broad test executable.
+- [x] Retain existing Session codec, checkpoint, default-path, and durability regressions.
+- [x] Build `cmake --build <cache> --config Debug --target draxul-session-model draxul-protocol-link-isolation draxul-client-link-isolation draxul-server-link-isolation --parallel`.
+- [x] Verify the isolated consumer link closures, not merely successful compilation through the broad test executable.
 
 #### Cross-platform validation
 
-- [ ] Check Windows/macOS default directories and durable I/O remain unchanged.
+- [x] Check the macOS default directory and durable I/O remain unchanged.
+- [ ] Check the Windows default directory and durable I/O remain unchanged on Windows.
 - [x] Verify the headless closure gains neither Vulkan nor Metal dependencies.
-- [ ] Run `python3 do.py test debug`, then `python3 do.py smoke debug --skip-build`.
+- [x] Run `python3 do.py test debug`, then `python3 do.py smoke debug --skip-build`.
 
 #### Agent documentation/tooling
 
@@ -44,6 +45,13 @@
 #### Acceptance criteria
 
 - [x] Session persistence no longer depends directly or transitively on application configuration or SDL implementation.
-- [ ] Protocol/client/server isolation consumers retain valid links.
-- [ ] Default paths, persisted formats, public APIs, and replacement semantics are unchanged.
+- [x] Protocol/client/server isolation consumers retain valid links.
+- [x] macOS default paths, persisted formats, public APIs, and replacement semantics are unchanged.
+- [ ] Windows default paths and durable replacement semantics are verified on Windows.
 - [x] A regression through an indirect forbidden dependency is detected.
+
+#### Validation evidence
+
+- macOS 26.5: the exact Session/protocol/client/server target build passed; the positive and negative dependency-boundary configure fixtures passed 2/2.
+- Session codec/default-path/durability coverage passed 13 cases with 176 assertions; server checkpoint coverage passed 9 cases with 175 assertions.
+- The core aggregate passed 23/23 CTest entries and the same-cache Metal smoke passed.
