@@ -18,4 +18,4 @@
 
 - [x] Keyboard notes work immediately after showing the pane.
 - [x] Visibility transitions do not create artificial missed-note progress.
-- [ ] Other input modes still reacquire correctly (focused runtime validation pending).
+- [x] Other input modes still reacquire correctly.

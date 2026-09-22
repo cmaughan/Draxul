@@ -25,4 +25,5 @@ boundary in `libs/draxul-terminal-core/src/terminal_core_csi.cpp`.
 
 - [x] Runtime is bounded by grid dimensions, not the supplied repeat count.
 - [x] Extreme parameters always yield a valid coordinate/range with correct tab semantics.
-- [ ] Local and server terminal-core tests remain green.
+- [x] Local and server terminal-core tests remain green. Revalidated in the
+      2026-09-22 core aggregate (23/23 CTest entries).

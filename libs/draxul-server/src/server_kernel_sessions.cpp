@@ -141,8 +141,9 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
         auto prepared = std::make_unique<ServerSession>();
         prepared->persistence_path = std::move(path);
         std::error_code exists_error;
-        prepared->checkpoint_file_present = std::filesystem::exists(
-            prepared->persistence_path, exists_error);
+        prepared->checkpoint_file_present
+            = options.checkpoint_exists(
+                prepared->persistence_path, exists_error);
         if (exists_error)
         {
             prepared->checkpoint_file_present = false;

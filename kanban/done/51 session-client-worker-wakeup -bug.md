@@ -7,7 +7,18 @@
 
 **Investigation**
 
-- [ ] Force each transition between predicate evaluation and entry into the external-feed wait.
+- [x] Force each transition between predicate evaluation and entry into the external-feed wait.
+
+The regression seam pauses one named client after its final false predicate
+evaluation while the worker still owns the wait mutex. Separate threads then
+request stop or legacy fallback and contend for that mutex until the wait
+atomically releases it. This deterministically covers the former lost-notify
+window without timing sleeps or an unrelated command wake.
+
+Validated on macOS with the exact two race cases (2/2 cases, 7 assertions), the
+core aggregate (23/23 CTest entries), and the same-cache headless smoke. The
+aggregate was rerun outside the filesystem sandbox after the sandbox denied all
+temporary Unix socket binds with `EPERM`.
 
 **Fix strategy**
 

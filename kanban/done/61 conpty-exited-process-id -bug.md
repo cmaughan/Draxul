@@ -18,4 +18,7 @@
 
 - [x] Exited panes never advertise a stale live PID.
 - [x] Restart publishes the new PID.
-- [ ] Coordinate status semantics with `kanban/pending/29 conpty-process-status-query-failure -bug.md`.
+- [x] Coordinate status semantics with
+      `kanban/pending/29 conpty-process-status-query-failure -bug.md`: a failed
+      status query remains conservatively running and retains the published PID,
+      while a confirmed exit records its code and publishes PID zero.

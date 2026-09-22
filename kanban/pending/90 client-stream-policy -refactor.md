@@ -3,7 +3,7 @@
 **Priority:** P1 — deterministic protocol testing has high leverage in concurrency-sensitive code.  
 **Proposed by:** OpenAI Codex GPT-6 Astra, finding 1.  
 **Owner:** One client agent; delegate test cases only after the private value contract stabilizes.  
-**Dependencies:** No dependency on another newly accepted refactor. Coordinate `kanban/pending/40 multiplexed-session-event-stream -feature.md` and `kanban/pending/51 session-client-worker-wakeup -bug.md`.
+**Dependencies:** No dependency on another newly accepted refactor. Coordinate `kanban/pending/40 multiplexed-session-event-stream -feature.md` and completed `kanban/done/51 session-client-worker-wakeup -bug.md`.
 
 **Evidence:** `libs/draxul-client/src/remote_session_coordinator.cpp:2437–2781` combines frame ordering, acknowledgement, command correlation, retry, fairness, publication, and transport writes. Policy state shares storage with threads/connections at `:3033–3077`. Existing coordinator tests construct listeners and workers at `tests/remote_session_coordinator_tests.cpp:552–590,884–926`.
 

@@ -13,6 +13,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -87,6 +88,11 @@ struct ServerKernelOptions
     std::function<bool(const SessionSnapshot&,
         const std::filesystem::path&, std::string*)>
         checkpoint_save;
+    // Optional checkpoint inspection source. Production uses
+    // std::filesystem::exists; embedders may supply an equivalent filesystem
+    // boundary when checkpoint storage is virtualized.
+    std::function<bool(const std::filesystem::path&, std::error_code&)>
+        checkpoint_exists;
     // Optional transport-health source used by deterministic tests. Production
     // kernels read listener failures directly from ControlServer.
     std::function<uint32_t()> listener_error_source;

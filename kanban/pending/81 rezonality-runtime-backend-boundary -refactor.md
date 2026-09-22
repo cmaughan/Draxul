@@ -16,7 +16,7 @@
 - [x] Serialize shared product CMake edits with the project-pipeline and audio owners after agreeing their value/header contracts.
 - [x] Preserve Vulkan target-generation/render-pass checks and Metal format checks as distinct native requirements.
 - [x] Land `kanban/pending/09 rezonality-pending-build-lifetime -bug.md` and the transactional resource fixes from `kanban/pending/48 rezonality-gpu-initialization-rollback -bug.md` before relocating affected logic.
-- [x] Preserve the separate scope of `kanban/pending/43 rezonality-diagnostic-utf8 -bug.md`.
+- [x] Preserve the separate scope of `kanban/done/43 rezonality-diagnostic-utf8 -bug.md`.
 
 #### Implementation and migration
 

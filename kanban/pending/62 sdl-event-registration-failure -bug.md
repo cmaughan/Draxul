@@ -7,7 +7,8 @@
 
 **Investigation**
 
-- [ ] Exercise failed allocation of the two application event IDs.
+- [x] Exercise failed allocation of the two application event IDs through an
+      injectable adapter without exhausting SDL's process-global event range.
 
 **Fix strategy**
 
@@ -17,4 +18,9 @@
 
 - [x] Registration failure reports an actionable initialization error.
 - [x] Successful registration provides distinct working wake and file-dialog events.
-- [ ] Verify both platform startup paths.
+- [x] Verify the macOS startup path through the core aggregate and same-cache
+      Metal smoke.
+- [ ] Verify the Windows/Vulkan startup path.
+
+**Validation (2026-09-22):** the injected failure/success cases passed as part
+of the 23/23 core aggregate, followed by a successful same-cache Metal smoke.

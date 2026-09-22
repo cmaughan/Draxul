@@ -1,5 +1,7 @@
 #include <draxul/kanban/kanban_store.h>
 
+#include "kanban_directory_scan.h"
+
 #include <draxul/string_util.h>
 
 #include <algorithm>
@@ -12,6 +14,63 @@ namespace draxul::kanban
 {
 namespace
 {
+thread_local KanbanDirectoryOperations* directory_operations_override
+    = nullptr;
+
+class NativeKanbanDirectoryCursor final
+    : public KanbanDirectoryCursor
+{
+public:
+    NativeKanbanDirectoryCursor(const std::filesystem::path& directory,
+        std::error_code& error)
+        : iterator_(directory, error)
+    {
+    }
+
+    bool at_end() const noexcept override
+    {
+        return iterator_ == end_;
+    }
+
+    const std::filesystem::directory_entry& entry() const override
+    {
+        return *iterator_;
+    }
+
+    bool increment(std::error_code& error) override
+    {
+        iterator_.increment(error);
+        return !error;
+    }
+
+private:
+    std::filesystem::directory_iterator iterator_;
+    std::filesystem::directory_iterator end_;
+};
+
+class NativeKanbanDirectoryOperations final
+    : public KanbanDirectoryOperations
+{
+public:
+    std::unique_ptr<KanbanDirectoryCursor> open(
+        const std::filesystem::path& directory,
+        std::error_code& error) override
+    {
+        auto cursor = std::make_unique<NativeKanbanDirectoryCursor>(
+            directory, error);
+        if (error)
+            return {};
+        return cursor;
+    }
+};
+
+KanbanDirectoryOperations& active_directory_operations()
+{
+    if (directory_operations_override)
+        return *directory_operations_override;
+    return *native_kanban_directory_operations();
+}
+
 using OrderedNames = std::vector<std::string>;
 
 struct KanbanMetadata
@@ -221,6 +280,28 @@ void write_string_array(std::ostream& out, const OrderedNames& names)
 
 } // namespace
 
+std::shared_ptr<KanbanDirectoryOperations>
+native_kanban_directory_operations()
+{
+    static auto operations
+        = std::make_shared<NativeKanbanDirectoryOperations>();
+    return operations;
+}
+
+ScopedKanbanDirectoryOperationsOverride::
+    ScopedKanbanDirectoryOperationsOverride(
+        KanbanDirectoryOperations& operations)
+    : previous_(directory_operations_override)
+{
+    directory_operations_override = &operations;
+}
+
+ScopedKanbanDirectoryOperationsOverride::
+    ~ScopedKanbanDirectoryOperationsOverride()
+{
+    directory_operations_override = previous_;
+}
+
 std::filesystem::path resolve_kanban_root(
     const std::filesystem::path& source_path,
     const std::filesystem::path& working_dir,
@@ -286,18 +367,18 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
     }
 
     OrderedNames column_names;
-    std::filesystem::directory_iterator root_it(root, ec);
-    if (ec)
+    auto root_it = active_directory_operations().open(root, ec);
+    if (ec || !root_it)
     {
+        if (!ec)
+            ec = std::make_error_code(std::errc::io_error);
         set_error(error, "failed to scan kanban root: " + ec.message());
         return board;
     }
-    const std::filesystem::directory_iterator end;
-    while (root_it != end)
+    while (!root_it->at_end())
     {
-        const auto entry = *root_it;
-        root_it.increment(ec);
-        if (ec)
+        const auto entry = root_it->entry();
+        if (!root_it->increment(ec))
         {
             set_error(error, "failed to scan kanban root: " + ec.message());
             return board;
@@ -327,17 +408,19 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
         column.name = name;
         column.directory = root / name;
 
-        std::filesystem::directory_iterator column_it(column.directory, ec);
-        if (ec)
+        auto column_it = active_directory_operations().open(
+            column.directory, ec);
+        if (ec || !column_it)
         {
+            if (!ec)
+                ec = std::make_error_code(std::errc::io_error);
             set_error(error, "failed to scan kanban column: " + ec.message());
             return board;
         }
-        while (column_it != end)
+        while (!column_it->at_end())
         {
-            const auto entry = *column_it;
-            column_it.increment(ec);
-            if (ec)
+            const auto entry = column_it->entry();
+            if (!column_it->increment(ec))
             {
                 set_error(error, "failed to scan kanban column: " + ec.message());
                 return board;

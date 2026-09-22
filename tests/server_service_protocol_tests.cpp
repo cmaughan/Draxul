@@ -6,6 +6,63 @@ using namespace draxul;
 using draxul::tests::TempDir;
 using namespace draxul::tests::server_kernel;
 
+#ifndef _WIN32
+namespace
+{
+
+class CurrentPathRestore
+{
+public:
+    explicit CurrentPathRestore(std::filesystem::path path)
+        : path_(std::move(path))
+    {
+    }
+
+    ~CurrentPathRestore()
+    {
+        std::error_code ignored;
+        std::filesystem::current_path(path_, ignored);
+    }
+
+private:
+    std::filesystem::path path_;
+};
+
+} // namespace
+
+TEST_CASE("server terminal reports a deleted default working directory",
+    "[server][remote-terminal][filesystem]")
+{
+    std::error_code filesystem_error;
+    const auto original_directory
+        = std::filesystem::current_path(filesystem_error);
+    REQUIRE_FALSE(filesystem_error);
+
+    TempDir temp("draxul-server-deleted-cwd");
+    CurrentPathRestore restore(original_directory);
+    const auto deleted_directory = temp.path / "deleted";
+    REQUIRE(std::filesystem::create_directory(
+        deleted_directory, filesystem_error));
+    REQUIRE_FALSE(filesystem_error);
+    std::filesystem::current_path(
+        deleted_directory, filesystem_error);
+    REQUIRE_FALSE(filesystem_error);
+    REQUIRE(std::filesystem::remove(
+        deleted_directory, filesystem_error));
+    REQUIRE_FALSE(filesystem_error);
+
+    ServerTerminalRuntime runtime;
+    std::string error;
+    bool started = true;
+    REQUIRE_NOTHROW(started = runtime.ensure_started(error));
+    CHECK_FALSE(started);
+    CHECK(error.find(
+              "Unable to resolve the server terminal working directory")
+        != std::string::npos);
+    CHECK_FALSE(error.ends_with(":"));
+}
+#endif
+
 TEST_CASE("server terminal scrollback storage is lazy",
     "[server][remote-terminal][resource-bounds]")
 {

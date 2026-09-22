@@ -1150,6 +1150,117 @@ TEST_CASE("server reports checkpoint failure and preserves the last good file",
     REQUIRE(preserved == original);
 }
 
+TEST_CASE("server contains an inaccessible default checkpoint and restores other Sessions",
+    "[server][topology][persistence][filesystem]")
+{
+    TempDir temp("draxul-server-inaccessible-checkpoint");
+    const auto healthy_checkpoint
+        = server_session_state_path(temp.path, "healthy");
+    {
+        ServerKernel seed({
+            .runtime_directory = temp.path,
+            .epoch_override = "inaccessible-seed",
+        });
+        const auto seed_started = seed.start();
+        INFO(seed_started.error);
+        REQUIRE(seed_started.disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard seed_guard(seed);
+        TopologyClient healthy({
+            .runtime_directory = temp.path,
+            .client_id = "healthy-seed-client",
+            .session_id = "healthy",
+        });
+        std::string error;
+        REQUIRE(healthy.refresh(error));
+        TopologyCommand rename{
+            .command_id = "healthy-seed-rename",
+            .expected_revision = healthy.snapshot().revision,
+            .kind = TopologyCommandKind::RenameSpace,
+            .space_id = healthy.snapshot().spaces.front().space_id,
+            .name = "Healthy Session",
+        };
+        TopologyCommandResult renamed;
+        REQUIRE(healthy.execute(rename, renamed, error));
+        seed_guard.join();
+    }
+    REQUIRE(std::filesystem::exists(healthy_checkpoint));
+
+    std::error_code filesystem_error;
+    std::filesystem::remove(
+        server_session_state_path(temp.path), filesystem_error);
+    REQUIRE_FALSE(filesystem_error);
+    const auto blocker = temp.path / "checkpoint-parent-is-a-file";
+    {
+        std::ofstream output(blocker, std::ios::binary);
+        REQUIRE(output.is_open());
+        output << "not a directory";
+    }
+    const auto inaccessible_checkpoint
+        = blocker / "default.toml";
+
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .session_state_file = inaccessible_checkpoint,
+        .session_checkpoint_interval = std::chrono::hours(1),
+        .epoch_override = "inaccessible-checkpoint",
+        .checkpoint_exists
+        = [inaccessible_checkpoint](
+              const std::filesystem::path& path,
+              std::error_code& error) {
+              if (path == inaccessible_checkpoint)
+              {
+                  error = std::make_error_code(
+                      std::errc::permission_denied);
+                  return false;
+              }
+              return std::filesystem::exists(path, error);
+          },
+    });
+    ServerStartResult started;
+    REQUIRE_NOTHROW(started = server.start());
+    INFO(started.error);
+    REQUIRE(started.disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    const auto status = ServerClient::status(temp.path);
+    REQUIRE(status.ok);
+    REQUIRE(status.status);
+    CHECK(status.status->sessions == 2);
+    CHECK(status.status->checkpoint_path
+        == inaccessible_checkpoint.string());
+    CHECK(status.status->checkpoint_error.find(
+              "Unable to inspect Session checkpoint")
+        != std::string::npos);
+    CHECK(status.status->checkpoint_error.find(
+              inaccessible_checkpoint.string())
+        != std::string::npos);
+    CHECK(std::ranges::any_of(
+        status.status->restore_warnings,
+        [&](const std::string& warning) {
+            return warning.find(
+                       "Unable to inspect Session checkpoint")
+                != std::string::npos
+                && warning.find(inaccessible_checkpoint.string())
+                != std::string::npos;
+        }));
+
+    TopologyClient healthy({
+        .runtime_directory = temp.path,
+        .client_id = "healthy-restored-client",
+        .session_id = "healthy",
+    });
+    std::string error;
+    REQUIRE(healthy.refresh(error));
+    REQUIRE(healthy.snapshot().spaces.size() == 1);
+    CHECK(healthy.snapshot().spaces.front().name
+        == "Healthy Session");
+    CHECK(server.running());
+
+    run_guard.join();
+}
+
 TEST_CASE("server archives an unreadable checkpoint and resumes saving",
     "[server][topology][persistence]")
 {

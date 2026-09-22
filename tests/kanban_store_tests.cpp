@@ -2,6 +2,7 @@
 
 #include <draxul/kanban/kanban_store.h>
 
+#include "support/kanban_directory_scan_test_support.h"
 #include "temp_dir.h"
 
 #include <filesystem>
@@ -64,6 +65,58 @@ TEST_CASE("kanban store scans folders and markdown files", "[kanban][store]")
     REQUIRE(board.columns[0].cards[0].kind == CardKind::Feature);
     REQUIRE(board.columns[0].cards[1].file_name == "b-bug.md");
     REQUIRE(board.columns[1].name == "done");
+}
+
+TEST_CASE("kanban store reports root and column iterator failures",
+    "[kanban][store][scan-error]")
+{
+    draxul::tests::TempDir temp("draxul-kanban-scan-errors");
+    const auto root = temp.path / "kanban";
+    const auto column = root / "pending";
+    std::filesystem::create_directories(column);
+    write_file(column / "existing.md");
+
+    const auto verify_failure
+        = [&](const std::filesystem::path& directory,
+              draxul::tests::KanbanScanFailurePoint point,
+              std::string_view expected_scope) {
+              draxul::tests::FaultInjectingKanbanDirectoryOperations
+                  operations(directory, point);
+              ScopedKanbanDirectoryOperationsOverride override(
+                  operations);
+              std::string error;
+              KanbanBoard board;
+              CHECK_NOTHROW(board = load_kanban_board(root, &error));
+              CHECK(error.find(expected_scope) != std::string::npos);
+              CHECK_FALSE(error.empty());
+              CHECK(board.root == root);
+              CHECK(operations.injected_failures == 1);
+          };
+
+    SECTION("root iterator construction")
+    {
+        verify_failure(root,
+            draxul::tests::KanbanScanFailurePoint::Construction,
+            "failed to scan kanban root");
+    }
+    SECTION("root iterator advancement")
+    {
+        verify_failure(root,
+            draxul::tests::KanbanScanFailurePoint::Advancement,
+            "failed to scan kanban root");
+    }
+    SECTION("column iterator construction")
+    {
+        verify_failure(column,
+            draxul::tests::KanbanScanFailurePoint::Construction,
+            "failed to scan kanban column");
+    }
+    SECTION("column iterator advancement")
+    {
+        verify_failure(column,
+            draxul::tests::KanbanScanFailurePoint::Advancement,
+            "failed to scan kanban column");
+    }
 }
 
 TEST_CASE("kanban store merges metadata order with discovered entries", "[kanban][store]")

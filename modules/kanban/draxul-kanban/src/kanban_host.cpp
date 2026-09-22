@@ -370,6 +370,7 @@ bool KanbanHost::reload_board()
         return false;
     }
 
+    init_error_.clear();
     root_ = root;
     board_ = std::move(loaded);
     clamp_selection(board_, selection_);

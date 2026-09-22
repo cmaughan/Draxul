@@ -3,6 +3,8 @@
 #include <draxul/agent_client.h>
 #include <draxul/topology_client.h>
 
+#include "remote_session_client_test_seam.h"
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -22,7 +24,52 @@ constexpr size_t kCommandQueueLimit = 128;
 constexpr size_t kStatusQueueLimit = 8;
 constexpr auto kPollInterval = std::chrono::milliseconds(100);
 
+std::mutex wait_test_hook_mutex;
+std::atomic<bool> wait_test_hook_enabled = false;
+std::string wait_test_hook_client_id;
+remote_session_client_test_seam::BeforeWaitHook
+    wait_test_hook;
+
+void invoke_before_wait_test_hook(std::string_view client_id)
+{
+    if (!wait_test_hook_enabled.load(std::memory_order_acquire))
+        return;
+    remote_session_client_test_seam::BeforeWaitHook hook;
+    {
+        std::lock_guard guard(wait_test_hook_mutex);
+        if (wait_test_hook_client_id != client_id)
+            return;
+        hook = wait_test_hook;
+    }
+    if (hook)
+        hook();
+}
+
 } // namespace
+
+namespace remote_session_client_test_seam
+{
+
+void set_before_wait_hook(
+    std::string client_id, BeforeWaitHook hook)
+{
+    std::lock_guard guard(wait_test_hook_mutex);
+    wait_test_hook_client_id = std::move(client_id);
+    wait_test_hook = std::move(hook);
+    wait_test_hook_enabled.store(true, std::memory_order_release);
+}
+
+void clear_before_wait_hook(std::string_view client_id)
+{
+    std::lock_guard guard(wait_test_hook_mutex);
+    if (wait_test_hook_client_id != client_id)
+        return;
+    wait_test_hook = {};
+    wait_test_hook_client_id.clear();
+    wait_test_hook_enabled.store(false, std::memory_order_release);
+}
+
+} // namespace remote_session_client_test_seam
 
 class RemoteSessionClient::Impl
 {
@@ -814,14 +861,24 @@ private:
                             && command_ready
                         || !statuses_.empty();
                 };
-                if (wake_at
-                    == std::chrono::steady_clock::time_point::max())
+                if (!ready())
                 {
-                    wake_.wait(lock, ready);
-                }
-                else
-                {
-                    wake_.wait_until(lock, wake_at, ready);
+                    // Every cross-thread value in ready() changes under
+                    // mutex_; the remaining values are worker locals. Once
+                    // the predicate is false, wait's atomic unlock-and-block
+                    // closes the notification window. The private hook lets
+                    // regression tests force a transition at this boundary.
+                    invoke_before_wait_test_hook(
+                        options_.client_id);
+                    if (wake_at
+                        == std::chrono::steady_clock::time_point::max())
+                    {
+                        wake_.wait(lock);
+                    }
+                    else
+                    {
+                        wake_.wait_until(lock, wake_at);
+                    }
                 }
                 if (stopping_)
                     break;

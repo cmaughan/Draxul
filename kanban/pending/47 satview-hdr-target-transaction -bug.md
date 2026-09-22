@@ -7,7 +7,7 @@
 
 **Investigation**
 
-- [ ] Inject failures after the first target succeeds and within later attachment/descriptor creation.
+- [x] Inject failures after the first target succeeds and within later attachment/descriptor creation.
 
 **Fix strategy**
 
@@ -19,3 +19,8 @@
 - [x] Failed creation cannot lead to null framebuffer or descriptor use.
 - [x] A subsequent successful retry recovers cleanly without leaks.
 - [x] Preserve Metal failure behavior.
+
+**Validation**
+
+- [x] macOS: `python3 do.py test debug --satview` (26/26 CTest entries) and same-cache `python3 do.py smoke debug --skip-build` pass.
+- [ ] Build the Vulkan renderer and run the SatView suite on Windows or Linux CI; macOS compiles the unchanged Metal backend.

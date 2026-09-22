@@ -14,7 +14,7 @@
 - [x] Inventory candidate values, audio-related value records, CPU sources, compile definitions, and direct dependencies.
 - [x] Keep `AudioOptions` and other audio value records independently includable: `plugins/rezonality/src/live_project.h` consumes the SDL-free `audio_types.h` boundary without linking to capture implementation.
 - [x] Freeze immutable candidate ownership and explicit per-build temporary-directory context with the runtime owner.
-- [x] Coordinate existing `kanban/pending/07 rezonality-worker-exception-recovery -bug.md` and `kanban/pending/42 rezonality-image-storage-format -bug.md`.
+- [x] Coordinate completed `kanban/done/07 rezonality-worker-exception-recovery -bug.md` and `kanban/done/42 rezonality-image-storage-format -bug.md`.
 
 #### Implementation and migration
 

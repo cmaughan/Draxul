@@ -1,6 +1,7 @@
 #include <catch2/catch_all.hpp>
 
 #include "support/control_test_support.h"
+#include "../libs/draxul-client/src/remote_session_client_test_seam.h"
 
 #include <draxul/control_plane.h>
 #include <draxul/remote_session_client.h>
@@ -9,11 +10,87 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <future>
+#include <mutex>
+#include <condition_variable>
 #include <thread>
 #include <vector>
 
 using namespace draxul;
 using namespace draxul::tests;
+
+namespace
+{
+
+class WaitTransitionGate
+{
+public:
+    void before_wait()
+    {
+        const size_t call = ++calls_;
+        {
+            std::lock_guard guard(mutex_);
+            changed_.notify_all();
+        }
+        if (call != 1)
+            return;
+        std::unique_lock lock(mutex_);
+        first_wait_observed_ = true;
+        changed_.notify_all();
+        changed_.wait(lock, [this] { return transition_started_; });
+    }
+
+    bool wait_for_calls(size_t count)
+    {
+        std::unique_lock lock(mutex_);
+        return changed_.wait_for(lock, std::chrono::seconds(2),
+            [this, count] { return calls_.load() >= count; });
+    }
+
+    bool wait_for_first_wait()
+    {
+        std::unique_lock lock(mutex_);
+        return changed_.wait_for(lock, std::chrono::seconds(2),
+            [this] { return first_wait_observed_; });
+    }
+
+    void begin_transition()
+    {
+        std::lock_guard guard(mutex_);
+        transition_started_ = true;
+        changed_.notify_all();
+    }
+
+private:
+    std::atomic<size_t> calls_ = 0;
+    std::mutex mutex_;
+    std::condition_variable changed_;
+    bool first_wait_observed_ = false;
+    bool transition_started_ = false;
+};
+
+class ScopedRemoteSessionWaitHook
+{
+public:
+    ScopedRemoteSessionWaitHook(
+        std::string client_id, WaitTransitionGate& gate)
+        : client_id_(std::move(client_id))
+    {
+        remote_session_client_test_seam::set_before_wait_hook(
+            client_id_, [&gate] { gate.before_wait(); });
+    }
+
+    ~ScopedRemoteSessionWaitHook()
+    {
+        remote_session_client_test_seam::clear_before_wait_hook(
+            client_id_);
+    }
+
+private:
+    std::string client_id_;
+};
+
+} // namespace
 
 TEST_CASE("remote Session client publishes topology and command results",
     "[control][client-worker]")
@@ -236,6 +313,76 @@ TEST_CASE("externally fed Session clients stop and enter fallback promptly",
     client.stop();
     CHECK(std::chrono::steady_clock::now() - stop_started
         < std::chrono::seconds(1));
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
+TEST_CASE("externally fed Session stop cannot lose a wake between predicate and wait",
+    "[control][client-worker][wakeup][race]")
+{
+    const auto runtime = unique_control_runtime_directory();
+    const std::string client_id = "stop-wakeup-race-ui";
+    RemoteSessionClient client({
+        .runtime_directory = runtime,
+        .client_id = client_id,
+        .externally_fed = true,
+    });
+    WaitTransitionGate gate;
+    ScopedRemoteSessionWaitHook hook(client_id, gate);
+    REQUIRE(client.start());
+    REQUIRE(gate.wait_for_first_wait());
+
+    auto stopped = std::async(std::launch::async, [&] {
+        gate.begin_transition();
+        client.stop();
+    });
+    const bool stopped_promptly
+        = stopped.wait_for(std::chrono::seconds(1))
+        == std::future_status::ready;
+    if (!stopped_promptly)
+    {
+        // A regression must fail rather than strand the test process. This
+        // extra notify is cleanup only and happens after the prompt-stop
+        // observation has already failed.
+        client.enable_legacy_polling();
+        REQUIRE(stopped.wait_for(std::chrono::seconds(1))
+            == std::future_status::ready);
+    }
+    stopped.get();
+    CHECK(stopped_promptly);
+
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
+TEST_CASE("externally fed Session fallback cannot lose a wake between predicate and wait",
+    "[control][client-worker][wakeup][race]")
+{
+    const auto runtime = unique_control_runtime_directory();
+    const std::string client_id = "fallback-wakeup-race-ui";
+    RemoteSessionClient client({
+        .runtime_directory = runtime,
+        .client_id = client_id,
+        .externally_fed = true,
+    });
+    WaitTransitionGate gate;
+    ScopedRemoteSessionWaitHook hook(client_id, gate);
+    REQUIRE(client.start());
+    REQUIRE(gate.wait_for_first_wait());
+
+    auto fallback = std::async(std::launch::async, [&] {
+        gate.begin_transition();
+        client.enable_legacy_polling();
+    });
+    REQUIRE(fallback.wait_for(std::chrono::seconds(1))
+        == std::future_status::ready);
+    fallback.get();
+
+    // Reaching another wait proves fallback initialized legacy clients without
+    // relying on a command/status enqueue to wake the worker.
+    REQUIRE(gate.wait_for_calls(2));
+    client.stop();
+
     std::error_code ignored;
     std::filesystem::remove_all(runtime, ignored);
 }

@@ -2,6 +2,7 @@
 
 #include "fake_renderer.h"
 #include "fake_window.h"
+#include "support/kanban_directory_scan_test_support.h"
 #include "temp_dir.h"
 
 #include <draxul/kanban/kanban_host.h>
@@ -162,6 +163,56 @@ TEST_CASE("kanban host initializes and reports board status", "[kanban][host]")
     REQUIRE(fixture.host.status_text().find("kanban") != std::string::npos);
     REQUIRE(fixture.host.status_text().find("card-1-feature.md") != std::string::npos);
     REQUIRE(fixture.renderer.create_grid_handle_calls == 1);
+}
+
+TEST_CASE("kanban host preserves its board when a reload scan fails",
+    "[kanban][host][reload][scan-error]")
+{
+    KanbanHostFixture fixture;
+    const auto column = fixture.temp.path / "todo";
+    const auto replacement
+        = column / "replacement-feature.md";
+    std::filesystem::rename(fixture.card_path, replacement);
+
+    const auto verify_reload_failure
+        = [&](const std::filesystem::path& directory,
+              draxul::tests::KanbanScanFailurePoint point) {
+              draxul::tests::FaultInjectingKanbanDirectoryOperations
+                  operations(directory, point);
+              bool reloaded = true;
+              {
+                  ScopedKanbanDirectoryOperationsOverride override(
+                      operations);
+                  CHECK_NOTHROW(
+                      reloaded = fixture.host.dispatch_action("reload"));
+              }
+              CHECK_FALSE(reloaded);
+              CHECK(operations.injected_failures == 1);
+              CHECK_FALSE(fixture.host.init_error().empty());
+              CHECK(fixture.host.status_text().find(
+                        "card-1-feature.md")
+                  != std::string::npos);
+              CHECK(fixture.host.status_text().find(
+                        "replacement-feature.md")
+                  == std::string::npos);
+          };
+
+    SECTION("root construction failure")
+    {
+        verify_reload_failure(fixture.temp.path,
+            draxul::tests::KanbanScanFailurePoint::Construction);
+    }
+    SECTION("column advancement failure")
+    {
+        verify_reload_failure(column,
+            draxul::tests::KanbanScanFailurePoint::Advancement);
+    }
+
+    REQUIRE(fixture.host.dispatch_action("reload"));
+    CHECK(fixture.host.init_error().empty());
+    CHECK(fixture.host.status_text().find(
+              "replacement-feature.md")
+        != std::string::npos);
 }
 
 TEST_CASE("kanban host opens selected card in a Neovim host", "[kanban][host]")

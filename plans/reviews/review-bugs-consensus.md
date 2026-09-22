@@ -612,7 +612,7 @@ Cards use the requested sequence beginning at `00`; the trusted runner can norma
 - [ ] Saturated readers exit within a bounded deadline on both platforms.
 - [ ] Normal backpressure still preserves output ordering and contents.
 
-### kanban/pending/51 session-client-worker-wakeup -bug.md
+### kanban/done/51 session-client-worker-wakeup -bug.md
 
 # Prevent lost session-client stop and fallback wakes
 

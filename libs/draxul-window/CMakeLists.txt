@@ -1,5 +1,6 @@
 add_library(draxul-window
     src/sdl_window.cpp
+    src/sdl_event_registration.cpp
     src/sdl_event_translator.cpp
     src/sdl_clipboard.cpp
     src/sdl_file_dialog.cpp

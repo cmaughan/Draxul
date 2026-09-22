@@ -150,6 +150,14 @@ ServerKernel::Impl::Impl(ServerKernelOptions value)
         options.checkpoint_shutdown_budget = std::chrono::milliseconds(0);
     if (!options.checkpoint_save)
         options.checkpoint_save = save_session_state_to_path;
+    if (!options.checkpoint_exists)
+    {
+        options.checkpoint_exists
+            = [](const std::filesystem::path& path,
+                  std::error_code& error) {
+                  return std::filesystem::exists(path, error);
+              };
+    }
     if (options.build_version.empty())
         options.build_version = server_build_version();
     for (const AgentDefinition& definition : options.agent_definitions)

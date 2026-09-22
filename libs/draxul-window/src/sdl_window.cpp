@@ -1,5 +1,6 @@
 #include "sdl_clipboard.h"
 #include "sdl_event_translator.h"
+#include "sdl_event_registration.h"
 #include "sdl_file_dialog.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -171,13 +172,17 @@ bool SdlWindow::initialize(const std::string& title, int width, int height)
     disable_press_and_hold_macos();
 #endif
 
-    wake_event_type_ = SDL_RegisterEvents(2);
-    if (wake_event_type_ == 0)
+    const auto application_events
+        = sdl::register_application_event_types(SDL_RegisterEvents);
+    if (!application_events)
     {
+        wake_event_type_ = 0;
+        file_dialog_event_type_ = 0;
         DRAXUL_LOG_ERROR(LogCategory::Window, "SDL_RegisterEvents failed: %s", SDL_GetError());
         return false;
     }
-    file_dialog_event_type_ = wake_event_type_ + 1;
+    wake_event_type_ = application_events.wake;
+    file_dialog_event_type_ = application_events.file_dialog;
 
 #ifdef __APPLE__
     Uint64 window_flags = SDL_WINDOW_METAL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
