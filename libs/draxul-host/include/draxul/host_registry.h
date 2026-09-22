@@ -14,7 +14,7 @@
 // Built-in hosts (nvim, shell variants, nanovg demo) are registered at startup
 // via register_builtin_host_providers(). Optional modules — currently MegaCity
 // — register themselves through the same interface from the executable, so the
-// core libraries (draxul-host, draxul-app) carry no headers, types, or symbols
+// core host leaves and draxul-app carry no headers, types, or symbols
 // from those modules. A build with an optional module disabled simply has no
 // provider for its HostKind, and create() returns nullptr.
 //

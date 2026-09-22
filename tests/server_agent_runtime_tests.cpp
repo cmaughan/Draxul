@@ -140,7 +140,7 @@ TEST_CASE("server-owned shell discovery converges in two agent clients",
 }
 
 TEST_CASE("managed agents launch and restart without a UI",
-    "[server][agent][managed][process]")
+    "[server][agent][managed][process][pane-move]")
 {
     TempDir temp("draxul-server-managed-agent");
     AgentDefinition test_agent{
@@ -318,6 +318,166 @@ TEST_CASE("managed agents launch and restart without a UI",
         });
     REQUIRE(reported.ok);
 
+    TopologyClient topology_controller({
+        .runtime_directory = temp.path,
+        .client_id = "managed-agent-route-controller",
+    });
+    REQUIRE(topology_controller.refresh(agent_error));
+    const TopologySpace agent_source_space
+        = topology_controller.snapshot().spaces.front();
+    const TopologyTab agent_source_tab
+        = agent_source_space.tabs.front();
+    TopologyCommand create_agent_destination{
+        .command_id = "managed-agent-destination",
+        .expected_revision
+        = topology_controller.snapshot().revision,
+        .kind = TopologyCommandKind::CreateTab,
+        .space_id = agent_source_space.space_id,
+        .name = "Managed agent destination",
+        .pane_domain = TopologyPaneDomain::ServerTerminal,
+    };
+    TopologyCommandResult agent_destination_created;
+    REQUIRE(topology_controller.execute(
+        create_agent_destination,
+        agent_destination_created, agent_error));
+    const TopologyTab agent_destination_tab
+        = agent_destination_created.snapshot.spaces.front()
+              .tabs.back();
+    TopologyCommand move_agent{
+        .command_id = "move-managed-agent",
+        .expected_revision
+        = topology_controller.snapshot().revision,
+        .kind = TopologyCommandKind::MovePane,
+        .space_id = agent_source_space.space_id,
+        .tab_id = agent_source_tab.tab_id,
+        .destination_space_id = agent_source_space.space_id,
+        .destination_tab_id = agent_destination_tab.tab_id,
+        .pane_id = pane_id,
+        .target_pane_id
+        = agent_destination_tab.panes.front().pane_id,
+    };
+    TopologyCommandResult agent_moved;
+    REQUIRE(topology_controller.execute(
+        move_agent, agent_moved, agent_error));
+    const auto& moved_agent_space
+        = agent_moved.snapshot.spaces.front();
+    const auto moved_agent_destination
+        = std::ranges::find(moved_agent_space.tabs,
+            agent_destination_tab.tab_id,
+            &TopologyTab::tab_id);
+    REQUIRE(moved_agent_destination
+        != moved_agent_space.tabs.end());
+    const auto moved_agent_pane
+        = std::ranges::find(moved_agent_destination->panes,
+            pane_id, &TopologyPane::pane_id);
+    REQUIRE(moved_agent_pane
+        != moved_agent_destination->panes.end());
+    CHECK(moved_agent_pane->terminal_id == terminal_id);
+    REQUIRE(moved_agent_pane->agent);
+    CHECK(moved_agent_pane->agent->instance_id == instance_id);
+
+    ControlClientResult moved_agent;
+    for (int attempt = 0; attempt < 200; ++attempt)
+    {
+        moved_agent = request(
+            "agent.get", { { "instance_id", instance_id } });
+        if (moved_agent.ok
+            && moved_agent.result.is_object()
+            && moved_agent.result.contains("route")
+            && moved_agent.result.at("route").is_object()
+            && moved_agent.result.at("route").value(
+                   "tab_id", "")
+                == agent_destination_tab.tab_id)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(10));
+    }
+    REQUIRE(moved_agent.ok);
+    REQUIRE(moved_agent.result.is_object());
+    REQUIRE(moved_agent.result.contains("instance_id"));
+    REQUIRE(moved_agent.result.at("instance_id").is_string());
+    REQUIRE(moved_agent.result.contains("runtime_generation"));
+    REQUIRE(moved_agent.result.at("runtime_generation")
+            .is_number_unsigned());
+    REQUIRE(moved_agent.result.contains("route"));
+    REQUIRE(moved_agent.result.at("route").is_object());
+    const auto& moved_route = moved_agent.result.at("route");
+    REQUIRE(moved_route.contains("space_id"));
+    REQUIRE(moved_route.contains("tab_id"));
+    REQUIRE(moved_route.contains("pane_id"));
+    REQUIRE(moved_route.contains("terminal_id"));
+    CHECK(moved_agent.result.at("instance_id") == instance_id);
+    CHECK(moved_agent.result.at("runtime_generation") == 1);
+    CHECK(moved_route.at("space_id")
+        == agent_source_space.space_id);
+    CHECK(moved_route.at("tab_id")
+        == agent_destination_tab.tab_id);
+    CHECK(moved_route.at("pane_id") == pane_id);
+    CHECK(moved_route.at("terminal_id") == terminal_id);
+
+    const auto sent_after_move = request("agent.send_text",
+        {
+            { "instance_id", instance_id },
+            { "text", "x" },
+        });
+    REQUIRE(sent_after_move.ok);
+    REQUIRE(sent_after_move.result.is_object());
+    REQUIRE(sent_after_move.result.contains("route"));
+    REQUIRE(sent_after_move.result.at("route").is_object());
+    REQUIRE(sent_after_move.result.at("route").contains(
+        "tab_id"));
+    // Input mutations return the refreshed agent projection, including its
+    // authoritative route, rather than a separate `accepted` flag.
+    CHECK(sent_after_move.result.at("route").at("tab_id")
+        == agent_destination_tab.tab_id);
+
+    const auto moved_report = request(
+        "pane.report_agent_session",
+        {
+            { "server_epoch", "managed-epoch" },
+            { "runtime_generation", 1 },
+            { "pane_id", pane_id },
+            { "agent_instance_id", instance_id },
+            { "source", "draxul:codex" },
+            { "agent", "codex" },
+            { "integration_version", 2 },
+            { "sequence", 2 },
+            { "ref_kind", "id" },
+            { "ref_value", "managed-native-session-moved" },
+        });
+    REQUIRE(moved_report.ok);
+    const auto routed_agent = request(
+        "agent.get", { { "instance_id", instance_id } });
+    REQUIRE(routed_agent.ok);
+    REQUIRE(routed_agent.result.is_object());
+    REQUIRE(routed_agent.result.contains("route"));
+    REQUIRE(routed_agent.result.at("route").is_object());
+    REQUIRE(routed_agent.result.at("route").contains(
+        "tab_id"));
+    REQUIRE(routed_agent.result.contains("session_ref"));
+    REQUIRE(routed_agent.result.at("session_ref").is_object());
+    const auto& routed_session
+        = routed_agent.result.at("session_ref");
+    REQUIRE(routed_session.contains("sequence"));
+    REQUIRE(routed_session.contains("value"));
+    CHECK(routed_agent.result.at("route").at("tab_id")
+        == agent_destination_tab.tab_id);
+    CHECK(routed_session.at("sequence") == 2);
+    CHECK(routed_session.at("value")
+        == "managed-native-session-moved");
+    const auto waited_after_move = request("agent.wait",
+        {
+            { "instance_id", instance_id },
+            { "until", { "running" } },
+        });
+    REQUIRE(waited_after_move.ok);
+    REQUIRE(waited_after_move.result.is_object());
+    REQUIRE(waited_after_move.result.contains("complete"));
+    REQUIRE(waited_after_move.result.at("complete").is_boolean());
+    CHECK(waited_after_move.result.at("complete").get<bool>());
+
     const auto restarted = request(
         "agent.restart",
         {
@@ -357,12 +517,38 @@ TEST_CASE("managed agents launch and restart without a UI",
     const auto topology = request(
         "topology.snapshot", nlohmann::json::object());
     REQUIRE(topology.ok);
-    const auto& panes = topology.result["spaces"][0]
-                                       ["tabs"][0]["panes"];
-    REQUIRE(panes.size() == 2);
-    CHECK(panes[1]["agent"]["instance_id"]
+    REQUIRE(topology.result.is_object());
+    REQUIRE(topology.result.contains("spaces"));
+    REQUIRE(topology.result.at("spaces").is_array());
+    REQUIRE_FALSE(topology.result.at("spaces").empty());
+    const auto& topology_space
+        = topology.result.at("spaces").front();
+    REQUIRE(topology_space.is_object());
+    REQUIRE(topology_space.contains("tabs"));
+    REQUIRE(topology_space.at("tabs").is_array());
+    const nlohmann::json* topology_agent = nullptr;
+    for (const auto& tab : topology_space.at("tabs"))
+    {
+        REQUIRE(tab.is_object());
+        REQUIRE(tab.contains("panes"));
+        REQUIRE(tab.at("panes").is_array());
+        for (const auto& pane : tab.at("panes"))
+        {
+            REQUIRE(pane.is_object());
+            if (pane.value("pane_id", "") == pane_id)
+                topology_agent = &pane;
+        }
+    }
+    REQUIRE(topology_agent);
+    REQUIRE(topology_agent->contains("agent"));
+    REQUIRE(topology_agent->at("agent").is_object());
+    REQUIRE(topology_agent->at("agent").contains(
+        "instance_id"));
+    REQUIRE(topology_agent->contains(
+        "server_working_directory"));
+    CHECK(topology_agent->at("agent").at("instance_id")
         == instance_id);
-    CHECK(panes[1]["server_working_directory"]
+    CHECK(topology_agent->at("server_working_directory")
         == temp.path.string());
     run_guard.join();
 
@@ -372,12 +558,16 @@ TEST_CASE("managed agents launch and restart without a UI",
         &load_error);
     INFO(load_error);
     REQUIRE(saved);
-    const auto& saved_panes
-        = saved->spaces.front().tabs.front().pane_layout.panes;
-    const auto saved_agent = std::ranges::find(
-        saved_panes, pane_id,
-        &SessionPaneSnapshot::pane_id);
-    REQUIRE(saved_agent != saved_panes.end());
+    const SessionPaneSnapshot* saved_agent = nullptr;
+    for (const auto& tab : saved->spaces.front().tabs)
+    {
+        const auto found = std::ranges::find(
+            tab.pane_layout.panes, pane_id,
+            &SessionPaneSnapshot::pane_id);
+        if (found != tab.pane_layout.panes.end())
+            saved_agent = &*found;
+    }
+    REQUIRE(saved_agent);
     REQUIRE(saved_agent->agent);
     CHECK(saved_agent->agent->instance_id
         == instance_id);

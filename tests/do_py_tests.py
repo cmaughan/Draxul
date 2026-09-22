@@ -1043,6 +1043,160 @@ class SmokeCommandTests(unittest.TestCase):
         self.assertIn("only once", error.getvalue())
 
 
+class FinalValidationCommandTests(unittest.TestCase):
+    def test_failure_classification_distinguishes_build_tests_snapshots_and_environment(self) -> None:
+        self.assertEqual("passed", draxul_do._validation_classification("ctest", 0))
+        self.assertEqual("build failure", draxul_do._validation_classification("build", 1))
+        self.assertEqual(
+            "product-test failure",
+            draxul_do._validation_classification("ctest", 1),
+        )
+        self.assertEqual(
+            "snapshot failure",
+            draxul_do._validation_classification("render", 1),
+        )
+        self.assertEqual(
+            "validation-environment failure",
+            draxul_do._validation_classification("smoke", 124),
+        )
+
+    def test_logged_step_discards_success_log_and_retains_complete_failure_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            log_dir = root / "logs"
+            success = draxul_do._run_logged_validation_command(
+                [sys.executable, "-c", "print('short success')"],
+                root,
+                step_name="success",
+                kind="ctest",
+                log_dir=log_dir,
+            )
+            failure = draxul_do._run_logged_validation_command(
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; print('first diagnostic'); "
+                    "print('last diagnostic'); sys.exit(7)",
+                ],
+                root,
+                step_name="failure",
+                kind="ctest",
+                log_dir=log_dir,
+            )
+
+            self.assertEqual(0, success.return_code)
+            self.assertIsNone(success.log_path)
+            self.assertEqual(7, failure.return_code)
+            self.assertIsNotNone(failure.log_path)
+            retained = failure.log_path.read_text(encoding="utf-8")
+            self.assertIn("first diagnostic", retained)
+            self.assertIn("last diagnostic", retained)
+
+    def test_logged_step_classifies_command_start_error_as_environment_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            result = draxul_do._run_logged_validation_command(
+                [str(root / "missing-command")],
+                root,
+                step_name="missing-tool",
+                kind="build",
+                log_dir=root / "logs",
+            )
+
+            self.assertEqual(125, result.return_code)
+            self.assertEqual("validation-environment failure", result.classification)
+            self.assertIn(
+                "could not start command",
+                result.log_path.read_text(encoding="utf-8"),
+            )
+
+    def test_default_final_renders_are_core_platform_regressions(self) -> None:
+        with mock.patch.object(draxul_do.sys, "platform", "darwin"):
+            _, _, _, renders = draxul_do._parse_validate_args(ROOT, [])
+
+        self.assertEqual(
+            (
+                "basic-view",
+                "cmdline-view",
+                "unicode-view",
+                "panel-view",
+                "nanovg-demo",
+            ),
+            renders,
+        )
+        self.assertNotIn("pcbview-plugin", renders)
+        self.assertNotIn("rezonality-plugin", renders)
+
+    def test_windows_command_seam_builds_once_then_runs_smoke_and_full_ctest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            build_tree = root / "build-ninja-debug"
+            executable = build_tree / "draxul.exe"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("exe", encoding="utf-8")
+
+            def completed_step(command, _cwd, *, step_name, kind, **_kwargs):
+                return draxul_do.ValidationStepResult(
+                    step_name, kind, 0, 0.25, detail=" ".join(command)
+                )
+
+            output = io.StringIO()
+            with (
+                contextlib.redirect_stdout(output),
+                mock.patch.object(draxul_do.sys, "platform", "win32"),
+                mock.patch.object(
+                    draxul_do,
+                    "_configure_and_build_impl",
+                    return_value=(0, build_tree, "Debug", {"TEST": "1"}),
+                ) as build_mock,
+                mock.patch.object(draxul_do, "draxul_exe", return_value=executable),
+                mock.patch.object(
+                    draxul_do, "_ctest_selection_count", return_value=(0, 37, "")
+                ),
+                mock.patch.object(
+                    draxul_do,
+                    "_run_logged_validation_command",
+                    side_effect=completed_step,
+                ) as run_step,
+            ):
+                self.assertEqual(0, draxul_do.cmd_validate(root, ["--no-render"]))
+
+            build_mock.assert_called_once()
+            self.assertEqual(("draxul", "draxul-tests"), build_mock.call_args.kwargs["targets"])
+            self.assertEqual(2, run_step.call_count)
+            self.assertEqual("smoke", run_step.call_args_list[0].kwargs["step_name"])
+            ctest_command = run_step.call_args_list[1].args[0]
+            self.assertEqual("ctest", ctest_command[0])
+            self.assertIn("--label-regex", ctest_command)
+            self.assertIn("unit", ctest_command)
+            self.assertIn("targets built: draxul, draxul-tests", output.getvalue())
+            self.assertIn("tests selected: 37 CTest entries", output.getvalue())
+            self.assertIn("steps: 3/3 passed", output.getvalue())
+
+    def test_final_summary_reports_retained_failure_log_and_category(self) -> None:
+        step = draxul_do.ValidationStepResult(
+            "ctest-unit",
+            "ctest",
+            1,
+            3.5,
+            pathlib.Path("build/validation-logs/ctest-unit.log"),
+        )
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            draxul_do._print_final_validation_summary(
+                targets=("draxul", "draxul-tests"),
+                selected_tests=41,
+                render_names=("panel-view",),
+                steps=[step],
+            )
+
+        summary = output.getvalue()
+        self.assertIn("product-test failure", summary)
+        self.assertIn("41 CTest entries", summary)
+        self.assertIn("panel-view", summary)
+        self.assertIn("ctest-unit.log", summary)
+
+
 class DeployPackagingTests(unittest.TestCase):
     def test_deploy_args_default_to_release_build_flags(self) -> None:
         force_reconfigure, build_system = draxul_do._parse_deploy_args([])

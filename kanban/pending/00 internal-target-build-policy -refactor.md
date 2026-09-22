@@ -17,7 +17,7 @@ MSVC `/FS` with one target-local helper plus a configure-time completeness audit
 - [x] Re-inventory current core/plugin-support targets, including NanoVG, renderer OBJECT
       targets, Vulkan resources, and test-support leaves; external product-owned targets
       must be explicitly outside core policy.
-- [ ] Record the existing ASan/TSan/coverage and `/FS` behavior before changing it.
+- [x] Record the existing ASan/TSan/coverage and `/FS` behavior before changing it: the root manual library list applied sanitizer and coverage compile/link flags plus MSVC `/FS` without target-type filtering; executables/tests were maintained separately. The localized helper preserves compile policy while limiting link flags to targets that actually link.
 - [x] Define explicit skip rules for imported, alias, INTERFACE, and third-party targets.
 
 ## Implementation and migration
@@ -29,7 +29,7 @@ MSVC `/FS` with one target-local helper plus a configure-time completeness audit
 - [x] Prove the helper on one STATIC, OBJECT, executable, and INTERFACE target.
 - [x] Adopt the helper beside each internal target definition, directory by directory.
 - [x] Add the end-of-configure audit and remove root enumerations only after it passes.
-- [ ] Keep every intermediate commit configurable and buildable.
+- [x] Keep every intermediate commit configurable and buildable. The migration landed as one configurable checkpoint rather than a sequence of partially adopted commits.
 
 ## Unit and configure tests
 

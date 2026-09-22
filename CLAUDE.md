@@ -169,7 +169,7 @@ nvim --embed (child process)
 
 - **Renderer hierarchy**: `IBaseRenderer` lives in `libs/draxul-plugin-support/include/draxul/base_renderer.h` (shared with plugins); `IGridRenderer` extends it in `libs/draxul-renderer/include/draxul/renderer.h`. `MetalRenderer` and `VkRenderer` implement `IGridRenderer`.
   - `IRenderPass` / `IRenderContext` (`base_renderer.h`): typed render pass abstraction. A pass is recorded via `IBaseRenderer::record_render_pass(IRenderPass&, viewport)`; the renderer hands each pass an `IRenderContext` with the per-frame platform handles.
-- **Host hierarchy** (`libs/draxul-host/include/draxul/`): `draxul-host-api` owns `IHost`, launch/callback records, and the provider registry; `draxul-grid-host` owns `GridHostBase`; `draxul-terminal-host` owns process-free client terminal presentation and selection/mouse/key behavior; `draxul-nvim-host` owns the concrete Neovim adapter; and `draxul-plugin-host` owns `PluginHost` across the versioned C ABI. `draxul-host` is an interface-only compatibility aggregate. Link the narrow leaf that owns the API being used.
+- **Host hierarchy** (`libs/draxul-host/include/draxul/`): `draxul-host-api` owns `IHost`, launch/callback records, and the provider registry; `draxul-grid-host` owns `GridHostBase`; `draxul-terminal-host` owns process-free client terminal presentation and selection/mouse/key behavior; `draxul-nvim-host` owns the concrete Neovim adapter; and `draxul-plugin-host` owns `PluginHost` across the versioned C ABI. Link the narrow leaf that owns the API being used; there is no broad host aggregate.
 - **App shell** (`libs/draxul-app-shell/include/draxul/`): renderer-free split-tree, shell/chrome layout, rename, and fuzzy-match behavior. Keep App orchestration and GPU/window integration in `draxul-app`.
 - **IWindow** (`libs/draxul-window/include/draxul/window.h`) — abstract window interface. The renderer knows nothing about fonts, neovim, or text — only colored rectangles and textured quads at grid positions.
 - **App** (`app/app.h/cpp`) is the orchestrator that owns all subsystems and runs the main loop.
@@ -288,6 +288,15 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
   redundant focused pass or another generator. Add the relevant product scope when
   product code changed; use `--products`/`--all` only when the affected seam warrants
   that broader inventory.
+- When a change warrants the complete local inventory, use `py do.py validate debug`
+  instead of stacking separate build, smoke, render, and CTest commands. It holds one
+  build-tree lease, builds the app and full test aggregate once, then runs smoke, the
+  five platform core snapshots, and the complete unit CTest inventory without another
+  configure/build. Repeat `--render <scenario>` to replace the default snapshot set,
+  or use `--no-render` only when visual coverage is explicitly irrelevant. Successful
+  steps stay concise; a failed step prints a short tail and retains its complete log
+  under `<build-tree>/validation-logs/`, with the final summary classifying build,
+  startup, snapshot, product-test, and validation-environment failures.
 - On Windows, run process-launch tests before starting a long-lived server from
   that build tree where practical. A server intentionally keeps
   `draxul-server.exe` open; after `draxul.exe` is relinked, helper-refresh tests

@@ -102,16 +102,4 @@ target_link_libraries(draxul-plugin-host PRIVATE
     nlohmann_json::nlohmann_json
 )
 
-# Compatibility aggregate for downstream callers while direct consumers move
-# to the smallest owning leaf above.
-add_library(draxul-host INTERFACE)
-target_include_directories(draxul-host INTERFACE "${DRAXUL_HOST_INCLUDE_DIR}")
-target_link_libraries(draxul-host INTERFACE
-    draxul-grid-host
-    draxul-host-api
-    draxul-nvim-host
-    draxul-plugin-host
-    draxul-terminal-host
-)
-
 draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

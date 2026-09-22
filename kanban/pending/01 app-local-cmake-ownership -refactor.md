@@ -45,8 +45,8 @@ the executable, packaging, generic plugin staging, and assets root-owned.
 
 ## Agent documentation and tooling
 
-- [ ] Update `docs/module-map.md` only if it currently claims root owns the app library target.
-- [ ] Add a short app build-ownership note to canonical guidance if useful; do not duplicate source lists.
+- [x] Confirm `docs/module-map.md` does not claim root owns the app library target; no correction was needed.
+- [x] Keep the canonical `CLAUDE.md` ownership note (`app/`: executable and `draxul-app` orchestration target) without duplicating source lists.
 
 ## Acceptance criteria
 

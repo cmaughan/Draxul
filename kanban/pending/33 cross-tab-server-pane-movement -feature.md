@@ -49,7 +49,12 @@ route contract before exposing the mutation.
 - [x] Define empty-source-tab behavior explicitly: close the empty tab when
       another tab survives; reject moving the final pane from the final tab of a
       Space unless a replacement policy is deliberately introduced.
-- [ ] Roll back both tabs and all metadata if insertion or persistence fails.
+- [x] Reject an insertion-stage candidate failure without committing either
+      split tree or the pane's route metadata.
+- [x] Treat checkpoint publication as asynchronous: a failed checkpoint keeps
+      the last completed durable snapshot while the accepted live move remains
+      authoritative. There is no synchronous persistence transaction to roll
+      back.
 - [x] Bump topology revision once and return the pane's new authoritative route.
 - [x] Preserve client-local focus: each attached UI independently retains focus
       when possible and chooses a local fallback if its focused pane moved away.
@@ -72,17 +77,19 @@ route contract before exposing the mutation.
 
 - [x] Add an executable-level real-server test that moves a running shell into
       another tab while output and scrollback remain readable.
-- [ ] Verify `pane get`, `pane read`, `pane run`, and `--current` resolve the new
+- [x] Verify `pane get`, `pane read`, `pane run`, and `--current` resolve the new
       route after the move.
-- [ ] Move a managed agent across tabs, confirm stable instance/pane/terminal
+- [x] Move a managed agent across tabs, confirm stable instance/pane/terminal
       identity, and verify prompt/status/session-report routing after movement.
 - [x] Cover moves across Spaces with different roots without misreporting cwd.
-- [ ] Cover source-tab collapse, final-pane rejection, capacity rejection,
+- [x] Cover source-tab collapse, final-pane rejection, capacity rejection,
       companion-pane rejection, and rollback after a forced destination failure.
 - [ ] Run a two-UI test proving both clients converge while focus remains local,
       including detach, move, and reconnect.
-- [ ] Run the Release build, the focused integration test, full `ctest`, and
-      `py do.py smoke`.
+- [x] Run the focused integration cases, product-scoped aggregate, and
+      same-cache smoke on macOS/Metal.
+- [ ] Run the Release build, full cross-platform `ctest`, and Windows/Vulkan
+      smoke.
 
 ## Non-goals
 
@@ -103,12 +110,23 @@ route contract before exposing the mutation.
 - Live terminal moves preserve pane ID, terminal ID, runtime generation, process
   ID, scrollback/output, agent metadata, and recorded working directory. Existing
   processes are not restarted; client-local panes are rejected.
-- The focused `[pane-move]` run passed 71 assertions in 4 cases, including a real
-  server/shell move and reconnect. `python3 do.py test debug` passed all 23 core
-  CTest entries in 39.01 seconds, followed by a passing same-cache
-  `python3 do.py smoke --skip-build` on macOS/Metal.
-- Still open: persistence-failure rollback injection; executable CLI coverage for
-  every `pane get/read/run/--current` route; a live managed-agent move covering
-  prompt/status/session reporting; capacity/companion/forced-failure coverage in
-  one matrix; a true two-UI detach/reconnect focus test; Windows/Vulkan coverage;
-  and the Release/full-suite validation requested by the card.
+- The two-tree mutation is exercised through a forced destination-leaf failure
+  after source detachment begins against the candidate. The rejected operation
+  leaves both published trees and the pane route unchanged. Checkpoint failure
+  uses the production asynchronous save callback: the last completed checkpoint
+  remains readable while the accepted live topology continues to expose the
+  moved pane. This records the actual durability boundary rather than inventing
+  a synchronous persistence rollback contract.
+- An executable CLI test moves a live server pane and then exercises `pane get`,
+  `pane run`, `pane read`, and `pane get --current` through the built Draxul
+  binary. It proves that stable pane identity resolves the destination route even
+  when launch-time Space/tab environment values are stale.
+- The managed-agent process test now moves a running managed agent across tabs,
+  preserves instance, pane, terminal, and runtime-generation identity, and
+  verifies `agent.get`, input, running-status waits, later session reports,
+  restart, checkpoint, and restore routing from the destination tab.
+- The focused `[pane-move]` run passed 266 assertions in 7 cases. The elevated
+  core plus Rezonality aggregate passed 30/30 CTest entries, followed by a
+  passing same-cache macOS/Metal smoke.
+- Still open: a true two-UI detach/move/reconnect focus test, Release/full-suite
+  validation, and Windows/Vulkan coverage.

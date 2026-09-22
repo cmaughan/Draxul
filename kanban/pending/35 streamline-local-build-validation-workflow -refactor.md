@@ -86,7 +86,7 @@ loop, and helper-lock failures were avoidable workflow cost.
       against the same object directory.
 - [x] Detect stale build ownership safely without terminating unrelated CMake, MSBuild,
       Ninja, compiler, or linker processes.
-- [ ] Keep build logs concise on success and retain complete diagnostics on failure.
+- [x] Keep build logs concise on success and retain complete diagnostics on failure.
 
 ## Focused validation
 
@@ -106,7 +106,7 @@ loop, and helper-lock failures were avoidable workflow cost.
 - [x] Reuse the integration-first policy from `CLAUDE.md`: focused vertical tests during
       iteration, then one final full-suite gate; do not replace useful integration
       coverage with low-value helper unit tests.
-- [ ] Print a compact end-of-run summary containing targets built, tests selected,
+- [x] Print a compact end-of-run summary containing targets built, tests selected,
       passes/failures, durations, random seeds, and paths to retained logs.
 
 ## Live-server and helper safety
@@ -123,9 +123,20 @@ are covered by platform-specific command-construction tests.
 lists the matching cases before execution, rejects a zero-match filter with its
 shell-escaped command, and supports `--repeat N [--seed N]` without rebuilding.
 Aggregate CTest selections are also inventoried before execution, and both paths
-print target, selection, result, duration, and seed/result-path summaries. Retained
-full failure logs, live Windows helper preflight, cross-platform timing, and the
-single final-tier command remain open below.
+print target, selection, result, duration, and seed/result-path summaries. Live
+Windows helper preflight and cross-platform timing remain open below.
+
+### Single final-tier checkpoint (2026-09-22)
+
+`do.py validate` holds the selected build-tree lease across one app/full-test build,
+bounded smoke, relevant deterministic render comparisons, and the complete unit CTest
+inventory. The default render set is the five core comparisons available on the host;
+repeated `--render` selections replace it and `--no-render` is explicit. Successful
+step logs are discarded after a one-line result, while complete failed-step logs stay
+under the selected build tree. The compact final summary reports built targets, CTest
+selection count, render names, pass count, durations, seed policy, failure categories,
+and retained log paths. Python coverage exercises successful construction, retained
+failures, missing-command environment failures, and an injected Windows command seam.
 
 - [ ] Preflight whether a running Windows Draxul server holds a helper binary that the
       requested build/test must replace.
@@ -148,7 +159,7 @@ single final-tier command remain open below.
       preflight chooses the safe path in each case.
 - [x] Verify Windows multi-config and macOS single-config command construction and
       process cleanup.
-- [ ] Verify the final tier performs one application/test build, smoke, relevant render
+- [x] Verify the final tier performs one application/test build, smoke, relevant render
       scenarios, and full CTest without redundant reconfiguration.
 
 ## Documentation
@@ -171,7 +182,16 @@ single final-tier command remain open below.
       Draxul server is running, and handles an incompatible helper lock explicitly.
 - [x] Zero-test filters fail early with actionable syntax instead of looking like a test
       run.
-- [ ] Final output clearly distinguishes build failures, product-test failures,
+- [x] Final output clearly distinguishes build failures, product-test failures,
       snapshot failures, and validation-environment failures.
 - [x] Windows Release build, focused integration tests, smoke, render snapshots, and
       full CTest pass; macOS command construction and CI coverage remain valid.
+
+## macOS final-tier evidence (2026-09-22)
+
+`CCACHE_DIR=/tmp/draxul-ccache python3 do.py validate debug` acquired one build-tree
+lease and completed 8/8 steps in 130.49 seconds: one `draxul` + `draxul-tests` build
+(11.75s), smoke (6.60s), the five default core Metal comparisons, and all 45 selected
+unit CTest entries (103.72s). Every snapshot passed, including an exact NanoVG match.
+No failure log was retained because every step passed. The live Windows helper
+preflight and two-platform timing matrix remain explicitly open above.

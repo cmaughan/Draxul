@@ -580,9 +580,6 @@ target_link_libraries(draxul-types-link-isolation PRIVATE draxul-types)
 add_executable(draxul-font-link-isolation link_isolation/font_public_headers.cpp)
 target_link_libraries(draxul-font-link-isolation PRIVATE draxul-font)
 
-add_executable(draxul-host-link-isolation link_isolation/host_public_header.cpp)
-target_link_libraries(draxul-host-link-isolation PRIVATE draxul-host)
-
 add_executable(draxul-nvim-protocol-link-isolation
     link_isolation/nvim_protocol_public_headers.cpp)
 target_link_libraries(draxul-nvim-protocol-link-isolation PRIVATE
@@ -661,7 +658,6 @@ add_dependencies(draxul-tests
     draxul-performance-link-isolation
     draxul-types-link-isolation
     draxul-font-link-isolation
-    draxul-host-link-isolation
     draxul-nvim-protocol-link-isolation
     draxul-nvim-transport-link-isolation
     draxul-host-api-link-isolation
@@ -703,7 +699,6 @@ add_dependencies(draxul-tests-core
     draxul-performance-link-isolation
     draxul-types-link-isolation
     draxul-font-link-isolation
-    draxul-host-link-isolation
     draxul-nvim-protocol-link-isolation
     draxul-nvim-transport-link-isolation
     draxul-host-api-link-isolation

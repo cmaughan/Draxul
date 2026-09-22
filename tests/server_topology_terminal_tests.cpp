@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "support/scoped_env_var.h"
 #include "support/server_kernel_test_support.h"
 
 #include <draxul/topology_layout.h>
@@ -7,6 +8,82 @@
 using namespace draxul;
 using draxul::tests::TempDir;
 using namespace draxul::tests::server_kernel;
+
+#ifdef DRAXUL_EXECUTABLE_PATH
+namespace
+{
+
+struct CliInvocation
+{
+    int status = -1;
+    std::string output;
+    std::string error;
+    nlohmann::json json;
+};
+
+std::string shell_quote(std::string_view value)
+{
+#ifdef _WIN32
+    std::string quoted = "\"";
+    for (const char ch : value)
+    {
+        if (ch == '"')
+            quoted += "\\\"";
+        else
+            quoted += ch;
+    }
+    quoted += '"';
+    return quoted;
+#else
+    std::string quoted = "'";
+    for (const char ch : value)
+    {
+        if (ch == '\'')
+            quoted += "'\\''";
+        else
+            quoted += ch;
+    }
+    quoted += '\'';
+    return quoted;
+#endif
+}
+
+CliInvocation invoke_draxul_cli(const TempDir& temp,
+    std::string_view label, std::vector<std::string> arguments)
+{
+    const auto output_path
+        = temp.path / (std::string(label) + "-stdout.json");
+    const auto error_path
+        = temp.path / (std::string(label) + "-stderr.txt");
+    arguments.push_back("--server-runtime-dir");
+    arguments.push_back(temp.path.string());
+    arguments.push_back("--json");
+
+    std::string command = shell_quote(DRAXUL_EXECUTABLE_PATH);
+    for (const auto& argument : arguments)
+        command += " " + shell_quote(argument);
+    command += " > " + shell_quote(output_path.string());
+    command += " 2> " + shell_quote(error_path.string());
+
+    CliInvocation result;
+    result.status = std::system(command.c_str());
+    {
+        std::ifstream input(output_path, std::ios::binary);
+        result.output.assign(std::istreambuf_iterator<char>(input),
+            std::istreambuf_iterator<char>());
+    }
+    {
+        std::ifstream input(error_path, std::ios::binary);
+        result.error.assign(std::istreambuf_iterator<char>(input),
+            std::istreambuf_iterator<char>());
+    }
+    result.json = nlohmann::json::parse(
+        result.output, nullptr, false);
+    return result;
+}
+
+} // namespace
+#endif
 
 TEST_CASE("server-wide terminal allocation cap rejects topology growth",
     "[server][topology][remote-terminal][resource-bounds]")
@@ -454,6 +531,143 @@ TEST_CASE("cross-tab pane move rejects unsupported routes before mutation",
     CHECK_FALSE(local_pane.ok);
     CHECK(local_pane.error_code == "client_local_pane");
     CHECK(service.snapshot() == before);
+
+    SECTION("destination capacity rejects before mutation")
+    {
+        TopologySnapshot capacity_snapshot = before;
+        TopologyTab* full_destination = find_tab(
+            *find_space(capacity_snapshot, destination.space_id),
+            destination_tab.tab_id);
+        REQUIRE(full_destination);
+        full_destination->panes.resize(kTopologyMaxPanesPerTab);
+        TopologyService capacity_service(capacity_snapshot, {});
+        TopologyCommand capacity_move = move_final_space_pane;
+        capacity_move.command_id = "reject-destination-capacity";
+        capacity_move.expected_revision
+            = capacity_service.snapshot().revision;
+        const auto capacity = capacity_service.handle(
+            "topology.command",
+            topology_command_to_json(capacity_move));
+        CHECK_FALSE(capacity.ok);
+        CHECK(capacity.error_code == "limit_reached");
+        CHECK(capacity_service.snapshot() == capacity_snapshot);
+    }
+
+    SECTION("companion ownership rejects before mutation")
+    {
+        TopologyService companion_setup(before, {});
+        TopologyCommand split_companion_source{
+            .client_id = "move-validation",
+            .command_id = "split-companion-source",
+            .expected_revision
+            = companion_setup.snapshot().revision,
+            .kind = TopologyCommandKind::SplitPane,
+            .space_id = source.space_id,
+            .tab_id = source_tab.tab_id,
+            .pane_id = source_tab.panes.front().pane_id,
+            .direction = TopologySplitDirection::Vertical,
+            .pane_domain = TopologyPaneDomain::ClientLocal,
+            .client_host_kind = "nvim",
+        };
+        REQUIRE(companion_setup.handle("topology.command",
+                                    topology_command_to_json(
+                                        split_companion_source))
+                    .ok);
+        TopologySnapshot companion_snapshot
+            = companion_setup.snapshot();
+        TopologyTab* companion_source = find_tab(
+            *find_space(companion_snapshot, source.space_id),
+            source_tab.tab_id);
+        REQUIRE(companion_source);
+        REQUIRE(companion_source->panes.size() == 2);
+        TopologyPane* companion = find_pane(
+            *companion_source,
+            source_tab.panes.front().pane_id);
+        REQUIRE(companion);
+        companion->companion_owner_pane_id = "client-owner";
+        TopologyService companion_service(companion_snapshot, {});
+        TopologyCommand companion_move = move_final_space_pane;
+        companion_move.command_id = "reject-companion";
+        companion_move.expected_revision
+            = companion_service.snapshot().revision;
+        const auto rejected = companion_service.handle(
+            "topology.command",
+            topology_command_to_json(companion_move));
+        CHECK_FALSE(rejected.ok);
+        CHECK(rejected.error_code == "companion_pane");
+        CHECK(companion_service.snapshot() == companion_snapshot);
+    }
+
+    SECTION("destination insertion failure preserves both trees")
+    {
+        TopologyService setup("move-insertion-failure", {});
+        const TopologySpace insertion_source
+            = setup.snapshot().spaces.front();
+        const TopologyTab insertion_source_tab
+            = insertion_source.tabs.front();
+        const TopologyPane insertion_pane
+            = insertion_source_tab.panes.front();
+        TopologyCommand split_source{
+            .client_id = "move-insertion",
+            .command_id = "split-source",
+            .expected_revision = setup.snapshot().revision,
+            .kind = TopologyCommandKind::SplitPane,
+            .space_id = insertion_source.space_id,
+            .tab_id = insertion_source_tab.tab_id,
+            .pane_id = insertion_pane.pane_id,
+            .direction = TopologySplitDirection::Vertical,
+            .pane_domain = TopologyPaneDomain::ClientLocal,
+            .client_host_kind = "nvim",
+        };
+        REQUIRE(setup.handle("topology.command",
+                         topology_command_to_json(split_source))
+                .ok);
+        TopologyCommand add_destination{
+            .client_id = "move-insertion",
+            .command_id = "add-destination",
+            .expected_revision = setup.snapshot().revision,
+            .kind = TopologyCommandKind::CreateSpace,
+            .name = "Insertion destination",
+        };
+        REQUIRE(setup.handle("topology.command",
+                         topology_command_to_json(add_destination))
+                .ok);
+
+        TopologySnapshot malformed = setup.snapshot();
+        TopologySpace& insertion_destination
+            = malformed.spaces.back();
+        TopologyTab& insertion_destination_tab
+            = insertion_destination.tabs.front();
+        const std::string insertion_target
+            = insertion_destination_tab.panes.front().pane_id;
+        REQUIRE(insertion_destination_tab.nodes.size() == 1);
+        insertion_destination_tab.nodes.front().pane_id
+            = "missing-target-leaf";
+
+        TopologyService insertion_service(malformed, {});
+        TopologyCommand insertion_move{
+            .client_id = "move-insertion",
+            .command_id = "force-insertion-failure",
+            .expected_revision
+            = insertion_service.snapshot().revision,
+            .kind = TopologyCommandKind::MovePane,
+            .space_id = insertion_source.space_id,
+            .tab_id = insertion_source_tab.tab_id,
+            .destination_space_id
+            = insertion_destination.space_id,
+            .destination_tab_id
+            = insertion_destination_tab.tab_id,
+            .pane_id = insertion_pane.pane_id,
+            .target_pane_id = insertion_target,
+        };
+        const auto rejected = insertion_service.handle(
+            "topology.command",
+            topology_command_to_json(insertion_move));
+        CHECK_FALSE(rejected.ok);
+        CHECK(rejected.error_code
+            == "target_pane_not_found");
+        CHECK(insertion_service.snapshot() == malformed);
+    }
 }
 
 TEST_CASE("shared topology stores and updates client-local preview descriptors",
@@ -1204,6 +1418,149 @@ TEST_CASE("real server keeps terminal process and scrollback across a tab move",
     REQUIRE(wait_for_text(reconnected, "__MOVE_AFTER__", error));
     run_guard.join();
 }
+
+#ifdef DRAXUL_EXECUTABLE_PATH
+TEST_CASE("pane CLI resolves the authoritative route after a cross-tab move",
+    "[server][topology][pane-move][cli][process]")
+{
+    TempDir temp("draxul-cross-tab-cli-route");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "cli-move-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    TopologyClient controller({
+        .runtime_directory = temp.path,
+        .client_id = "cli-move-controller",
+    });
+    std::string error;
+    REQUIRE(controller.refresh(error));
+    const TopologySpace source_space
+        = controller.snapshot().spaces.front();
+    const TopologyTab source_tab = source_space.tabs.front();
+    const TopologyPane source_pane = source_tab.panes.front();
+
+    TopologyCommand create_tab{
+        .command_id = "cli-move-create-destination",
+        .expected_revision = controller.snapshot().revision,
+        .kind = TopologyCommandKind::CreateTab,
+        .space_id = source_space.space_id,
+        .name = "CLI destination",
+        .pane_domain = TopologyPaneDomain::ServerTerminal,
+    };
+    TopologyCommandResult created;
+    REQUIRE(controller.execute(create_tab, created, error));
+    const TopologyTab destination_tab
+        = created.snapshot.spaces.front().tabs.back();
+    const TopologyPane target_pane
+        = destination_tab.panes.front();
+
+    const auto moved = invoke_draxul_cli(temp, "move", {
+                                                           "pane",
+                                                           "move",
+                                                           source_pane.pane_id,
+                                                           "--space",
+                                                           source_space.space_id,
+                                                           "--tab",
+                                                           destination_tab.tab_id,
+                                                           "--target",
+                                                           target_pane.pane_id,
+                                                           "--direction",
+                                                           "right",
+                                                       });
+    INFO(moved.error);
+    INFO(moved.output);
+    REQUIRE(moved.status == 0);
+    REQUIRE(moved.json.is_object());
+    CHECK(moved.json["moved_pane_id"]
+        == source_pane.pane_id);
+    CHECK(moved.json["destination_space_id"]
+        == source_space.space_id);
+    CHECK(moved.json["destination_tab_id"]
+        == destination_tab.tab_id);
+
+    const auto got = invoke_draxul_cli(temp, "get", {
+                                                        "pane",
+                                                        "get",
+                                                        source_pane.pane_id,
+                                                    });
+    INFO(got.error);
+    INFO(got.output);
+    REQUIRE(got.status == 0);
+    REQUIRE(got.json.is_object());
+    CHECK(got.json["id"] == source_pane.pane_id);
+    CHECK(got.json["space_id"] == source_space.space_id);
+    CHECK(got.json["tab_id"] == destination_tab.tab_id);
+    CHECK(got.json["terminal_id"] == source_pane.terminal_id);
+
+    const auto ran = invoke_draxul_cli(temp, "run", {
+                                                        "pane",
+                                                        "run",
+                                                        source_pane.pane_id,
+                                                        "--command",
+                                                        "printf __CLI_MOVE_ROUTE__",
+                                                    });
+    INFO(ran.error);
+    INFO(ran.output);
+    REQUIRE(ran.status == 0);
+    REQUIRE(ran.json.is_object());
+    CHECK(ran.json["pane_id"] == source_pane.pane_id);
+    CHECK(ran.json["terminal_id"] == source_pane.terminal_id);
+
+    RemoteTerminalClient terminal({
+        .runtime_directory = temp.path,
+        .client_id = "cli-move-observer",
+        .expected_server_epoch = "cli-move-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = source_pane.terminal_id,
+    });
+    REQUIRE(terminal.attach(error));
+    REQUIRE(wait_for_text(
+        terminal, "__CLI_MOVE_ROUTE__", error));
+
+    const auto read = invoke_draxul_cli(temp, "read", {
+                                                          "pane",
+                                                          "read",
+                                                          source_pane.pane_id,
+                                                          "--lines",
+                                                          "20",
+                                                      });
+    INFO(read.error);
+    INFO(read.output);
+    REQUIRE(read.status == 0);
+    REQUIRE(read.json.is_object());
+    CHECK(read.json["pane_id"] == source_pane.pane_id);
+    CHECK(read.json["terminal_id"] == source_pane.terminal_id);
+    CHECK(read.json["text"].get<std::string>().find(
+              "__CLI_MOVE_ROUTE__")
+        != std::string::npos);
+
+    {
+        const draxul::tests::ScopedEnvVar current_pane(
+            "DRAXUL_PANE_ID", source_pane.pane_id.c_str());
+        // Launch-time Space/tab variables may now be stale; --current is
+        // deliberately resolved from the stable pane identity alone.
+        const auto current = invoke_draxul_cli(temp, "current", {
+                                                                    "pane",
+                                                                    "get",
+                                                                    "--current",
+                                                                });
+        INFO(current.error);
+        INFO(current.output);
+        REQUIRE(current.status == 0);
+        REQUIRE(current.json.is_object());
+        CHECK(current.json["id"] == source_pane.pane_id);
+        CHECK(current.json["space_id"] == source_space.space_id);
+        CHECK(current.json["tab_id"] == destination_tab.tab_id);
+        CHECK(current.json["terminal_id"]
+            == source_pane.terminal_id);
+    }
+    run_guard.join();
+}
+#endif
 
 TEST_CASE("server-owned shell exposes bounded client-independent scrollback pages",
     "[server][remote-terminal][process][scrollback]")

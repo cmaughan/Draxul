@@ -39,8 +39,7 @@ plugin ABI. The remaining scope is the host API/grid/presentation/Nvim split.
   copy-mode, rendering adapters) from Nvim host integration.
 - [x] Keep ConPTY and Unix PTY implementation in `draxul-terminal-process`,
   linked only by `draxul-server`; do not recreate client-local shell factories.
-- [ ] Remove the compatibility aggregate only after all consumers migrate and each phase is green.
-  It remains intentionally as an interface-only compatibility target for downstream callers.
+- [x] Remove the compatibility aggregate after all consumers migrate and the leaf-target build/test phase is green.
 
 ## Unit tests
 
@@ -87,6 +86,14 @@ plugin ABI. The remaining scope is the host API/grid/presentation/Nvim split.
 - Same-cache Metal startup smoke passed. Windows runtime coverage was unavailable
   in this workspace; the configure-time dependency audit and cross-platform source
   selection remain active.
+- Removed the final `draxul-host` compatibility interface after migrating the
+  MegaCity and SatView test aggregates to `draxul-host-api`. MegaCity now declares
+  its `draxul-config` test dependency directly instead of receiving it through the
+  broad aggregate. The leaf host targets plus both product test executables built,
+  and the host API, MegaCity, and SatView focused shards passed 5/5 on macOS.
+- The final elevated core plus Rezonality aggregate passed 30/30 after the
+  compatibility removal, followed by a same-cache Metal startup smoke.
+- Product checkpoints: MegaCity `9192341`; SatView `034d757`.
 
 ## Dependencies and ownership
 

@@ -591,10 +591,10 @@ def _test_parallel_jobs() -> str:
     return str(min(os.cpu_count() or 4, 4))
 
 
-@serialized_build
-def _configure_and_build(
+def _configure_and_build_impl(
     root: pathlib.Path, mode: str, force_reconfigure: bool, build_system: str,
     targets: tuple[str, ...] = ("draxul",),
+    validation_log_dir: pathlib.Path | None = None,
 ) -> tuple[int, pathlib.Path, str, dict[str, str] | None]:
     """Configure + build.  Returns (rc, build_dir, config, env)."""
     is_win = sys.platform.startswith("win")
@@ -654,8 +654,20 @@ def _configure_and_build(
             print(f"\n> CMake cache exists but generated build file is missing: {missing_build_file}")
             need_configure = True
 
+    def run_build_step(command: list[str], step_name: str) -> int:
+        if validation_log_dir is None:
+            return run(command, root, env=env)
+        return _run_logged_validation_command(
+            command,
+            root,
+            step_name=step_name,
+            kind="build",
+            log_dir=validation_log_dir,
+            env=env,
+        ).return_code
+
     if need_configure:
-        rc = run(["cmake", "--preset", preset], root, env=env)
+        rc = run_build_step(["cmake", "--preset", preset], "configure")
         if rc != 0:
             return rc, bd, config, env
     else:
@@ -665,8 +677,18 @@ def _configure_and_build(
     if targets:
         build_cmd.extend(["--target", *targets])
     build_cmd.extend(["--parallel", _parallel_jobs()])
-    rc = run(build_cmd, root, env=env)
+    rc = run_build_step(build_cmd, "build")
     return rc, bd, config, env
+
+
+@serialized_build
+def _configure_and_build(
+    root: pathlib.Path, mode: str, force_reconfigure: bool, build_system: str,
+    targets: tuple[str, ...] = ("draxul",),
+) -> tuple[int, pathlib.Path, str, dict[str, str] | None]:
+    return _configure_and_build_impl(
+        root, mode, force_reconfigure, build_system, targets=targets
+    )
 
 
 def cmd_build(root: pathlib.Path, args: list[str]) -> int:
@@ -1467,6 +1489,129 @@ def _capture_owned_process(
         return return_code, output.read()
 
 
+class ValidationStepResult:
+    __slots__ = (
+        "name",
+        "kind",
+        "return_code",
+        "duration_seconds",
+        "log_path",
+        "detail",
+    )
+
+    def __init__(
+        self,
+        name: str,
+        kind: str,
+        return_code: int,
+        duration_seconds: float,
+        log_path: pathlib.Path | None = None,
+        detail: str = "",
+    ) -> None:
+        self.name = name
+        self.kind = kind
+        self.return_code = return_code
+        self.duration_seconds = duration_seconds
+        self.log_path = log_path
+        self.detail = detail
+
+    @property
+    def classification(self) -> str:
+        return _validation_classification(self.kind, self.return_code)
+
+
+def _validation_classification(kind: str, return_code: int) -> str:
+    if return_code == 0:
+        return "passed"
+    if return_code in (124, 125, 130) or kind == "environment":
+        return "validation-environment failure"
+    return {
+        "build": "build failure",
+        "ctest": "product-test failure",
+        "render": "snapshot failure",
+        "smoke": "startup failure",
+    }.get(kind, "validation failure")
+
+
+def _validation_log_path(log_dir: pathlib.Path, step_name: str) -> pathlib.Path:
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", step_name).strip("-") or "step"
+    return log_dir / f"{safe_name}.log"
+
+
+def _run_logged_validation_command(
+    command: list[str],
+    cwd: pathlib.Path,
+    *,
+    step_name: str,
+    kind: str,
+    log_dir: pathlib.Path,
+    env: dict[str, str] | None = None,
+    timeout_seconds: float | None = None,
+) -> ValidationStepResult:
+    """Run one owned step quietly, retaining the complete log only on failure."""
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = _validation_log_path(log_dir, step_name)
+    print("> " + shlex.join(command))
+    print(f"  [{step_name}] live log: {log_path}")
+    started = time.monotonic()
+    with log_path.open("w", encoding="utf-8") as output:
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=cwd,
+                env=env,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                text=True,
+                **_owned_process_options(),
+            )
+        except OSError as error:
+            output.write(f"could not start command: {error}\n")
+            return_code = 125
+            process = None
+        try:
+            if process is not None:
+                return_code = process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            print(
+                f"ERROR: {step_name} exceeded {timeout_seconds:g}s; "
+                f"stopping owned process tree (PID {process.pid})",
+                file=sys.stderr,
+            )
+            _stop_owned_process_tree(process, cwd)
+            return_code = 124
+        except KeyboardInterrupt:
+            _stop_owned_process_tree(process, cwd)
+            raise
+    duration = time.monotonic() - started
+    if return_code == 0:
+        log_path.unlink(missing_ok=True)
+        print(f"  [{step_name}] passed in {duration:.2f}s")
+        retained_log = None
+    else:
+        try:
+            lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            lines = []
+        print(
+            f"  [{step_name}] {_validation_classification(kind, return_code)}; "
+            f"last {min(len(lines), 30)} line(s):",
+            file=sys.stderr,
+        )
+        for line in lines[-30:]:
+            print(f"    {line}", file=sys.stderr)
+        print(f"  complete log: {log_path}", file=sys.stderr)
+        retained_log = log_path
+    return ValidationStepResult(
+        step_name,
+        kind,
+        return_code,
+        duration,
+        retained_log,
+        shlex.join(command),
+    )
+
+
 def run_bounded_process_tree(
     command: list[str],
     cwd: pathlib.Path,
@@ -1573,6 +1718,248 @@ def cmd_smoke(root: pathlib.Path, args: list[str]) -> int:
         env=env,
         timeout_seconds=30,
     )
+
+
+def _default_validation_render_scenarios(root: pathlib.Path) -> tuple[str, ...]:
+    platform = platform_suffix()
+    return tuple(
+        scenario["name"]
+        for scenario in load_render_manifest(root)
+        if scenario["renderall"]
+        and platform in scenario["platforms"]
+        and "test_scope" not in scenario
+        and not scenario["name"].endswith("-plugin")
+    )
+
+
+def _parse_validate_args(
+    root: pathlib.Path, args: list[str],
+) -> tuple[str, bool, str, tuple[str, ...]]:
+    render_names: list[str] = []
+    no_render = False
+    build_args: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--render":
+            index += 1
+            if index >= len(args) or not args[index] or args[index].startswith("--"):
+                raise ValueError("--render requires a scenario name")
+            render_names.append(args[index])
+        elif arg == "--no-render":
+            if no_render:
+                raise ValueError("--no-render may be specified only once")
+            no_render = True
+        else:
+            build_args.append(arg)
+        index += 1
+
+    mode, force_reconfigure, build_system, use_console, extra_args = _parse_build_args(
+        build_args
+    )
+    if use_console or extra_args:
+        raise ValueError(
+            "validate accepts [debug|release|relwithdebinfo] "
+            "[--reconfigure] [--vs|--ninja] "
+            "[--render <scenario>]... [--no-render]"
+        )
+    if no_render and render_names:
+        raise ValueError("--no-render cannot be combined with --render")
+
+    selected = () if no_render else tuple(dict.fromkeys(render_names))
+    if not no_render:
+        manifest = {
+            scenario["name"]: scenario for scenario in load_render_manifest(root)
+        }
+        platform = platform_suffix()
+        for name in selected:
+            scenario = manifest.get(name)
+            if scenario is None:
+                raise ValueError(f"unknown render scenario: {name}")
+            if not scenario["reference_required"]:
+                raise ValueError(f"render scenario has no comparison reference: {name}")
+            if platform not in scenario["platforms"]:
+                raise ValueError(f"render scenario {name} is unavailable on {platform}")
+        if not selected:
+            selected = _default_validation_render_scenarios(root)
+    return mode, force_reconfigure, build_system, selected
+
+
+def _print_final_validation_summary(
+    *,
+    targets: tuple[str, ...],
+    selected_tests: int | None,
+    render_names: tuple[str, ...],
+    steps: list[ValidationStepResult],
+) -> None:
+    passed = sum(step.return_code == 0 for step in steps)
+    duration = sum(step.duration_seconds for step in steps)
+    print("\n=== Final validation summary ===")
+    print("targets built: " + ", ".join(targets))
+    print("tests selected: " + (
+        f"{selected_tests} CTest entries" if selected_tests is not None else "not reached"
+    ))
+    print("renders: " + (", ".join(render_names) if render_names else "none requested"))
+    print(f"steps: {passed}/{len(steps)} passed; duration: {duration:.2f}s")
+    print("seeds: none (CTest registered order)")
+    for step in steps:
+        log_suffix = f"; log: {step.log_path}" if step.log_path else ""
+        print(
+            f"  {step.name}: {step.classification} "
+            f"({step.duration_seconds:.2f}s){log_suffix}"
+        )
+
+
+def cmd_validate(root: pathlib.Path, args: list[str]) -> int:
+    """Build once, then run smoke, selected snapshots, and the full unit inventory."""
+    try:
+        mode, force_reconfigure, build_system, render_names = _parse_validate_args(
+            root, args
+        )
+    except ValueError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+
+    build_tree = _selected_build_dir(root, mode, build_system)
+    run_label = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S-%f")
+    log_dir = build_tree / "validation-logs" / run_label
+    targets = ("draxul", "draxul-tests")
+    steps: list[ValidationStepResult] = []
+    selected_tests: int | None = None
+    lock = BuildTreeLock(build_tree)
+    try:
+        lock.acquire()
+    except BuildTreeBusyError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 3
+
+    final_return_code = 0
+    try:
+        build_started = time.monotonic()
+        rc, bd, config, env = _configure_and_build_impl(
+            root,
+            mode,
+            force_reconfigure,
+            build_system,
+            targets=targets,
+            validation_log_dir=log_dir,
+        )
+        build_duration = time.monotonic() - build_started
+        build_log = next(
+            (path for path in (log_dir / "build.log", log_dir / "configure.log") if path.exists()),
+            None,
+        )
+        steps.append(
+            ValidationStepResult("build", "build", rc, build_duration, build_log)
+        )
+        if rc != 0:
+            final_return_code = rc
+            _print_final_validation_summary(
+                targets=targets,
+                selected_tests=None,
+                render_names=render_names,
+                steps=steps,
+            )
+            lock.finish(final_return_code)
+            return final_return_code
+
+        executable = draxul_exe(bd, config)
+        if not executable.is_file():
+            steps.append(
+                ValidationStepResult(
+                    "app executable",
+                    "environment",
+                    1,
+                    0.0,
+                    detail=str(executable),
+                )
+            )
+        else:
+            steps.append(
+                _run_logged_validation_command(
+                    [str(executable), "--console", "--smoke-test"],
+                    root,
+                    step_name="smoke",
+                    kind="smoke",
+                    log_dir=log_dir,
+                    env=env,
+                    timeout_seconds=30,
+                )
+            )
+            for scenario_name in render_names:
+                steps.append(
+                    _run_logged_validation_command(
+                        [
+                            str(executable),
+                            "--console",
+                            "--render-test",
+                            str(scenario_path(root, scenario_name)),
+                            "--show-render-test-window",
+                        ],
+                        root,
+                        step_name=f"render-{scenario_name}",
+                        kind="render",
+                        log_dir=log_dir,
+                        env=env,
+                        timeout_seconds=60,
+                    )
+                )
+                print_render_report(root, scenario_name)
+
+        ctest_filter = ["--label-regex", "unit"]
+        selection_rc, selected_tests, selection_output = _ctest_selection_count(
+            root, bd, config, env, ctest_filter
+        )
+        if selection_rc != 0 or not selected_tests:
+            inventory_log = _validation_log_path(log_dir, "ctest-inventory")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            inventory_log.write_text(selection_output, encoding="utf-8")
+            steps.append(
+                ValidationStepResult(
+                    "ctest inventory", "environment", selection_rc or 2, 0.0, inventory_log
+                )
+            )
+        else:
+            steps.append(
+                _run_logged_validation_command(
+                    [
+                        "ctest",
+                        "--test-dir",
+                        str(bd),
+                        "--build-config",
+                        config,
+                        "--parallel",
+                        _test_parallel_jobs(),
+                        "--timeout",
+                        "120",
+                        "--no-tests=error",
+                        *ctest_filter,
+                        "--output-on-failure",
+                    ],
+                    root,
+                    step_name="ctest-unit",
+                    kind="ctest",
+                    log_dir=log_dir,
+                    env=env,
+                )
+            )
+
+        failed_steps = [step for step in steps if step.return_code != 0]
+        if failed_steps:
+            final_return_code = failed_steps[0].return_code or 1
+        _print_final_validation_summary(
+            targets=targets,
+            selected_tests=selected_tests,
+            render_names=render_names,
+            steps=steps,
+        )
+        lock.finish(final_return_code)
+        return final_return_code
+    except BaseException:
+        lock.finish(130, status="interrupted")
+        raise
+    finally:
+        lock.release()
 
 
 def cmd_score_shot_check(root: pathlib.Path) -> int:
@@ -1870,6 +2257,10 @@ Single-word shortcuts:
   clean        Remove repository build directories
   smoke [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--skip-build]
                Run the app smoke test (default: debug, ninja on Windows)
+  validate [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja]
+           [--render <scenario>]... [--no-render]
+               Build app + full test inventory once, then run smoke, selected
+               snapshots, and full CTest with retained failure logs
   score-shot-check  Regression guard (kanban 74): ScoreView plugin --screenshot-size + .musicxml
   test [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--verbose]
        [--label <label>]
@@ -1918,6 +2309,8 @@ Examples:
   do test --products       # Core + every product test suite
   do test --all            # Complete unit inventory
   do smoke --skip-build    # Reuse that already-built Debug cache
+  do validate --render panel-view
+                            # One final build, smoke, panel snapshot, full CTest
   do run release           # Final Release build and startup check
   do basic
   do blessall
@@ -2085,6 +2478,9 @@ def main() -> int:
 
     if command == "smoke":
         return cmd_smoke(root, args[1:])
+
+    if command == "validate":
+        return cmd_validate(root, args[1:])
 
     if command == "score-shot-check":
         return cmd_score_shot_check(root)

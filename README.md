@@ -198,6 +198,7 @@ The root `do.py` script is the recommended entry point for common tasks:
 ./do.py test --products # Add every product test suite
 ./do.py test --all      # Complete unit inventory
 ./do.py smoke --skip-build # reuse that app; bounded to 30s in an owned process group
+./do.py validate        # one build + smoke + core snapshots + complete unit CTest
 ./do.py clean        # remove repository-root build/ and build-* directories
 
 ./do.py basic        # run basic-view render snapshot compare
@@ -228,6 +229,7 @@ py do.py test --scoreview      # Core + ScoreView suites
 py do.py test --products       # Core + every product suite
 py do.py test --all            # Complete unit inventory
 py do.py smoke --skip-build    # Startup check without another build
+py do.py validate              # One final build, smoke, snapshots, full unit gate
 py do.py run release           # Final Release build + startup confirmation
 py do.py run release --vs      # Explicit VS-generator check when needed
 py do.py run --console         # Attach a debug console (Windows)
@@ -247,6 +249,16 @@ Configure/build work is serialized per selected build tree. A second `do.py` bui
 Product tests are opt-in and additive: use `--megacity`, `--satview`, `--scoreview`, or `--rezonality` when changing that product or a shared seam it consumes. Use `--products` for changes to shared plugin SDK/support/renderer code that can affect every product. `--all` builds the historical `draxul-tests` aggregate and runs the complete unit inventory. The individual product flags and `--products` keep the build scoped to their named aggregates; `--all` is the explicit broad acceptance path. The Rezonality scope additionally runs its real PBR edit/error/recovery integration and fixed robot render comparison; those cases are omitted from core-only runs and are not registered when the submodule target is unavailable.
 
 Before committing, run `do.py test debug` with any relevant product flag, then `do.py smoke --skip-build` so smoke reuses the app already produced in that cache. Run only the relevant render shortcut for rendering-affecting changes. Finish a completed feature or bug fix with `do.py run release` and confirm startup; headless automation can use `do.py run release --console -- --smoke-test`.
+
+For a change that requires the complete local inventory, `do.py validate debug` is the
+single final tier. It holds the selected build-tree lease for the whole run, builds
+`draxul` and `draxul-tests` once, runs bounded smoke, compares the five core render
+scenarios available on the host, then runs every registered unit CTest entry. Repeat
+`--render <scenario>` to choose a different relevant snapshot set, or pass
+`--no-render` when visual coverage is explicitly irrelevant. Each successful step
+prints one status line. A failure prints only its diagnostic tail, retains the complete
+log below `<build-tree>/validation-logs/`, and appears in the final summary as a build,
+startup, snapshot, product-test, or validation-environment failure.
 
 On Windows, a long-lived Draxul server keeps its selected cache's `draxul-server.exe` open. If the Debug app has since been relinked, run process-launch tests before starting that server or safely stop that exact server after checking for connected clients and live terminals. Do not switch the entire test pass to another generator merely to avoid the helper lock.
 

@@ -182,8 +182,8 @@ layout, JSON persistence, atomic single-file replacement, and reload overlays;
 `PluginHost` retains callback/thread/generation validation and reload activation.
 Overlay commit intentionally preserves best-effort partial publication: files
 published before the first failure remain published, with no multi-file rollback.
-`draxul-host` is an interface-only compatibility aggregate over those static
-leaves during consumer migration.
+Consumers link the smallest owning host leaf directly; the former broad
+compatibility aggregate has been removed.
 The client-local terminal surface (selection, copy-on-select, copy mode, mouse
 reporting hand-off, hyperlink activation, pixel→cell mapping) lives once in
 `TerminalSurfaceHostBase`, which sits between `GridHostBase` and both
@@ -316,7 +316,7 @@ Good place for:
 | `libs/draxul-gui/` | GPU-grid-native overlays such as palettes, tooltips, and toasts; no ImGui frame loop |
 | `libs/draxul-ui/` | ImGui diagnostics and developer-facing UI (key translation lives in `libs/draxul-imgui-core`) |
 | `libs/draxul-runtime-support/` | Shared grid-render pipeline, printing, resource monitoring, and background UI requests |
-| `libs/draxul-host/` | Five static leaves: neutral `draxul-host-api`, renderer-backed `draxul-grid-host`, process-free client presentation in `draxul-terminal-host`, concrete `draxul-nvim-host`, and `draxul-plugin-host`; `draxul-host` is the compatibility aggregate |
+| `libs/draxul-host/` | Five independently linked static leaves: neutral `draxul-host-api`, renderer-backed `draxul-grid-host`, process-free client presentation in `draxul-terminal-host`, concrete `draxul-nvim-host`, and `draxul-plugin-host` |
 | `libs/draxul-app-shell/` | Renderer/window/host-free split-tree, root-shell, chrome/pill, rename, and fuzzy-match behavior |
 | `libs/draxul-nanovg/` | Two targets: `draxul-nanovg-backend` (NanoVG core + custom Vulkan/Metal backends and their GLSL shaders; leaf-narrow, exported as `Draxul::PluginSupport::NanoVG` with a settable shader root for plugin hosts; its device-free paint conversion is shared by both native backends) and `draxul-nanovg` (the in-process `INanoVGPass` render-pass integration) |
 | `libs/draxul-render-test/` | Render-test driver and reusable render-test hosts |

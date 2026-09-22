@@ -1150,6 +1150,134 @@ TEST_CASE("server reports checkpoint failure and preserves the last good file",
     REQUIRE(preserved == original);
 }
 
+TEST_CASE("asynchronous checkpoint failure preserves the last durable topology without rolling back a pane move",
+    "[server][topology][persistence][pane-move]")
+{
+    TempDir temp("draxul-server-move-checkpoint-failure");
+    std::atomic_bool reject_checkpoints = false;
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .session_checkpoint_interval
+        = std::chrono::milliseconds(20),
+        .epoch_override = "move-checkpoint-failure",
+        .checkpoint_save
+        = [&reject_checkpoints](const SessionSnapshot& snapshot,
+              const std::filesystem::path& path,
+              std::string* error) {
+              if (reject_checkpoints.load())
+              {
+                  if (error)
+                      *error = "injected checkpoint rejection";
+                  return false;
+              }
+              return save_session_state_to_path(
+                  snapshot, path, error);
+          },
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    TopologyClient client({
+        .runtime_directory = temp.path,
+        .client_id = "move-checkpoint-client",
+    });
+    std::string error;
+    REQUIRE(client.refresh(error));
+    const TopologySpace source_space
+        = client.snapshot().spaces.front();
+    const TopologyTab source_tab = source_space.tabs.front();
+    const TopologyPane source_pane = source_tab.panes.front();
+
+    TopologyCommand create_destination{
+        .command_id = "move-checkpoint-destination",
+        .expected_revision = client.snapshot().revision,
+        .kind = TopologyCommandKind::CreateTab,
+        .space_id = source_space.space_id,
+        .name = "Durable destination",
+        .pane_domain = TopologyPaneDomain::ServerTerminal,
+    };
+    TopologyCommandResult created;
+    REQUIRE(client.execute(
+        create_destination, created, error));
+    const TopologyTab destination_tab
+        = created.snapshot.spaces.front().tabs.back();
+
+    std::optional<SessionSnapshot> durable_before_move;
+    for (int attempt = 0; attempt < 200; ++attempt)
+    {
+        durable_before_move = load_session_state_from_path(
+            server_session_state_path(temp.path), &error);
+        if (durable_before_move
+            && durable_before_move->spaces.size() == 1
+            && durable_before_move->spaces.front().tabs.size()
+                == 2)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(10));
+    }
+    INFO(error);
+    REQUIRE(durable_before_move);
+    REQUIRE(durable_before_move->spaces.front().tabs.size()
+        == 2);
+
+    reject_checkpoints.store(true);
+    TopologyCommand move{
+        .command_id = "move-after-durable-checkpoint",
+        .expected_revision = client.snapshot().revision,
+        .kind = TopologyCommandKind::MovePane,
+        .space_id = source_space.space_id,
+        .tab_id = source_tab.tab_id,
+        .destination_space_id = source_space.space_id,
+        .destination_tab_id = destination_tab.tab_id,
+        .pane_id = source_pane.pane_id,
+        .target_pane_id
+        = destination_tab.panes.front().pane_id,
+    };
+    TopologyCommandResult moved;
+    REQUIRE(client.execute(move, moved, error));
+    REQUIRE(moved.snapshot.spaces.front().tabs.size() == 1);
+    const TopologyTab& live_destination
+        = moved.snapshot.spaces.front().tabs.front();
+    CHECK(live_destination.tab_id == destination_tab.tab_id);
+    const auto live_pane = std::ranges::find(
+        live_destination.panes, source_pane.pane_id,
+        &TopologyPane::pane_id);
+    REQUIRE(live_pane != live_destination.panes.end());
+    CHECK(live_pane->terminal_id == source_pane.terminal_id);
+
+    std::optional<ServerStatusSnapshot> failed_status;
+    for (int attempt = 0; attempt < 200; ++attempt)
+    {
+        const auto status = ServerClient::status(temp.path);
+        REQUIRE(status.ok);
+        if (status.status->checkpoint_state == "failed")
+        {
+            failed_status = status.status;
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(10));
+    }
+    REQUIRE(failed_status);
+    CHECK(failed_status->checkpoint_error
+        == "injected checkpoint rejection");
+
+    auto durable_after_failure = load_session_state_from_path(
+        server_session_state_path(temp.path), &error);
+    INFO(error);
+    REQUIRE(durable_after_failure);
+    // Checkpoint publication is asynchronous. A failed write preserves the
+    // previous completed checkpoint while the accepted live move remains
+    // authoritative until a later checkpoint succeeds.
+    CHECK(durable_after_failure->spaces.front().tabs.size()
+        == 2);
+    CHECK(client.snapshot() == moved.snapshot);
+    run_guard.join();
+}
+
 TEST_CASE("server contains an inaccessible default checkpoint and restores other Sessions",
     "[server][topology][persistence][filesystem]")
 {
