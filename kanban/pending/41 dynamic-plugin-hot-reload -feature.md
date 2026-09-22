@@ -18,7 +18,7 @@ when the replacement cannot start.
       pane restart, renderer-idle, and client-local topology paths.
 - [x] Define the atomic whole-package publication contract for manifest,
       module, dependencies, shaders, and assets.
-- [ ] Confirm Windows replacement avoids locking build output.
+- [x] Confirm Windows replacement avoids locking build output.
 - [x] Confirm macOS loads a distinct staged image without weakening existing
       symbol/Objective-C isolation. The focused integration test loads v1 from
       private per-UI staging paths, publishes a same-ID v2 image, and activates
@@ -77,7 +77,7 @@ when the replacement cannot start.
       and SDK documentation.
 - [x] A malformed, partial, incompatible, or failed candidate never takes down
       a working plugin pane.
-- [ ] A valid replacement can be rebuilt and activated on Windows without
+- [x] A valid replacement can be rebuilt and activated on Windows without
       restarting Draxul or overwriting a loaded module.
 - [x] A valid replacement can be rebuilt and activated on macOS without
       restarting Draxul or overwriting a loaded module. Evidence:
@@ -90,9 +90,18 @@ when the replacement cannot start.
       compatible plugins preserve their bounded transient state.
 - [x] Users receive an unambiguous cohort reload, rollback, or failure result.
 
+## Windows validation (2026-09-22)
+
+The Windows integration suite loads v1 from a UI-private staged path, replaces
+the published package image with the rebuilt v2 fixture while v1 remains
+resident, prepares v2 at a distinct staged path, and activates it without
+restarting Draxul. It also keeps a second UI manager interactive on its resident
+v1 generation. `py do.py test debug --products` passed. The Vulkan and Metal
+reload-between-frames render harness boxes remain intentionally open.
+
 ## Dependencies and ownership
 
 Core owns loader, host lifecycle, SDK extension, generic package staging,
 control/UI routing, and tests.  Product repositories adopt the optional state
 extension after the core contract is frozen.  Coordinate changes to `IHost` or
-host-target boundaries with `kanban/pending/02 host-layer-static-libraries -refactor.md`.
+host-target boundaries with `kanban/done/02 host-layer-static-libraries -refactor.md`.

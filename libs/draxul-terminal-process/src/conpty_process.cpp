@@ -878,13 +878,13 @@ void ConPtyProcess::shutdown()
         // Keep teardown synchronous and bounded: a detached reaper can be
         // destroyed during app exit before it terminates the shell process.
         DWORD exit_code = 0;
-        if (GetExitCodeProcess(process_handle, &exit_code))
+        if (query_process_exit_code_(process_handle, &exit_code))
         {
             if (exit_code == STILL_ACTIVE)
             {
                 TerminateProcess(process_handle, 0);
                 WaitForSingleObject(process_handle, 2000);
-                if (GetExitCodeProcess(process_handle, &exit_code) && exit_code != STILL_ACTIVE)
+                if (query_process_exit_code_(process_handle, &exit_code) && exit_code != STILL_ACTIVE)
                 {
                     std::lock_guard process_lock(process_mutex_);
                     last_exit_code_ = static_cast<int>(exit_code);
@@ -944,7 +944,7 @@ bool ConPtyProcess::is_running() const
     if (!proc_info_.hProcess)
         return false;
     DWORD exit_code = 0;
-    if (!GetExitCodeProcess(proc_info_.hProcess, &exit_code))
+    if (!query_process_exit_code_(proc_info_.hProcess, &exit_code))
         return true; // unknown status must not retire a potentially live pane
     if (exit_code != STILL_ACTIVE)
         last_exit_code_ = static_cast<int>(exit_code);
@@ -958,7 +958,7 @@ std::optional<int> ConPtyProcess::exit_code() const
         return last_exit_code_;
 
     DWORD exit_code = 0;
-    if (!GetExitCodeProcess(proc_info_.hProcess, &exit_code)
+    if (!query_process_exit_code_(proc_info_.hProcess, &exit_code)
         || exit_code == STILL_ACTIVE)
         return std::nullopt;
 
@@ -972,7 +972,7 @@ std::string ConPtyProcess::current_working_directory() const
     if (!proc_info_.hProcess)
         return {};
     DWORD exit_code = 0;
-    if (!GetExitCodeProcess(proc_info_.hProcess, &exit_code)
+    if (!query_process_exit_code_(proc_info_.hProcess, &exit_code)
         || exit_code != STILL_ACTIVE)
         return {};
     return read_remote_current_directory(proc_info_.hProcess);
@@ -984,7 +984,7 @@ uint64_t ConPtyProcess::process_id() const
     if (!proc_info_.hProcess)
         return 0;
     DWORD exit_code = 0;
-    if (!GetExitCodeProcess(proc_info_.hProcess, &exit_code))
+    if (!query_process_exit_code_(proc_info_.hProcess, &exit_code))
         return static_cast<uint64_t>(proc_info_.dwProcessId);
     if (exit_code == STILL_ACTIVE)
         return static_cast<uint64_t>(proc_info_.dwProcessId);
@@ -1001,7 +1001,7 @@ ConPtyProcess::foreground_process_observation() const
         if (!proc_info_.hProcess || proc_info_.dwProcessId == 0)
             return std::nullopt;
         DWORD exit_code = 0;
-        if (GetExitCodeProcess(proc_info_.hProcess, &exit_code)
+        if (query_process_exit_code_(proc_info_.hProcess, &exit_code)
             && exit_code != STILL_ACTIVE)
         {
             last_exit_code_ = static_cast<int>(exit_code);

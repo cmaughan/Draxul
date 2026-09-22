@@ -21,6 +21,7 @@ struct RenderTestScenario
     HostKind host_kind = HostKind::Nvim;
     std::string host_command;
     std::vector<std::string> host_args;
+    std::filesystem::path source_path;
     std::string plugin_id;
     std::string plugin_config_json;
     std::vector<std::string> commands;

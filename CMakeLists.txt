@@ -94,10 +94,15 @@ function(draxul_apply_sanitizers target)
         return()
     endif()
     if(MSVC)
-        target_compile_options(${target} PRIVATE /fsanitize:address)
-        if(_draxul_target_links)
-            target_link_options(${target} PRIVATE /fsanitize:address)
-        endif()
+        # MSVC records the required ASan runtime in each instrumented object;
+        # link.exe infers those libraries by default via /INFERASANLIBS.
+        target_compile_options(${target} PRIVATE /fsanitize=address)
+        # Keep the STL container annotation ABI compatible with uninstrumented
+        # third-party static libraries. Memory-access instrumentation remains
+        # enabled; only vector/string spare-capacity poisoning is disabled.
+        target_compile_definitions(${target} PRIVATE
+            _DISABLE_VECTOR_ANNOTATION
+            _DISABLE_STRING_ANNOTATION)
     elseif(APPLE)
         # Apple Clang: LSan is bundled inside ASan; -fsanitize=leak alone is not supported
         target_compile_options(${target} PRIVATE

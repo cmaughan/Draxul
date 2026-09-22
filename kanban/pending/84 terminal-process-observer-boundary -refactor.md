@@ -13,7 +13,7 @@
 
 - [x] Capture lazy startup, probe limits, absence semantics, refresh cadence, and stop ordering.
 - [x] Document borrowed handles/file descriptors and Windows completion-key identity.
-- [x] Coordinate existing `kanban/pending/20 conpty-output-handle-shutdown-race -bug.md`, `kanban/pending/29 conpty-process-status-query-failure -bug.md`, `kanban/pending/50 pty-backpressure-shutdown-wakeup -bug.md`, and `kanban/pending/61 conpty-exited-process-id -bug.md`.
+- [x] Coordinate existing `kanban/done/20 conpty-output-handle-shutdown-race -bug.md`, `kanban/done/29 conpty-process-status-query-failure -bug.md`, `kanban/done/50 pty-backpressure-shutdown-wakeup -bug.md`, and `kanban/done/61 conpty-exited-process-id -bug.md`.
 
 #### Implementation and migration
 
@@ -34,7 +34,7 @@
 
 - [x] Preserve macOS foreground-group reliability.
 - [ ] Preserve Windows job/tree policy and existing Linux `/proc` behavior.
-- [ ] Verify shutdown interrupts native waits without accessing closed resources.
+- [x] Verify shutdown interrupts native waits without accessing closed resources.
 - [x] Run `python3 do.py test debug`, then `python3 do.py smoke debug --skip-build` on macOS.
 - [ ] Run the Windows equivalents.
 - [x] Confirm no Vulkan/Metal/window dependency enters the process library.
@@ -61,5 +61,17 @@
   passed with local socket access.
 - `python3 do.py test debug` passed all 23 selected aggregate entries, and
   `python3 do.py smoke debug --skip-build` passed from the same cache.
-- Windows and Linux validation remain outstanding, so the combined
-  cross-platform, native-wait, and final compatibility boxes stay unchecked.
+- Windows unit/integration validation is now recorded below. Linux validation
+  and the final all-platform compatibility claim remain outstanding.
+
+#### Windows validation evidence (2026-09-22)
+
+- The real ConPTY integration detected a temporary `codex.exe` descendant,
+  published it in probe order, observed its exit, and shut down cleanly.
+- The observer stop regression interrupts an otherwise one-hour wait and resets
+  publication before restart; repeated active-output ConPTY shutdown also
+  completed without accessing retired handles.
+- `py do.py test debug --products` passed in the normal MSVC/Vulkan cache; the
+  same-cache Windows smoke remains pending for the combined workflow box.
+- Linux `/proc` behavior was not exercised on this host, so the combined
+  Windows/Linux policy and final all-platform compatibility boxes remain open.

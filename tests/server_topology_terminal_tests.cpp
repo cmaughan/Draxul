@@ -64,6 +64,12 @@ CliInvocation invoke_draxul_cli(const TempDir& temp,
         command += " " + shell_quote(argument);
     command += " > " + shell_quote(output_path.string());
     command += " 2> " + shell_quote(error_path.string());
+#ifdef _WIN32
+    // std::system() dispatches through cmd.exe /c. Its first/last-quote
+    // stripping misparses a quoted executable followed by quoted arguments,
+    // so quote the complete command line as the /c command group.
+    command = '"' + command + '"';
+#endif
 
     CliInvocation result;
     result.status = std::system(command.c_str());

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pathlib
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -19,6 +21,14 @@ assert SPEC and SPEC.loader
 review = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = review
 SPEC.loader.exec_module(review)
+
+
+def remove_tree_with_readonly_files(path: pathlib.Path) -> None:
+    def retry_with_write_permission(function, failed_path, _error_info):
+        os.chmod(failed_path, os.stat(failed_path).st_mode | stat.S_IWUSR)
+        function(failed_path)
+
+    shutil.rmtree(path, onerror=retry_with_write_permission)
 
 
 class ReviewerSelectionTests(unittest.TestCase):
@@ -246,7 +256,7 @@ class SnapshotTests(unittest.TestCase):
             self.assertNotIn(pathlib.Path("plugins/product/ignored.txt"), files)
             self.assertNotIn(pathlib.Path("plugins/product/plans/reviews/old.md"), files)
             self.assertFalse((snapshot / "plugins/product/.git").exists())
-            shutil.rmtree(nested / ".git")
+            remove_tree_with_readonly_files(nested / ".git")
             with self.assertRaisesRegex(review.ReviewError, "not initialized"):
                 review.snapshot_file_list(root)
 

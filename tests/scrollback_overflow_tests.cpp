@@ -177,23 +177,25 @@ struct LocalSbSetup
 
     void click_cell(int col, int row, int mod = 0)
     {
-        MouseButtonEvent event;
+        MouseButtonEvent event{};
         event.button = 1;
         event.pressed = true;
         event.pos = { col * 8, row * 16 };
         event.mod = static_cast<uint16_t>(mod);
         host.on_mouse_button(event);
+        event.pressed = false;
+        host.on_mouse_button(event);
     }
 
     void select_cells(int first_col, int row, int last_col)
     {
-        MouseButtonEvent press;
+        MouseButtonEvent press{};
         press.button = 1;
         press.pressed = true;
         press.pos = { first_col * 8, row * 16 };
         host.on_mouse_button(press);
 
-        MouseMoveEvent move;
+        MouseMoveEvent move{};
         move.pos = { last_col * 8, row * 16 };
         host.on_mouse_move(move);
 

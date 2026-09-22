@@ -4,7 +4,7 @@
 **Priority:** P1 / sequence 40
 **Design:** `plans/session-event-stream.md`
 **Depends on by phase:** `kanban/pending/12 control-transport-boundary -refactor.md`
-and `kanban/pending/13 server-kernel-private-decomposition -refactor.md`
+and `kanban/done/13 server-kernel-private-decomposition -refactor.md`
 
 ## Goal
 
@@ -30,7 +30,7 @@ status, diagnostics, CLI access, and compatibility.
   not reach into or duplicate those platform backends.
 - The persistent endpoint and per-UI writer lifecycle also wait for the private
   ownership split in
-  `kanban/pending/13 server-kernel-private-decomposition -refactor.md`.
+  `kanban/done/13 server-kernel-private-decomposition -refactor.md`.
 - Do not implement per-pane long polling on the four-worker synchronous control
   endpoint. It recreates the starvation this card is intended to remove.
 

@@ -148,6 +148,14 @@ int main()
         return 0;
     }
 
+    if (current_mode == "unresponsive")
+    {
+        // Ignore pipe closure long enough to force the Windows process owner
+        // through its bounded background wait and termination path.
+        std::this_thread::sleep_for(std::chrono::seconds(30));
+        return 0;
+    }
+
     if (!wait_for_request_byte())
         return 2;
     constexpr uint32_t msgid = 1;

@@ -136,11 +136,16 @@ TEST_CASE("Windows nvim process status is safe during concurrent shutdown", "[nv
     }
 
     DWORD handle_count_after = 0;
-    REQUIRE(GetProcessHandleCount(GetCurrentProcess(), &handle_count_after));
+    const bool reaped = wait_until(
+        [&] {
+            return GetProcessHandleCount(GetCurrentProcess(), &handle_count_after)
+                && handle_count_after <= handle_count_before + 2;
+        },
+        std::chrono::seconds(5));
     INFO("process handles before=" << handle_count_before << " after=" << handle_count_after);
     // Allow a very small amount of unrelated test/runtime noise while still
     // making a leaked process/thread/pipe set fail deterministically.
-    CHECK(handle_count_after <= handle_count_before + 2);
+    CHECK(reaped);
 }
 
 TEST_CASE("Windows nvim process reports an already-exited child as stopped", "[nvim][windows]")
@@ -156,5 +161,30 @@ TEST_CASE("Windows nvim process reports an already-exited child as stopped", "[n
     REQUIRE_FALSE(process.is_running());
     process.shutdown();
     REQUIRE_FALSE(process.is_running());
+}
+
+TEST_CASE("Windows nvim shutdown reaps an unresponsive child off the caller thread", "[nvim][windows][shutdown]")
+{
+    DWORD handle_count_before = 0;
+    REQUIRE(GetProcessHandleCount(GetCurrentProcess(), &handle_count_before));
+
+    ScopedEnvVar mode("DRAXUL_RPC_FAKE_MODE", "unresponsive");
+    NvimProcess process;
+    REQUIRE(process.spawn(DRAXUL_RPC_FAKE_PATH));
+
+    const auto started = std::chrono::steady_clock::now();
+    process.shutdown();
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::milliseconds(250));
+    CHECK_FALSE(process.is_running());
+
+    DWORD handle_count_after = 0;
+    const bool reaped = wait_until(
+        [&] {
+            return GetProcessHandleCount(GetCurrentProcess(), &handle_count_after)
+                && handle_count_after <= handle_count_before + 1;
+        },
+        std::chrono::seconds(5));
+    INFO("process handles before=" << handle_count_before << " after=" << handle_count_after);
+    CHECK(reaped);
 }
 #endif

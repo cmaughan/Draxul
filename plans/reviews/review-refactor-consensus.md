@@ -307,7 +307,7 @@ Static inspection cannot validate generated dependency closure, native linking, 
 **Priority:** P2 — separates filesystem policy from native rendering and reload lifecycle while enabling deterministic failure tests.  
 **Proposed by:** OpenAI Codex GPT-6 Astra, finding 5.  
 **Owner:** One core host/storage agent.  
-**Dependencies:** Coordinate `kanban/pending/58 plugin-storage-error-preservation -bug.md`; no dependency on another newly accepted refactor. Coordinate source ownership with `kanban/pending/02 host-layer-static-libraries -refactor.md`.
+**Dependencies:** Coordinate `kanban/pending/58 plugin-storage-error-preservation -bug.md`; no dependency on another newly accepted refactor. Coordinate source ownership with `kanban/done/02 host-layer-static-libraries -refactor.md`.
 
 **Evidence:** `libs/draxul-host/src/plugin_host.cpp:63–85,156–203,489–519,734–778,898–1002` owns paths, validation, buffering, replacement, and overlays. State resides in `plugin_host.h:157–172`. Tests access it through loaded modules and initialized hosts (`tests/plugin_manager_tests.cpp:350–389,898–935`).
 

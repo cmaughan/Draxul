@@ -48,7 +48,11 @@ TEST_CASE("terminal semantic replay is independent of PTY chunking",
 
     REQUIRE(whole == bytewise);
     REQUIRE(whole == uneven);
+#ifdef _WIN32
+    CHECK(terminal_semantic_digest(whole) == 15420690644599018088ULL);
+#else
     CHECK(terminal_semantic_digest(whole) == 184916965083866202ULL);
+#endif
 }
 
 TEST_CASE("terminal semantic snapshot captures renderer-neutral state",
@@ -63,7 +67,11 @@ TEST_CASE("terminal semantic snapshot captures renderer-neutral state",
     CHECK(snapshot.rows == 6);
     CHECK(snapshot.cells.size() == 144);
     CHECK(snapshot.metadata.title == "semantic replay");
+#ifdef _WIN32
+    CHECK(snapshot.metadata.working_directory == "D:\\dev\\Draxul Tree");
+#else
     CHECK(snapshot.metadata.working_directory == "/D:/dev/Draxul Tree");
+#endif
     CHECK(snapshot.metadata.cursor.col == 4);
     CHECK(snapshot.metadata.cursor.row == 2);
     CHECK(snapshot.metadata.modes.cursor_application);

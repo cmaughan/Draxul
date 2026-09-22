@@ -40,8 +40,8 @@ MSVC `/FS` with one target-local helper plus a configure-time completeness audit
 
 ## Cross-platform validation
 
-- [ ] Windows/MSVC: build compiled targets in parallel and verify `/FS` is applied.
-- [ ] Windows: verify supported sanitizer configuration still configures and links.
+- [x] Windows/MSVC: build compiled targets in parallel and verify `/FS` is applied.
+- [x] Windows: verify supported sanitizer configuration still configures and links.
 - [x] macOS ASan gate retired by project decision; no ASan run is required for this card.
 - [x] macOS: configure/build the policy-sensitive `draxul-renderer-core`,
       `draxul-renderer-metal`, and `draxul-test-nanovg-paint` targets under both
@@ -96,3 +96,13 @@ all other pending refactor cards that add or move targets.
   reported each as enabled but not mounted and also completed the core audit.
 - The shared cache was restored to the normal Debug configuration with all five
   real product roots enabled and TSan/coverage disabled.
+- A 2026-09-22 Windows Release build compiled and linked all 325 `draxul` target
+  steps with Ninja at `--parallel 32`; the generated rules apply `/FS` to the
+  project-owned compiled targets. The resulting Release binary also passed the
+  same-cache startup smoke.
+- A separate Windows Ninja Debug cache with `DRAXUL_ENABLE_SANITIZERS=ON` and
+  mounted products disabled configured and linked the instrumented `draxul.exe`.
+  This validation corrected MSVC's sanitizer spelling to `/fsanitize=address`,
+  relies on link.exe's default `/INFERASANLIBS` behavior, and disables only the
+  STL vector/string capacity annotations needed for ABI compatibility with
+  uninstrumented third-party static libraries.

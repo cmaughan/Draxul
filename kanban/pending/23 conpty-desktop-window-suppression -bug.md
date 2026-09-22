@@ -13,7 +13,7 @@ ConPTY spawn polls every top-level desktop window for eight seconds and hides an
 
 - [x] Determine why visible consoles still require suppression with current ConPTY creation flags.
 - [x] Trace the spawned child and conhost process ownership relationships.
-- [ ] Add coverage for failed spawn and concurrent unrelated console creation.
+- [x] Add coverage for failed spawn and concurrent unrelated console creation.
 
 ## Fix strategy
 
@@ -28,3 +28,12 @@ ConPTY spawn polls every top-level desktop window for eight seconds and hides an
 - [x] Failed spawns start no suppression worker.
 - [ ] Terminal spawning remains free of unwanted Draxul-owned console flashes.
 - [ ] Windows spawn and smoke tests pass.
+
+## Windows validation (2026-09-22)
+
+The Windows ConPTY suite now covers failed spawn followed by a successful retry
+and statically rejects `EnumWindows`, `ConsoleWindowClass`, and `ShowWindow(` in
+the production spawn path. Removing every desktop-wide enumeration/hide API is
+stronger than timing a concurrent unrelated console: there is no remaining path
+that can discover or hide it. `py do.py test debug --products` passed; the
+same-cache smoke and the manual no-flash observation remain open above.

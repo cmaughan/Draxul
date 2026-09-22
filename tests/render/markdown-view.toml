@@ -1,0 +1,13 @@
+name = "markdown-view"
+host = "markdown"
+source = "${PROJECT_ROOT}/README.md"
+width = 1200
+height = 760
+display_ppi = 192
+font_path = "${SCENARIO_DIR}/../../fonts/JetBrainsMonoNerdFont-Regular.ttf"
+font_size = 11
+timeout_ms = 8000
+settle_ms = 300
+pixel_tolerance = 8
+changed_pixels_threshold_pct = 2.10
+commands = [""]

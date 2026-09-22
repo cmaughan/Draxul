@@ -965,7 +965,7 @@ class SmokeCommandTests(unittest.TestCase):
             mock.patch.object(
                 draxul_do.subprocess, "Popen", return_value=process
             ) as popen,
-            mock.patch.object(draxul_do.os, "killpg") as killpg,
+            mock.patch.object(draxul_do.os, "killpg", create=True) as killpg,
         ):
             result = draxul_do.run_bounded_process_tree(
                 ["draxul", "--smoke-test"],
@@ -988,7 +988,7 @@ class SmokeCommandTests(unittest.TestCase):
         with (
             mock.patch.object(draxul_do.sys, "platform", "darwin"),
             mock.patch.object(draxul_do.subprocess, "Popen", return_value=process),
-            mock.patch.object(draxul_do.os, "killpg") as killpg,
+            mock.patch.object(draxul_do.os, "killpg", create=True) as killpg,
         ):
             with self.assertRaises(KeyboardInterrupt):
                 draxul_do.run(["cmake", "--build", "build"], ROOT)

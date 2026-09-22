@@ -1,4 +1,5 @@
 #include "vk_renderer.h"
+#include "vk_renderer_operations.h"
 #include <draxul/vulkan/vk_render_context.h>
 
 #include "shared/grid_contract.h"
@@ -18,6 +19,131 @@
 
 namespace draxul
 {
+
+namespace
+{
+
+class DefaultVkRendererOperations final : public VkRendererOperations
+{
+public:
+    VkResult allocate_command_buffers(VkDevice device,
+        const VkCommandBufferAllocateInfo* info,
+        VkCommandBuffer* command_buffers) override
+    {
+        return vkAllocateCommandBuffers(device, info, command_buffers);
+    }
+
+    VkResult reset_command_buffer(VkCommandBuffer command_buffer,
+        VkCommandBufferResetFlags flags) override
+    {
+        return vkResetCommandBuffer(command_buffer, flags);
+    }
+
+    VkResult begin_command_buffer(VkCommandBuffer command_buffer,
+        const VkCommandBufferBeginInfo* info) override
+    {
+        return vkBeginCommandBuffer(command_buffer, info);
+    }
+
+    VkResult end_command_buffer(VkCommandBuffer command_buffer) override
+    {
+        return vkEndCommandBuffer(command_buffer);
+    }
+
+    VkResult queue_submit(VkQueue queue, uint32_t submit_count,
+        const VkSubmitInfo* submits, VkFence fence) override
+    {
+        return vkQueueSubmit(queue, submit_count, submits, fence);
+    }
+
+    VkResult reset_fences(VkDevice device, uint32_t fence_count,
+        const VkFence* fences) override
+    {
+        return vkResetFences(device, fence_count, fences);
+    }
+
+    VkResult wait_for_fences(VkDevice device, uint32_t fence_count,
+        const VkFence* fences, VkBool32 wait_all, uint64_t timeout) override
+    {
+        return vkWaitForFences(device, fence_count, fences, wait_all, timeout);
+    }
+
+    VkResult device_wait_idle(VkDevice device) override
+    {
+        return vkDeviceWaitIdle(device);
+    }
+
+    VkResult create_semaphore(VkDevice device,
+        const VkSemaphoreCreateInfo* info,
+        const VkAllocationCallbacks* allocator,
+        VkSemaphore* semaphore) override
+    {
+        return vkCreateSemaphore(device, info, allocator, semaphore);
+    }
+
+    VkResult create_fence(VkDevice device, const VkFenceCreateInfo* info,
+        const VkAllocationCallbacks* allocator, VkFence* fence) override
+    {
+        return vkCreateFence(device, info, allocator, fence);
+    }
+
+    void destroy_semaphore(VkDevice device, VkSemaphore semaphore,
+        const VkAllocationCallbacks* allocator) override
+    {
+        vkDestroySemaphore(device, semaphore, allocator);
+    }
+
+    void destroy_fence(VkDevice device, VkFence fence,
+        const VkAllocationCallbacks* allocator) override
+    {
+        vkDestroyFence(device, fence, allocator);
+    }
+
+    void cmd_pipeline_barrier(VkCommandBuffer command_buffer,
+        VkPipelineStageFlags source_stage,
+        VkPipelineStageFlags destination_stage,
+        VkDependencyFlags dependency_flags, uint32_t memory_barrier_count,
+        const VkMemoryBarrier* memory_barriers, uint32_t buffer_barrier_count,
+        const VkBufferMemoryBarrier* buffer_barriers,
+        uint32_t image_barrier_count,
+        const VkImageMemoryBarrier* image_barriers) override
+    {
+        vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage,
+            dependency_flags, memory_barrier_count, memory_barriers,
+            buffer_barrier_count, buffer_barriers, image_barrier_count,
+            image_barriers);
+    }
+
+    void cmd_copy_image_to_buffer(VkCommandBuffer command_buffer,
+        VkImage source_image, VkImageLayout source_layout,
+        VkBuffer destination_buffer, uint32_t region_count,
+        const VkBufferImageCopy* regions) override
+    {
+        vkCmdCopyImageToBuffer(command_buffer, source_image, source_layout,
+            destination_buffer, region_count, regions);
+    }
+
+    VkResult queue_present(VkQueue queue,
+        const VkPresentInfoKHR* present_info) override
+    {
+        return vkQueuePresentKHR(queue, present_info);
+    }
+
+    VkResult invalidate_allocation(VmaAllocator allocator,
+        VmaAllocation allocation, VkDeviceSize offset,
+        VkDeviceSize size) override
+    {
+        return vmaInvalidateAllocation(allocator, allocation, offset, size);
+    }
+};
+
+} // namespace
+
+VkRendererOperations& default_vk_renderer_operations()
+{
+    static DefaultVkRendererOperations operations;
+    return operations;
+}
 
 // ---------------------------------------------------------------------------
 // VkGridHandle — per-host grid handle for the Vulkan backend.
@@ -288,7 +414,8 @@ private:
 namespace
 {
 
-void transition_image_layout(VkCommandBuffer cmd, VkImage image, VkImageLayout old_layout, VkImageLayout new_layout,
+void transition_image_layout(VkRendererOperations& operations,
+    VkCommandBuffer cmd, VkImage image, VkImageLayout old_layout, VkImageLayout new_layout,
     VkAccessFlags src_access, VkAccessFlags dst_access, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage)
 {
     VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
@@ -304,13 +431,21 @@ void transition_image_layout(VkCommandBuffer cmd, VkImage image, VkImageLayout o
     barrier.subresourceRange.levelCount = 1;
     barrier.subresourceRange.baseArrayLayer = 0;
     barrier.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    operations.cmd_pipeline_barrier(cmd, src_stage, dst_stage, 0, 0,
+        nullptr, 0, nullptr, 1, &barrier);
 }
 
 } // namespace
 
 VkRenderer::VkRenderer(int atlas_size, RendererOptions options)
+    : VkRenderer(atlas_size, options, default_vk_renderer_operations())
+{
+}
+
+VkRenderer::VkRenderer(int atlas_size, RendererOptions options,
+    VkRendererOperations& operations)
     : atlas_size_(atlas_size)
+    , operations_(operations)
     , ctx_(options.wait_for_vblank)
     , frame_context_(std::make_unique<FrameContext>(*this))
 {
@@ -419,7 +554,14 @@ void VkRenderer::finish_capture_readback()
         return;
     }
 
-    vmaInvalidateAllocation(ctx_.allocator(), capture_allocation_, 0, capture_byte_count_);
+    if (operations_.invalidate_allocation(ctx_.allocator(),
+            capture_allocation_, 0, capture_byte_count_)
+        != VK_SUCCESS)
+    {
+        capture_requested_ = false;
+        clear_capture_readback_metadata();
+        return;
+    }
 
     CapturedFrame frame;
     frame.width = static_cast<int>(capture_width_);
@@ -977,6 +1119,12 @@ IFrameContext* VkRenderer::begin_frame()
 
 bool VkRenderer::start_new_chunk_command_buffer()
 {
+    // Transactional chunk-state contract:
+    // - allocation/reset/begin failure leaves active_cmd_buffer_,
+    //   current_chunk_index_, and frame_active_ unchanged;
+    // - success publishes the new recording buffer and advances the index
+    //   together. The sole caller aborts the whole frame on false, because the
+    //   previous command buffer has already been ended/submitted by then.
     if (!frame_active_)
         return false;
 
@@ -991,7 +1139,9 @@ bool VkRenderer::start_new_chunk_command_buffer()
         alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         alloc_info.commandBufferCount = 1;
         extra.emplace_back(VK_NULL_HANDLE);
-        if (vkAllocateCommandBuffers(ctx_.device(), &alloc_info, &extra.back()) != VK_SUCCESS)
+        if (operations_.allocate_command_buffers(
+                ctx_.device(), &alloc_info, &extra.back())
+            != VK_SUCCESS)
         {
             extra.pop_back();
             return false;
@@ -999,11 +1149,12 @@ bool VkRenderer::start_new_chunk_command_buffer()
     }
 
     next_cmd_buffer = extra[extra_index];
-    if (vkResetCommandBuffer(next_cmd_buffer, 0) != VK_SUCCESS)
+    if (operations_.reset_command_buffer(next_cmd_buffer, 0) != VK_SUCCESS)
         return false;
 
     VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    if (vkBeginCommandBuffer(next_cmd_buffer, &begin_info) != VK_SUCCESS)
+    if (operations_.begin_command_buffer(next_cmd_buffer, &begin_info)
+        != VK_SUCCESS)
         return false;
 
     active_cmd_buffer_ = next_cmd_buffer;
@@ -1015,6 +1166,10 @@ bool VkRenderer::start_new_chunk_command_buffer()
 
 void VkRenderer::abort_active_frame()
 {
+    // Canonical post-failure state. Every fallible end/submit/fence/chunk path
+    // funnels here: no buffer remains recordable, no frame is active, and no
+    // stale chunk index can address extra_cmd_buffers_. A later begin_frame()
+    // must rebuild before acquiring another image.
     capture_requested_ = false;
     clear_capture_readback_metadata();
     active_cmd_buffer_ = VK_NULL_HANDLE;
@@ -1032,7 +1187,7 @@ void VkRenderer::abort_active_frame()
 
 bool VkRenderer::replace_current_frame_sync_objects()
 {
-    if (vkDeviceWaitIdle(ctx_.device()) != VK_SUCCESS)
+    if (operations_.device_wait_idle(ctx_.device()) != VK_SUCCESS)
         return false;
 
     VkSemaphore replacement_semaphore = VK_NULL_HANDLE;
@@ -1040,18 +1195,26 @@ bool VkRenderer::replace_current_frame_sync_objects()
     VkSemaphoreCreateInfo semaphore_ci = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     VkFenceCreateInfo fence_ci = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     fence_ci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    if (vkCreateSemaphore(ctx_.device(), &semaphore_ci, nullptr, &replacement_semaphore) != VK_SUCCESS
-        || vkCreateFence(ctx_.device(), &fence_ci, nullptr, &replacement_fence) != VK_SUCCESS)
+    if (operations_.create_semaphore(ctx_.device(), &semaphore_ci, nullptr,
+            &replacement_semaphore)
+            != VK_SUCCESS
+        || operations_.create_fence(ctx_.device(), &fence_ci, nullptr,
+               &replacement_fence)
+            != VK_SUCCESS)
     {
         if (replacement_semaphore != VK_NULL_HANDLE)
-            vkDestroySemaphore(ctx_.device(), replacement_semaphore, nullptr);
+            operations_.destroy_semaphore(
+                ctx_.device(), replacement_semaphore, nullptr);
         if (replacement_fence != VK_NULL_HANDLE)
-            vkDestroyFence(ctx_.device(), replacement_fence, nullptr);
+            operations_.destroy_fence(
+                ctx_.device(), replacement_fence, nullptr);
         return false;
     }
 
-    vkDestroySemaphore(ctx_.device(), image_available_sem_[current_frame_], nullptr);
-    vkDestroyFence(ctx_.device(), in_flight_fences_[current_frame_], nullptr);
+    operations_.destroy_semaphore(
+        ctx_.device(), image_available_sem_[current_frame_], nullptr);
+    operations_.destroy_fence(
+        ctx_.device(), in_flight_fences_[current_frame_], nullptr);
     image_available_sem_[current_frame_] = replacement_semaphore;
     in_flight_fences_[current_frame_] = replacement_fence;
     if (current_image_ < images_in_flight_.size())
@@ -1347,6 +1510,9 @@ bool VkRenderer::flush_submit_chunk(bool final_chunk)
     if (!frame_active_ || active_cmd_buffer_ == VK_NULL_HANDLE)
         return false;
 
+    // End/reset/submit failures may invalidate either recording ownership or
+    // the frame fence. Retire/replace synchronization first, then publish the
+    // single inactive state documented by abort_active_frame().
     const auto abort_after_failure = [this]() {
         if (!replace_current_frame_sync_objects())
         {
@@ -1375,7 +1541,7 @@ bool VkRenderer::flush_submit_chunk(bool final_chunk)
     {
         if (capture_requested_)
         {
-            transition_image_layout(active_cmd_buffer_, ctx_.swapchain().images[current_image_],
+            transition_image_layout(operations_, active_cmd_buffer_, ctx_.swapchain().images[current_image_],
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
@@ -1384,10 +1550,12 @@ bool VkRenderer::flush_submit_chunk(bool final_chunk)
             region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             region.imageSubresource.layerCount = 1;
             region.imageExtent = { ctx_.swapchain().extent.width, ctx_.swapchain().extent.height, 1 };
-            vkCmdCopyImageToBuffer(active_cmd_buffer_, ctx_.swapchain().images[current_image_], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                capture_buffer_, 1, &region);
+            operations_.cmd_copy_image_to_buffer(active_cmd_buffer_,
+                ctx_.swapchain().images[current_image_],
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, capture_buffer_, 1,
+                &region);
 
-            transition_image_layout(active_cmd_buffer_, ctx_.swapchain().images[current_image_],
+            transition_image_layout(operations_, active_cmd_buffer_, ctx_.swapchain().images[current_image_],
                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                 VK_ACCESS_TRANSFER_READ_BIT, 0,
                 VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
@@ -1398,14 +1566,14 @@ bool VkRenderer::flush_submit_chunk(bool final_chunk)
             const VkImageLayout from_layout = main_render_pass_started_
                 ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
                 : VK_IMAGE_LAYOUT_UNDEFINED;
-            transition_image_layout(active_cmd_buffer_, ctx_.swapchain().images[current_image_],
+            transition_image_layout(operations_, active_cmd_buffer_, ctx_.swapchain().images[current_image_],
                 from_layout, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                 main_render_pass_started_ ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : 0, 0,
                 main_render_pass_started_ ? VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
         }
 
-        if (vkEndCommandBuffer(active_cmd_buffer_) != VK_SUCCESS)
+        if (operations_.end_command_buffer(active_cmd_buffer_) != VK_SUCCESS)
             return abort_after_failure();
 
         VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1418,10 +1586,14 @@ bool VkRenderer::flush_submit_chunk(bool final_chunk)
         submit.signalSemaphoreCount = 1;
         submit.pSignalSemaphores = &render_finished_sem_[current_image_];
 
-        if (vkResetFences(ctx_.device(), 1, &in_flight_fences_[current_frame_]) != VK_SUCCESS)
+        if (operations_.reset_fences(ctx_.device(), 1,
+                &in_flight_fences_[current_frame_])
+            != VK_SUCCESS)
             return abort_after_failure();
 
-        if (vkQueueSubmit(ctx_.graphics_queue(), 1, &submit, in_flight_fences_[current_frame_]) != VK_SUCCESS)
+        if (operations_.queue_submit(ctx_.graphics_queue(), 1, &submit,
+                in_flight_fences_[current_frame_])
+            != VK_SUCCESS)
             return abort_after_failure();
 
         // Associate the acquired image only after its submission was accepted.
@@ -1432,7 +1604,9 @@ bool VkRenderer::flush_submit_chunk(bool final_chunk)
 
         if (capture_requested_)
         {
-            if (vkWaitForFences(ctx_.device(), 1, &in_flight_fences_[current_frame_], VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+            if (operations_.wait_for_fences(ctx_.device(), 1,
+                    &in_flight_fences_[current_frame_], VK_TRUE, UINT64_MAX)
+                != VK_SUCCESS)
             {
                 DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed while waiting for Vulkan capture readback");
                 renderer_failed_ = true;
@@ -1451,7 +1625,8 @@ bool VkRenderer::flush_submit_chunk(bool final_chunk)
         present.pSwapchains = &ctx_.swapchain().swapchain;
         present.pImageIndices = &current_image_;
 
-        VkResult result = vkQueuePresentKHR(ctx_.graphics_queue(), &present);
+        VkResult result
+            = operations_.queue_present(ctx_.graphics_queue(), &present);
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebuffer_resized_)
         {
             framebuffer_resized_ = false;
@@ -1468,7 +1643,7 @@ bool VkRenderer::flush_submit_chunk(bool final_chunk)
         return true;
     }
 
-    if (vkEndCommandBuffer(active_cmd_buffer_) != VK_SUCCESS)
+    if (operations_.end_command_buffer(active_cmd_buffer_) != VK_SUCCESS)
         return abort_after_failure();
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1479,7 +1654,9 @@ bool VkRenderer::flush_submit_chunk(bool final_chunk)
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &active_cmd_buffer_;
 
-    if (vkQueueSubmit(ctx_.graphics_queue(), 1, &submit, VK_NULL_HANDLE) != VK_SUCCESS)
+    if (operations_.queue_submit(ctx_.graphics_queue(), 1, &submit,
+            VK_NULL_HANDLE)
+        != VK_SUCCESS)
         return abort_after_failure();
 
     if (!start_new_chunk_command_buffer())

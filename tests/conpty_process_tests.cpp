@@ -6,12 +6,109 @@
 #include <draxul/conpty_process.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <thread>
 
 using namespace draxul;
+
+namespace draxul::detail
+{
+
+struct ConPtyProcessTestAccess
+{
+    static void set_exit_query(ConPtyProcess& process,
+        std::function<BOOL(HANDLE, LPDWORD)> query)
+    {
+        process.query_process_exit_code_ = std::move(query);
+    }
+};
+
+} // namespace draxul::detail
+
+TEST_CASE("ConPtyProcess preserves unknown process status", "[conpty_process][windows]")
+{
+    ConPtyProcess process;
+    REQUIRE(process.spawn("cmd.exe", { "/Q", "/K" },
+        std::filesystem::current_path().string(), 80, 24, [] {}));
+
+    detail::ConPtyProcessTestAccess::set_exit_query(process,
+        [](HANDLE, LPDWORD) { return FALSE; });
+    CHECK(process.is_running());
+    CHECK_FALSE(process.exit_code().has_value());
+    CHECK(process.process_id() != 0);
+
+    detail::ConPtyProcessTestAccess::set_exit_query(process,
+        [](HANDLE, LPDWORD code) {
+            *code = STILL_ACTIVE;
+            return TRUE;
+        });
+    CHECK(process.is_running());
+    CHECK_FALSE(process.exit_code().has_value());
+
+    detail::ConPtyProcessTestAccess::set_exit_query(process,
+        [](HANDLE, LPDWORD code) {
+            *code = 37;
+            return TRUE;
+        });
+    CHECK_FALSE(process.is_running());
+    CHECK(process.exit_code() == 37);
+    CHECK(process.process_id() == 0);
+
+    detail::ConPtyProcessTestAccess::set_exit_query(process, ::GetExitCodeProcess);
+    process.shutdown();
+}
+
+TEST_CASE("ConPtyProcess repeatedly shuts down during active output", "[conpty_process][windows][shutdown]")
+{
+    ConPtyProcess process;
+    for (int cycle = 0; cycle < 8; ++cycle)
+    {
+        INFO("cycle " << cycle);
+        std::atomic<int> output_notifications{ 0 };
+        REQUIRE(process.spawn("cmd.exe",
+            { "/Q", "/C", "for /L %i in (1,1,4096) do @echo draxul-output-%i" },
+            std::filesystem::current_path().string(), 80, 24,
+            [&] { output_notifications.fetch_add(1, std::memory_order_relaxed); }));
+        REQUIRE(draxul::tests::wait_until(
+            [&] { return output_notifications.load(std::memory_order_relaxed) > 0; },
+            std::chrono::seconds(2)));
+
+        const auto started = std::chrono::steady_clock::now();
+        process.shutdown();
+        CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(3));
+        CHECK_FALSE(process.is_running());
+        process.shutdown();
+    }
+}
+
+TEST_CASE("ConPtyProcess failed spawn leaves no live process and permits retry", "[conpty_process][windows][spawn]")
+{
+    ConPtyProcess process;
+    CHECK_FALSE(process.spawn("Z:\\definitely-missing\\draxul-conpty-test.exe", {},
+        std::filesystem::current_path().string(), 80, 24, [] {}));
+    CHECK_FALSE(process.is_running());
+    CHECK(process.process_id() == 0);
+
+    REQUIRE(process.spawn("cmd.exe", { "/Q", "/C", "exit 0" },
+        std::filesystem::current_path().string(), 80, 24, [] {}));
+    process.shutdown();
+    CHECK_FALSE(process.is_running());
+}
+
+TEST_CASE("ConPtyProcess has no desktop-wide console suppression path", "[conpty_process][windows][spawn]")
+{
+    const std::string source = draxul::tests::read_file(
+        std::filesystem::path(DRAXUL_PROJECT_ROOT)
+        / "libs" / "draxul-terminal-process" / "src" / "conpty_process.cpp");
+    REQUIRE_FALSE(source.empty());
+    CHECK(source.find("EnumWindows") == std::string::npos);
+    CHECK(source.find("ConsoleWindowClass") == std::string::npos);
+    CHECK(source.find("ShowWindow(") == std::string::npos);
+}
 
 TEST_CASE("ConPtyProcess reports child process working directory changes", "[conpty_process]")
 {

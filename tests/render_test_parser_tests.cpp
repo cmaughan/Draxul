@@ -220,6 +220,33 @@ TEST_CASE("render test parser: plugin identity and configuration flow to app opt
     std::filesystem::remove_all(dir, ec);
 }
 
+TEST_CASE("render test parser: source path flows to non-terminal hosts", "[render][markdown]")
+{
+    const auto dir = std::filesystem::temp_directory_path()
+        / "draxul-render-test-parser-source";
+    const auto path = dir / "markdown.toml";
+    write_text_file(path,
+        "host = \"markdown\"\n"
+        "source = \"${PROJECT_ROOT}/README.md\"\n"
+        "commands = [\"\"]\n");
+
+    std::string error;
+    const auto scenario = draxul::load_render_test_scenario(path, &error);
+    INFO(error);
+    REQUIRE(scenario);
+    CHECK(scenario->host_kind == draxul::HostKind::Markdown);
+    const auto expected_source
+        = (std::filesystem::path{ DRAXUL_PROJECT_ROOT } / "README.md")
+              .lexically_normal();
+    CHECK(scenario->source_path.lexically_normal() == expected_source);
+    CHECK(std::filesystem::path{ scenario->make_app_options().host_source_path }
+              .lexically_normal()
+        == expected_source);
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
 TEST_CASE("render test parser: json_escape_string escapes double quotes and backslashes", "[render]")
 {
     INFO("plain passthrough");

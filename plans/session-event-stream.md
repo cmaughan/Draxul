@@ -5,7 +5,7 @@
 **Sequencing:** diagnostics and UI coordination may start alongside
 `kanban/pending/12 control-transport-boundary -refactor.md`; batched polling waits
 for card 12, and the persistent endpoint also waits for
-`kanban/pending/13 server-kernel-private-decomposition -refactor.md`.
+`kanban/done/13 server-kernel-private-decomposition -refactor.md`.
 
 ## Goal
 

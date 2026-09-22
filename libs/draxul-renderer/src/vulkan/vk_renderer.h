@@ -13,6 +13,8 @@ namespace draxul
 
 // VkGridHandle is fully defined in vk_renderer.cpp.
 class VkGridHandle;
+class VkRendererOperations;
+struct VkRendererTestAccess;
 
 class VkRenderer : public IGridRenderer, public IImGuiHost, public ICaptureRenderer
 {
@@ -61,6 +63,10 @@ private:
 
     class FrameContext;
     friend class VkGridHandle;
+    friend struct VkRendererTestAccess;
+
+    VkRenderer(int atlas_size, RendererOptions options,
+        VkRendererOperations& operations);
 
     bool create_sync_objects();
     bool resize_render_finished_semaphores(size_t count);
@@ -89,6 +95,7 @@ private:
     bool render_imgui_now(const ImDrawData* draw_data, ImGuiContext* context);
 
     int atlas_size_ = kAtlasSize;
+    VkRendererOperations& operations_;
     VkContext ctx_;
     VkPipelineManager pipeline_;
     VkAtlas atlas_;

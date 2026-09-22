@@ -1127,7 +1127,11 @@ TEST_CASE("terminal: OSC 7 root directory", "[terminal]")
     VtTerminalSetup ts;
     REQUIRE(ts.ok);
     ts.host.feed("\x1B]7;file://localhost/\x07");
+#ifdef _WIN32
+    REQUIRE(ts.callbacks.last_window_title == "\\");
+#else
     REQUIRE(ts.callbacks.last_window_title == "/");
+#endif
 }
 
 TEST_CASE("terminal: OSC 7 percent-decodes path", "[terminal]")

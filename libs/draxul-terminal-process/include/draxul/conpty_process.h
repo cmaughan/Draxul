@@ -35,6 +35,7 @@ namespace draxul
 namespace detail
 {
 class AgentProcessObserver;
+struct ConPtyProcessTestAccess;
 }
 
 // Spawns a child process inside a Windows Pseudo Console (ConPty) and
@@ -69,6 +70,8 @@ public:
     static constexpr size_t kMaxQueuedOutputBytes = 1024 * 1024;
 
 private:
+    friend struct detail::ConPtyProcessTestAccess;
+
     void reader_main();
 
     HANDLE input_write_ = INVALID_HANDLE_VALUE;
@@ -91,6 +94,8 @@ private:
     mutable std::optional<int> last_exit_code_;
     mutable std::mutex process_mutex_;
     mutable std::unique_ptr<detail::AgentProcessObserver> agent_observer_;
+    std::function<BOOL(HANDLE, LPDWORD)> query_process_exit_code_
+        = ::GetExitCodeProcess;
 };
 
 } // namespace draxul

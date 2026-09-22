@@ -70,11 +70,11 @@ Read both indexed reviews and checked their findings against current source. Ver
 - **C #12:** missing plugins normally receive `UnavailableHost`; the confirmed restart defect concerns failing non-plugin hosts, including Neovim.
 - **C #7:** device loss does not necessarily produce an infinite fence wait because Vulkan waits can return device-loss errors. The confirmed defect is unsignaled-fence reuse after a failed submission. Resetting the fence *after* successful submission is not a valid fix.
 
-**Dependencies:** Implement stream exception containment with the server filesystem fixes. Coordinate final-submit recovery with `kanban/pending/21 vulkan-chunk-flush-failure-state -bug.md`, which concerns mid-frame transitions. Share wakeup regression techniques across PTY, session-client, and existing hidden-terminal work. Rezonality’s worker, diagnostic, activation, and GPU-resource fixes should share a break/repair reload scenario. SatView’s worker race and shared-cache race are independent and both require fixes.
+**Dependencies:** Implement stream exception containment with the server filesystem fixes. Coordinate final-submit recovery with `kanban/done/21 vulkan-chunk-flush-failure-state -bug.md`, which concerns mid-frame transitions. Share wakeup regression techniques across PTY, session-client, and existing hidden-terminal work. Rezonality’s worker, diagnostic, activation, and GPU-resource fixes should share a break/repair reload scenario. SatView’s worker race and shared-cache race are independent and both require fixes.
 
 Cards use the requested sequence beginning at `00`; the trusted runner can normalize occupied priorities. These are proposed contents, not created files.
 
-### kanban/pending/05 control-version-type-validation -bug.md
+### kanban/done/05 control-version-type-validation -bug.md
 
 # Reject malformed control protocol versions safely
 
@@ -657,7 +657,7 @@ Cards use the requested sequence beginning at `00`; the trusted runner can norma
 **Acceptance criteria**
 
 - [ ] Submission failure cannot cause indefinite fence reuse or invalid synchronization.
-- [ ] Coordinate with `kanban/pending/21 vulkan-chunk-flush-failure-state -bug.md`.
+- [ ] Coordinate with `kanban/done/21 vulkan-chunk-flush-failure-state -bug.md`.
 
 ### kanban/pending/53 terminal-csi-prefix-dispatch -bug.md
 

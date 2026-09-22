@@ -206,6 +206,7 @@ AppOptions RenderTestScenario::make_app_options() const
     options.host_kind = host_kind;
     options.host_command = host_command;
     options.host_args = host_args;
+    options.host_source_path = normalized_path_string(source_path);
     options.host_plugin_id = plugin_id;
     options.host_plugin_config_json = plugin_config_json;
     options.startup_commands = commands;
@@ -274,6 +275,9 @@ std::optional<RenderTestScenario> load_render_test_scenario(const std::filesyste
         for (auto& entry : *host_args)
             scenario.host_args.push_back(expand_placeholders(entry, scenario_dir));
     }
+    if (auto source = toml_support::get_string(*document, "source"))
+        scenario.source_path = std::filesystem::path(
+            expand_placeholders(*source, scenario_dir));
     if (auto plugin_id = toml_support::get_string(*document, "plugin_id"))
         scenario.plugin_id = *plugin_id;
     if (auto plugin_config = toml_support::get_string(
