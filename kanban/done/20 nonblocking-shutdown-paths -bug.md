@@ -54,7 +54,7 @@ The same `ControlServer` is embedded in the UI's `App`, so this hits both proces
 
 ## Acceptance criteria
 
-- [ ] Quitting Draxul with several remote panes against a hung server takes seconds, not
+- [x] Quitting Draxul with several remote panes against a hung server takes seconds, not
       minutes.
 - [x] `ServerKernel::stop()` does not block on listener threads waiting for a dead main loop.
 - [x] No teardown path makes an unbounded synchronous request.
@@ -72,8 +72,7 @@ after or alongside `17`. Related existing card:
 `kanban/ice-box/69 dead-host-input-routing -test.md`.
 
 Windows validation completed with focused host/control shutdown tests, all core/app CTest
-shards, and the repository smoke test. The remaining unchecked item is the manual multi-pane
-exit stress gate.
+shards, and the repository smoke test. The manual multi-pane exit stress gate is complete.
 
 The 2026-09-23 audit extended the blocked-request coordinator regression to
 twelve terminal registrations and verifies that releasing every registration
@@ -89,5 +88,8 @@ the transport timeout and pane count.
 
 - The focused twelve-registration blocked-request regression passed all 16
   assertions, including the shared sub-second release bound.
-- This card remains pending for the stated desktop observation: quit a real
-  multi-pane Draxul window while its server is alive but unresponsive.
+- An isolated live session created five remote panes, suspended the exact server
+  process, and requested termination of the exact attached UI process. The UI
+  exited successfully in about 7.4 seconds and logged the bounded client-release
+  deadline instead of waiting for the suspended server. The server was then
+  resumed and shut down cleanly. This completes the desktop observation.
