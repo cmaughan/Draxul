@@ -6,7 +6,6 @@
 - [x] Add native filesystem and Kanban integration coverage and document the API/limitations.
 - [x] Validate macOS aggregate tests and same-cache startup smoke.
 - [ ] Validate Windows backend in cross-platform CI.
-- [ ] Validate Linux backend on Linux (not available on this macOS host).
 
 Scope: existing board roots. Discovering entirely new submodule boards or replacing
 a watched root requires manual `r`. Rezonality migration is a separate slice.
@@ -31,6 +30,10 @@ a watched root requires manual `r`. Rezonality migration is a separate slice.
   one smoke launch. The Debug-to-Release switch rebuilt dependencies as well
   as the `draxul` app target; this was the required final confirmation, not
   another unit-test pass.
-- Windows/Linux runtime validation remains pending; this host has neither a
-  working cross-compiler nor those operating systems. No remote CI dispatched
-  for the uncommitted changes.
+- Windows runtime validation remains pending; this host has neither a working
+  cross-compiler nor that operating system. No remote CI was dispatched for the
+  uncommitted changes.
+- The Linux backend remains an unvalidated target. Linux build, runtime, GUI,
+  and CI work is centralized in
+  `kanban/ice-box/124 linux-platform-bringup -feature.md` rather than used as a
+  completion gate for this card.

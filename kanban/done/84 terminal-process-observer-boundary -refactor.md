@@ -33,7 +33,10 @@
 #### Cross-platform validation
 
 - [x] Preserve macOS foreground-group reliability.
-- [x] Preserve Windows job/tree policy and existing Linux `/proc` behavior.
+- [x] Preserve Windows job/tree policy.
+- [x] Leave the existing Linux `/proc` implementation intact; its platform
+      bring-up is tracked in
+      `kanban/ice-box/124 linux-platform-bringup -feature.md`.
 - [x] Verify shutdown interrupts native waits without accessing closed resources.
 - [x] Run `python3 do.py test debug`, then `python3 do.py smoke debug --skip-build` on macOS.
 - [x] Run the Windows equivalents.
@@ -61,7 +64,7 @@
   passed with local socket access.
 - `python3 do.py test debug` passed all 23 selected aggregate entries, and
   `python3 do.py smoke debug --skip-build` passed from the same cache.
-- Windows and Linux unit/integration validation is recorded below.
+- Windows unit/integration validation is recorded below.
 
 #### Windows validation evidence (2026-09-22)
 
@@ -72,16 +75,3 @@
   completed without accessing retired handles.
 - `py do.py test debug --products` passed 48/48 registered entries in the normal
   MSVC/Vulkan cache, followed by the same-cache Debug startup smoke.
-
-#### Linux validation evidence (2026-09-22)
-
-- WSL Ubuntu 22.04 compiled `draxul-performance`, `draxul-types`,
-  `draxul-agent`, and `draxul-terminal-process` with GCC 11.4 through a narrow
-  test-only CMake harness; no window or renderer target entered the build.
-- The live `[unix_pty_process][agent][discovery]` case used a real interactive
-  Bash PTY, resolved its foreground process group through `tcgetpgrp()`, read
-  the matching process records from Linux `/proc`, recognized the versioned
-  fake agent symlink, and passed all 7 assertions including clean shutdown.
-- The Unix fixture now selects configuration-isolated Zsh on macOS and
-  configuration-isolated Bash on Linux, matching the supported shell hosts
-  without requiring Zsh to be installed in a Linux validation image.
