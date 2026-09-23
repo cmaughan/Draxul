@@ -15,6 +15,10 @@ families. The detailed current library and product-module graph is in
   multiple implementation steps, needs validation or follow-up gates, or carries
   enough context that another agent may need to continue it. Create and maintain
   the card as part of the work; do not wait for the user to request one.
+- Use each card as the durable record for its work. Keep its checklist and notes
+  current with what changed, why it changed, important decisions and constraints,
+  validation evidence, and any remaining follow-ups so another agent can resume
+  without reconstructing the history from commits or chat.
 - Keep small, self-contained edits that need no meaningful follow-up out of the
   tracker.
 
