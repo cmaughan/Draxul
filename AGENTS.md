@@ -8,7 +8,15 @@ validation rules, and known pitfalls live there so they cannot drift between age
 families. The detailed current library and product-module graph is in
 [docs/module-map.md](docs/module-map.md); CMake remains authoritative.
 
-## Kanban completion
+## Kanban tracking
+
+- Automatically create a card in `kanban/pending/` for every non-trivial new
+  task, feature, refactor, or bug fix. Treat work as non-trivial when it spans
+  multiple implementation steps, needs validation or follow-up gates, or carries
+  enough context that another agent may need to continue it. Create and maintain
+  the card as part of the work; do not wait for the user to request one.
+- Keep small, self-contained edits that need no meaningful follow-up out of the
+  tracker.
 
 - Do not place or leave a card in any `kanban/done/` lane until every checkbox
   in that card is checked off, including manual and platform-specific gates.
