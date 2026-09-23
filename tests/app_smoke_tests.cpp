@@ -341,6 +341,57 @@ TEST_CASE("app smoke: remote topology starts with a host-free placeholder",
     app.shutdown();
 }
 
+TEST_CASE("app smoke: a wedged remote server cannot block startup or frame pumping",
+    "[app_smoke][topology][responsive]")
+{
+    TempDir temp("draxul-app-wedged-remote");
+    std::atomic<bool> request_queued = false;
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [&] { request_queued = true; }, &start_error));
+
+    AppOptions opts = make_smoke_options();
+    opts.enable_control_server = false;
+    opts.enable_session_restore = false;
+    opts.enable_remote_topology = true;
+    opts.server_runtime_directory = temp.path;
+    opts.server_client_id = "wedged-server-client";
+
+    const auto initialize_started = std::chrono::steady_clock::now();
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    CHECK(std::chrono::steady_clock::now() - initialize_started
+        < std::chrono::seconds(1));
+
+    const auto queued_deadline = std::chrono::steady_clock::now()
+        + std::chrono::seconds(2);
+    while (!request_queued
+        && std::chrono::steady_clock::now() < queued_deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE(request_queued);
+
+    // The listener deliberately leaves the request queued. UI actions and
+    // frame pumping must remain local while the Session worker waits.
+    REQUIRE(g_last_fake_renderer != nullptr);
+    g_last_fake_renderer->reset();
+    REQUIRE(app.dispatch_gui_action("test_toast"));
+    const auto pump_started = std::chrono::steady_clock::now();
+    (void)app.run_smoke_test(std::chrono::milliseconds(100));
+    CHECK(std::chrono::steady_clock::now() - pump_started
+        < std::chrono::milliseconds(500));
+    CHECK(g_last_fake_renderer->begin_frame_calls > 0);
+    CHECK(g_last_fake_renderer->end_frame_calls > 0);
+
+    // Failing the queued request before teardown keeps test cleanup prompt;
+    // the responsiveness assertion above was made while it was still wedged.
+    server.stop();
+    app.shutdown();
+}
+
 TEST_CASE("app smoke: failed remote projection retries and restores input routing",
     "[app_smoke][topology][retry]")
 {

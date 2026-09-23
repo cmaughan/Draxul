@@ -78,7 +78,7 @@ mixed-version rollout reports the wrong problem.
 - [x] `--force-stop-server --yes` works against a wedged server.
 - [x] Version skew produces an accurate message immediately, not a 10 s hang.
 - [x] macOS full build, `ctest`, and smoke pass.
-- [ ] Windows full build, `ctest`, and smoke pass.
+- [x] Windows full build, `ctest`, and smoke pass.
 
 ## Validation
 

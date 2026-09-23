@@ -49,9 +49,9 @@ only off clean passes (submaximal practice verifiably raises ceiling speed).
 - [x] Host: cap roll tempo at the entered bar's ladder (piece/review slots only);
       tempo lock and restart-keep-tempo semantics unchanged.
 - [x] Tests: ladder movement rules (climb/drop/floor/cap + round-trip).
-- [ ] Host cap application test — `apply_tempo_ladder` is thin glue over the
-      tested model math, currently verified by smoke only; cover it when the
-      host orchestration fixture grows a tempo probe.
+- [x] Host cap application test — the shared host fixture now drives the real
+      `apply_tempo_ladder` glue and verifies both the default 60% cap (120 to
+      72 qpm) and the tempo-lock override.
 
 ## Acceptance
 

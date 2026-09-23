@@ -141,3 +141,8 @@ and stale concurrent refreshes cannot overwrite a newer identity. The Windows in
 gate passed all 22 CTest groups plus standalone smoke. The existing unnegotiated same-user
 compatibility path is intentionally called out above as a Slice 10 removal gate, not treated
 as remote authentication.
+
+The sole unchecked item is intentionally conditional: the same-user fallback is
+still required by the current local transport and must be removed when Slice 10
+introduces a remote trust boundary. It is not an unfinished gate for the current
+local-only protocol.

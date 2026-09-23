@@ -29,7 +29,12 @@ Remove repeated, error-prone buffer/image/shader/staging/attachment setup across
 ## Tests and acceptance
 
 - [x] Add failure-injection tests for partial allocation/upload cleanup where seams permit.
-- [ ] Run Vulkan validation for every migrated caller and existing render snapshots. (The Debug validation-layer app/smoke/render path and existing snapshots are now green; literal every-caller automation still needs module-specific renderer launches for Markdown, SatView, and MegaCity.)
+- [x] Run Vulkan validation for every migrated caller and existing render
+      snapshots. The 2026-09-22 Windows closeout launched the new Markdown
+      developer scenario, the SatView developer scenario, and the registered
+      MegaCity scenario through their real Vulkan renderers; the final 48/48
+      product aggregate, registered render comparisons, and same-cache smoke
+      also passed.
 - [x] Resource ownership/retirement semantics remain explicit at call sites.
 - [x] Code reduction does not merge unrelated pass policy.
 
@@ -50,10 +55,9 @@ the relevant core/module test shards; its sole failure is the unrelated session
 pipe security assertion recorded on item 25. The user also visually checked PC
 behavior with no regression observed.
 
-The checkbox remains open because the current render manifest does not launch
-each migrated Markdown, SatView, and MegaCity renderer as an isolated
-validation-layer scenario. Adding those module-specific automated launches is
-testable work; it is not a manual-only gate.
+The later 2026-09-22 Windows closeout supersedes this limitation: module-specific
+Markdown and SatView developer launches plus the registered MegaCity launch now
+cover every migrated Vulkan caller.
 
 ## Dependencies and parallelism
 
@@ -63,4 +67,4 @@ Depends on item 04; supports item 27 and later SatView renderer cleanup. One Vul
 
 ## Verified 2026-07-21
 
-vk_resource_helpers extracted (libs/draxul-renderer/src/vulkan/vk_resource_helpers.{h,cpp}) with vk_resource_helpers_tests + callers migrated. Verified on the current TOT (macOS/Metal): build clean, ctest 22/22, smoke green. The single remaining acceptance box — literal Vulkan-validation-layer sweep over every migrated caller (Markdown/SatView/MegaCity renderer launches) — is inherently Vulkan/Windows and stays unchecked pending CI; the Debug validation + smoke + render-snapshot path is already green per the card. Moved to done with that one CI box open.
+vk_resource_helpers extracted (libs/draxul-renderer/src/vulkan/vk_resource_helpers.{h,cpp}) with vk_resource_helpers_tests + callers migrated. Verified on the current TOT (macOS/Metal): build clean, ctest 22/22, smoke green. The later Windows closeout completed the literal Markdown/SatView/MegaCity renderer-launch sweep described above.

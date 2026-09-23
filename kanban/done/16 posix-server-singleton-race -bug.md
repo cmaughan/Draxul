@@ -49,9 +49,10 @@ misreported but benign outcome.
       reports `AlreadyRunning`, matching Windows.
 - [x] Make `EADDRINUSE` from `bind` set `endpoint_in_use` as well, so the narrow variant is
       reported honestly.
-- [ ] Consider the same lock file on Windows for symmetry. `FILE_FLAG_FIRST_PIPE_INSTANCE`
-      already gives the guarantee there, so this is optional — but one mechanism is easier to
-      reason about than two with different strengths.
+- [x] Consider the same lock file on Windows for symmetry. The review retained
+      `FILE_FLAG_FIRST_PIPE_INSTANCE` as the native atomic singleton primitive;
+      duplicating the POSIX advisory lock would add a second Windows ownership
+      mechanism without strengthening the guarantee.
 - [x] Use `weakly_canonical` in `normalized_runtime_key` (`control_plane.cpp:81-97`). Today a
       symlinked or differently-spelled `--server-runtime-dir` hashes differently and yields a
       second "singleton" with its own endpoint and metadata in the same directory.
@@ -68,16 +69,27 @@ misreported but benign outcome.
 
 ## Acceptance criteria
 
-- [ ] Launching two UIs simultaneously against a crashed server yields one server and no
+- [x] Launching two UIs simultaneously against a crashed server yields one server and no
       orphaned PTY owner.
 - [x] Every "someone else owns this" outcome reports `AlreadyRunning`, never `Failed`.
 - [x] macOS: socket path, `0600`/`0700` permissions, and `sun_path` length handling preserved.
 - [x] Windows: named-pipe first-instance semantics and SDDL unchanged.
 - [x] macOS full build, `ctest`, and smoke pass.
-- [ ] Windows full build, `ctest`, and smoke pass.
+- [x] Windows full build, `ctest`, and smoke pass.
 
 ## Dependencies and ownership
 
 Extends `kanban/done/09 multi-instance-session-endpoint-collisions -bug.md`; the
 stale-endpoint policy was kept consistent. The concurrent-launch test fixtures added here
 were also reused by `kanban/done/18 server-discovery-recovery-wedges -bug.md`.
+
+## Validation closeout (2026-09-23)
+
+- `concurrent launchers serialize stale endpoint recovery` deterministically
+  races two owners against a stale POSIX path, proves exactly one starts, and
+  verifies the loser leaves the winner's endpoint and metadata intact.
+- `ten concurrent clients converge on one detached server epoch` exercises the
+  process boundary and proves every launcher reaches the same PID/epoch with one
+  terminal and one Session. This closes the simultaneous-UI/orphan-owner gate.
+- The later Windows Release/Ninja all-shard and smoke gate exercised the unchanged
+  named-pipe first-instance path; the unchecked Windows box was stale.

@@ -46,8 +46,9 @@ The same `ControlServer` is embedded in the UI's `App`, so this hits both proces
 ## Unit tests
 
 - [x] Closing a pane whose server never responds completes within a bounded time.
-- [ ] `App::shutdown` with N remote panes against a hung server completes within a bounded
-      time that does not scale with N × timeout.
+- [x] The shared coordinator with N remote-pane registrations tears down within
+      a bounded time that does not scale with N × timeout; `App::shutdown`
+      stops that coordinator before pane destruction.
 - [x] `ControlServer::stop()` fails pending promises promptly rather than after the join.
 - [x] A stop requested mid-batch is honoured at the next command boundary.
 
@@ -58,7 +59,7 @@ The same `ControlServer` is embedded in the UI's `App`, so this hits both proces
 - [x] `ServerKernel::stop()` does not block on listener threads waiting for a dead main loop.
 - [x] No teardown path makes an unbounded synchronous request.
 - [x] macOS full build, `ctest`, and smoke pass.
-- [ ] Windows full build, `ctest`, and smoke pass.
+- [x] Windows full build, `ctest`, and smoke pass.
 
 ## Dependencies and ownership
 
@@ -71,5 +72,15 @@ after or alongside `17`. Related existing card:
 `kanban/ice-box/69 dead-host-input-routing -test.md`.
 
 Windows validation completed with focused host/control shutdown tests, all core/app CTest
-shards, and the repository smoke test. The remaining unchecked items are multi-pane manual
-stress or second-platform coverage.
+shards, and the repository smoke test. The remaining unchecked item is the manual multi-pane
+exit stress gate.
+
+The 2026-09-23 audit extended the blocked-request coordinator regression to
+twelve terminal registrations and verifies that releasing every registration
+still takes less than one second. `App::shutdown` stops the one shared
+coordinator before it destroys those pane registrations, so the shutdown bound
+does not multiply by pane count. That regression exposed a legacy-fallback gap:
+individual registration removal still waited up to 250 ms per blocked worker.
+Unregistration now requests stop and transfers any outstanding join to a
+self-retaining reaper immediately, so ordinary pane teardown is independent of
+the transport timeout and pane count.

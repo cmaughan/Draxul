@@ -117,26 +117,60 @@ collide on everything:
       (`a stale endpoint from a dead owner is reclaimed`, POSIX-only).
 - [x] Bind failure is reported to the caller rather than silently disabling the
       control plane (covered by the startup latch; exercised by the above).
-- [ ] Distinct session ids still start two fully independent servers.
-- [ ] App-level: a second instance on a live session id refuses **without
-      spawning panes**. The ordering is implemented, but asserting it needs a
-      second in-process `App`, which the current fixtures do not support.
+- [x] Superseded policy: distinct Session ids are isolated inside the singleton
+      server rather than starting independent servers. `named server Sessions
+      isolate topology and terminal identity across cold restore` proves separate
+      topology, processes, checkpoint paths, and restore for `alpha` and `beta`.
+- [x] Superseded policy: a second app attaches to the singleton instead of
+      spawning a second local pane owner. `server kernel publishes one identity
+      and stops gracefully` rejects a duplicate kernel, while `two UI projections
+      converge across detach move and reconnect without stealing focus` exercises
+      two clients against one authoritative topology.
 
 ## Cross-platform validation
 
 - [x] macOS: unix-socket path, `0600`/`0700` permissions preserved.
-- [ ] Windows: named-pipe first-instance semantics and SDDL unchanged.
-- [ ] Note that `kanban/done/25` recorded Windows DACL assertions failing in
-      Debug but passing in Release; re-check that path if touched.
+- [x] Windows: the extracted current control transport retains
+      `FILE_FLAG_FIRST_PIPE_INSTANCE`; current-user ACL, named-pipe ownership,
+      overlapped cancellation, and abandonment passed the Windows closeout in
+      `kanban/done/12 control-transport-boundary -refactor.md`.
+- [x] The old card 25 DACL note applied to the removed attach transport. The
+      replacement control transport's Debug and Release Windows evidence is
+      recorded in card 12, so there is no remaining DACL gate on this card.
 
 ## Acceptance criteria
 
-- [ ] Launching Draxul twice cannot corrupt a saved session or silently steal a
-      control endpoint.
-- [ ] A failed control endpoint is always visible to the user or the log.
-- [ ] `draxul agent list` deterministically addresses one known instance.
+- [x] Launching Draxul twice attaches two clients to one server-owned Session;
+      the topology/checkpoint writer and control endpoint have one owner.
+- [x] Control startup failures are recorded for an absent server, and repeated
+      listener recreation failure stops the kernel instead of leaving a stale
+      running state (`server_lifecycle_discovery_tests.cpp`).
+- [x] `draxul agent list` uses the singleton server endpoint plus an explicit
+      Session id; `server_agent_runtime_tests.cpp` verifies that namespaced
+      request reaches the intended Session agent.
 - [x] macOS full build, `ctest`, and smoke pass.
-- [ ] Windows full build, `ctest`, and smoke pass.
+- [x] Windows full build, `ctest`, and smoke pass (48/48 products aggregate and
+      same-cache smoke, recorded in the card 13 Windows closeout).
+
+## Shared-server audit (2026-09-23)
+
+No production change is required. The replacement architecture removes the two
+competing owners that created this bug. The current regression boundary is:
+
+- `tests/control_transport_tests.cpp`: live-endpoint refusal preserves the
+  incumbent, stale POSIX endpoints are reclaimed, and concurrent launchers
+  serialize recovery.
+- `tests/server_lifecycle_discovery_tests.cpp`: the kernel publishes one identity,
+  endpoint paths are runtime-namespaced, startup failures are discoverable, and a
+  failed replacement listener cannot leave a false-live kernel.
+- `tests/server_session_checkpoint_tests.cpp`: named Sessions have independent
+  topology, terminal identity, checkpoint files, and cold restore.
+- `tests/server_topology_terminal_tests.cpp`: two UI projections share server
+  topology while retaining local focus through detach, move, and reconnect.
+
+The historic “independent server per Session” and “second app refuses” assertions
+are intentionally replaced by singleton-server/multi-client assertions. Keeping
+those old tests would enforce behavior the product no longer implements.
 
 ## Dependencies and ownership
 

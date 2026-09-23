@@ -88,9 +88,10 @@ over the new CMake layout (in progress externally).
       constructible and testable without the host (archive/program/composer/
       measure-writer have dedicated suites; session/audio are host-free
       classes awaiting the card-15 fixture for lifecycle coverage).
-- [ ] Windows/Vulkan build validation of the new CMake layout — pending CI
-      (macOS re-verified 2026-07-19, see below; the layout has no platform
-      branches).
+- [x] Windows/Vulkan build validation of the new CMake layout. The 2026-09-22
+      Windows product aggregate passed all 48 registered entries, including
+      the ScoreView core and runtime shards, followed by the same-cache smoke
+      and registered Vulkan render.
 
 ## Dependencies and parallelism
 

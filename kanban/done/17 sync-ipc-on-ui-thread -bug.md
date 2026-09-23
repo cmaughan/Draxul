@@ -66,21 +66,21 @@ the duration (per-op, repeated).
 
 ## Unit tests
 
-- [ ] With a deliberately stalled server, frame pumping continues and the window keeps
+- [x] With a deliberately stalled server, frame pumping continues and the window keeps
       rendering; no main-thread call exceeds the short deadline.
 - [x] Topology and agent state still converge through the worker path (port the existing
       convergence assertions).
-- [ ] A drag produces one committed `SetSplitRatio`, not one per frame.
-- [ ] Repeated apply failures produce one toast, not one per poll.
+- [x] A drag produces one committed `SetSplitRatio`, not one per frame.
+- [x] Repeated apply failures produce one toast, not one per poll.
 
 ## Acceptance criteria
 
 - [ ] A wedged-but-alive server leaves the UI responsive: input, rendering, and pane switching
       all continue.
-- [ ] Cold start shows a window within ~1 s even when the server takes seconds to come up.
+- [x] Cold start shows a window within ~1 s even when the server takes seconds to come up.
 - [x] No `ControlClient::request` call remains on the render thread without a short deadline.
 - [x] macOS full build, `ctest`, and smoke pass.
-- [ ] Windows full build, `ctest`, and smoke pass.
+- [x] Windows full build, `ctest`, and smoke pass.
 
 ## Dependencies and ownership
 
@@ -92,5 +92,14 @@ topology-projection-extraction -refactor.md`: if both are scheduled, extract the
 first and give it the worker thread as part of the move.
 
 Windows validation completed with the Release build, all core/app CTest shards, focused
-deadline/cache/worker tests, and the repository smoke test. The remaining unchecked items
-are manual stress or second-platform coverage.
+deadline/cache/worker tests, and the repository smoke test. The remaining unchecked item is
+the manual end-to-end interaction stress gate.
+
+The 2026-09-23 audit added a deterministic App regression with a live control
+listener that deliberately leaves the Session request queued. App initialization
+still completes within one second, and a requested frame renders within the
+bounded pump while the worker is blocked. The trailing split-ratio regression
+also proves a drag burst retains only its latest pending ratio; the flush path
+clears that single slot before enqueueing one authoritative command. Existing
+`remote topology apply errors latch by exact message` coverage proves repeated
+projection failures do not repeat the same toast.

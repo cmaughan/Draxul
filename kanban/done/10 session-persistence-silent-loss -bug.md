@@ -99,25 +99,54 @@ propose making non-shell hosts restorable (still explicitly out of scope per
       `has_restorable_shell_session()` false, a shell pane makes it true
       (`tests/pane_manager_tests.cpp:686-690`).
 - [x] Staleness ceiling: not applicable — none adopted (see above).
-- [ ] **Gap: the transition signal has no automated test.** Asserting it needs
-      an initialized `App` whose pane composition changes mid-pump, plus log
-      capture. The condition it keys off is covered above and the latch itself
-      is a few lines, but this is untested and should be closed when an
-      App-level pump fixture that can swap a pane's host kind exists.
-- [ ] **Gap: `--new-session` abort has no automated test.** The refusal lives
-      in `main.cpp`, which the suite does not drive.
-      `SessionCli::prepare_new_session_launch` returning false is the testable
-      half and would be the natural place to start.
+- [x] Superseded: the client-side shell-only transition latch is disabled in the
+      production shared-server path. Server checkpoint/restore warnings are
+      published through Session status, shown once by `App`, and printed by
+      `--server-status`; checkpoint failure/recovery coverage lives in
+      `server_session_checkpoint_tests.cpp`.
+- [x] Superseded: `SessionCli` and its fallback path were removed. `--new-session`
+      now resolves against the live server registry and exits with the returned
+      error when an explicit id exists. Named-Session isolation, creation, and
+      duplicate handling are covered by the server Session/topology suites; the
+      CLI contract is documented in `docs/features.md`.
 
 ## Acceptance criteria
 
-- [ ] No path discards or skips a saved session without a user-visible or
-      logged reason.
-- [ ] Window close and last-shell exit are consistent with one documented rule.
-- [ ] `docs/features.md` describes the persistence rules a user can actually
-      predict.
+- [x] Server checkpoint/restore failures remain in per-Session status and are
+      visible in an attaching UI and `--server-status`; corrupt inputs are
+      archived and partial restores remain writable.
+- [x] Closing all windows leaves the server-owned Session and processes alive;
+      clean final-shell exit closes attached UIs while the server remains
+      running. Both rules are documented and covered by server integration tests.
+- [x] `docs/features.md` describes server-owned checkpoints, warning delivery,
+      client detach, clean process exit, and the no-fallback `--new-session`
+      behavior.
 - [x] macOS full build, `ctest`, and smoke pass.
-- [ ] Windows full build, `ctest`, and smoke pass.
+- [x] Windows full build, `ctest`, and smoke pass (48/48 products aggregate and
+      same-cache smoke, recorded in the card 13 Windows closeout).
+
+## Shared-server audit (2026-09-23)
+
+No production or test seam is missing for the behavior that ships today. The two
+historic unchecked tests targeted deleted client-owned code. Their replacement
+coverage is explicit:
+
+- `tests/server_session_checkpoint_tests.cpp` verifies detached-client survival,
+  periodic and shutdown checkpoints, last-good-file preservation, contained
+  failures, corrupt-checkpoint archival, and writable partial restore.
+- `tests/server_topology_terminal_tests.cpp` verifies that clean shell exit is
+  reconciled into the shared topology and observed by every client.
+- `app/app.cpp` consumes published `persistence_warnings` as one-time Session
+  persistence toasts; `app/main.cpp` prints checkpoint errors and restore warnings
+  in server status.
+- `docs/features.md` records the user-visible persistence and Session CLI rules,
+  including that an existing explicit `--new-session` id is an error rather than
+  a fallback to `default`.
+
+The legacy local snapshot path remains available only to non-shared test/embed
+configurations. Production shell launches set `enable_session_restore` false when
+connected to the shared server, so reviving the deleted transition-latch or
+`SessionCli` tests would not exercise the product path.
 
 ## Dependencies and ownership
 

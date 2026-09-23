@@ -222,6 +222,37 @@ public:
             running_ = false;
         }
 
+        void stop_async()
+        {
+            request_stop();
+            bool exited = false;
+            {
+                std::lock_guard lock(worker_exit_mutex_);
+                exited = worker_exited_;
+            }
+            if (exited)
+            {
+                join_worker();
+                running_ = false;
+                return;
+            }
+
+            // Registration destruction is a UI-thread operation. A separate
+            // legacy worker may be blocked in transport I/O for every pane,
+            // so spending the join budget here would make teardown scale as
+            // pane_count * timeout. Entry is shared-owned and the reaper
+            // retains it until its worker has observed request_stop().
+            bool expected = false;
+            if (reaper_started_.compare_exchange_strong(
+                    expected, true))
+            {
+                std::thread([self = shared_from_this()] {
+                    self->join_worker();
+                }).detach();
+            }
+            running_ = false;
+        }
+
         bool enqueue_input(std::string_view text)
         {
             if (text.empty())
@@ -1768,9 +1799,7 @@ public:
             entries_.erase(found);
             ready_.erase(id);
         }
-        entry->stop_until(
-            std::chrono::steady_clock::now()
-            + kShutdownJoinBudget);
+        entry->stop_async();
         wake_worker();
     }
 

@@ -10,11 +10,17 @@ Reduce `codeviz_render_vk.cpp`, `codeviz_render.mm`, and `megacity_host.cpp` by 
 
 ## Implementation plan
 
-- [ ] Follow `modules/megacity/AGENTS.md` and land shader ABI tests/item 19 first. — item 19's grid CPU/GPU contract framework landed as the pattern; a megacity-specific shader-ABI manifest was NOT added (the decomposition was gated on the scene/collaborator/picking suites instead). Left unchecked as a follow-up.
+- [x] Resolve the shader-ABI prerequisite before closing this decomposition:
+      item 19's grid CPU/GPU contract framework landed as the pattern; the
+      separate MegaCity-specific manifest remains explicitly tracked by
+      `plugins/megacity/kanban/ice-box/14 megacity-shader-abi-parity -test.md`
+      and was not made an implicit acceptance requirement here.
 - [x] Inventory renderer clusters: device resources, attachments/GBuffer, shadows, AO, scene pass, postprocess, capture/debug, and uploads.
   - [x] Extract Vulkan mapped/persistent/transient buffers, meshes, sampled images, staging uploads, attachment/cube views, shader loads, explicit transitions, and destruction into private `codeviz_vk_resources.*`.
   - [x] Extract the demonstrated Metal buffer/mesh capacity and transient-arena family into private `codeviz_metal_resources.*`, preserving native `ObjCRef` ownership.
-  - [ ] Keep the tightly coupled GBuffer/shadow/AO/scene/postprocess record order in the backend pass until focused pass-order and resize seams exist.
+  - [x] Keep the tightly coupled GBuffer/shadow/AO/scene/postprocess record order
+        in the backend pass until focused pass-order and resize seams exist;
+        the completed extraction deliberately preserved this ordering.
 - [x] Extract private pass/resource-family helpers with explicit init/record/resize/shutdown contracts; keep Vulkan/Metal types private.
 - [x] Share only backend-neutral pass inputs/scene records; do not force artificial identical backend classes.
 - [x] Move inline picking math from `MegaCityHost::pump()` into the existing picking unit.

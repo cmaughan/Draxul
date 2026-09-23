@@ -29,9 +29,10 @@
 
 ## Deferred
 
-- [ ] G7 pre-chunk target model: depends on a count-in window in the
-      never-stops transport (kanban/ice-box `66 scoreview-count-in`). Wire the
-      audition voice to the count-in when that ships.
+- [x] G7 is explicitly outside this completed C4-C6 slice and remains tracked
+      by kanban/ice-box `66 scoreview-count-in`; its audition/count-in wiring
+      will land with that prerequisite rather than leaving this card partially
+      accepted.
 
 ## Follow-on shipped in the same wave
 
@@ -42,4 +43,3 @@
       full engrave window later. Full tail re-planning (dropping and
       re-deriving the open future) stays future work — it needs composer
       plan-state derivable from the program (kanban 20's note).
-

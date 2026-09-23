@@ -367,13 +367,20 @@ TEST_CASE("remote Session coordinator registration teardown is bounded by a bloc
         .expected_server_epoch = "coordinator-epoch",
     });
     REQUIRE(coordinator.start());
-    auto registration
-        = coordinator.register_terminal("terminal-shared");
-    REQUIRE(registration);
+    std::vector<RemoteSessionCoordinator::Registration>
+        registrations;
+    for (int index = 0; index < 12; ++index)
+    {
+        auto registration = coordinator.register_terminal(
+            "terminal-" + std::to_string(index));
+        REQUIRE(registration);
+        registrations.push_back(std::move(registration));
+    }
     REQUIRE(wait_for_condition([&] { return request_entered.load(); }));
 
     const auto started = std::chrono::steady_clock::now();
-    registration.reset();
+    for (auto& registration : registrations)
+        registration.reset();
     const auto elapsed = std::chrono::steady_clock::now() - started;
     CHECK(elapsed < std::chrono::seconds(1));
 

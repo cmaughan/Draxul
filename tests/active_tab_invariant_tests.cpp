@@ -124,6 +124,41 @@ struct AppTestAccess
         return app.announce_remote_topology_apply_error(
             error);
     }
+
+    static void configure_remote_ratio(
+        App& app, DividerId divider)
+    {
+        app.topology_mutation_route_
+            = std::make_unique<ServerTopologyMutationRoute>(
+                ServerTopologyMutationRoute::Deps{});
+        const SpaceId space_id
+            = app.space_controller_.active_space_id();
+        const int tab_id = app.active_tab_id();
+        app.topology_projection_.bind_space(
+            "remote-space", space_id);
+        app.topology_projection_.bind_tab(
+            "remote-tab", space_id, tab_id);
+        TopologyTabProjection projection;
+        projection.divider_nodes.emplace(
+            divider, "remote-divider-node");
+        app.topology_projection_.commit_tab(
+            "remote-tab", projection);
+    }
+
+    static void queue_remote_ratio(
+        App& app, DividerId divider, float ratio)
+    {
+        app.queue_remote_split_ratio(divider, ratio);
+    }
+
+    static std::optional<float> pending_remote_ratio(
+        const App& app)
+    {
+        return app.pending_topology_ratio_
+            ? std::optional<float>(
+                  app.pending_topology_ratio_->ratio)
+            : std::nullopt;
+    }
 };
 
 } // namespace draxul
@@ -227,6 +262,27 @@ TEST_CASE("remote topology apply errors latch by exact message",
         app, "projection failed"));
     CHECK(AppTestAccess::announce_topology_apply_error(
         app, "different projection failure"));
+}
+
+TEST_CASE("remote divider drags retain one trailing split-ratio commit",
+    "[app][topology][split-ratio]")
+{
+    App app;
+    AppTestAccess::add_empty_tab(app, 1);
+    AppTestAccess::activate(app, 1);
+    constexpr DividerId divider = 7;
+    AppTestAccess::configure_remote_ratio(app, divider);
+
+    for (int step = 0; step < 20; ++step)
+    {
+        AppTestAccess::queue_remote_ratio(
+            app, divider, 0.20f + step * 0.02f);
+    }
+
+    const auto pending
+        = AppTestAccess::pending_remote_ratio(app);
+    REQUIRE(pending);
+    CHECK(*pending == Catch::Approx(0.58f));
 }
 
 TEST_CASE("clean exit of the sole remote shell closes only the UI",

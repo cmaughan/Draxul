@@ -78,7 +78,7 @@ The local terminal path never JSON-encodes cells, so this is new to this branch.
 - [x] No JSON `dump()` on a path carrying terminal content can throw.
 - [x] The kernel loop survives an exception from any single Session's pump.
 - [x] macOS full build, `ctest`, and smoke pass.
-- [ ] Windows full build, `ctest`, and smoke pass.
+- [x] Windows full build, `ctest`, and smoke pass.
 
 ## Dependencies and ownership
 
@@ -86,3 +86,11 @@ Independent; touches `draxul-terminal-core`, `draxul-server`, and `draxul-contro
 land before any other card in this wave — the review's recommended order starts here. Same
 owner as `kanban/done/13 blocking-pty-io-stalls-server -bug.md`, since both harden the
 kernel loop.
+
+## Validation closeout (2026-09-23)
+
+- The later Windows server-runtime gate recorded alongside cards 17-20 used a
+  Release/Ninja production build, every core/app CTest shard, focused transport
+  coverage, and the repository smoke test. That run includes the cross-platform
+  terminal-core, control-transport, and server-kernel invalid-UTF-8 regressions
+  owned by this card; the unchecked Windows box was stale.

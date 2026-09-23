@@ -23,7 +23,9 @@ Replace repeated normal/bold/italic/bold-italic branches and parallel caches in 
 - [x] Verify config round-trip paths remain mapped correctly.
 - [x] Render ligature/style references without blessing unrelated differences.
 - [x] macOS/Metal build, font tests, `ctest`, and smoke pass (11/11 tests green).
-- [ ] Windows/Vulkan build, font tests, `ctest`, and smoke pass.
+- [x] Windows/Vulkan build, font tests, `ctest`, and smoke pass. The 2026-09-22
+      48/48 products aggregate covered the font/style suites and retained native
+      links; the Unicode Vulkan render comparison and same-cache smoke passed.
 
 ## Dependencies and parallelism
 
@@ -42,9 +44,9 @@ fallback precedence, and the same-as-regular skip are all locked in by table
 tests (`font_style_model_tests.cpp`, `font_resolver_style_tests.cpp` including
 a new per-style cache-isolation/reset test).
 
-Validation: `cmake --build build --target draxul draxul-tests` OK;
+Initial macOS validation: `cmake --build build --target draxul draxul-tests` OK;
 `ctest --test-dir build` 11/11 pass (5 render + 4 unit shards + smoke);
-`python3 do.py smoke` exit 0. Only the Windows/Vulkan acceptance line is
-unticked, deferred to CI (this machine validates the macOS path only).
+`python3 do.py smoke` exit 0. The later 2026-09-22 product aggregate, render
+comparison, and smoke closed the Windows/Vulkan acceptance line.
 
 <model>GPT-5 Codex</model>

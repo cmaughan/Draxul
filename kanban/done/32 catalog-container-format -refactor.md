@@ -24,7 +24,11 @@ The `DXSTAR1`, `DXCLINE1`, and `DXCBND01` assets independently implement magic/v
 - [x] Cover bad magic/version/sizes/count overflow/truncation/non-finite semantic data. (C++ negative-framing + non-finite cases and direct helper unit tests; Python `ValidateHelperTests` / `PackHelpersTests`.)
 - [x] Run generators twice and require byte-identical output. (`tests/satview_catalog_py_tests.py::GeneratorDeterminismTests`.)
 - [x] Existing runtime assets remain loadable on macOS (verified via full `ctest` on Apple M4 Pro).
-- [ ] Existing runtime assets remain loadable on Windows.
+- [x] Existing runtime assets remain loadable on Windows. The 2026-09-22
+      Windows product aggregate passed all 48 entries, including the SatView
+      catalog and Python suites, and an isolated SatView-only MSVC build passed
+      all 3 labelled tests before the Vulkan developer render loaded the shipped
+      assets successfully.
 
 ## Dependencies and parallelism
 
@@ -32,11 +36,12 @@ Follows current catalog work. A data-format sub-agent can own C++/Python helpers
 
 ## Status
 
-**2026-07-19** — Complete (modulo Windows CI verification).
+**2026-07-19** — Implementation complete; Windows verification followed on
+2026-09-22 as recorded above.
 
 - Shared C++ framing lives in `modules/satview/draxul-satview/src/satview_catalog_container.{h,cpp}` (wired into the SatView library CMake). The star and constellation loaders route framing through `open_single_table_catalog`; the multi-table boundary loader shares `catalog_container_range_fits` and the record/string limits. Catalog-specific semantic validation stays in each loader.
 - Shared Python framing lives in `scripts/satview_catalog_container.py`, used by all three generators (`build_satview_{star,constellation,constellation_boundary}_catalog.py`).
 - On-disk formats are unchanged (version 1); shipped assets load byte-for-byte as before — no regeneration, no version bump.
-- Validation: `draxul` + `draxul-tests` build clean; full `ctest` 12/12 green (incl. new `draxul-satview-catalog-py-tests`); C++ `[satview][catalog]` 40 cases / 357 assertions; `do.py smoke` exit 0. All on macOS/Metal (Apple M4 Pro). Windows loadability is left for CI (platform-neutral little-endian format).
+- Validation: `draxul` + `draxul-tests` build clean; full `ctest` 12/12 green (incl. new `draxul-satview-catalog-py-tests`); C++ `[satview][catalog]` 40 cases / 357 assertions; `do.py smoke` exit 0. The initial run was macOS/Metal (Apple M4 Pro); the later Windows evidence above closes cross-platform loadability.
 
 <model>GPT-5 Codex</model>

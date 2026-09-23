@@ -32,5 +32,11 @@ supersedes the rejected sibling-overlay direction recorded in
       README/CLAUDE.md/module-map/features docs; verified initialized
       (26/26 ctest + smoke) and uninitialized (STATUS-skip configure)
       states, and CI-mode absent-mount fails fast.
-- [ ] Phase 3: per-product CI building against pinned Draxul; re-run the 7E
-      acceptance matrix from the submodule layout on Windows and macOS.
+- [x] Phase 3: each product repo now has a Windows/macOS compatibility workflow
+      pinned to Draxul `3d8e5658`, with every other product disabled, exact
+      labelled test-inventory assertions, focused builds/tests, and
+      fail-if-enabled-but-absent enforcement. ScoreView also retains its copied-
+      tree extraction smoke. The submodule 7E matrix was re-run on Windows and
+      macOS during the 2026-09-22 product closeout: products-off, each product-
+      only cache, all-products aggregate, focused labels, product pane/render
+      launches, and same-cache smoke passed.

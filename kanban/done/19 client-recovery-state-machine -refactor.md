@@ -86,7 +86,7 @@ lockstep.
 - [x] Server restart is recoverable without reopening the UI, closing the plan's known
       boundary on epoch migration.
 - [x] macOS full build, `ctest`, and smoke pass.
-- [ ] Windows full build, `ctest`, and smoke pass.
+- [x] Windows full build, `ctest`, and smoke pass.
 
 ## Validation
 
