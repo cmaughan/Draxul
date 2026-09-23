@@ -58,6 +58,18 @@ SatView or ScoreView product runtimes; the executable discovers their modules.
 
 ## Core Libraries
 
+### libs/draxul-file-monitor/
+
+Independent static `draxul-file-monitor` library for recursive directory
+invalidation, with no renderer, SDL, or product dependencies. Native backends use
+FSEvents on macOS, change-notification handles on Windows, and inotify on Linux.
+There is no polling fallback. Consumers drain coalesced invalidations on their own
+thread and rescan rather than replaying platform-specific event sequences; native
+queue overflows invalidate the snapshot too. Destruction drains callbacks and
+interrupts blocking waits. Creation/runtime failures are explicit. Watched roots
+must exist and remain at their paths (Windows supports 63 roots per instance).
+Kanban is the first consumer; Rezonality's existing watcher is unchanged.
+
 ### app/
 
 Top-level orchestration only.

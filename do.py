@@ -1024,6 +1024,7 @@ def _test_scope_selection(
         r"draxul-test-markdown-kanban-shard-[0-9]+",
         r"draxul-test-kanban-core-shard-[0-9]+",
         r"draxul-test-kanban-host-shard-[0-9]+",
+        r"draxul-test-file-monitor-shard-[0-9]+",
         r"draxul-test-nanovg-paint-shard-[0-9]+",
         r"draxul-test-nvim-protocol-shard-[0-9]+",
         r"draxul-test-nvim-transport-shard-[0-9]+",

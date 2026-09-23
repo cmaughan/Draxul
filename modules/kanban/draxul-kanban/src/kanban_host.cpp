@@ -184,11 +184,16 @@ size_t card_count(const KanbanBoard& board)
 
 } // namespace
 
+KanbanHost::~KanbanHost()
+{
+    shutdown();
+}
+
 bool KanbanHost::initialize_host()
 {
     configure_highlights();
     grid_pipeline().set_enable_ligatures(false);
-    if (!reload_board())
+    if (!reload_board(false, false))
         return false;
 
     running_ = true;
@@ -201,6 +206,11 @@ bool KanbanHost::initialize_host()
 
 void KanbanHost::shutdown()
 {
+    file_monitor_.reset();
+    monitored_roots_.clear();
+    reload_at_.reset();
+    focused_ = false;
+    preview_refresh_pending_ = false;
     held_selection_command_.reset();
     navigation_.reset();
     running_ = false;
@@ -222,6 +232,24 @@ void KanbanHost::pump()
         return;
 
     const auto now = std::chrono::steady_clock::now();
+    if (file_monitor_ && file_monitor_->consume_changes())
+    {
+        reload_at_ = now + std::chrono::milliseconds(150);
+        const auto error = file_monitor_->error();
+        if (!error.empty())
+        {
+            notify_error("Kanban auto-refresh stopped: " + error);
+            file_monitor_.reset();
+            monitored_roots_.clear();
+            reload_at_.reset();
+        }
+    }
+    if (reload_at_ && now >= *reload_at_)
+    {
+        reload_at_.reset();
+        if (!reload_board(false, focused_))
+            notify_error("Kanban auto-refresh failed (press r to retry): " + init_error_);
+    }
     suppress_cursor_until(now + std::chrono::hours(24));
     pump_key_repeat(now);
     if (redraw_needed_)
@@ -245,16 +273,32 @@ void KanbanHost::pump()
 
 std::optional<std::chrono::steady_clock::time_point> KanbanHost::next_deadline() const
 {
+    if (!running_)
+        return std::nullopt;
     auto deadline = GridHostBase::next_deadline();
     if (held_selection_command_ && (!deadline || next_repeat_at_ < *deadline))
         deadline = next_repeat_at_;
+    if (reload_at_ && (!deadline || *reload_at_ < *deadline))
+        deadline = reload_at_;
     return deadline;
 }
 
 void KanbanHost::on_focus_gained()
 {
     GridHostBase::on_focus_gained();
+    focused_ = true;
+    if (preview_refresh_pending_)
+    {
+        preview_refresh_pending_ = false;
+        refresh_card_preview();
+    }
     suppress_cursor_until(std::chrono::steady_clock::now() + std::chrono::hours(24));
+}
+
+void KanbanHost::on_focus_lost()
+{
+    focused_ = false;
+    GridHostBase::on_focus_lost();
 }
 
 void KanbanHost::on_key(const KeyEvent& event)
@@ -329,15 +373,13 @@ void KanbanHost::on_key(const KeyEvent& event)
 bool KanbanHost::dispatch_action(std::string_view action)
 {
     if (action == "reload")
-        return reload_board();
+        return reload_board(true);
     return false;
 }
 
 void KanbanHost::request_close()
 {
-    held_selection_command_.reset();
-    navigation_.reset();
-    running_ = false;
+    shutdown();
 }
 
 std::string KanbanHost::status_text() const
@@ -384,11 +426,15 @@ void KanbanHost::configure_highlights()
     highlights().set(HlStatus, attr(color_from_rgb(0xB8C0CC), color_from_rgb(0x1B222C)));
 }
 
-bool KanbanHost::reload_board()
+bool KanbanHost::reload_board(bool rearm_monitor, bool update_preview)
 {
     std::optional<std::filesystem::path> selected_path;
+    std::optional<KanbanCard> previous_card;
     if (const auto* selected = selected_card(board_, selection_))
+    {
         selected_path = selected->path;
+        previous_card = *selected;
+    }
 
     std::string error;
     const auto root = resolve_kanban_root(launch_options().source_path, launch_options().working_dir, &error);
@@ -410,15 +456,66 @@ bool KanbanHost::reload_board()
     workspace_board_ = std::move(loaded);
     if (source_filter_ && *source_filter_ >= workspace_board_.sources.size())
         source_filter_.reset();
+    // A lane move changes the path. Follow only a unique filename within the
+    // same owning board; never jump to a similarly named submodule card.
+    if (previous_card && !find_card_selection(workspace_board_, *selected_path))
+    {
+        std::optional<std::filesystem::path> moved;
+        size_t matches = 0;
+        for (const auto& column : workspace_board_.columns)
+            for (const auto& card : column.cards)
+                if (card.source_root == previous_card->source_root
+                    && card.file_name == previous_card->file_name)
+                {
+                    moved = card.path;
+                    ++matches;
+                }
+        if (matches == 1)
+            selected_path = moved;
+    }
     rebuild_visible_board(selected_path);
     keep_selection_visible();
     update_status();
-    refresh_card_preview();
+    // Preview callbacks route through the active pane manager. An event from
+    // an inactive board must not replace another pane's preview or topology.
+    preview_refresh_pending_ = !update_preview;
+    if (update_preview)
+        refresh_card_preview();
     selection_before_redraw_.reset();
     clear_before_redraw_ = true;
     redraw_needed_ = true;
     callbacks().request_frame();
+    if (rearm_monitor)
+        file_monitor_.reset();
+    update_file_monitor();
     return true;
+}
+
+void KanbanHost::update_file_monitor()
+{
+    std::vector<std::filesystem::path> roots;
+    for (const auto& source : workspace_board_.sources)
+        roots.push_back(source.root);
+    if (roots.empty())
+        roots.push_back(root_);
+    if (file_monitor_ && roots == monitored_roots_)
+        return;
+
+    file_monitor_.reset();
+    monitored_roots_.clear();
+    std::string error;
+    auto* host_callbacks = &callbacks();
+    file_monitor_ = FileMonitor::create(roots,
+        [host_callbacks] { host_callbacks->wake_window(); }, error);
+    if (!file_monitor_)
+    {
+        notify_error("Kanban auto-refresh unavailable (r still reloads): " + error);
+        return;
+    }
+    monitored_roots_ = std::move(roots);
+    // Close the initial scan/arming race with one deferred reconciliation.
+    // This is not a recurring poll; subsequent reloads require native events.
+    reload_at_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(150);
 }
 
 void KanbanHost::redraw_board()
@@ -671,7 +768,7 @@ void KanbanHost::apply_navigation_command(KanbanNavigationCommand command)
         open_selected_card();
         break;
     case KanbanNavigationCommand::Reload:
-        reload_board();
+        reload_board(true);
         break;
     case KanbanNavigationCommand::ToggleColumnZoom:
         toggle_column_zoom();

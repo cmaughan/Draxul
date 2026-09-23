@@ -96,6 +96,7 @@ set(DRAXUL_KANBAN_CORE_TEST_SOURCES
     kanban_store_tests.cpp
 )
 set(DRAXUL_KANBAN_HOST_TEST_SOURCES kanban_host_tests.cpp)
+set(DRAXUL_FILE_MONITOR_TEST_SOURCES file_monitor_tests.cpp)
 set(DRAXUL_NANOVG_PAINT_TEST_SOURCES nanovg_paint_tests.cpp)
 set(DRAXUL_PLUGIN_NANOVG_TEST_SOURCES plugin_nanovg_pass_tests.cpp)
 set(DRAXUL_RENDER_CONTRACT_TEST_SOURCES
@@ -119,6 +120,7 @@ set(DRAXUL_CLASSIFIED_TEST_SOURCES
     ${DRAXUL_MARKDOWN_TEST_SOURCES}
     ${DRAXUL_KANBAN_CORE_TEST_SOURCES}
     ${DRAXUL_KANBAN_HOST_TEST_SOURCES}
+    ${DRAXUL_FILE_MONITOR_TEST_SOURCES}
     ${DRAXUL_NANOVG_PAINT_TEST_SOURCES}
     ${DRAXUL_PLUGIN_NANOVG_TEST_SOURCES}
     ${DRAXUL_RENDER_CONTRACT_TEST_SOURCES}
@@ -489,6 +491,13 @@ target_link_libraries(draxul-test-kanban-core PRIVATE
     SDL3::SDL3
 )
 
+draxul_add_test_target(draxul-test-file-monitor "file-monitor" 1
+    ${DRAXUL_FILE_MONITOR_TEST_SOURCES})
+target_link_libraries(draxul-test-file-monitor PRIVATE
+    draxul-file-monitor
+    draxul-types
+)
+
 draxul_add_test_target(draxul-test-kanban-host "kanban;host" 1
     ${DRAXUL_KANBAN_HOST_TEST_SOURCES})
 target_link_libraries(draxul-test-kanban-host PRIVATE
@@ -690,6 +699,7 @@ add_dependencies(draxul-tests
 # default and opts into product test executables only when their scope is named.
 add_custom_target(draxul-tests-core)
 add_dependencies(draxul-tests-core
+    draxul-test-file-monitor
     draxul-test-core
     draxul-test-app
     draxul-test-app-shell

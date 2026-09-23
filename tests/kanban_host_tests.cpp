@@ -179,6 +179,56 @@ TEST_CASE("kanban host initializes and reports board status", "[kanban][host]")
     REQUIRE(fixture.renderer.create_grid_handle_calls == 1);
 }
 
+TEST_CASE("kanban follows external lane moves and refreshes submodule cards automatically",
+    "[kanban][host][file-monitor]")
+{
+    KanbanHostFixture fixture(1, 1, { 80, 12 }, true, false, true);
+    fixture.host.on_focus_gained();
+    const auto pump_until = [&](auto predicate) {
+        const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        do
+        {
+            fixture.host.pump();
+            if (predicate())
+                return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        } while (std::chrono::steady_clock::now() < limit);
+        return false;
+    };
+    // Wait out the single post-arming reconciliation before exercising events.
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    fixture.host.pump();
+    fixture.host.on_key(key_event(SDLK_P));
+    const auto destination = std::filesystem::weakly_canonical(fixture.board_root)
+        / "done" / fixture.card_path.filename();
+    std::filesystem::create_directory(destination.parent_path());
+    std::filesystem::rename(fixture.card_path, destination);
+    REQUIRE(pump_until([&] { return fixture.callbacks.preview_path == destination.string(); }));
+    CHECK(fixture.host.status_text().find("card-1-feature.md") != std::string::npos);
+
+    const auto product = fixture.board_root.parent_path() / "plugins" / "product" / "kanban" / "todo";
+    std::ofstream(product / "added-feature.md") << "# Added externally\n";
+    REQUIRE(pump_until([&] { return fixture.host.status_text().find("3 cards") != std::string::npos; }));
+    std::filesystem::remove(product / "added-feature.md");
+    REQUIRE(pump_until([&] { return fixture.host.status_text().find("2 cards") != std::string::npos; }));
+
+    const int previews = fixture.callbacks.show_preview_calls;
+    std::ofstream(destination) << "# Edited externally\n";
+    REQUIRE(pump_until([&] { return fixture.callbacks.show_preview_calls > previews; }));
+    CHECK(fixture.callbacks.preview_path == destination.string());
+
+    fixture.host.on_focus_lost();
+    const int inactive_previews = fixture.callbacks.show_preview_calls;
+    std::ofstream(product / "background-feature.md") << "# Background edit\n";
+    REQUIRE(pump_until([&] { return fixture.host.status_text().find("3 cards") != std::string::npos; }));
+    CHECK(fixture.callbacks.show_preview_calls == inactive_previews);
+    fixture.host.on_focus_gained();
+    CHECK(fixture.callbacks.show_preview_calls > inactive_previews);
+    fixture.host.shutdown();
+    CHECK_FALSE(fixture.host.is_running());
+    CHECK_FALSE(fixture.host.next_deadline().has_value());
+}
+
 TEST_CASE("kanban host aggregates and filters repository boards with b",
     "[kanban][host][workspace][input]")
 {

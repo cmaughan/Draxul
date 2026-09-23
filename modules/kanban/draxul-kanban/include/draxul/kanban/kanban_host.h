@@ -1,6 +1,7 @@
 #pragma once
 
 #include <draxul/grid_host_base.h>
+#include <draxul/file_monitor.h>
 #include <draxul/kanban/kanban_board.h>
 #include <draxul/kanban/kanban_layout.h>
 #include <draxul/kanban/kanban_navigation.h>
@@ -23,12 +24,14 @@ namespace draxul::kanban
 class KanbanHost final : public draxul::GridHostBase
 {
 public:
+    ~KanbanHost() override;
     void shutdown() override;
     bool is_running() const override;
     std::string init_error() const override;
     void pump() override;
     std::optional<std::chrono::steady_clock::time_point> next_deadline() const override;
     void on_focus_gained() override;
+    void on_focus_lost() override;
     void on_key(const draxul::KeyEvent& event) override;
     bool dispatch_action(std::string_view action) override;
     void request_close() override;
@@ -41,7 +44,8 @@ private:
     std::string_view host_name() const override;
 
     void configure_highlights();
-    bool reload_board();
+    bool reload_board(bool rearm_monitor = false, bool update_preview = true);
+    void update_file_monitor();
     void redraw_board();
     void redraw_selection_change(KanbanSelection previous_selection);
     void draw_column_header(const KanbanColumnLayout& column_layout, int status_row);
@@ -84,12 +88,17 @@ private:
     // selection. Both are pure view state owned by this host.
     bool column_zoom_ = false;
     bool preview_visible_ = false;
+    bool focused_ = false;
+    bool preview_refresh_pending_ = false;
     std::optional<size_t> source_filter_;
     int scroll_row_ = 0;
     std::optional<KanbanSelection> selection_before_redraw_;
     std::optional<KanbanNavigationCommand> held_selection_command_;
     int held_keycode_ = 0;
     std::chrono::steady_clock::time_point next_repeat_at_{};
+    std::vector<std::filesystem::path> monitored_roots_;
+    std::optional<std::chrono::steady_clock::time_point> reload_at_;
+    std::unique_ptr<FileMonitor> file_monitor_;
 };
 
 std::unique_ptr<draxul::IHost> create_kanban_host();

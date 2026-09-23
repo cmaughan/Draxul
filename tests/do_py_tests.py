@@ -798,6 +798,7 @@ class TestCommandTests(unittest.TestCase):
         self.assertIn("draxul-test-markdown-layout-shard", ctest_filter[1])
         self.assertIn("draxul-test-kanban-core-shard", ctest_filter[1])
         self.assertIn("draxul-test-kanban-host-shard", ctest_filter[1])
+        self.assertIn("draxul-test-file-monitor-shard", ctest_filter[1])
         self.assertIn("draxul-test-nanovg-paint-shard", ctest_filter[1])
         self.assertIn("draxul-test-plugin-nanovg-shard", ctest_filter[1])
         self.assertIn("draxul-test-render-contracts-shard", ctest_filter[1])

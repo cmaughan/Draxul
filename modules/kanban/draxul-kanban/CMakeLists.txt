@@ -28,6 +28,7 @@ target_include_directories(draxul-kanban-host PUBLIC
 target_link_libraries(draxul-kanban-host PUBLIC
     draxul-kanban
     draxul-grid-host
+    draxul-file-monitor
 )
 
 draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")
