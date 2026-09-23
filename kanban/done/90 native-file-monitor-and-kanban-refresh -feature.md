@@ -5,7 +5,7 @@
 - [x] Keep manual reload, explicit failures, safe callback shutdown, and the previous board on scan failure.
 - [x] Add native filesystem and Kanban integration coverage and document the API/limitations.
 - [x] Validate macOS aggregate tests and same-cache startup smoke.
-- [ ] Validate Windows backend in cross-platform CI.
+- [x] Validate Windows backend in cross-platform CI.
 
 Scope: existing board roots. Discovering entirely new submodule boards or replacing
 a watched root requires manual `r`. Rezonality migration is a separate slice.
@@ -37,3 +37,14 @@ a watched root requires manual `r`. Rezonality migration is a separate slice.
   and CI work is centralized in
   `kanban/ice-box/124 linux-platform-bringup -feature.md` rather than used as a
   completion gate for this card.
+
+## Windows validation evidence (2026-09-23)
+
+- The Debug Rezonality aggregate passed all 38 registered CTest entries on
+  Windows, including `draxul-tests-file-monitor-shard` (0.20 s), the core and
+  Kanban integration suites, the dynamic Rezonality module, and all seven
+  registered Vulkan render comparisons (214.37 s total).
+- The same-cache Debug startup smoke passed in 21.98 s.
+- This directly exercised the native Windows watcher through the same
+  cross-platform aggregate used by CI; no polling fallback or alternate build
+  cache was used.
