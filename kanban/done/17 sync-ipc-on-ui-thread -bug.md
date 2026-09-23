@@ -75,7 +75,7 @@ the duration (per-op, repeated).
 
 ## Acceptance criteria
 
-- [ ] A wedged-but-alive server leaves the UI responsive: input, rendering, and pane switching
+- [x] A wedged-but-alive server leaves the UI responsive: input, rendering, and pane switching
       all continue.
 - [x] Cold start shows a window within ~1 s even when the server takes seconds to come up.
 - [x] No `ControlClient::request` call remains on the render thread without a short deadline.
@@ -92,8 +92,8 @@ topology-projection-extraction -refactor.md`: if both are scheduled, extract the
 first and give it the worker thread as part of the move.
 
 Windows validation completed with the Release build, all core/app CTest shards, focused
-deadline/cache/worker tests, and the repository smoke test. The remaining unchecked item is
-the manual end-to-end interaction stress gate.
+deadline/cache/worker tests, and the repository smoke test. The manual end-to-end interaction
+stress gate is complete.
 
 The 2026-09-23 audit added a deterministic App regression with a live control
 listener that deliberately leaves the Session request queued. App initialization
@@ -109,5 +109,9 @@ projection failures do not repeat the same toast.
 - The focused wedged-listener App regression passed all 9 assertions: startup
   stayed bounded, a queued UI action was dispatched, and requested frames kept
   rendering while the Session request remained blocked.
-- This card remains pending because that deterministic regression does not
-  directly observe interactive pane switching in a running desktop window.
+- An isolated desktop session then suspended its exact live server process while
+  two client-local PBR panes and two live-audio panes remained attached. While
+  the server stayed in macOS `Ts` state, direct pointer input switched between
+  the PBR and audio tabs, selected both panes, changed a pane-local camera, and
+  produced new Metal frames. The UI displayed its reconnecting state without
+  freezing, then reattached after that exact server resumed in `Ss` state.
