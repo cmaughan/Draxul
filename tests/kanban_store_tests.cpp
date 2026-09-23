@@ -277,6 +277,44 @@ TEST_CASE("kanban store refuses cross-column filename collisions", "[kanban][sto
     REQUIRE(board.columns[1].cards.size() == 1);
 }
 
+TEST_CASE("kanban store deletes only the selected workspace card",
+    "[kanban][store][workspace][mutation]")
+{
+    draxul::tests::TempDir temp("draxul-kanban-workspace-delete");
+    const auto workspace = temp.path / "workspace";
+    const auto root = workspace / "kanban";
+    const auto product_root = workspace / "plugins" / "product" / "kanban";
+    std::filesystem::create_directories(root / "done");
+    std::filesystem::create_directories(product_root / "done");
+    write_file(root / "done" / "same-feature.md", "root done");
+    write_file(product_root / "done" / "same-feature.md", "product done");
+    write_file(workspace / ".gitmodules",
+        "[submodule \"plugins/product\"]\n"
+        "  path = plugins/product\n");
+
+    std::string error;
+    auto board = load_kanban_workspace(root, &error);
+    REQUIRE(error.empty());
+    REQUIRE(board.columns.size() == 1);
+    REQUIRE(board.columns[0].name == "done");
+    REQUIRE(board.columns[0].cards.size() == 2);
+    REQUIRE(board.columns[0].cards[1].source_name == "product");
+
+    REQUIRE(delete_card(
+        board,
+        KanbanSelection{ .column = 0, .card = 1 },
+        &error));
+    CHECK(std::filesystem::exists(root / "done" / "same-feature.md"));
+    CHECK_FALSE(std::filesystem::exists(product_root / "done" / "same-feature.md"));
+    REQUIRE(board.columns[0].cards.size() == 1);
+    CHECK(board.columns[0].cards[0].source_name == "workspace");
+
+    REQUIRE(save_kanban_order_for_source(board, 1, &error));
+    const auto metadata = draxul::tests::read_file(
+        product_root / std::string(kKanbanMetadataFileName));
+    CHECK_THAT(metadata, Catch::Matchers::ContainsSubstring("done = []"));
+}
+
 TEST_CASE("kanban workspace merges initialized recursive submodule boards",
     "[kanban][store][workspace]")
 {

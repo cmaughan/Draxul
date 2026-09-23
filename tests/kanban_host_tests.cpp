@@ -479,6 +479,79 @@ TEST_CASE("kanban host moves cards between columns with angle brackets only", "[
     REQUIRE(std::filesystem::exists(target_path));
 }
 
+TEST_CASE("kanban host capital D deletes done and ice-box cards once per keypress",
+    "[kanban][host][input][delete]")
+{
+    SECTION("done")
+    {
+        KanbanHostFixture fixture(2);
+        const auto lane = fixture.temp.path / "done";
+        std::filesystem::rename(fixture.temp.path / "todo", lane);
+        REQUIRE(fixture.host.dispatch_action("reload"));
+
+        const auto first = lane / "card-1-feature.md";
+        const auto second = lane / "card-2-feature.md";
+        fixture.host.on_key(key_event(SDLK_P));
+        REQUIRE(std::filesystem::weakly_canonical(fixture.callbacks.preview_path)
+            == std::filesystem::weakly_canonical(first));
+
+        fixture.host.on_key(key_event(SDLK_D, kModShift));
+        CHECK_FALSE(std::filesystem::exists(first));
+        CHECK(std::filesystem::exists(second));
+        CHECK(std::filesystem::weakly_canonical(fixture.callbacks.preview_path)
+            == std::filesystem::weakly_canonical(second));
+
+        fixture.host.on_key(key_event(SDLK_D, kModShift));
+        CHECK(std::filesystem::exists(second));
+
+        fixture.host.on_key(KeyEvent{
+            .scancode = 0,
+            .keycode = SDLK_D,
+            .mod = kModShift,
+            .pressed = false,
+        });
+        fixture.host.on_key(key_event(SDLK_D, kModShift));
+        CHECK_FALSE(std::filesystem::exists(second));
+        CHECK(fixture.host.status_text().find("0 cards") != std::string::npos);
+        CHECK_FALSE(fixture.callbacks.preview_visible);
+        CHECK(fixture.callbacks.hide_preview_calls == 1);
+    }
+
+    SECTION("ice-box")
+    {
+        KanbanHostFixture fixture;
+        const auto lane = fixture.temp.path / "ice-box";
+        std::filesystem::rename(fixture.temp.path / "todo", lane);
+        REQUIRE(fixture.host.dispatch_action("reload"));
+
+        const auto card = lane / "card-1-feature.md";
+        fixture.host.on_key(key_event(SDLK_D, kModShift));
+        CHECK_FALSE(std::filesystem::exists(card));
+    }
+}
+
+TEST_CASE("kanban host capital D refuses pending and custom lanes",
+    "[kanban][host][input][delete]")
+{
+    for (const std::string lane_name : { "pending", "review" })
+    {
+        DYNAMIC_SECTION(lane_name)
+        {
+            KanbanHostFixture fixture;
+            const auto lane = fixture.temp.path / lane_name;
+            std::filesystem::rename(fixture.temp.path / "todo", lane);
+            REQUIRE(fixture.host.dispatch_action("reload"));
+
+            const auto card = lane / "card-1-feature.md";
+            fixture.host.on_key(key_event(SDLK_D, kModShift));
+            CHECK(std::filesystem::exists(card));
+            CHECK(fixture.callbacks.toast_level == 2);
+            CHECK(fixture.callbacks.toast_message.find("done or ice-box")
+                != std::string::npos);
+        }
+    }
+}
+
 TEST_CASE("kanban host selection movement stays bounded on a large visible board", "[kanban][host][perf]")
 {
     KanbanHostFixture fixture(200, 3, { 177, 35 });

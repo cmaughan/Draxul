@@ -52,6 +52,23 @@ TEST_CASE("kanban shifted navigation maps card movement", "[kanban][navigation]"
     REQUIRE(navigation.on_key(key_event(SDLK_RIGHT, kModShift)) == KanbanNavigationCommand::None);
 }
 
+TEST_CASE("kanban capital D maps one delete per keypress", "[kanban][navigation]")
+{
+    KanbanNavigationState navigation;
+
+    REQUIRE(navigation.on_key(key_event(SDLK_D)) == KanbanNavigationCommand::None);
+    REQUIRE(navigation.on_key(key_event(SDLK_D, kModShift))
+        == KanbanNavigationCommand::DeleteSelected);
+    REQUIRE(navigation.on_key(key_event(SDLK_D, kModShift))
+        == KanbanNavigationCommand::None);
+    REQUIRE(navigation.on_key(key_event(SDLK_D, kModShift, false))
+        == KanbanNavigationCommand::None);
+    REQUIRE(navigation.on_key(key_event(SDLK_D, kModShift | kModCaps))
+        == KanbanNavigationCommand::DeleteSelected);
+    REQUIRE(navigation.on_key(key_event(SDLK_D, kModCtrl))
+        == KanbanNavigationCommand::None);
+}
+
 TEST_CASE("kanban vim navigation maps page and edge jumps", "[kanban][navigation]")
 {
     KanbanNavigationState navigation;

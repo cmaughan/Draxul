@@ -1002,4 +1002,37 @@ bool move_card_to_column(
     return true;
 }
 
+bool delete_card(
+    KanbanBoard& board,
+    KanbanSelection selection,
+    std::string* error)
+{
+    clear_error(error);
+    if (!selection_has_card(board, selection))
+    {
+        set_error(error, "kanban selection does not reference a card");
+        return false;
+    }
+
+    auto& cards = board.columns[static_cast<size_t>(selection.column)].cards;
+    const auto card_index = static_cast<size_t>(selection.card);
+    const auto path = cards[card_index].path;
+
+    std::error_code ec;
+    const bool removed = std::filesystem::remove(path, ec);
+    if (ec)
+    {
+        set_error(error, "failed to delete kanban card: " + ec.message());
+        return false;
+    }
+    if (!removed)
+    {
+        set_error(error, "kanban card does not exist: " + path.string());
+        return false;
+    }
+
+    cards.erase(cards.begin() + static_cast<std::ptrdiff_t>(card_index));
+    return true;
+}
+
 } // namespace draxul::kanban

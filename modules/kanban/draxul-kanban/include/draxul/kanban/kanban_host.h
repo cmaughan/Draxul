@@ -59,6 +59,7 @@ private:
     void page_selection(int direction);
     void jump_selection_to_card(int card_index);
     void move_card(int column_delta, int row_delta);
+    void delete_selected_card();
     void open_selected_card();
     void toggle_column_zoom();
     void toggle_card_preview();

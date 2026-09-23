@@ -25,6 +25,7 @@ enum class KanbanNavigationCommand
     ToggleColumnZoom,
     TogglePreview,
     CycleSourceFilter,
+    DeleteSelected,
 };
 
 class KanbanNavigationState
@@ -35,6 +36,7 @@ public:
 
 private:
     bool pending_g_ = false;
+    bool delete_held_ = false;
 };
 
 } // namespace draxul::kanban

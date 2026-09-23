@@ -28,5 +28,9 @@ bool move_card_to_column(
     KanbanSelection selection,
     int target_column,
     std::string* error);
+bool delete_card(
+    KanbanBoard& board,
+    KanbanSelection selection,
+    std::string* error);
 
 } // namespace draxul::kanban

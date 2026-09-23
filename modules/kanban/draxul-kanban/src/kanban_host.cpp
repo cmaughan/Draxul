@@ -133,6 +133,8 @@ const char* command_name(KanbanNavigationCommand command)
         return "toggle_preview";
     case KanbanNavigationCommand::CycleSourceFilter:
         return "cycle_source_filter";
+    case KanbanNavigationCommand::DeleteSelected:
+        return "delete_selected";
     }
     return "unknown";
 }
@@ -779,6 +781,9 @@ void KanbanHost::apply_navigation_command(KanbanNavigationCommand command)
     case KanbanNavigationCommand::CycleSourceFilter:
         cycle_source_filter();
         break;
+    case KanbanNavigationCommand::DeleteSelected:
+        delete_selected_card();
+        break;
     case KanbanNavigationCommand::None:
         break;
     }
@@ -973,6 +978,68 @@ void KanbanHost::move_card(int column_delta, int row_delta)
     keep_selection_visible();
     update_status();
     refresh_card_preview();
+    selection_before_redraw_.reset();
+    clear_before_redraw_ = true;
+    redraw_needed_ = true;
+    callbacks().request_frame();
+}
+
+void KanbanHost::delete_selected_card()
+{
+    const KanbanCard* visible_card = selected_card(board_, selection_);
+    if (!visible_card)
+        return;
+
+    if (selection_.column < 0
+        || selection_.column >= static_cast<int>(board_.columns.size()))
+        return;
+
+    const auto& visible_column = board_.columns[static_cast<size_t>(selection_.column)];
+    if (visible_column.name != "done" && visible_column.name != "ice-box")
+    {
+        notify_error("Kanban cards can only be deleted from done or ice-box.");
+        return;
+    }
+
+    const auto workspace_selection = find_card_selection(
+        workspace_board_, visible_card->path);
+    if (!workspace_selection)
+    {
+        notify_error("Selected kanban card is missing from its workspace board.");
+        return;
+    }
+
+    std::optional<std::filesystem::path> preferred_card;
+    const auto visible_index = static_cast<size_t>(selection_.card);
+    if (visible_index + 1 < visible_column.cards.size())
+        preferred_card = visible_column.cards[visible_index + 1].path;
+    else if (visible_index > 0)
+        preferred_card = visible_column.cards[visible_index - 1].path;
+
+    const size_t source_index = visible_card->source_index;
+    std::string error;
+    if (!delete_card(workspace_board_, *workspace_selection, &error))
+    {
+        notify_error(error.empty() ? "Failed to delete kanban card." : error);
+        return;
+    }
+
+    if (!save_kanban_order_for_source(workspace_board_, source_index, &error))
+        notify_error(error.empty() ? "Failed to save kanban order." : error);
+
+    rebuild_visible_board(preferred_card);
+    keep_selection_visible();
+    update_status();
+    if (!selected_card(board_, selection_)
+        && (preview_visible_ || callbacks().is_markdown_preview_visible()))
+    {
+        preview_visible_ = false;
+        callbacks().hide_markdown_preview();
+    }
+    else
+    {
+        refresh_card_preview();
+    }
     selection_before_redraw_.reset();
     clear_before_redraw_ = true;
     redraw_needed_ = true;

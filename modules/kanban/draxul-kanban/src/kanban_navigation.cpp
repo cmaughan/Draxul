@@ -40,7 +40,11 @@ KanbanNavigationCommand selection_movement_command(int keycode)
 KanbanNavigationCommand KanbanNavigationState::on_key(const draxul::KeyEvent& event)
 {
     if (!event.pressed)
+    {
+        if (event.keycode == SDLK_D)
+            delete_held_ = false;
         return KanbanNavigationCommand::None;
+    }
 
     if (has_only_modifiers(event.mod, kModCtrl))
     {
@@ -67,6 +71,11 @@ KanbanNavigationCommand KanbanNavigationState::on_key(const draxul::KeyEvent& ev
             return KanbanNavigationCommand::MoveDown;
         case SDLK_G:
             return KanbanNavigationCommand::SelectLast;
+        case SDLK_D:
+            if (delete_held_)
+                return KanbanNavigationCommand::None;
+            delete_held_ = true;
+            return KanbanNavigationCommand::DeleteSelected;
         default:
             return KanbanNavigationCommand::None;
         }
@@ -120,6 +129,7 @@ KanbanNavigationCommand KanbanNavigationState::on_key(const draxul::KeyEvent& ev
 void KanbanNavigationState::reset()
 {
     pending_g_ = false;
+    delete_held_ = false;
 }
 
 } // namespace draxul::kanban
