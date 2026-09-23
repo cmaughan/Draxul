@@ -8,6 +8,15 @@ validation rules, and known pitfalls live there so they cannot drift between age
 families. The detailed current library and product-module graph is in
 [docs/module-map.md](docs/module-map.md); CMake remains authoritative.
 
+## Kanban completion
+
+- Do not place or leave a card in any `kanban/done/` lane until every checkbox
+  in that card is checked off, including manual and platform-specific gates.
+- If an item cannot be completed now, keep the card out of `done`. When scope is
+  intentionally deferred or transferred, update the card before moving it and
+  link the separate tracking card that owns the remaining work; do not leave an
+  unchecked box in `done`.
+
 ## Codex-specific notes
 
 - Do not use MaaS MCP tools or servers for work in this repository.
