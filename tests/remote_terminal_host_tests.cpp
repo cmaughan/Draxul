@@ -1195,12 +1195,15 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
     draxul::tests::init_text_service(text_service);
 
     RecordingHostCallbacks callbacks;
+    auto recovery = std::make_shared<ClientRecoveryState>(
+        "hidden-render-client");
     RemoteTerminalHost host({
         .runtime_directory = temp.path,
         .client_id = "hidden-render-client",
         .server_epoch = "host-suspend-epoch",
         .method_prefix = "terminal",
         .terminal_id = std::string(kServerShellTerminalId),
+        .recovery = recovery,
         .presentation_suspend_supported = true,
     });
     HostContext context{
@@ -1255,6 +1258,7 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
         .expected_server_epoch = "host-suspend-epoch",
         .method_prefix = "terminal",
         .terminal_id = std::string(kServerShellTerminalId),
+        .recovery = recovery,
     });
     std::string error;
 #ifdef _WIN32

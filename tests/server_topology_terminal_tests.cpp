@@ -825,9 +825,13 @@ TEST_CASE("clean server shell exit removes its shared pane for every client",
         == ServerStartDisposition::Started);
     ServerRunGuard run_guard(server);
 
+    auto controller_recovery
+        = std::make_shared<ClientRecoveryState>(
+            "clean-exit-controller");
     TopologyClient controller({
         .runtime_directory = temp.path,
         .client_id = "clean-exit-controller",
+        .recovery = controller_recovery,
     });
     TopologyClient observer({
         .runtime_directory = temp.path,
@@ -871,6 +875,7 @@ TEST_CASE("clean server shell exit removes its shared pane for every client",
         .expected_server_epoch = "fixed-epoch",
         .method_prefix = "terminal",
         .terminal_id = terminal_id,
+        .recovery = controller_recovery,
     });
     REQUIRE(terminal.attach(error));
     REQUIRE(terminal.send_input("exit\r", error));
@@ -1483,6 +1488,9 @@ TEST_CASE("two UI projections converge across detach move and reconnect without 
 
     TopologyProjection controller_projection;
     TopologyProjection observer_projection;
+    auto observer_recovery
+        = std::make_shared<ClientRecoveryState>(
+            "move-ui-observer");
     LeafId observer_source_focus = kInvalidLeaf;
     LeafId observer_destination_focus = kInvalidLeaf;
     LeafId observer_moved_leaf = kInvalidLeaf;
@@ -1490,6 +1498,7 @@ TEST_CASE("two UI projections converge across detach move and reconnect without 
         TopologyClient observer({
             .runtime_directory = temp.path,
             .client_id = "move-ui-observer",
+            .recovery = observer_recovery,
         });
         REQUIRE(observer.refresh(error));
         REQUIRE(observer.snapshot() == controller.snapshot());
@@ -1585,6 +1594,7 @@ TEST_CASE("two UI projections converge across detach move and reconnect without 
     TopologyClient reconnected({
         .runtime_directory = temp.path,
         .client_id = "move-ui-observer",
+        .recovery = observer_recovery,
     });
     REQUIRE(reconnected.refresh(error));
     REQUIRE(reconnected.snapshot() == controller.snapshot());

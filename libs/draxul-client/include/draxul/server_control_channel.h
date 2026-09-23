@@ -54,8 +54,9 @@ public:
 
     // Mutation policy: one fast 100ms attempt; when the failure is
     // transient or resynchronizing, refresh the server epoch once if the
-    // connection token was rejected (invalid_connection_token /
-    // stale_epoch) and retry once with a 500ms budget. The retry rebuilds
+    // connection identity was rejected (handshake_required /
+    // invalid_connection_token / stale_epoch) and retry once with a 500ms
+    // budget. The retry rebuilds
     // the envelope, so a refreshed or cleared connection token is applied
     // automatically.
     ControlClientResult request_with_recovery(std::string_view method,

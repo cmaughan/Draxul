@@ -177,14 +177,21 @@ TEST_CASE("managed agents launch and restart without a UI",
         == ServerStartDisposition::Started);
     ServerRunGuard run_guard(server);
 
+    auto launcher_recovery
+        = std::make_shared<ClientRecoveryState>("managed-agent-a");
+    auto observer_recovery
+        = std::make_shared<ClientRecoveryState>("managed-agent-b");
+    ServerControlChannel launcher_channel({
+        .runtime_directory = temp.path,
+        .client_id = "managed-agent-a",
+        .recovery = launcher_recovery,
+    });
     const auto request
         = [&](std::string_view method,
               nlohmann::json params) {
               params["session_id"] = "default";
-              return ControlClient::request(
-                  namespaced_control_id(
-                      kServerControlId, temp.path),
-                  temp.path, method, std::move(params));
+              return launcher_channel.request(
+                  method, std::move(params));
           };
     const auto started = request("agent.start",
         {
@@ -226,6 +233,7 @@ TEST_CASE("managed agents launch and restart without a UI",
         .expected_server_epoch = "managed-epoch",
         .method_prefix = "terminal",
         .terminal_id = terminal_id,
+        .recovery = observer_recovery,
     });
     std::string terminal_error;
     REQUIRE(observer.attach(terminal_error));
@@ -243,6 +251,7 @@ TEST_CASE("managed agents launch and restart without a UI",
         .expected_server_epoch = "managed-epoch",
         .method_prefix = "terminal",
         .terminal_id = terminal_id,
+        .recovery = launcher_recovery,
     });
     REQUIRE(launcher.attach(terminal_error));
     INFO(terminal_error);
@@ -261,10 +270,12 @@ TEST_CASE("managed agents launch and restart without a UI",
     AgentClient first({
         .runtime_directory = temp.path,
         .client_id = "managed-agent-a",
+        .recovery = launcher_recovery,
     });
     AgentClient second({
         .runtime_directory = temp.path,
         .client_id = "managed-agent-b",
+        .recovery = observer_recovery,
     });
     std::string agent_error;
     REQUIRE(first.refresh(agent_error));

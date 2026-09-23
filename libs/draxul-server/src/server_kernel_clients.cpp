@@ -20,8 +20,7 @@ std::string ServerKernel::Impl::random_epoch()
 
 ServerKernel::Impl::ClientAccessResult
 ServerKernel::Impl::register_client_hello(
-    const ServerHello& hello, bool token_capable,
-    std::string& connection_token)
+    const ServerHello& hello, std::string& connection_token)
 {
     const auto now = std::chrono::steady_clock::now();
     prune_inactive_clients(now);
@@ -34,23 +33,20 @@ ServerKernel::Impl::register_client_hello(
     }
     if (found == clients.end())
     {
-        if (token_capable && hello.registration_nonce.empty())
+        if (hello.registration_nonce.empty())
             return ClientAccessResult::InvalidToken;
         ClientRegistration registration{
             .last_activity = now,
+            .connection_token = random_epoch(),
             .registration_nonce = hello.registration_nonce,
-            .token_required = token_capable,
         };
-        if (token_capable)
-            registration.connection_token = random_epoch();
         connection_token = registration.connection_token;
         clients.emplace(hello.client_id, std::move(registration));
         return ClientAccessResult::Accepted;
     }
 
     ClientRegistration& registration = found->second;
-    if (registration.token_required
-        && hello.connection_token != registration.connection_token)
+    if (hello.connection_token != registration.connection_token)
     {
         if (hello.registration_nonce.empty()
             || hello.registration_nonce
@@ -59,17 +55,7 @@ ServerKernel::Impl::register_client_hello(
             return ClientAccessResult::InvalidToken;
         }
     }
-    if (!registration.token_required && token_capable)
-    {
-        if (hello.registration_nonce.empty())
-            return ClientAccessResult::InvalidToken;
-        registration.token_required = true;
-        registration.connection_token = random_epoch();
-        registration.registration_nonce
-            = hello.registration_nonce;
-    }
-    else if (registration.token_required
-        && hello.connection_token == registration.connection_token
+    if (hello.connection_token == registration.connection_token
         && !hello.registration_nonce.empty())
     {
         registration.registration_nonce
@@ -90,26 +76,13 @@ ServerKernel::Impl::authenticate_or_touch_client(
     std::lock_guard guard(mutex);
     const auto found = clients.find(std::string(client_id));
     if (found == clients.end())
-    {
-        if (!connection_token.empty())
-            return ClientAccessResult::InvalidToken;
-        if (clients.size() >= kServerMaxConnectedClients)
-            return ClientAccessResult::LimitReached;
-        clients.emplace(std::string(client_id),
-            ClientRegistration{
-                .last_activity = now,
-            });
-        return ClientAccessResult::Accepted;
-    }
+        return ClientAccessResult::HandshakeRequired;
 
     ClientRegistration& registration = found->second;
-    if (registration.token_required
-        && connection_token != registration.connection_token)
+    if (connection_token != registration.connection_token)
     {
         return ClientAccessResult::InvalidToken;
     }
-    if (!registration.token_required && !connection_token.empty())
-        return ClientAccessResult::InvalidToken;
     registration.last_activity = now;
     return ClientAccessResult::Accepted;
 }

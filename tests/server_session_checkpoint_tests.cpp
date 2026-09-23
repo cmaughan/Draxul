@@ -374,10 +374,13 @@ TEST_CASE("server deletes a detached Session and its checkpoint",
             == ServerStartDisposition::Started);
         ServerRunGuard run_guard(server);
 
+        auto alpha_recovery
+            = std::make_shared<ClientRecoveryState>("alpha-ui");
         TopologyClient alpha({
             .runtime_directory = temp.path,
             .client_id = "alpha-ui",
             .session_id = "alpha",
+            .recovery = alpha_recovery,
         });
         std::string error;
         REQUIRE(alpha.refresh(error));
@@ -390,6 +393,7 @@ TEST_CASE("server deletes a detached Session and its checkpoint",
             .method_prefix = "terminal",
             .terminal_id
             = std::string(kServerShellTerminalId),
+            .recovery = alpha_recovery,
         });
         REQUIRE(alpha_terminal.attach(error));
 
@@ -446,7 +450,8 @@ TEST_CASE("server deletes a detached Session and its checkpoint",
             != std::string::npos);
 
         REQUIRE(ServerClient::disconnect(
-            temp.path, "alpha-ui", error));
+            temp.path, "alpha-ui", error,
+            alpha_recovery->server_identity().connection_token));
         REQUIRE_FALSE(ServerClient::delete_session(
             temp.path, "alpha", {}, error));
         CHECK(error.find("Retry with --yes")
@@ -516,15 +521,21 @@ TEST_CASE("server deletes all detached Sessions and stops their terminals",
         ServerRunGuard run_guard(server);
 
         std::string error;
+        auto alpha_recovery
+            = std::make_shared<ClientRecoveryState>("alpha-ui");
+        auto beta_recovery
+            = std::make_shared<ClientRecoveryState>("beta-ui");
         TopologyClient alpha({
             .runtime_directory = temp.path,
             .client_id = "alpha-ui",
             .session_id = "alpha",
+            .recovery = alpha_recovery,
         });
         TopologyClient beta({
             .runtime_directory = temp.path,
             .client_id = "beta-ui",
             .session_id = "beta",
+            .recovery = beta_recovery,
         });
         REQUIRE(alpha.refresh(error));
         REQUIRE(beta.refresh(error));
@@ -538,6 +549,7 @@ TEST_CASE("server deletes all detached Sessions and stops their terminals",
             .method_prefix = "terminal",
             .terminal_id
             = std::string(kServerShellTerminalId),
+            .recovery = alpha_recovery,
         });
         RemoteTerminalClient beta_terminal({
             .runtime_directory = temp.path,
@@ -548,6 +560,7 @@ TEST_CASE("server deletes all detached Sessions and stops their terminals",
             .method_prefix = "terminal",
             .terminal_id
             = std::string(kServerShellTerminalId),
+            .recovery = beta_recovery,
         });
         REQUIRE(alpha_terminal.attach(error));
         REQUIRE(beta_terminal.attach(error));
@@ -565,9 +578,11 @@ TEST_CASE("server deletes all detached Sessions and stops their terminals",
             != std::string::npos);
 
         REQUIRE(ServerClient::disconnect(
-            temp.path, "alpha-ui", error));
+            temp.path, "alpha-ui", error,
+            alpha_recovery->server_identity().connection_token));
         REQUIRE(ServerClient::disconnect(
-            temp.path, "beta-ui", error));
+            temp.path, "beta-ui", error,
+            beta_recovery->server_identity().connection_token));
         REQUIRE_FALSE(ServerClient::delete_all_sessions(
             temp.path, {}, error));
         CHECK(error.find("--yes") != std::string::npos);

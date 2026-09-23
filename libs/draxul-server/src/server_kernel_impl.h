@@ -68,6 +68,7 @@ public:
         Accepted,
         LimitReached,
         InvalidToken,
+        HandshakeRequired,
     };
 
     struct ClientRegistration
@@ -77,7 +78,6 @@ public:
         std::string registration_nonce;
         std::string ui_control_id;
         std::string ui_control_runtime_directory;
-        bool token_required = false;
     };
 
     enum class SessionServiceNeed
@@ -117,8 +117,7 @@ public:
         const SessionStreamCommand& command);
     static std::string random_epoch();
     ClientAccessResult register_client_hello(
-        const ServerHello& hello, bool token_capable,
-        std::string& connection_token);
+        const ServerHello& hello, std::string& connection_token);
     ClientAccessResult authenticate_or_touch_client(
         std::string_view client_id,
         std::string_view connection_token);

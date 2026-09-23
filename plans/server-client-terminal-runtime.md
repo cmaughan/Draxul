@@ -1757,8 +1757,6 @@ Final post-review hardening completed on 2026-07-30:
 
 Known boundaries retained for later work:
 
-- same-user local compatibility still permits an unnegotiated legacy client identity. The
-  Slice 10 bridge must disable that path and require its authenticated/negotiated identity;
 - subscriber queues are byte-bounded individually but do not yet share an aggregate server
   queue budget. Global client and terminal caps keep the total finite; a future high-scale
   runtime should add aggregate admission accounting; and
@@ -1776,6 +1774,7 @@ the preceding slices must not close its architectural route.
 Work:
 
 - implement the transport-neutral stdio bridge;
+- preserve the mandatory `server.hello` connection-token handshake across the bridge;
 - negotiate compression and client capabilities;
 - separate server paths from local file-opening actions;
 - harden latency, disconnect, replay, takeover, and resync behavior;

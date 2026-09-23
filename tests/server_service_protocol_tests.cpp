@@ -743,11 +743,13 @@ TEST_CASE("fake endpoint shares service ack and generation resync semantics",
     REQUIRE(server.start().disposition
         == ServerStartDisposition::Started);
     ServerRunGuard run_guard(server);
+    ServerControlChannel channel({
+        .runtime_directory = temp.path,
+        .client_id = "fake-client",
+    });
     const auto request = [&](std::string_view method,
                              nlohmann::json params) {
-        return ControlClient::request(
-            namespaced_control_id(kServerControlId, temp.path),
-            temp.path, method, std::move(params));
+        return channel.request(method, std::move(params));
     };
 
     const auto attached = request(

@@ -287,6 +287,11 @@ RemoteTerminalClient::RemoteTerminalClient(
     RemoteTerminalClientOptions options)
     : options_(std::move(options))
 {
+    if (!options_.client_id.empty() && !options_.recovery)
+    {
+        options_.recovery
+            = std::make_shared<ClientRecoveryState>(options_.client_id);
+    }
 }
 
 bool RemoteTerminalClient::attach(std::string& error)
@@ -574,13 +579,37 @@ bool RemoteTerminalClient::request(
     std::string_view method, nlohmann::json params,
     nlohmann::json& result, std::string& error)
 {
+    if (options_.recovery)
+    {
+        const auto identity = options_.recovery->server_identity();
+        if (!identity.connection_token.empty())
+            params["connection_token"] = identity.connection_token;
+    }
     ControlRequestOptions request_options;
     if (options_.request_timeout)
         request_options.timeout = *options_.request_timeout;
-    const auto response = ControlClient::request(
-        namespaced_control_id(kServerControlId, options_.runtime_directory),
-        options_.runtime_directory, method, std::move(params),
-        request_options);
+    const auto send = [&](nlohmann::json request_params) {
+        return ControlClient::request(
+            namespaced_control_id(
+                kServerControlId, options_.runtime_directory),
+            options_.runtime_directory, method,
+            std::move(request_params), request_options);
+    };
+    auto response = send(params);
+    if (!response.ok && options_.recovery
+        && (response.error_code == "handshake_required"
+            || response.error_code == "invalid_connection_token"))
+    {
+        if (!options_.recovery->refresh_server_epoch(
+                options_.runtime_directory, options_.client_id, error))
+        {
+            last_error_code_ = "server_handshake_failed";
+            return false;
+        }
+        const auto identity = options_.recovery->server_identity();
+        params["connection_token"] = identity.connection_token;
+        response = send(std::move(params));
+    }
     if (!response.ok)
     {
         last_error_code_ = response.error_code;

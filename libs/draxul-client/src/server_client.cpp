@@ -639,6 +639,18 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             .error_message = "Client/server protocol major versions do not match.",
         };
     }
+    if (welcome->connection_token.empty()
+        || std::ranges::find(welcome->capabilities,
+               kServerClientTokenCapability)
+            == welcome->capabilities.end())
+    {
+        return {
+            .state = ServerProbeState::Incompatible,
+            .error_code = "incompatible_protocol",
+            .error_message
+            = "The server does not support authenticated client connections.",
+        };
+    }
     return {
         .state = ServerProbeState::Ready,
         .welcome = std::move(welcome),

@@ -18,6 +18,29 @@ TEST_CASE("server connection tokens bind active client identities",
         == ServerStartDisposition::Started);
     ServerRunGuard run_guard(server);
 
+    const auto request = [&](std::string_view method,
+                             nlohmann::json params) {
+        return ControlClient::request(
+            namespaced_control_id(
+                kServerControlId, temp.path),
+            temp.path, method, std::move(params));
+    };
+    const auto unnegotiated = request(
+        "fake.attach",
+        {
+            { "client_id", "unnegotiated-client" },
+        });
+    REQUIRE_FALSE(unnegotiated.ok);
+    CHECK(unnegotiated.error_code == "handshake_required");
+
+    const auto legacy_hello = request(
+        "server.hello",
+        server_hello_to_json({
+            .client_id = "legacy-client",
+        }));
+    REQUIRE_FALSE(legacy_hello.ok);
+    CHECK(legacy_hello.error_code == "incompatible_protocol");
+
     auto options = probe_options(temp.path);
     options.client_id = "bound-client";
     options.registration_nonce = "bound-registration-nonce";
@@ -48,13 +71,6 @@ TEST_CASE("server connection tokens bind active client identities",
     REQUIRE(retried_welcome);
     CHECK(retried_welcome->connection_token == token);
 
-    const auto request = [&](std::string_view method,
-                             nlohmann::json params) {
-        return ControlClient::request(
-            namespaced_control_id(
-                kServerControlId, temp.path),
-            temp.path, method, std::move(params));
-    };
     const auto missing = request(
         "fake.attach",
         {
@@ -180,8 +196,12 @@ TEST_CASE("server releases expired terminal leases",
     REQUIRE(terminal.attach(error));
     REQUIRE(terminal.send_input("reattached", error));
 
+    const std::string token = terminal.options()
+                                  .recovery->server_identity()
+                                  .connection_token;
+    REQUIRE_FALSE(token.empty());
     REQUIRE(ServerClient::disconnect(
-        temp.path, "expiring-client", error));
+        temp.path, "expiring-client", error, token));
 }
 
 TEST_CASE("server bounds the connected client registry",
@@ -197,6 +217,7 @@ TEST_CASE("server bounds the connected client registry",
         == ServerStartDisposition::Started);
     ServerRunGuard run_guard(server);
 
+    std::string first_token;
     for (size_t index = 0;
         index < kServerMaxConnectedClients;
         ++index)
@@ -208,27 +229,49 @@ TEST_CASE("server bounds the connected client registry",
             server_hello_to_json({
                 .client_id = "bounded-client-"
                     + std::to_string(index),
+                .registration_nonce = "bounded-registration-"
+                    + std::to_string(index),
+                .capabilities = {
+                    std::string(kServerClientTokenCapability),
+                },
             }));
         INFO(index);
         REQUIRE(hello.ok);
+        if (index == 0)
+        {
+            std::string parse_error;
+            const auto welcome
+                = server_welcome_from_json(hello.result, parse_error);
+            INFO(parse_error);
+            REQUIRE(welcome);
+            first_token = welcome->connection_token;
+        }
     }
     const auto rejected = ControlClient::request(
         namespaced_control_id(kServerControlId, temp.path),
         temp.path, "server.hello",
         server_hello_to_json({
             .client_id = "one-client-too-many",
+            .registration_nonce = "one-client-too-many-registration",
+            .capabilities = {
+                std::string(kServerClientTokenCapability),
+            },
         }));
     CHECK_FALSE(rejected.ok);
     CHECK(rejected.error_code == "client_limit_reached");
 
     std::string error;
     REQUIRE(ServerClient::disconnect(
-        temp.path, "bounded-client-0", error));
+        temp.path, "bounded-client-0", error, first_token));
     const auto admitted = ControlClient::request(
         namespaced_control_id(kServerControlId, temp.path),
         temp.path, "server.hello",
         server_hello_to_json({
             .client_id = "replacement-client",
+            .registration_nonce = "replacement-registration",
+            .capabilities = {
+                std::string(kServerClientTokenCapability),
+            },
         }));
     REQUIRE(admitted.ok);
 }
@@ -288,7 +331,9 @@ TEST_CASE("two remote terminal clients converge through control takeover and rec
     REQUIRE(client_b.send_input("\rreconnected", error));
     REQUIRE(client_b.poll(changed, error));
 
-    auto reconnected_a = remote_client(temp.path, "client-a");
+    auto reconnected_a = remote_client(
+        temp.path, "client-a", "fixed-epoch", "fake",
+        client_a.options().recovery);
     REQUIRE(reconnected_a.attach(error));
     INFO(error);
     REQUIRE(terminal_semantic_digest(reconnected_a.projection().snapshot())

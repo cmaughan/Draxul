@@ -273,9 +273,13 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     REQUIRE(agent_snapshot);
     CHECK(agent_snapshot->session_id == "default");
     CHECK(agent_snapshot->agents.empty());
+    auto observer_recovery
+        = std::make_shared<ClientRecoveryState>(
+            "unit-agent-observer");
     AgentClient second_agents({
         .runtime_directory = temp.path,
         .client_id = "unit-agent-observer",
+        .recovery = observer_recovery,
     });
     REQUIRE(second_agents.refresh(agent_error));
     CHECK(second_agents.snapshot() == *agent_snapshot);
@@ -351,11 +355,13 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     bool changed = false;
     CHECK_FALSE(attached_client.poll(changed, disconnect_error));
     CHECK(attached_client.last_error_code()
-        == "invalid_connection_token");
+        == "not_attached");
     REQUIRE(ServerClient::disconnect(
-        temp.path, "unit-client", disconnect_error));
+        temp.path, "unit-client", disconnect_error,
+        recovery->server_identity().connection_token));
     REQUIRE(ServerClient::disconnect(
-        temp.path, "unit-agent-observer", disconnect_error));
+        temp.path, "unit-agent-observer", disconnect_error,
+        observer_recovery->server_identity().connection_token));
     const auto fully_disconnected_status
         = ServerClient::status(temp.path);
     REQUIRE(fully_disconnected_status.ok);

@@ -193,10 +193,7 @@ ControlMethodResult ServerKernel::Impl::dispatch_stream_command(
             return ControlMethodResult::error(
                 "invalid_client", "The Session stream client is no longer registered.");
         }
-        if (client->second.token_required)
-            params["connection_token"] = client->second.connection_token;
-        else
-            params.erase("connection_token");
+        params["connection_token"] = client->second.connection_token;
     }
     return handle_request({
         .id = "stream-" + std::to_string(command.request_id),
@@ -223,10 +220,15 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         const bool token_capable = std::ranges::find(
                                        hello->capabilities, kServerClientTokenCapability)
             != hello->capabilities.end();
+        if (!token_capable)
+        {
+            return ControlMethodResult::error(
+                "incompatible_protocol",
+                "The client does not support authenticated server connections.");
+        }
         std::string connection_token;
         const ClientAccessResult registration
-            = register_client_hello(
-                *hello, token_capable, connection_token);
+            = register_client_hello(*hello, connection_token);
         if (registration == ClientAccessResult::LimitReached)
         {
             return ControlMethodResult::error(
@@ -285,6 +287,12 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             const ClientAccessResult access
                 = authenticate_or_touch_client(
                     request_client_id, connection_token);
+            if (access == ClientAccessResult::HandshakeRequired)
+            {
+                return ControlMethodResult::error(
+                    "handshake_required",
+                    "The client must complete server.hello before making requests.");
+            }
             if (access == ClientAccessResult::LimitReached)
             {
                 return ControlMethodResult::error(

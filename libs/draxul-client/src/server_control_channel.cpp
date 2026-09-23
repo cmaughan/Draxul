@@ -21,6 +21,11 @@ ServerControlChannel::ServerControlChannel(
     ServerControlChannelOptions options)
     : options_(std::move(options))
 {
+    if (!options_.client_id.empty() && !options_.recovery)
+    {
+        options_.recovery
+            = std::make_shared<ClientRecoveryState>(options_.client_id);
+    }
 }
 
 const ServerControlChannelOptions&
@@ -69,7 +74,25 @@ ControlClientResult ServerControlChannel::request(
     std::string_view method, nlohmann::json params,
     std::optional<std::chrono::milliseconds> timeout) const
 {
-    return raw_request(method, envelope(std::move(params)), timeout);
+    auto response = raw_request(method, envelope(params), timeout);
+    if (!response.ok && options_.recovery
+        && (response.error_code == "handshake_required"
+            || response.error_code == "invalid_connection_token"))
+    {
+        std::string handshake_error;
+        if (!options_.recovery->refresh_server_epoch(
+                options_.runtime_directory, options_.client_id,
+                handshake_error))
+        {
+            return {
+                .error_code = "server_handshake_failed",
+                .error_message = std::move(handshake_error),
+            };
+        }
+        response = raw_request(
+            method, envelope(std::move(params)), timeout);
+    }
+    return response;
 }
 
 ControlClientResult ServerControlChannel::request_with_recovery(

@@ -83,7 +83,7 @@ it believes is authoritative, after which non-full deltas patch a wrong baseline
       or give pages their own bound.
 - [x] Issue a server-assigned connection token at `server.hello`, bind negotiated client
       identities to it, and require it on their subsequent requests.
-- [ ] Remove the same-user legacy unnegotiated-client fallback when Slice 10 introduces a
+- [x] Remove the same-user legacy unnegotiated-client fallback before Slice 10 introduces a
       remote transport boundary.
 - [x] Add `PIPE_REJECT_REMOTE_CLIENTS` to both pipe creates, keep a reserved
       `FIRST_PIPE_INSTANCE` handle for the process lifetime so instances never drop to zero,
@@ -116,8 +116,8 @@ it believes is authoritative, after which non-full deltas patch a wrong baseline
 
 ## Dependencies and ownership
 
-Blocks Slice 10 (SSH bridge) in `plans/server-client-terminal-runtime.md`; the client parser
-becomes a security boundary at that point. The malformed-event handling interacts with
+Previously blocked Slice 10 (SSH bridge) in `plans/server-client-terminal-runtime.md`; the
+client parser becomes a security boundary at that point. The malformed-event handling interacts with
 `kanban/done/19 client-recovery-state-machine -refactor.md` (reattach rather than die on
 `invalid_event`) — land `19` first so this card's rejections have a recovery path. The Windows
 pipe and metadata changes touch the same code as
@@ -138,18 +138,30 @@ Negotiated clients now receive an opaque connection token and carry it through t
 topology, agent, goodbye, and recovery requests. Handshake retries reuse an immutable
 registration nonce so a lost welcome recovers the same token; server replacement rotates it,
 and stale concurrent refreshes cannot overwrite a newer identity. The Windows integrated
-gate passed all 22 CTest groups plus standalone smoke. The existing unnegotiated same-user
-compatibility path is intentionally called out above as a Slice 10 removal gate, not treated
-as remote authentication.
+gate passed all 22 CTest groups plus standalone smoke. The unnegotiated same-user
+compatibility path was retained at that checkpoint and removed in the completion below.
 
-The sole unchecked item is intentionally conditional: the same-user fallback is
-still required by the current local transport and must be removed when Slice 10
-introduces a remote trust boundary. It is not an unfinished gate for the current
-local-only protocol.
+The same-user fallback was removed on 2026-09-23 rather than carrying it into
+Slice 10. Every client identity must now negotiate the connection-token
+capability through `server.hello`; an unknown identity receives
+`handshake_required`, and a hello without token support receives
+`incompatible_protocol`. Client channels perform one bounded re-handshake after
+those authentication errors, which preserves lease-expiry and server-restart
+recovery without admitting an unnegotiated request.
 
-## 2026-09-23 pending-lane status
+## 2026-09-23 completion
 
-The card is pending to make that conditional follow-up visible under the rule
-that `done` cards must have every checkbox checked. No safe removal is available
-in the current local-only protocol; implementation resumes when Slice 10 adds
-the remote trust boundary.
+The implementation and tests no longer create token-optional client
+registrations. Test fixtures that use multiple client facades for one logical UI
+share the negotiated recovery identity, matching production ownership. Focused
+server coverage passed 4,033 assertions in 92 cases. The final macOS Debug
+aggregate passed all 25 CTest entries, followed by
+`python3 do.py smoke debug --skip-build` against the same cache.
+
+The compatibility audit found other independent legacy paths which remain in
+scope for separate policy decisions: Session transport can still fall back from
+stream to batch poll to per-channel requests; persisted Session files migrate
+versions 1-3 to version 4; plugin discovery accepts a top-level `plugin.toml`
+when no generation pointer exists; configuration retains a few historical
+fields and parsing exceptions; and protocol decoders accept several older or
+additive payload shapes. None can bypass the connection-token requirement.
