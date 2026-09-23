@@ -84,3 +84,10 @@ individual registration removal still waited up to 250 ms per blocked worker.
 Unregistration now requests stop and transfers any outstanding join to a
 self-retaining reaper immediately, so ordinary pane teardown is independent of
 the transport timeout and pane count.
+
+## 2026-09-23 pending-lane verification
+
+- The focused twelve-registration blocked-request regression passed all 16
+  assertions, including the shared sub-second release bound.
+- This card remains pending for the stated desktop observation: quit a real
+  multi-pane Draxul window while its server is alive but unresponsive.

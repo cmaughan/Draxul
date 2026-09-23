@@ -146,3 +146,10 @@ The sole unchecked item is intentionally conditional: the same-user fallback is
 still required by the current local transport and must be removed when Slice 10
 introduces a remote trust boundary. It is not an unfinished gate for the current
 local-only protocol.
+
+## 2026-09-23 pending-lane status
+
+The card is pending to make that conditional follow-up visible under the rule
+that `done` cards must have every checkbox checked. No safe removal is available
+in the current local-only protocol; implementation resumes when Slice 10 adds
+the remote trust boundary.

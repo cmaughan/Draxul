@@ -103,3 +103,11 @@ also proves a drag burst retains only its latest pending ratio; the flush path
 clears that single slot before enqueueing one authoritative command. Existing
 `remote topology apply errors latch by exact message` coverage proves repeated
 projection failures do not repeat the same toast.
+
+## 2026-09-23 pending-lane verification
+
+- The focused wedged-listener App regression passed all 9 assertions: startup
+  stayed bounded, a queued UI action was dispatched, and requested frames kept
+  rendering while the Session request remained blocked.
+- This card remains pending because that deterministic regression does not
+  directly observe interactive pane switching in a running desktop window.

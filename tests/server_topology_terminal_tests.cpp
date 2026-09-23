@@ -1807,7 +1807,9 @@ TEST_CASE("server-owned shell exposes bounded client-independent scrollback page
     RemoteTerminalScrollbackPage farther_back;
     REQUIRE(second.read_scrollback(10, 8, farther_back, error));
     INFO(error);
-    REQUIRE(farther_back.total_rows == near_live.total_rows);
+    // The shell can publish its prompt after the sentinel output. A later page
+    // must observe at least the earlier total, but it need not be identical.
+    REQUIRE(farther_back.total_rows >= near_live.total_rows);
     REQUIRE(farther_back.offset_from_live == 10);
     REQUIRE(farther_back.snapshot.has_value());
     REQUIRE(farther_back.snapshot->rows == 8);
