@@ -12,6 +12,7 @@
 #include <array>
 #include <cstdlib>
 #include <filesystem>
+#include <limits>
 
 using namespace draxul;
 
@@ -93,6 +94,29 @@ TEST_CASE("bundled nerd font shapes and rasterizes current lazy icon", "[font]")
     REQUIRE(region.bitmap_size.y > 0);
     INFO("configured font path is used");
     REQUIRE(service.primary_font_path() == font_path.string());
+    service.shutdown();
+}
+
+TEST_CASE("font service rejects non-finite sizes before native conversion", "[font][config]")
+{
+    const auto font_path = draxul::tests::project_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    REQUIRE(std::filesystem::exists(font_path));
+    TextServiceConfig config;
+    config.font_path = font_path.string();
+
+    TextService service;
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    CHECK_FALSE(service.initialize(config, nan, 96.0f));
+    CHECK_FALSE(service.initialize(config, infinity, 96.0f));
+    CHECK_FALSE(service.initialize(config, 11.0f, infinity));
+
+    REQUIRE(service.initialize(config, TextService::MIN_POINT_SIZE, 96.0f));
+    REQUIRE(service.set_point_size(TextService::MAX_POINT_SIZE));
+    CHECK(service.point_size() == TextService::MAX_POINT_SIZE);
+    CHECK_FALSE(service.set_point_size(nan));
+    CHECK_FALSE(service.set_point_size(infinity));
+    CHECK(service.point_size() == TextService::MAX_POINT_SIZE);
     service.shutdown();
 }
 

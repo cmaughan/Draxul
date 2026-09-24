@@ -17,10 +17,15 @@ namespace draxul::config_schema
 // and the offending node (for the source line in checked parses).
 using TypeErrorFn
     = std::function<void(std::string_view key, std::string_view expected, const toml::node&)>;
+using FiniteErrorFn = std::function<void(std::string_view key, const toml::node&)>;
 
 // Wrong-type checks for every schema field and section table present in
 // `document`, in schema order.
 void check_types(const toml::table& document, const TypeErrorFn& report);
+
+// Report non-finite values in every schema-owned floating-point field before
+// range rules run. TOML permits nan and inf literals, but native consumers do not.
+void check_finite_values(const toml::table& document, const FiniteErrorFn& report);
 
 // Parse + validate top-level schema fields into `config`. Section fields are
 // parsed separately so app_config_io.cpp can apply the one cross-field rule

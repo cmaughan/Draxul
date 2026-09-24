@@ -1,5 +1,6 @@
 #include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_protocol.h>
+#include <draxul/base64.h>
 
 #include "json_extract.h"
 
@@ -825,6 +826,67 @@ nlohmann::json remote_terminal_scrollback_page_to_json(
     if (page.snapshot)
         value["snapshot"] = terminal_semantic_snapshot_to_json(*page.snapshot);
     return value;
+}
+
+std::string remote_terminal_input_base64(std::string_view bytes)
+{
+    return base64_encode(bytes);
+}
+
+std::optional<std::string> remote_terminal_input_from_json(
+    const nlohmann::json& params, std::string& error)
+{
+    if (!params.is_object())
+    {
+        error = "Terminal input parameters are invalid.";
+        return std::nullopt;
+    }
+    const bool encoded = params.contains(kRemoteTerminalInputBase64Field);
+    const bool legacy = params.contains("text");
+    if (encoded == legacy)
+    {
+        error = "Exactly one terminal input field is required.";
+        return std::nullopt;
+    }
+    if (legacy)
+    {
+        if (!params["text"].is_string())
+        {
+            error = "Terminal input text is invalid.";
+            return std::nullopt;
+        }
+        auto bytes = params["text"].get<std::string>();
+        if (bytes.empty() || bytes.size() > 64 * 1024)
+        {
+            error = "Terminal input must be between 1 and 65536 bytes.";
+            return std::nullopt;
+        }
+        error.clear();
+        return bytes;
+    }
+
+    const auto& value = params[kRemoteTerminalInputBase64Field];
+    if (!value.is_string())
+    {
+        error = "Encoded terminal input is invalid.";
+        return std::nullopt;
+    }
+    const auto& encoded_bytes = value.get_ref<const std::string&>();
+    if (encoded_bytes.empty()
+        || encoded_bytes.size() > 4 * ((64 * 1024 + 2) / 3))
+    {
+        error = "Encoded terminal input exceeds the size limit.";
+        return std::nullopt;
+    }
+    auto bytes = base64_decode(encoded_bytes);
+    if (!bytes || bytes->empty() || bytes->size() > 64 * 1024
+        || base64_encode(*bytes) != encoded_bytes)
+    {
+        error = "Encoded terminal input is malformed.";
+        return std::nullopt;
+    }
+    error.clear();
+    return bytes;
 }
 
 std::optional<RemoteTerminalScrollbackPage>

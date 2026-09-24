@@ -1,6 +1,7 @@
 #include <draxul/rich_text_service.h>
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 
 namespace draxul
@@ -11,6 +12,8 @@ namespace
 
 RichTextStyleKey normalize_style(RichTextStyleKey style)
 {
+    if (!std::isfinite(style.point_size))
+        style.point_size = TextService::DEFAULT_POINT_SIZE;
     style.point_size = std::clamp(style.point_size, TextService::MIN_POINT_SIZE, TextService::MAX_POINT_SIZE);
     return style;
 }

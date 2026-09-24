@@ -856,11 +856,10 @@ ControlMethodResult RemoteTerminalService::input(
     const nlohmann::json& params)
 {
     std::string client_id;
-    if (!read_client_id(params, client_id)
-        || !params.contains("text") || !params["text"].is_string())
+    if (!read_client_id(params, client_id))
     {
         return ControlMethodResult::error(
-            "invalid_input", "A valid client_id and text are required.");
+            "invalid_input", "A valid client_id is required.");
     }
     std::string mutation;
     if (!mutation_key(params, "input", mutation))
@@ -884,14 +883,15 @@ ControlMethodResult RemoteTerminalService::input(
         return ControlMethodResult::error(
             "not_controller", "This client is observing the terminal.");
     }
-    const std::string text = params["text"].get<std::string>();
-    if (text.empty() || text.size() > 64 * 1024)
+    std::string input_error;
+    auto text = remote_terminal_input_from_json(params, input_error);
+    if (!text)
     {
         return ControlMethodResult::error(
-            "invalid_input", "Terminal input must be between 1 and 65536 bytes.");
+            "invalid_input", std::move(input_error));
     }
     const RemoteTerminalInputResult input_result
-        = runtime_.send_input(text);
+        = runtime_.send_input(*text);
     if (input_result == RemoteTerminalInputResult::Backpressure)
     {
         return ControlMethodResult::error(

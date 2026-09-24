@@ -1013,7 +1013,7 @@ TEST_CASE("app smoke: Ctrl+S, Q exits through the application quit path",
     app.shutdown();
 }
 
-TEST_CASE("app smoke: malformed reload keeps the previous runtime config", "[app_smoke][config][reload]")
+TEST_CASE("app smoke: invalid reload keeps the previous runtime config", "[app_smoke][config][reload]")
 {
     const std::string font = draxul::tests::bundled_font_path().string();
     if (!std::filesystem::exists(font))
@@ -1054,6 +1054,16 @@ TEST_CASE("app smoke: malformed reload keeps the previous runtime config", "[app
     {
         std::ofstream out(redir.config_path, std::ios::trunc);
         out << "palette_bg_alpha = 0.2\n[terminal]\nfg = \"#ffffff\n";
+    }
+    created_window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
+    CHECK(g_last_reload_host->reload_count() == 0);
+
+    {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        out << "font_size = nan\n"
+               "palette_bg_alpha = 0.2\n"
+               "[keybindings]\n"
+               "reload_config = \"Ctrl+Alt+R\"\n";
     }
     created_window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
     CHECK(g_last_reload_host->reload_count() == 0);

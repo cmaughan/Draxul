@@ -330,6 +330,8 @@ TEST_CASE("remote Session coordinator prefers one event stream and keeps project
     std::atomic<int> per_terminal_polls = 0;
     std::atomic<int> input_calls = 0;
     std::atomic<int> stream_input_commands = 0;
+    std::mutex stream_input_mutex;
+    std::vector<std::string> streamed_input;
     std::atomic<int> stream_topology_commands = 0;
     std::atomic<int> stream_agent_commands = 0;
     std::atomic<int> stream_scrollback_commands = 0;
@@ -522,10 +524,17 @@ TEST_CASE("remote Session coordinator prefers one event stream and keeps project
                 std::string command_error_message;
                 if (frame->command->method == "fake.input")
                 {
+                    std::string input_error;
+                    auto input = remote_terminal_input_from_json(
+                        frame->command->params, input_error);
+                    if (!input)
+                        return;
+                    {
+                        std::lock_guard guard(stream_input_mutex);
+                        streamed_input.push_back(*input);
+                    }
                     ++stream_input_commands;
-                    if (frame->command->params.value(
-                            "text", std::string{})
-                        == "short-fallback-input")
+                    if (*input == "short-fallback-input")
                     {
                         command_ok = false;
                         command_error_code
@@ -675,6 +684,26 @@ TEST_CASE("remote Session coordinator prefers one event stream and keeps project
         return stream_input_commands.load() == 2
             && input_calls.load() == 1;
     }));
+
+    const std::string binary_input
+        = std::string("\x1B[M", 3)
+        + std::string({ char(32), char(33 + 95), char(33 + 10),
+            char(0xff), char(0) });
+    REQUIRE(first.enqueue_input(binary_input));
+    REQUIRE(wait_for_condition(
+        [&] { return stream_input_commands.load() == 3; }));
+    const std::string split_input
+        = std::string(48 * 1024 - 1, 'p') + "\xC3\xA9X";
+    REQUIRE(first.enqueue_input(split_input));
+    REQUIRE(wait_for_condition(
+        [&] { return stream_input_commands.load() == 5; }));
+    {
+        std::lock_guard guard(stream_input_mutex);
+        REQUIRE(streamed_input.size() == 5);
+        CHECK(streamed_input[2] == binary_input);
+        CHECK(streamed_input[3] + streamed_input[4]
+            == split_input);
+    }
 
     REQUIRE(session_client.enqueue({
         .command_id = "stream-topology-1",

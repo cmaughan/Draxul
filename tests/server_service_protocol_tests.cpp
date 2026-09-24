@@ -322,6 +322,64 @@ TEST_CASE("remote terminal input backpressure is nonfatal and observable",
         >= 1);
 }
 
+TEST_CASE("remote terminal input wire preserves arbitrary byte chunks",
+    "[server][remote-terminal][input]")
+{
+    FakeTerminalRuntime runtime;
+    RemoteTerminalService service(
+        {
+            .method_prefix = "binary",
+            .server_epoch = "binary-epoch",
+            .pane_id = "binary-pane",
+            .terminal_id = "binary-terminal",
+            .name = "Binary",
+        },
+        runtime);
+    REQUIRE(service.handle("binary.attach",
+                { { "client_id", "controller" } })
+                .ok);
+
+    const std::vector<std::string> chunks{
+        std::string("\x1B[M", 3)
+            + std::string({ char(32), char(33 + 95), char(33 + 10) }),
+        std::string({ char(0xff), char(0), char(0xc3) }),
+        std::string({ char(0xa9), char(0x80) }),
+    };
+    std::string expected;
+    for (const auto& chunk : chunks)
+    {
+        nlohmann::json params{
+            { "client_id", "controller" },
+            { std::string(kRemoteTerminalInputBase64Field),
+                remote_terminal_input_base64(chunk) },
+        };
+        const auto wire = params.dump();
+        REQUIRE(service.handle("binary.input",
+                    nlohmann::json::parse(wire))
+                    .ok);
+        expected += chunk;
+    }
+    CHECK(runtime.received_input() == expected);
+
+    for (const nlohmann::json& invalid : {
+             nlohmann::json{
+                 { "client_id", "controller" },
+                 { "input_base64", "////?" },
+             },
+             nlohmann::json{
+                 { "client_id", "controller" },
+                 { "input_base64", "eA==" },
+                 { "text", "x" },
+             },
+         })
+    {
+        const auto rejected = service.handle("binary.input", invalid);
+        CHECK_FALSE(rejected.ok);
+        CHECK(rejected.error_code == "invalid_input");
+        CHECK(runtime.received_input() == expected);
+    }
+}
+
 TEST_CASE("remote terminal mutation request ids are idempotent",
     "[server][remote-terminal][idempotency]")
 {

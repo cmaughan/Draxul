@@ -328,8 +328,11 @@ TEST_CASE("remote terminal host shutdown is bounded and stops between commands",
                     }
                     if (call == 1)
                     {
+                        std::string input_error;
                         const std::string text
-                            = request.params.value("text", "");
+                            = remote_terminal_input_from_json(
+                                  request.params, input_error)
+                                  .value_or("");
                         first_input_fully_framed
                             = text.size() <= 48 * 1024
                             && text.starts_with("\x1B[200~")
@@ -583,8 +586,11 @@ TEST_CASE("remote terminal host drops rejected commands and remains usable",
                             failures[call].second);
                     }
                     std::lock_guard lock(accepted_mutex);
+                    std::string input_error;
                     accepted_input.push_back(
-                        request.params.value("text", ""));
+                        remote_terminal_input_from_json(
+                            request.params, input_error)
+                            .value_or(""));
                     return ControlMethodResult::success(
                         nlohmann::json::object());
                 }
@@ -704,7 +710,10 @@ TEST_CASE("remote terminal host keeps large paste frames ahead of later keys",
                 if (request.method == "fake.input")
                 {
                     std::lock_guard lock(input_mutex);
-                    input.push_back(request.params.value("text", ""));
+                    std::string input_error;
+                    input.push_back(remote_terminal_input_from_json(
+                        request.params, input_error)
+                                        .value_or(""));
                     return ControlMethodResult::success(
                         nlohmann::json::object());
                 }
@@ -742,7 +751,9 @@ TEST_CASE("remote terminal host keeps large paste frames ahead of later keys",
             != std::string::npos;
     }));
 
-    window.clipboard_ = std::string(200 * 1024, 'p');
+    // The first UTF-8 codepoint straddles the 48 KiB framed paste boundary.
+    window.clipboard_ = std::string(48 * 1024 - 13, 'p')
+        + "\xC3\xA9" + std::string(150 * 1024, 'p');
     REQUIRE(host.dispatch_action("paste"));
     host.on_text_input({ .text = "K" });
     REQUIRE(pump_until(host, [&] {
@@ -849,8 +860,11 @@ TEST_CASE("remote terminal host recovers from malformed and unexpected polling",
                             "io_error", "Synthetic transport interruption.");
                     }
                     std::lock_guard lock(accepted_mutex);
+                    std::string input_error;
                     accepted_input.push_back(
-                        request.params.value("text", ""));
+                        remote_terminal_input_from_json(
+                            request.params, input_error)
+                            .value_or(""));
                     return ControlMethodResult::success(
                         nlohmann::json::object());
                 }

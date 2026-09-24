@@ -2,10 +2,29 @@
 #include <cmath>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
+#include <limits>
 #include <utility>
 
 namespace draxul
 {
+
+namespace
+{
+
+bool valid_font_dimensions(float point_size, float display_ppi)
+{
+    if (!std::isfinite(point_size) || !std::isfinite(display_ppi)
+        || point_size <= 0.0f || display_ppi <= 0.0f)
+        return false;
+
+    const double char_size = static_cast<double>(point_size) * 64.0;
+    const double pixel_size = static_cast<double>(point_size) * display_ppi / 72.0;
+    return char_size < static_cast<double>(std::numeric_limits<FT_F26Dot6>::max())
+        && display_ppi < static_cast<double>(std::numeric_limits<FT_UInt>::max())
+        && pixel_size < static_cast<double>(std::numeric_limits<int>::max());
+}
+
+} // namespace
 
 FontManager::FontManager(FontManager&& other) noexcept
 {
@@ -39,6 +58,11 @@ FontManager& FontManager::operator=(FontManager&& other) noexcept
 bool FontManager::initialize(const std::string& font_path, float point_size, float display_ppi)
 {
     PERF_MEASURE();
+    if (!valid_font_dimensions(point_size, display_ppi))
+    {
+        DRAXUL_LOG_ERROR(LogCategory::Font, "Invalid font point size or display PPI");
+        return false;
+    }
     point_size_ = point_size;
     display_ppi_ = display_ppi;
 
@@ -76,6 +100,11 @@ bool FontManager::initialize(const std::string& font_path, float point_size, flo
 bool FontManager::set_point_size(float point_size)
 {
     PERF_MEASURE();
+    if (!valid_font_dimensions(point_size, display_ppi_))
+    {
+        DRAXUL_LOG_ERROR(LogCategory::Font, "Invalid font point size or display PPI");
+        return false;
+    }
     point_size_ = point_size;
     FT_Set_Char_Size(face_, 0, static_cast<FT_F26Dot6>(point_size * 64.0f), (FT_UInt)display_ppi_, (FT_UInt)display_ppi_);
     select_best_fixed_size();

@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -15,6 +17,9 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 namespace draxul
@@ -48,35 +53,90 @@ class NativePluginStorageOutputFile final
 {
 public:
     explicit NativePluginStorageOutputFile(
-        const std::filesystem::path& path)
-        : output_(path, std::ios::binary | std::ios::trunc)
+#ifdef _WIN32
+        HANDLE file)
+#else
+        int file)
+#endif
+        : file_(file)
     {
     }
 
-    bool is_open() const noexcept { return output_.is_open(); }
+    ~NativePluginStorageOutputFile() override
+    {
+#ifdef _WIN32
+        CloseHandle(file_);
+#else
+        ::close(file_);
+#endif
+    }
 
     bool write(std::string_view value,
         std::error_code& error) override
     {
-        output_.write(value.data(),
-            static_cast<std::streamsize>(value.size()));
-        if (output_)
-            return true;
-        error = io_error();
-        return false;
+        size_t offset = 0;
+        while (offset < value.size())
+        {
+#ifdef _WIN32
+            DWORD written = 0;
+            const DWORD count = static_cast<DWORD>(std::min<size_t>(
+                value.size() - offset, MAXDWORD));
+            if (!WriteFile(file_, value.data() + offset, count,
+                    &written, nullptr))
+            {
+                error = std::error_code(static_cast<int>(GetLastError()),
+                    std::system_category());
+                return false;
+            }
+            if (written == 0)
+            {
+                error = io_error();
+                return false;
+            }
+#else
+            const ssize_t written = ::write(file_, value.data() + offset,
+                value.size() - offset);
+            if (written < 0 && errno == EINTR)
+                continue;
+            if (written <= 0)
+            {
+                error = written < 0
+                    ? std::error_code(errno, std::generic_category())
+                    : io_error();
+                return false;
+            }
+#endif
+            offset += static_cast<size_t>(written);
+        }
+        return true;
     }
 
     bool flush(std::error_code& error) override
     {
-        output_.flush();
-        if (output_)
+#ifdef _WIN32
+        if (FlushFileBuffers(file_))
             return true;
-        error = io_error();
+        error = std::error_code(static_cast<int>(GetLastError()),
+            std::system_category());
+#else
+        int result = 0;
+        do
+        {
+            result = ::fsync(file_);
+        } while (result != 0 && errno == EINTR);
+        if (result == 0)
+            return true;
+        error = std::error_code(errno, std::generic_category());
+#endif
         return false;
     }
 
 private:
-    std::ofstream output_;
+#ifdef _WIN32
+    HANDLE file_;
+#else
+    int file_;
+#endif
 };
 
 class NativePluginStorageFileOperations final
@@ -113,12 +173,31 @@ public:
         const std::filesystem::path& path,
         std::error_code& error) override
     {
-        auto output
-            = std::make_unique<NativePluginStorageOutputFile>(path);
-        if (output->is_open())
-            return output;
-        error = io_error();
-        return {};
+#ifdef _WIN32
+        HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0,
+            nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE)
+        {
+            error = std::error_code(static_cast<int>(GetLastError()),
+                std::system_category());
+            return {};
+        }
+#else
+        int flags = O_CREAT | O_EXCL | O_WRONLY;
+#ifdef O_CLOEXEC
+        flags |= O_CLOEXEC;
+#endif
+#ifdef O_NOFOLLOW
+        flags |= O_NOFOLLOW;
+#endif
+        const int file = ::open(path.c_str(), flags, 0600);
+        if (file < 0)
+        {
+            error = std::error_code(errno, std::generic_category());
+            return {};
+        }
+#endif
+        return std::make_unique<NativePluginStorageOutputFile>(file);
     }
 
     bool replace(const std::filesystem::path& temporary,
@@ -126,11 +205,31 @@ public:
         std::error_code& error) override
     {
 #ifdef _WIN32
-        if (MoveFileExW(temporary.c_str(), target.c_str(),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-            return true;
-        error = std::error_code(static_cast<int>(GetLastError()),
-            std::system_category());
+        // Windows can briefly deny a destination rename while another writer
+        // is publishing the same key. Each writer owns a separate completed
+        // temporary file, so retrying the rename cannot mix their contents.
+        for (int attempt = 0; attempt < 64; ++attempt)
+        {
+            if (MoveFileExW(temporary.c_str(), target.c_str(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+                return true;
+            const DWORD code = GetLastError();
+            if (code != ERROR_ACCESS_DENIED
+                && code != ERROR_SHARING_VIOLATION
+                && code != ERROR_LOCK_VIOLATION)
+            {
+                error = std::error_code(static_cast<int>(code),
+                    std::system_category());
+                return false;
+            }
+            if (attempt == 63)
+            {
+                error = std::error_code(static_cast<int>(code),
+                    std::system_category());
+                return false;
+            }
+            Sleep(1);
+        }
         return false;
 #else
         std::filesystem::rename(temporary, target, error);
@@ -465,17 +564,32 @@ bool PluginStorage::write_file(const std::filesystem::path& path,
     if (!files_->create_directories(path.parent_path(), error))
         return false;
     static std::atomic<uint64_t> serial{ 0 };
-    const auto temporary = path.parent_path()
-        / (path.filename().string() + ".tmp-"
-            + std::to_string(serial.fetch_add(1)));
-
-    auto output = files_->open_output(temporary, error);
-    if (!output)
+    const auto process_nonce = [] {
+        const auto tick = std::chrono::steady_clock::now()
+                              .time_since_epoch().count();
+#ifdef _WIN32
+        const auto process = static_cast<uint64_t>(GetCurrentProcessId());
+#else
+        const auto process = static_cast<uint64_t>(::getpid());
+#endif
+        return std::to_string(process) + "-" + std::to_string(tick);
+    }();
+    std::filesystem::path temporary;
+    std::unique_ptr<PluginStorageOutputFile> output;
+    for (int attempt = 0; attempt < 16; ++attempt)
     {
-        const auto primary_error = error ? error : io_error();
-        cleanup_temporary(temporary, primary_error, error);
-        return false;
+        temporary = path.parent_path()
+            / (path.filename().string() + ".tmp-" + process_nonce
+                + "-" + std::to_string(serial.fetch_add(1)));
+        error.clear();
+        output = files_->open_output(temporary, error);
+        if (output)
+            break;
+        if (error != std::errc::file_exists)
+            return false;
     }
+    if (!output)
+        return false;
     if (!output->write(json, error))
     {
         const auto primary_error = error ? error : io_error();

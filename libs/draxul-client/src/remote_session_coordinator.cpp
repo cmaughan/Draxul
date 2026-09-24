@@ -3,6 +3,7 @@
 #include <draxul/async_frame_stream.h>
 #include <draxul/remote_session_client.h>
 #include <draxul/remote_terminal_client.h>
+#include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_client.h>
 #include <draxul/server_control_channel.h>
 #include <draxul/session_protocol.h>
@@ -13,6 +14,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <exception>
 #include <limits>
 #include <mutex>
 #include <nlohmann/json.hpp>
@@ -381,6 +383,12 @@ public:
             return last_error_code_;
         }
 
+        void report_worker_exception(const std::string& message)
+        {
+            remember_error_code("worker_exception");
+            publish_error_once("worker_exception", message);
+        }
+
         SessionTerminalSubscription batch_subscription() const
         {
             std::lock_guard guard(mutex_);
@@ -451,7 +459,8 @@ public:
                 {
                 case CoordinatorCommand::Kind::Input:
                     operation = "input";
-                    params["text"] = command.text;
+                    params[kRemoteTerminalInputBase64Field]
+                        = remote_terminal_input_base64(command.text);
                     params["request_id"] = command.request_id;
                     break;
                 case CoordinatorCommand::Kind::Resize:
@@ -1154,7 +1163,19 @@ public:
         stopping_ = false;
         session_worker_ = std::jthread(
             [this](std::stop_token stop_token) {
-                session_worker_main(stop_token);
+                try
+                {
+                    session_worker_main(stop_token);
+                }
+                catch (const std::exception& exception)
+                {
+                    report_session_worker_exception(exception.what());
+                }
+                catch (...)
+                {
+                    report_session_worker_exception(
+                        "Unknown Session worker failure.");
+                }
             });
         return true;
     }
@@ -1656,8 +1677,17 @@ private:
     bool write_stream_frame(const SessionStreamClientFrame& frame,
         std::stop_token stop_token, std::string& error)
     {
-        const std::string bytes
-            = session_stream_client_frame_to_json(frame).dump();
+        std::string bytes;
+        try
+        {
+            bytes = session_stream_client_frame_to_json(frame).dump();
+        }
+        catch (const std::exception& exception)
+        {
+            error = std::string("The Session event stream frame could not be serialized: ")
+                + exception.what();
+            return false;
+        }
         if (bytes.size() > stream_max_frame_bytes_)
         {
             error = "The Session event stream client frame exceeds its negotiated budget.";
@@ -1831,7 +1861,21 @@ private:
         }
         stream_reader_ = std::jthread(
             [this](std::stop_token reader_stop) {
-                stream_reader_main(reader_stop);
+                try
+                {
+                    stream_reader_main(reader_stop);
+                }
+                catch (const std::exception& exception)
+                {
+                    std::lock_guard guard(worker_mutex_);
+                    stream_reader_done_ = true;
+                    stream_reader_error_ = {
+                        .code = "worker_exception",
+                        .message = exception.what(),
+                    };
+                    worker_pending_ = true;
+                    worker_wake_.notify_one();
+                }
             });
         transport_mode_ = SessionTransportMode::StreamActive;
         stream_commands_active_
@@ -2347,6 +2391,21 @@ private:
                 wait = std::min(wait, kPollInterval);
             wait_for_worker(wait);
         }
+    }
+
+    void report_session_worker_exception(const std::string& cause)
+    {
+        const std::string message
+            = "The Session terminal worker failed: " + cause;
+        for (const auto& entry : entries_snapshot())
+        {
+            entry->report_worker_exception(message);
+            entry->stop_async();
+        }
+        stopping_ = true;
+        stream_commands_active_ = false;
+        set_topology_stream_dispatcher(false);
+        close_stream_connection();
     }
 
     void session_worker_main(std::stop_token stop_token)

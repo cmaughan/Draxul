@@ -22,6 +22,8 @@ inline constexpr size_t kRemoteTerminalSubscriberQueueByteLimit
     = 2 * 1024 * 1024;
 inline constexpr size_t kRemoteTerminalMaxEventsPerPoll = 64;
 inline constexpr size_t kRemoteTerminalMaxScrollbackPageRows = 200;
+inline constexpr char kRemoteTerminalInputBase64Field[]
+    = "input_base64";
 // The PTY/ConPTY adapters use the same bounds. Keeping the wire dimensions
 // aligned avoids reporting a grid larger than the child process actually owns
 // and keeps a complete compact snapshot comfortably inside the IPC frame.
@@ -125,5 +127,11 @@ nlohmann::json remote_terminal_scrollback_page_to_json(
 std::optional<RemoteTerminalScrollbackPage>
 remote_terminal_scrollback_page_from_json(
     const nlohmann::json& value, std::string& error);
+
+// Terminal input is a byte stream, not UTF-8 text. The base64 field is used
+// by current clients; the decoder also accepts the earlier text field.
+std::string remote_terminal_input_base64(std::string_view bytes);
+std::optional<std::string> remote_terminal_input_from_json(
+    const nlohmann::json& params, std::string& error);
 
 } // namespace draxul

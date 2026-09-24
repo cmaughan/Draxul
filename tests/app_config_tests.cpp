@@ -325,6 +325,55 @@ TEST_CASE("app config parse clamps font_size to valid range", "[config]")
     REQUIRE(too_large.font_size <= TextService::MAX_POINT_SIZE);
 }
 
+TEST_CASE("non-finite config floats use defaults and checked parsing reports their source",
+    "[config][reload]")
+{
+    const AppConfig defaults;
+    const AppConfig config = AppConfig::parse(
+        "font_size = nan\n"
+        "scroll_speed = inf\n"
+        "palette_bg_alpha = -inf\n"
+        "focus_border_width = nan\n"
+        "toast_duration_s = inf\n"
+        "[markdown]\n"
+        "font_size = nan\n"
+        "margin_columns = -inf\n");
+    CHECK(config.font_size == defaults.font_size);
+    CHECK(config.scroll_speed == defaults.scroll_speed);
+    CHECK(config.palette_bg_alpha == defaults.palette_bg_alpha);
+    CHECK(config.focus_border_width == defaults.focus_border_width);
+    CHECK(config.toast_duration_s == defaults.toast_duration_s);
+    CHECK(config.markdown.font_size == defaults.markdown.font_size);
+    CHECK(config.markdown.margin_columns == defaults.markdown.margin_columns);
+
+    auto checked = parse_app_config_checked("scroll_speed = 2.0\nfont_size = nan\n", "live.toml");
+    REQUIRE_FALSE(checked);
+    CHECK(checked.error().kind == ErrorKind::ConfigParseFailed);
+    CHECK(checked.error().message.find("font_size") != std::string::npos);
+    CHECK(checked.error().message.find("must be finite at line 2") != std::string::npos);
+
+    TempDir temp("draxul-nonfinite-config");
+    const auto path = temp.path / "config.toml";
+    {
+        std::ofstream out(path);
+        out << "font_size = 12.0\n[markdown]\nfont_size = inf\n";
+    }
+    auto loaded = load_app_config_from_path_checked(path);
+    REQUIRE_FALSE(loaded);
+    CHECK(loaded.error().message.find("markdown.font_size") != std::string::npos);
+    CHECK(loaded.error().message.find("must be finite at line 3") != std::string::npos);
+}
+
+TEST_CASE("finite font config boundaries stay valid", "[config]")
+{
+    const AppConfig low = AppConfig::parse("font_size = 6.0\n[markdown]\nfont_size = 6.0\n");
+    const AppConfig high = AppConfig::parse("font_size = 72.0\n[markdown]\nfont_size = 72.0\n");
+    CHECK(low.font_size == 6.0f);
+    CHECK(low.markdown.font_size == 6.0f);
+    CHECK(high.font_size == 72.0f);
+    CHECK(high.markdown.font_size == 72.0f);
+}
+
 TEST_CASE("schema-driven config parsing preserves range and literal semantics", "[config][schema]")
 {
     ScopedLogCapture capture;

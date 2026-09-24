@@ -1,6 +1,7 @@
 #include <draxul/remote_terminal_client.h>
 
 #include <draxul/control_plane.h>
+#include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_protocol.h>
 
 #include <draxul/terminal_snapshot.h>
@@ -457,7 +458,8 @@ bool RemoteTerminalClient::send_input(
     std::string_view text, std::string& error, uint64_t request_id)
 {
     nlohmann::json params = client_params();
-    params["text"] = text;
+    params[kRemoteTerminalInputBase64Field]
+        = remote_terminal_input_base64(text);
     if (request_id != 0)
         params["request_id"] = request_id;
     nlohmann::json result;

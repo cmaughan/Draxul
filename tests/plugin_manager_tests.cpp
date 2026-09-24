@@ -8,12 +8,16 @@
 #include "support/fake_renderer.h"
 #include "support/test_host_callbacks.h"
 
+#include <algorithm>
+#include <atomic>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <cstring>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -196,6 +200,16 @@ public:
         std::error_code& error) override
     {
         last_temporary = path;
+        if (inject_collision_once)
+        {
+            inject_collision_once = false;
+            collision_temporary = path;
+            std::ofstream abandoned(path, std::ios::binary);
+            abandoned << "abandoned writer";
+            abandoned.close();
+            error = std::make_error_code(std::errc::file_exists);
+            return {};
+        }
         if (failure == Failure::Open)
         {
             (void)fail(error);
@@ -216,7 +230,10 @@ public:
             || (fail_replace_call > 0
                 && replace_calls == fail_replace_call))
             return fail(error);
-        return delegate->replace(temporary, target, error);
+        const bool replaced = delegate->replace(temporary, target, error);
+        if (!replaced)
+            last_replace_error = error;
+        return replaced;
     }
 
     bool remove(const std::filesystem::path& path,
@@ -251,8 +268,11 @@ public:
     int fail_replace_call = 0;
     int replace_calls = 0;
     int remove_calls = 0;
+    bool inject_collision_once = false;
     std::filesystem::path last_temporary;
+    std::filesystem::path collision_temporary;
     std::filesystem::path last_removed;
+    std::error_code last_replace_error;
 };
 
 std::string read_storage(draxul::PluginStorage& storage, uint32_t scope,
@@ -438,12 +458,128 @@ TEST_CASE("PluginStorage preserves primary temporary-write failures",
                     .message())
                 != std::string::npos);
             CHECK(error.find("Success") == std::string::npos);
-            CHECK(files->remove_calls == 1);
-            CHECK(files->last_removed == files->last_temporary);
+            CHECK(files->remove_calls
+                == (failure == Failure::Open ? 0 : 1));
+            if (failure != Failure::Open)
+                CHECK(files->last_removed == files->last_temporary);
             CHECK_FALSE(std::filesystem::exists(files->last_temporary));
             CHECK_FALSE(storage.overlay_active());
         }
     }
+}
+
+TEST_CASE("PluginStorage exclusive temporary creation preserves abandoned files",
+    "[plugin][storage]")
+{
+    TempPlugins temp;
+    const auto existing = temp.root / "abandoned.tmp";
+    {
+        std::ofstream marker(existing, std::ios::binary);
+        marker << "abandoned writer";
+    }
+    auto native = draxul::native_plugin_storage_file_operations();
+    std::error_code error;
+    CHECK_FALSE(native->open_output(existing, error));
+    CHECK(error == std::errc::file_exists);
+    {
+        std::ifstream marker(existing, std::ios::binary);
+        CHECK(std::string(std::istreambuf_iterator<char>(marker),
+                  std::istreambuf_iterator<char>()) == "abandoned writer");
+    }
+
+    auto files = std::make_shared<FaultInjectingStorageFiles>(
+        FaultInjectingStorageFiles::Failure::None);
+    files->inject_collision_once = true;
+    draxul::PluginStorage storage(temp.root / "storage", files);
+    storage.initialize("dev.draxul.storage", "pane", temp.root / "module");
+    constexpr std::string_view key = "state";
+    constexpr std::string_view json = R"({"value":7})";
+    REQUIRE(storage.write_json(DRAXUL_PLUGIN_STORAGE_PLUGIN,
+        key.data(), key.size(), json.data(), json.size())
+        == DRAXUL_PLUGIN_STORAGE_OK);
+    CHECK(files->collision_temporary != files->last_temporary);
+    CHECK(files->remove_calls == 0);
+    CHECK(read_storage(storage, DRAXUL_PLUGIN_STORAGE_PLUGIN, key) == json);
+    {
+        std::ifstream marker(files->collision_temporary, std::ios::binary);
+        CHECK(std::string(std::istreambuf_iterator<char>(marker),
+                  std::istreambuf_iterator<char>()) == "abandoned writer");
+    }
+
+    files->inject_collision_once = true;
+    files->failure = FaultInjectingStorageFiles::Failure::Replace;
+    CHECK(storage.write_json(DRAXUL_PLUGIN_STORAGE_PLUGIN,
+        key.data(), key.size(), R"({"value":8})", 11)
+        == DRAXUL_PLUGIN_STORAGE_IO_ERROR);
+    CHECK(files->remove_calls == 1);
+    CHECK(files->last_removed == files->last_temporary);
+    CHECK(files->last_removed != files->collision_temporary);
+    CHECK_FALSE(std::filesystem::exists(files->last_temporary));
+    CHECK(std::filesystem::exists(files->collision_temporary));
+    CHECK(read_storage(storage, DRAXUL_PLUGIN_STORAGE_PLUGIN, key) == json);
+}
+
+TEST_CASE("PluginStorage concurrent writers publish complete documents",
+    "[plugin][storage]")
+{
+    TempPlugins temp;
+    constexpr std::string_view key = "shared";
+    constexpr int writer_count = 8;
+    constexpr int saves_per_writer = 16;
+    std::vector<std::string> documents;
+    documents.reserve(writer_count);
+    for (int writer = 0; writer < writer_count; ++writer)
+    {
+        documents.push_back("{\"writer\":" + std::to_string(writer)
+            + ",\"payload\":\"" + std::string(16 * 1024,
+                static_cast<char>('a' + writer)) + "\"}");
+    }
+    std::atomic<bool> start{ false };
+    std::atomic<int> ready{ 0 };
+    std::atomic<int> failures{ 0 };
+    std::atomic<int> first_replace_error{ 0 };
+    std::vector<std::thread> writers;
+    for (int writer = 0; writer < writer_count; ++writer)
+    {
+        writers.emplace_back([&, writer] {
+            auto files = std::make_shared<FaultInjectingStorageFiles>(
+                FaultInjectingStorageFiles::Failure::None);
+            draxul::PluginStorage storage(temp.root / "storage", files);
+            storage.initialize("dev.draxul.storage", "pane",
+                temp.root / "module");
+            ready.fetch_add(1);
+            while (!start.load())
+                std::this_thread::yield();
+            const auto& document = documents[writer];
+            for (int save = 0; save < saves_per_writer; ++save)
+            {
+                if (storage.write_json(DRAXUL_PLUGIN_STORAGE_PLUGIN,
+                        key.data(), key.size(), document.data(),
+                        document.size()) != DRAXUL_PLUGIN_STORAGE_OK)
+                {
+                    failures.fetch_add(1);
+                    if (files->last_replace_error)
+                    {
+                        int expected = 0;
+                        first_replace_error.compare_exchange_strong(expected,
+                            files->last_replace_error.value());
+                    }
+                }
+            }
+        });
+    }
+    while (ready.load() != writer_count)
+        std::this_thread::yield();
+    start.store(true);
+    for (auto& writer : writers)
+        writer.join();
+    INFO("first native replace error: " << first_replace_error.load());
+    CHECK(failures.load() == 0);
+    draxul::PluginStorage reader(temp.root / "storage");
+    reader.initialize("dev.draxul.storage", "pane", temp.root / "module");
+    const auto final = read_storage(reader, DRAXUL_PLUGIN_STORAGE_PLUGIN, key);
+    CHECK(std::find(documents.begin(), documents.end(), final)
+        != documents.end());
 }
 
 TEST_CASE("PluginStorage reports filesystem failures and partial commit",

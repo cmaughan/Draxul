@@ -552,6 +552,9 @@ int apply_int_parse(const ConfigFieldDesc& field, int64_t value, int default_val
 
 float apply_float_parse(const ConfigFieldDesc& field, double value, float default_value)
 {
+    if (!std::isfinite(value))
+        return default_value;
+
     const double lo = field.min;
     const double hi = field.max;
     switch (field.parse_range)
@@ -688,6 +691,9 @@ int64_t apply_int_serialize(const ConfigFieldDesc& field, int value, int default
 
 float apply_float_serialize(const ConfigFieldDesc& field, float value, float default_value)
 {
+    if (!std::isfinite(value))
+        return default_value;
+
     const float lo = static_cast<float>(field.min);
     const float hi = static_cast<float>(field.max);
     switch (field.serialize_range)
@@ -875,6 +881,21 @@ void check_types(const toml::table& document, const TypeErrorFn& report)
                 if (!value.is_string())
                     report(std::string("keybindings.") + std::string(key.str()), "string", value);
             }
+        }
+    }
+}
+
+void check_finite_values(const toml::table& document, const FiniteErrorFn& report)
+{
+    for (const ConfigFieldDesc& field : kFields)
+    {
+        if (field.kind != ValueKind::Float)
+            continue;
+        const toml::node* node = field_node(field, document);
+        if (node != nullptr && node->is_floating_point())
+        {
+            if (const auto value = node->value<double>(); value && !std::isfinite(*value))
+                report(field.dotted_key(), *node);
         }
     }
 }

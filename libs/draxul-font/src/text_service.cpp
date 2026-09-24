@@ -6,6 +6,7 @@
 #include "ligature_analyser.h"
 
 #include <algorithm>
+#include <cmath>
 #include <draxul/perf_timing.h>
 #include <iterator>
 
@@ -47,6 +48,8 @@ struct TextService::Impl
 
     bool set_point_size(float point_size)
     {
+        if (!std::isfinite(point_size))
+            return false;
         point_size = std::clamp(point_size, TextService::MIN_POINT_SIZE, TextService::MAX_POINT_SIZE);
         if (point_size == resolver.primary().point_size())
             return true;

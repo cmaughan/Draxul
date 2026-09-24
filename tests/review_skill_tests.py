@@ -781,7 +781,7 @@ class ArtifactTests(unittest.TestCase):
             self.assertIn("# Refresh cloud texture safely", normalized)
             created = review.materialize_kanban_cards(root, normalized)
             self.assertEqual(
-                ["plugins/satview/kanban/pending/00 cloud-refresh -bug.md"],
+                [str(pathlib.Path("plugins/satview/kanban/pending/00 cloud-refresh -bug.md"))],
                 [item["path"] for item in created],
             )
             self.assertFalse((root / "kanban/pending/00 cloud-refresh -bug.md").exists())

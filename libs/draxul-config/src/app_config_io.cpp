@@ -150,6 +150,19 @@ AppConfig config_from_toml(const toml::table& document, std::string* validation_
     // order as before, so the first-reported error in a checked parse is stable.
     config_schema::check_types(document, report_type_error);
 
+    config_schema::check_finite_values(document,
+        [&](std::string_view key, const toml::node& node) {
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "[config] Key '%.*s' must be finite -- using default",
+                static_cast<int>(key.size()), key.data());
+            if (validation_error && validation_error->empty())
+            {
+                *validation_error = "Key '" + std::string(key)
+                    + "' must be finite at line "
+                    + std::to_string(static_cast<std::size_t>(node.source().begin.line));
+            }
+        });
+
     config_schema::parse_top_level_fields(document, config);
 
     // Markdown inherits the parsed global size (one point smaller, since prose
