@@ -901,6 +901,34 @@ TEST_CASE("app smoke: shutdown preserves a malformed user config", "[app_smoke][
     }));
 }
 
+TEST_CASE("app smoke: malformed startup config stays intact after defaulted startup",
+    "[app_smoke][config]")
+{
+    if (!std::filesystem::exists(draxul::tests::bundled_font_path()))
+        SKIP("bundled font not found");
+
+    TempDir temp("draxul-bad-startup-config");
+    HomeDirRedirect redir(temp.path);
+    std::filesystem::create_directories(redir.config_path.parent_path());
+    const std::string malformed = "weather_location = \"York, UK\"\n[broken\n";
+    {
+        std::ofstream out(redir.config_path);
+        out << malformed;
+    }
+
+    AppOptions opts = make_smoke_options();
+    opts.load_user_config = true;
+    opts.save_user_config = true;
+    ScopedLogCapture capture;
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    CHECK(std::ranges::any_of(capture.records, [](const LogRecord& record) {
+        return record.message.find("Failed to parse config from") != std::string::npos;
+    }));
+    app.shutdown();
+    CHECK(draxul::tests::read_file(redir.config_path) == malformed);
+}
+
 TEST_CASE("app smoke: shutdown preserves external config edits and does not recreate a vanished file",
     "[app_smoke][config]")
 {

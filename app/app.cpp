@@ -345,10 +345,27 @@ bool App::initialize()
         if (options_.load_user_config)
         {
             std::error_code exists_error;
-            user_config_file_seen_ = std::filesystem::exists(
-                ConfigDocument::default_path(), exists_error) || bool(exists_error);
-            config_ = AppConfig::load();
-            config_document_ = ConfigDocument::load();
+            const std::filesystem::path path = ConfigDocument::default_path();
+            user_config_file_seen_ = std::filesystem::exists(path, exists_error)
+                || bool(exists_error);
+            auto loaded_config = load_app_config_from_path_checked(path);
+            auto loaded_document = load_config_document_from_path_checked(path);
+            if (loaded_config && loaded_document)
+            {
+                config_ = std::move(*loaded_config);
+                config_document_ = std::move(*loaded_document);
+            }
+            else
+            {
+                config_ = {};
+                config_document_ = {};
+                const std::string& reason = !loaded_config
+                    ? loaded_config.error().message
+                    : loaded_document.error().message;
+                DRAXUL_LOG_WARN(LogCategory::App, "%s", reason.c_str());
+                push_toast(2,
+                    "Could not load config.toml; using defaults. The file will be kept.");
+            }
         }
         else
         {

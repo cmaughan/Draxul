@@ -760,6 +760,8 @@ Draxul reads `config.toml` on startup and creates it with defaults on first save
 When closing, Draxul rereads the file so valid external edits are preserved. If
 the file has become invalid or unavailable, Draxul skips saving rather than
 replacing it with defaults. Successful saves replace the file atomically.
+An invalid startup config shows an error toast while the app uses defaults;
+reload errors also show a toast and leave the active settings unchanged.
 
 | Platform | Path |
 |----------|------|
