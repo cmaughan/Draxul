@@ -270,21 +270,13 @@ TEST_CASE("server protocol round-trips hello welcome and status", "[server][prot
         server_welcome_to_json(welcome), error);
     REQUIRE(decoded_welcome == welcome);
 
-    auto legacy_hello = server_hello_to_json(hello);
-    legacy_hello.erase("connection_token");
-    legacy_hello.erase("registration_nonce");
-    auto expected_legacy_hello = hello;
-    expected_legacy_hello.connection_token.clear();
-    expected_legacy_hello.registration_nonce.clear();
-    REQUIRE(server_hello_from_json(legacy_hello, error)
-        == expected_legacy_hello);
+    auto incomplete_hello = server_hello_to_json(hello);
+    incomplete_hello.erase("registration_nonce");
+    REQUIRE_FALSE(server_hello_from_json(incomplete_hello, error));
 
-    auto legacy_welcome = server_welcome_to_json(welcome);
-    legacy_welcome.erase("connection_token");
-    auto expected_legacy_welcome = welcome;
-    expected_legacy_welcome.connection_token.clear();
-    REQUIRE(server_welcome_from_json(legacy_welcome, error)
-        == expected_legacy_welcome);
+    auto incomplete_welcome = server_welcome_to_json(welcome);
+    incomplete_welcome.erase("connection_token");
+    REQUIRE_FALSE(server_welcome_from_json(incomplete_welcome, error));
 
     const ServerStatusSnapshot status{
         .state = "ready",
@@ -340,12 +332,9 @@ TEST_CASE("server protocol round-trips hello welcome and status", "[server][prot
         server_status_to_json(status), error);
     REQUIRE(decoded_status == status);
 
-    auto legacy_status = server_status_to_json(status);
-    legacy_status.erase("control_transport");
-    auto expected_legacy_status = status;
-    expected_legacy_status.control_transport = {};
-    REQUIRE(server_status_from_json(legacy_status, error)
-        == expected_legacy_status);
+    auto incomplete_status = server_status_to_json(status);
+    incomplete_status.erase("control_transport");
+    REQUIRE_FALSE(server_status_from_json(incomplete_status, error));
 }
 
 TEST_CASE("server protocol rejects malformed identity and capabilities", "[server][protocol]")
@@ -526,6 +515,11 @@ TEST_CASE("remote terminal protocol round-trips snapshots and deltas",
     INFO(error);
     REQUIRE(decoded_attach == attach);
 
+    auto incomplete_attach = remote_terminal_attach_to_json(attach);
+    incomplete_attach["pane"].erase("process_running");
+    REQUIRE_FALSE(remote_terminal_attach_from_json(
+        incomplete_attach, error));
+
     RemoteTerminalEvent delta{
         .kind = RemoteTerminalEventKind::Delta,
         .version = {
@@ -548,6 +542,11 @@ TEST_CASE("remote terminal protocol round-trips snapshots and deltas",
         remote_terminal_event_to_json(delta), error);
     INFO(error);
     REQUIRE(decoded_delta == delta);
+
+    auto incomplete_event = remote_terminal_event_to_json(delta);
+    incomplete_event.erase("process_running");
+    REQUIRE_FALSE(remote_terminal_event_from_json(
+        incomplete_event, error));
 
     RemoteTerminalEvent clipboard{
         .kind = RemoteTerminalEventKind::Clipboard,
@@ -721,16 +720,13 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
                       .tabs.front()
                       .name_user_set);
 
-    auto legacy_json = topology_snapshot_to_json(snapshot);
-    legacy_json["spaces"][0]["tabs"][0].erase(
+    auto incomplete_json = topology_snapshot_to_json(snapshot);
+    incomplete_json["spaces"][0]["tabs"][0].erase(
         "name_user_set");
-    const auto legacy_decoded
-        = topology_snapshot_from_json(legacy_json, error);
+    const auto incomplete_decoded
+        = topology_snapshot_from_json(incomplete_json, error);
     INFO(error);
-    REQUIRE(legacy_decoded);
-    REQUIRE(legacy_decoded->spaces.front()
-                .tabs.front()
-                .name_user_set);
+    REQUIRE_FALSE(incomplete_decoded);
 
     TopologyCommand command{
         .client_id = "client-a",
@@ -775,17 +771,13 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
     INFO(error);
     REQUIRE(decoded_reorder == reorder);
 
-    const nlohmann::json minimal_command{
-        { "client_id", "client-a" },
-        { "command_id", "command-minimal" },
-        { "expected_revision", 9 },
-        { "kind", "create_space" },
-    };
     const TopologyCommand expected_minimal{
         .client_id = "client-a",
         .command_id = "command-minimal",
         .expected_revision = 9,
     };
+    const nlohmann::json minimal_command
+        = topology_command_to_json(expected_minimal);
     const auto decoded_minimal
         = topology_command_from_json(minimal_command, error);
     INFO(error);
@@ -794,8 +786,16 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
                 topology_command_to_json(*decoded_minimal), error)
         == decoded_minimal);
 
-    for (std::string_view required :
-        { "client_id", "command_id", "expected_revision", "kind" })
+    for (std::string_view required : {
+             "client_id", "command_id", "expected_revision", "kind",
+             "space_id", "tab_id", "destination_space_id",
+             "destination_tab_id", "pane_id", "target_pane_id",
+             "node_id", "name", "root_directory", "direction", "ratio",
+             "place_before", "move_delta", "pane_domain", "terminal_id",
+             "client_host_kind", "client_working_directory",
+             "client_source_path", "client_plugin_id",
+             "client_plugin_config_json", "companion_owner_pane_id",
+             "server_working_directory" })
     {
         auto missing_required = minimal_command;
         missing_required.erase(std::string(required));
@@ -848,22 +848,19 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
     INFO(error);
     REQUIRE(decoded_result == command_result);
 
-    auto legacy_result
+    auto incomplete_result
         = topology_command_result_to_json(command_result);
-    legacy_result.erase("created_id");
-    legacy_result.erase("moved_pane_id");
-    legacy_result.erase("source_space_id");
-    legacy_result.erase("source_tab_id");
-    legacy_result.erase("destination_space_id");
-    legacy_result.erase("destination_tab_id");
-    const auto decoded_legacy_result
+    incomplete_result.erase("created_id");
+    incomplete_result.erase("moved_pane_id");
+    incomplete_result.erase("source_space_id");
+    incomplete_result.erase("source_tab_id");
+    incomplete_result.erase("destination_space_id");
+    incomplete_result.erase("destination_tab_id");
+    const auto decoded_incomplete_result
         = topology_command_result_from_json(
-            legacy_result, error);
+            incomplete_result, error);
     INFO(error);
-    REQUIRE(decoded_legacy_result);
-    CHECK(decoded_legacy_result->created_id.empty());
-    CHECK(decoded_legacy_result->moved_pane_id.empty());
-    CHECK(decoded_legacy_result->destination_tab_id.empty());
+    REQUIRE_FALSE(decoded_incomplete_result);
 
     auto oversized_result
         = topology_command_result_to_json(command_result);

@@ -147,6 +147,12 @@ public:
 
     bool start(std::string& error)
     {
+        if (options_.method_prefix == "terminal"
+            && options_.terminal_id.empty())
+        {
+            error = "A server terminal identity is required.";
+            return false;
+        }
         if (options_.coordinator)
         {
             coordinator_registration_

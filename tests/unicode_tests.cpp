@@ -50,14 +50,14 @@ public:
         expect(initialized_, "nvim oracle should be initialized");
 
         auto set_option = rpc_.request("nvim_command", {
-                                                           NvimRpc::make_str(std::string("set ambiwidth=") + (ambiwidth == AmbiWidth::Double ? "double" : "single")),
+                                                           MpackValue::make_str(std::string("set ambiwidth=") + (ambiwidth == AmbiWidth::Double ? "double" : "single")),
                                                        });
         expect(set_option.has_value(), "nvim should accept the ambiwidth setting");
 
         auto result = rpc_.request("nvim_call_function", {
-                                                             NvimRpc::make_str("strdisplaywidth"),
-                                                             NvimRpc::make_array({
-                                                                 NvimRpc::make_str(std::string(text)),
+                                                             MpackValue::make_str("strdisplaywidth"),
+                                                             MpackValue::make_array({
+                                                                 MpackValue::make_str(std::string(text)),
                                                              }),
                                                          });
 

@@ -134,9 +134,9 @@ struct AppConfig
     void save_to_path(const std::filesystem::path& path) const;
 };
 
-// Checked entry points used by live reload. The legacy AppConfig::parse/load
-// functions intentionally retain their tolerant defaults-on-error behavior for
-// startup and existing callers.
+// Checked entry points used by live reload. Startup uses the tolerant
+// AppConfig::parse/load entry points so a broken optional user setting cannot
+// prevent Draxul from launching.
 [[nodiscard]] Result<AppConfig, Error> parse_app_config_checked(
     std::string_view content,
     std::string_view source_name = "<memory>");

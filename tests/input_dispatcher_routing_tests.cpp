@@ -395,7 +395,7 @@ struct E2ESetup
         deps.gui_action_handler = action_handler.get();
         deps.ui_panel = &panel;
         deps.host = &host;
-        deps.pixel_scale = pixel_scale;
+        deps.pixel_scale = PixelScale{ pixel_scale };
         dispatcher = std::make_unique<InputDispatcher>(std::move(deps));
         dispatcher->connect(window);
     }
@@ -728,7 +728,7 @@ struct OverlayE2ESetup
         deps.gui_action_handler = action_handler.get();
         deps.ui_panel = &panel;
         deps.host = &host;
-        deps.pixel_scale = 1.0f;
+        deps.pixel_scale = PixelScale{ 1.0f };
         router.overlay_host_fn = [this]() -> IHost* {
             return overlay_active ? &overlay : nullptr;
         };
@@ -1013,7 +1013,7 @@ struct ChordE2ESetup
         deps.gui_action_handler = action_handler.get();
         deps.ui_panel = &panel;
         deps.host = &host;
-        deps.pixel_scale = 1.0f;
+        deps.pixel_scale = PixelScale{ 1.0f };
         router.activate_pane_fn = [this](int index) { activate_pane_calls.push_back(index); };
         deps.router = &router;
         dispatcher = std::make_unique<InputDispatcher>(std::move(deps));

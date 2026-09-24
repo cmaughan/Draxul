@@ -50,7 +50,44 @@ void install_plugin(const std::filesystem::path& tier,
     std::string_view name = "Fixture",
     std::string_view version = "1.0.0")
 {
-    const auto directory = tier / directory_name;
+    const auto package = tier / directory_name;
+    const auto directory = package / "generations" / "build-1";
+    std::filesystem::create_directories(directory);
+    const std::string library_name = manifest_library.empty()
+        ? library.filename().string()
+        : std::string(manifest_library);
+    if (!library.empty() && manifest_library.empty())
+    {
+        std::filesystem::copy_file(library,
+            directory / library.filename(),
+            std::filesystem::copy_options::overwrite_existing);
+    }
+    std::ofstream manifest(directory / "plugin.toml");
+    manifest << "schema_version = 1\n"
+             << "id = \"" << id << "\"\n"
+             << "name = \"" << name << "\"\n"
+             << "version = \"" << version << "\"\n"
+             << "abi_version = 2\n"
+#ifdef _WIN32
+             << "[platform.windows]\n"
+#elif defined(__APPLE__)
+             << "[platform.macos]\n"
+#else
+             << "[platform.linux]\n"
+#endif
+             << "library = \"" << library_name << "\"\n";
+    std::ofstream pointer(package / "current.json");
+    pointer << R"({"schema_version":1,"generation":"build-1"})";
+}
+
+void install_plugin_generation(const std::filesystem::path& generations,
+    std::string_view generation, std::string_view id,
+    const std::filesystem::path& library,
+    std::string_view manifest_library = {},
+    std::string_view name = "Fixture",
+    std::string_view version = "1.0.0")
+{
+    const auto directory = generations / generation;
     std::filesystem::create_directories(directory);
     const std::string library_name = manifest_library.empty()
         ? library.filename().string()
@@ -1119,6 +1156,7 @@ TEST_CASE("two UI clients keep shared-server plugin generations local",
     install_plugin(bundled, "fixture", "dev.draxul.fixture",
         DRAXUL_FIXTURE_VALID_PATH);
     const auto package_library = bundled / "fixture"
+        / "generations" / "build-1"
         / std::filesystem::path(DRAXUL_FIXTURE_VALID_PATH).filename();
 
     // Each attached UI owns its plugin manager and resolves the same stable
@@ -1209,7 +1247,7 @@ TEST_CASE("plugin discovery follows the atomic publication pointer",
     const auto user = temp.root / "user";
     install_plugin(bundled, "fixture", "dev.draxul.fixture",
         DRAXUL_FIXTURE_VALID_PATH, {}, "Fixture", "0.9.0");
-    install_plugin(bundled / "fixture" / "generations", "build-2",
+    install_plugin_generation(bundled / "fixture" / "generations", "build-2",
         "dev.draxul.fixture", DRAXUL_FIXTURE_VALID_PATH);
     {
         std::ofstream pointer(bundled / "fixture" / "current.json");
@@ -1231,7 +1269,7 @@ TEST_CASE("plugin first load refreshes a pruned publication generation",
     const auto bundled = temp.root / "bundled";
     const auto user = temp.root / "user";
     const auto package = bundled / "fixture";
-    install_plugin(package / "generations", "build-1",
+    install_plugin_generation(package / "generations", "build-1",
         "dev.draxul.fixture", DRAXUL_FIXTURE_VALID_PATH);
     {
         std::ofstream pointer(package / "current.json");
@@ -1244,7 +1282,7 @@ TEST_CASE("plugin first load refreshes a pruned publication generation",
     CHECK(manager->find("dev.draxul.fixture")->package_generation
         == "build-1");
 
-    install_plugin(package / "generations", "build-2",
+    install_plugin_generation(package / "generations", "build-2",
         "dev.draxul.fixture", DRAXUL_FIXTURE_VALID_PATH);
     std::filesystem::remove_all(package / "generations" / "build-1");
     {
@@ -1400,6 +1438,7 @@ TEST_CASE("PluginHost rolls back a failed candidate and drops storage writes",
 
     std::filesystem::copy_file(DRAXUL_FIXTURE_FAIL_CREATE_PATH,
         bundled / "fixture"
+            / "generations" / "build-1"
             / std::filesystem::path(DRAXUL_FIXTURE_VALID_PATH).filename(),
         std::filesystem::copy_options::overwrite_existing);
     std::string error;
@@ -1441,6 +1480,7 @@ TEST_CASE("PluginHost rejects an incompatible candidate before quiescing",
 
     std::filesystem::copy_file(DRAXUL_FIXTURE_UNSUPPORTED_PATH,
         bundled / "fixture"
+            / "generations" / "build-1"
             / std::filesystem::path(DRAXUL_FIXTURE_VALID_PATH).filename(),
         std::filesystem::copy_options::overwrite_existing);
     std::string error;

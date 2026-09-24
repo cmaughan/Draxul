@@ -33,8 +33,8 @@ struct HostLaunchOptions
     std::string source_path;
     std::vector<std::string> startup_commands;
     std::vector<std::pair<std::string, std::string>> environment;
-    // Stable server-owned terminal identity used by RemoteTerminalHost.
-    // Empty selects the server's compatibility/default terminal.
+    // Stable server-owned terminal identity required by RemoteTerminalHost
+    // when connected to the server terminal service.
     std::string remote_terminal_id;
     // Exact server topology descriptor for a client-local pane. This stays
     // populated even when this build cannot parse the kind, allowing an

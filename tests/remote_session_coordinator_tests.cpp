@@ -134,263 +134,6 @@ std::optional<RemoteTerminalPublishedState> wait_for_state(
 
 } // namespace
 
-TEST_CASE("remote Session coordinator owns independent legacy registrations and coalesces wakes",
-    "[client][remote-session-coordinator][terminal]")
-{
-    TempDir temp("draxul-session-coordinator");
-    ControlServer server;
-    std::string start_error;
-    REQUIRE(server.start(
-        namespaced_control_id(kServerControlId, temp.path),
-        temp.path, [] {}, &start_error));
-
-    std::atomic<uint64_t> published_sequence = 0;
-    std::atomic<int> attach_calls = 0;
-    std::atomic<int> poll_calls = 0;
-    std::atomic<int> input_calls = 0;
-    std::atomic<int> resize_calls = 0;
-    std::atomic<int> take_control_calls = 0;
-    std::atomic<int> scrollback_calls = 0;
-    std::atomic<int> suspend_calls = 0;
-    std::atomic<int> resume_calls = 0;
-    std::jthread dispatcher([&](std::stop_token stop) {
-        while (!stop.stop_requested())
-        {
-            server.process_pending([&](const ControlRequest& request) {
-                if (request.method == "fake.attach")
-                {
-                    ++attach_calls;
-                    return ControlMethodResult::success(
-                        remote_terminal_attach_to_json(
-                            terminal_attach(published_sequence)));
-                }
-                if (request.method == "fake.resume")
-                {
-                    ++resume_calls;
-                    return ControlMethodResult::success(
-                        remote_terminal_attach_to_json(
-                            terminal_attach(published_sequence)));
-                }
-                if (request.method == "fake.suspend")
-                {
-                    ++suspend_calls;
-                    return ControlMethodResult::success(
-                        nlohmann::json::object());
-                }
-                if (request.method == "fake.poll")
-                {
-                    ++poll_calls;
-                    nlohmann::json events = nlohmann::json::array();
-                    const uint64_t after
-                        = request.params.value("after_sequence", 0ULL);
-                    const uint64_t available = published_sequence;
-                    if (after < available)
-                    {
-                        events.push_back(remote_terminal_event_to_json(
-                            terminal_attach(available).state));
-                    }
-                    return ControlMethodResult::success({
-                        { "events", std::move(events) },
-                    });
-                }
-                if (request.method == "fake.input")
-                {
-                    ++input_calls;
-                    return ControlMethodResult::success(
-                        nlohmann::json::object());
-                }
-                if (request.method == "fake.resize")
-                {
-                    ++resize_calls;
-                    return ControlMethodResult::success(
-                        nlohmann::json::object());
-                }
-                if (request.method == "fake.take_control")
-                {
-                    ++take_control_calls;
-                    return ControlMethodResult::success(
-                        nlohmann::json::object());
-                }
-                if (request.method == "fake.scrollback")
-                {
-                    ++scrollback_calls;
-                    return ControlMethodResult::success(
-                        remote_terminal_scrollback_page_to_json({
-                            .version = {
-                                .server_epoch = "coordinator-epoch",
-                                .terminal_id = "terminal-shared",
-                                .generation = 1,
-                                .sequence = published_sequence,
-                            },
-                            .total_rows = 20,
-                            .offset_from_live = request.params.value(
-                                "offset_from_live", 0ULL),
-                            .cols = 4,
-                            .snapshot = terminal_snapshot("History"),
-                        }));
-                }
-                return ControlMethodResult::error(
-                    "unknown_method", "Unexpected coordinator method.");
-            });
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    });
-
-    std::atomic<int> wake_calls = 0;
-    RemoteSessionCoordinator coordinator({
-        .runtime_directory = temp.path,
-        .client_id = "coordinator-ui",
-        .expected_server_epoch = "coordinator-epoch",
-        .method_prefix = "fake",
-        .presentation_suspend_supported = true,
-        .wake_consumer = [&] { ++wake_calls; },
-    });
-    REQUIRE(coordinator.start());
-    auto first = coordinator.register_terminal("terminal-shared");
-    auto second = coordinator.register_terminal("terminal-shared");
-    REQUIRE(first);
-    REQUIRE(second);
-    CHECK(first.id() != second.id());
-
-    REQUIRE(wait_for_condition([&] { return wake_calls.load() == 1; }));
-    auto first_initial = wait_for_state(first);
-    auto second_initial = wait_for_state(second);
-    REQUIRE(first_initial);
-    REQUIRE(second_initial);
-    CHECK(first_initial->snapshot.metadata.title == "Initial");
-    CHECK(second_initial->snapshot.metadata.title == "Initial");
-    CHECK(wake_calls == 1);
-    REQUIRE(attach_calls == 2);
-
-    // Only one mailbox was acknowledged. The coordinator re-arms exactly one
-    // wake for the still-ready registration rather than losing that edge.
-    published_sequence = 1;
-    REQUIRE(wait_for_condition([&] { return wake_calls.load() == 1; }));
-    auto first_updated = wait_for_state(first);
-    REQUIRE(first_updated);
-    coordinator.acknowledge_wake();
-    REQUIRE(wait_for_condition([&] { return wake_calls.load() == 2; }));
-    auto second_updated = wait_for_state(second);
-    REQUIRE(second_updated);
-    CHECK(first_updated->snapshot.metadata.title == "Updated");
-    CHECK(second_updated->snapshot.metadata.title == "Updated");
-    coordinator.acknowledge_wake();
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    CHECK(wake_calls == 2);
-
-    REQUIRE(first.enqueue_input("abc"));
-    REQUIRE(first.enqueue_input_chunks({ "frame-one", "frame-two" }));
-    REQUIRE(first.enqueue_resize(80, 24));
-    REQUIRE(first.enqueue_take_control());
-    REQUIRE(first.enqueue_scroll(3));
-    REQUIRE(wait_for_condition([&] {
-        return input_calls.load() == 3
-            && resize_calls.load() == 1
-            && take_control_calls.load() == 1
-            && scrollback_calls.load() == 1;
-    }));
-    auto scrolled = wait_for_state(first);
-    REQUIRE(scrolled);
-    CHECK(scrolled->scroll_offset == 3);
-    REQUIRE(first.enqueue_scroll_to_live());
-    auto live = wait_for_state(first);
-    REQUIRE(live);
-    CHECK(live->scroll_offset == 0);
-    coordinator.acknowledge_wake();
-
-    const uint64_t hidden_generation
-        = first.set_presentation_visible(false);
-    CHECK(hidden_generation == 2);
-    REQUIRE(wait_for_condition([&] { return suspend_calls.load() == 1; }));
-    published_sequence = 2;
-    auto visible_update = wait_for_state(second);
-    REQUIRE(visible_update);
-    CHECK_FALSE(first.take_published_state().has_value());
-    const uint64_t resumed_generation
-        = first.set_presentation_visible(true);
-    CHECK(resumed_generation == 3);
-    REQUIRE(wait_for_condition([&] { return resume_calls.load() == 1; }));
-    auto resumed = wait_for_state(first);
-    REQUIRE(resumed);
-    CHECK(resumed->visibility_generation == resumed_generation);
-    CHECK(resumed->snapshot.metadata.title == "Updated");
-    coordinator.acknowledge_wake();
-
-    const int polls_before_unregister = poll_calls;
-    first.reset();
-    CHECK_FALSE(first);
-    REQUIRE(second.running());
-    REQUIRE(wait_for_condition([&] {
-        return poll_calls.load() > polls_before_unregister;
-    }));
-
-    second.reset();
-    coordinator.stop();
-    dispatcher.request_stop();
-    dispatcher.join();
-    server.stop();
-}
-
-TEST_CASE("remote Session coordinator registration teardown is bounded by a blocked legacy request",
-    "[client][remote-session-coordinator][shutdown]")
-{
-    TempDir temp("draxul-session-coordinator-bounded-stop");
-    ControlServer server;
-    std::string start_error;
-    REQUIRE(server.start(
-        namespaced_control_id(kServerControlId, temp.path),
-        temp.path, [] {}, &start_error));
-
-    std::atomic<bool> request_entered = false;
-    std::atomic<bool> release_request = false;
-    std::jthread dispatcher([&](std::stop_token stop) {
-        while (!stop.stop_requested())
-        {
-            server.process_pending([&](const ControlRequest&) {
-                request_entered = true;
-                while (!release_request && !stop.stop_requested())
-                {
-                    std::this_thread::sleep_for(
-                        std::chrono::milliseconds(1));
-                }
-                return ControlMethodResult::success(
-                    remote_terminal_attach_to_json(
-                        terminal_attach(0)));
-            });
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    });
-
-    RemoteSessionCoordinator coordinator({
-        .runtime_directory = temp.path,
-        .client_id = "coordinator-ui",
-        .expected_server_epoch = "coordinator-epoch",
-    });
-    REQUIRE(coordinator.start());
-    std::vector<RemoteSessionCoordinator::Registration>
-        registrations;
-    for (int index = 0; index < 12; ++index)
-    {
-        auto registration = coordinator.register_terminal(
-            "terminal-" + std::to_string(index));
-        REQUIRE(registration);
-        registrations.push_back(std::move(registration));
-    }
-    REQUIRE(wait_for_condition([&] { return request_entered.load(); }));
-
-    const auto started = std::chrono::steady_clock::now();
-    for (auto& registration : registrations)
-        registration.reset();
-    const auto elapsed = std::chrono::steady_clock::now() - started;
-    CHECK(elapsed < std::chrono::seconds(1));
-
-    release_request = true;
-    dispatcher.request_stop();
-    dispatcher.join();
-    coordinator.stop();
-    server.stop();
-}
-
 TEST_CASE("remote Session coordinator multiplexes registrations through one Session poll worker",
     "[client][remote-session-coordinator][session-poll]")
 {
@@ -411,7 +154,7 @@ TEST_CASE("remote Session coordinator multiplexes registrations through one Sess
         .externally_fed = true,
     });
     std::atomic<int> session_polls = 0;
-    std::atomic<int> legacy_polls = 0;
+    std::atomic<int> per_terminal_polls = 0;
     std::atomic<int> input_calls = 0;
     std::atomic<uint64_t> published_sequence = 0;
     std::mutex observations_mutex;
@@ -470,7 +213,7 @@ TEST_CASE("remote Session coordinator multiplexes registrations through one Sess
                 if (control.method == "fake.poll"
                     || control.method == "fake.attach")
                 {
-                    ++legacy_polls;
+                    ++per_terminal_polls;
                 }
                 if (control.method == "fake.input")
                 {
@@ -501,7 +244,7 @@ TEST_CASE("remote Session coordinator multiplexes registrations through one Sess
     REQUIRE(second);
     REQUIRE(wait_for_state(first));
     REQUIRE(wait_for_state(second));
-    CHECK(legacy_polls == 0);
+    CHECK(per_terminal_polls == 0);
     REQUIRE(wait_for_condition([&] {
         std::lock_guard guard(observations_mutex);
         if (observations.empty()
@@ -547,7 +290,7 @@ TEST_CASE("remote Session coordinator multiplexes registrations through one Sess
     auto resumed = wait_for_state(first);
     REQUIRE(resumed);
     CHECK(resumed->visibility_generation == visible_generation);
-    CHECK(legacy_polls == 0);
+    CHECK(per_terminal_polls == 0);
     CHECK(session_polls > 0);
 
     coordinator.stop();
@@ -584,7 +327,7 @@ TEST_CASE("remote Session coordinator prefers one event stream and keeps project
 
     std::atomic<int> stream_opens = 0;
     std::atomic<int> session_polls = 0;
-    std::atomic<int> legacy_polls = 0;
+    std::atomic<int> per_terminal_polls = 0;
     std::atomic<int> input_calls = 0;
     std::atomic<int> stream_input_commands = 0;
     std::atomic<int> stream_topology_commands = 0;
@@ -632,7 +375,7 @@ TEST_CASE("remote Session coordinator prefers one event stream and keeps project
                 if (request.method == "fake.attach"
                     || request.method == "fake.poll")
                 {
-                    ++legacy_polls;
+                    ++per_terminal_polls;
                 }
                 if (request.method == "fake.input")
                 {
@@ -909,7 +652,7 @@ TEST_CASE("remote Session coordinator prefers one event stream and keeps project
     INFO("event sent: " << event_sent.load());
     INFO("stream opens: " << stream_opens.load());
     INFO("Session polls: " << session_polls.load());
-    INFO("legacy polls: " << legacy_polls.load());
+    INFO("per-terminal polls: " << per_terminal_polls.load());
     INFO("first error: " << first.last_error_code());
     INFO("second error: " << second.last_error_code());
     REQUIRE(first_state);
@@ -921,7 +664,7 @@ TEST_CASE("remote Session coordinator prefers one event stream and keeps project
     }));
     CHECK(stream_opens == 1);
     CHECK(session_polls == 0);
-    CHECK(legacy_polls == 0);
+    CHECK(per_terminal_polls == 0);
 
     REQUIRE(first.enqueue_input("stream-input"));
     REQUIRE(wait_for_condition(
@@ -1021,7 +764,7 @@ TEST_CASE("remote Session coordinator falls from stream negotiation to Session p
     });
     std::atomic<int> stream_opens = 0;
     std::atomic<int> session_polls = 0;
-    std::atomic<int> legacy_attaches = 0;
+    std::atomic<int> direct_attaches = 0;
     std::atomic<int> short_inputs = 0;
     std::jthread dispatcher([&](std::stop_token stop) {
         while (!stop.stop_requested())
@@ -1063,7 +806,7 @@ TEST_CASE("remote Session coordinator falls from stream negotiation to Session p
                         session_poll_response_to_json(response));
                 }
                 if (request.method == "fake.attach")
-                    ++legacy_attaches;
+                    ++direct_attaches;
                 if (request.method == "fake.input")
                 {
                     ++short_inputs;
@@ -1095,7 +838,7 @@ TEST_CASE("remote Session coordinator falls from stream negotiation to Session p
     REQUIRE(wait_for_state(registration));
     CHECK(stream_opens == 1);
     CHECK(session_polls > 0);
-    CHECK(legacy_attaches == 0);
+    CHECK(direct_attaches == 0);
     const auto transport = coordinator.transport_snapshot();
     CHECK(transport.transport
         == RemoteSessionTransportKind::SessionPoll);
@@ -1148,7 +891,7 @@ TEST_CASE("remote Session coordinator retains projections and recovers quietly t
 
     std::atomic<int> stream_opens = 0;
     std::atomic<int> session_polls = 0;
-    std::atomic<int> legacy_requests = 0;
+    std::atomic<int> per_channel_requests = 0;
     std::atomic<bool> allow_poll_recovery = false;
     std::mutex opened_mutex;
     std::optional<SessionPollRequest> opened_poll;
@@ -1249,7 +992,7 @@ TEST_CASE("remote Session coordinator retains projections and recovers quietly t
                 if (request.method == "fake.attach"
                     || request.method == "fake.poll")
                 {
-                    ++legacy_requests;
+                    ++per_channel_requests;
                 }
                 return ControlMethodResult::error(
                     "unknown_method",
@@ -1459,7 +1202,7 @@ TEST_CASE("remote Session coordinator retains projections and recovers quietly t
                 && reason.reason == "io_error"
                 && reason.count == 1;
         }));
-    CHECK(legacy_requests == 0);
+    CHECK(per_channel_requests == 0);
 
     allow_poll_recovery = true;
     std::optional<TopologySnapshot> recovered_topology;
@@ -1501,7 +1244,7 @@ TEST_CASE("remote Session coordinator retains projections and recovers quietly t
     CHECK(final_transport.transport
         == RemoteSessionTransportKind::SessionPoll);
     CHECK(final_transport.recovery_metrics.fallbacks == 1);
-    CHECK(legacy_requests == 0);
+    CHECK(per_channel_requests == 0);
 
     coordinator.stop();
     stream.stop();
@@ -1587,7 +1330,7 @@ TEST_CASE("remote Session coordinator re-handshakes and converges after server e
         }
     });
 
-    std::atomic<int> legacy_requests = 0;
+    std::atomic<int> per_channel_requests = 0;
     RemoteSessionCoordinator coordinator({
         .runtime_directory = temp.path,
         .client_id = "coordinator-ui",
@@ -1719,7 +1462,7 @@ TEST_CASE("remote Session coordinator re-handshakes and converges after server e
                     if (request.method == "fake.attach"
                         || request.method == "fake.poll")
                     {
-                        ++legacy_requests;
+                        ++per_channel_requests;
                     }
                     return ControlMethodResult::error(
                         "unknown_method",
@@ -1759,7 +1502,7 @@ TEST_CASE("remote Session coordinator re-handshakes and converges after server e
     CHECK(refreshed_polls >= 1);
     CHECK(refreshed_poll_reset_cursors);
     CHECK(refreshed_token_seen);
-    CHECK(legacy_requests == 0);
+    CHECK(per_channel_requests == 0);
     CHECK(coordinator.transport_snapshot().transport
         == RemoteSessionTransportKind::SessionPoll);
 
@@ -1767,84 +1510,6 @@ TEST_CASE("remote Session coordinator re-handshakes and converges after server e
     successor_dispatcher.request_stop();
     successor_dispatcher.join();
     successor.stop();
-}
-
-TEST_CASE("remote Session coordinator falls back when Session poll is unavailable",
-    "[client][remote-session-coordinator][session-poll][fallback]")
-{
-    TempDir temp("draxul-session-coordinator-fallback");
-    ControlServer server;
-    std::string start_error;
-    REQUIRE(server.start(
-        namespaced_control_id(kServerControlId, temp.path),
-        temp.path, [] {}, &start_error));
-    auto recovery
-        = std::make_shared<ClientRecoveryState>("coordinator-ui");
-    REQUIRE(recovery->set_server_epoch("coordinator-epoch"));
-    RemoteSessionClient session_client({
-        .runtime_directory = temp.path,
-        .client_id = "coordinator-ui",
-        .recovery = recovery,
-        .externally_fed = true,
-    });
-    std::atomic<int> session_polls = 0;
-    std::atomic<int> legacy_attaches = 0;
-    std::jthread dispatcher([&](std::stop_token stop) {
-        while (!stop.stop_requested())
-        {
-            server.process_pending([&](const ControlRequest& request) {
-                if (request.method == "session.poll")
-                {
-                    ++session_polls;
-                    return ControlMethodResult::error(
-                        "unknown_method", "Old server.");
-                }
-                if (request.method == "fake.attach")
-                {
-                    ++legacy_attaches;
-                    return ControlMethodResult::success(
-                        remote_terminal_attach_to_json(
-                            terminal_attach(0)));
-                }
-                if (request.method == "fake.poll")
-                {
-                    return ControlMethodResult::success({
-                        { "events", nlohmann::json::array() },
-                    });
-                }
-                return ControlMethodResult::error(
-                    "unknown_method", "Unexpected fallback method.");
-            });
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    });
-
-    RemoteSessionCoordinator coordinator({
-        .runtime_directory = temp.path,
-        .client_id = "coordinator-ui",
-        .expected_server_epoch = "coordinator-epoch",
-        .method_prefix = "fake",
-        .recovery = recovery,
-        .session_poll_supported = true,
-        .session_client = &session_client,
-    });
-    REQUIRE(coordinator.start());
-    auto registration
-        = coordinator.register_terminal("terminal-shared");
-    REQUIRE(registration);
-    REQUIRE(wait_for_state(registration));
-    CHECK(session_polls == 1);
-    CHECK(legacy_attaches == 1);
-    const auto transport = coordinator.transport_snapshot();
-    CHECK(transport.transport
-        == RemoteSessionTransportKind::Legacy);
-    CHECK(transport.recovery.phase
-        == ClientConnectionPhase::Connected);
-
-    coordinator.stop();
-    dispatcher.request_stop();
-    dispatcher.join();
-    server.stop();
 }
 
 TEST_CASE("remote Session client accepts multiplexed topology and agent channels",

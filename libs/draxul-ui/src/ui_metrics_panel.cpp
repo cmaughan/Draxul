@@ -108,7 +108,7 @@ void render_window_sections(const PanelLayout& layout, const DiagnosticPanelStat
         if (begin_metric_table("session_transport"))
         {
             metric_label("Mode",
-                "Current attached-UI transport: persistent stream, batched Session poll, or legacy per-channel requests.");
+                "Current attached-UI transport: persistent stream or batched Session poll.");
             ImGui::TextUnformatted(state.session_transport_mode.c_str());
 
             metric_label("Phase");

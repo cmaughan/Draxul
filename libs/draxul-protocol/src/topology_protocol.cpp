@@ -266,8 +266,8 @@ bool read_tab(const nlohmann::json& value, TopologyTab& tab)
     if (!value.is_object()
         || !read_string(value, "tab_id", tab.tab_id)
         || !read_string(value, "name", tab.name)
-        || (value.contains("name_user_set")
-            && !value["name_user_set"].is_boolean())
+        || !value.contains("name_user_set")
+        || !value["name_user_set"].is_boolean()
         || !read_string(value, "root_node_id", tab.root_node_id)
         || !value.contains("nodes") || !value["nodes"].is_array()
         || !value.contains("panes") || !value["panes"].is_array()
@@ -278,8 +278,7 @@ bool read_tab(const nlohmann::json& value, TopologyTab& tab)
     {
         return false;
     }
-    tab.name_user_set
-        = value.value("name_user_set", true);
+    tab.name_user_set = value["name_user_set"].get<bool>();
 
     std::unordered_set<std::string> pane_ids;
     for (const auto& item : value["panes"])
@@ -590,41 +589,40 @@ std::optional<TopologyCommand> topology_command_from_json(
         return std::nullopt;
     }
 
-    const auto read_optional_string
+    const auto read_command_string
         = [&value](std::string_view key, std::string& target) {
-              return !value.contains(key)
-                  || read_string(value, key, target, true);
+              return read_string(value, key, target, true);
           };
-    if (!read_optional_string("space_id", command.space_id)
-        || !read_optional_string("tab_id", command.tab_id)
-        || !read_optional_string(
+    if (!read_command_string("space_id", command.space_id)
+        || !read_command_string("tab_id", command.tab_id)
+        || !read_command_string(
             "destination_space_id", command.destination_space_id)
-        || !read_optional_string(
+        || !read_command_string(
             "destination_tab_id", command.destination_tab_id)
-        || !read_optional_string("pane_id", command.pane_id)
-        || !read_optional_string(
+        || !read_command_string("pane_id", command.pane_id)
+        || !read_command_string(
             "target_pane_id", command.target_pane_id)
-        || !read_optional_string("node_id", command.node_id)
-        || !read_optional_string("name", command.name)
-        || !read_optional_string(
+        || !read_command_string("node_id", command.node_id)
+        || !read_command_string("name", command.name)
+        || !read_command_string(
             "root_directory", command.root_directory)
-        || !read_optional_string(
+        || !read_command_string(
             "terminal_id", command.terminal_id)
-        || !read_optional_string(
+        || !read_command_string(
             "client_host_kind", command.client_host_kind)
-        || !read_optional_string(
+        || !read_command_string(
             "client_working_directory",
             command.client_working_directory)
-        || !read_optional_string(
+        || !read_command_string(
             "client_source_path", command.client_source_path)
-        || !read_optional_string(
+        || !read_command_string(
             "client_plugin_id", command.client_plugin_id)
-        || !read_optional_string(
+        || !read_command_string(
             "client_plugin_config_json", command.client_plugin_config_json)
-        || !read_optional_string(
+        || !read_command_string(
             "companion_owner_pane_id",
             command.companion_owner_pane_id)
-        || !read_optional_string(
+        || !read_command_string(
             "server_working_directory",
             command.server_working_directory))
     {
@@ -636,78 +634,65 @@ std::optional<TopologyCommand> topology_command_from_json(
         error = "Invalid topology command client identity.";
         return std::nullopt;
     }
-    if (value.contains("move_delta"))
+    if (!value.contains("move_delta")
+        || !read_bounded_integer(
+            value["move_delta"], command.move_delta))
     {
-        if (!read_bounded_integer(
-                value["move_delta"], command.move_delta))
-        {
-            error = "Invalid topology command move delta.";
-            return std::nullopt;
-        }
+        error = "Invalid topology command move delta.";
+        return std::nullopt;
     }
-    if (value.contains("place_before"))
+    if (!value.contains("place_before")
+        || !value["place_before"].is_boolean())
     {
-        if (!value["place_before"].is_boolean())
-        {
-            error = "Invalid topology command placement.";
-            return std::nullopt;
-        }
-        command.place_before = value["place_before"].get<bool>();
+        error = "Invalid topology command placement.";
+        return std::nullopt;
     }
+    command.place_before = value["place_before"].get<bool>();
     const auto parsed_kind = parse_topology_command_kind(kind);
     if (!parsed_kind)
     {
         error = "Invalid topology command kind.";
         return std::nullopt;
     }
-    if (value.contains("direction"))
+    std::string direction;
+    if (!read_string(value, "direction", direction))
     {
-        std::string direction;
-        if (!read_string(value, "direction", direction))
-        {
-            error = "Invalid topology command direction.";
-            return std::nullopt;
-        }
-        const auto parsed_direction
-            = parse_topology_split_direction(direction);
-        if (!parsed_direction)
-        {
-            error = "Invalid topology command direction.";
-            return std::nullopt;
-        }
-        command.direction = *parsed_direction;
+        error = "Invalid topology command direction.";
+        return std::nullopt;
     }
-    if (value.contains("ratio"))
+    const auto parsed_direction
+        = parse_topology_split_direction(direction);
+    if (!parsed_direction)
     {
-        if (!value["ratio"].is_number())
-        {
-            error = "Invalid topology command ratio.";
-            return std::nullopt;
-        }
-        command.ratio = value["ratio"].get<float>();
-        if (!std::isfinite(command.ratio))
-        {
-            error = "Invalid topology command ratio.";
-            return std::nullopt;
-        }
+        error = "Invalid topology command direction.";
+        return std::nullopt;
     }
-    if (value.contains("pane_domain"))
+    command.direction = *parsed_direction;
+    if (!value.contains("ratio") || !value["ratio"].is_number())
     {
-        std::string pane_domain;
-        if (!read_string(value, "pane_domain", pane_domain))
-        {
-            error = "Invalid topology command pane domain.";
-            return std::nullopt;
-        }
-        const auto parsed_domain
-            = parse_topology_pane_domain(pane_domain);
-        if (!parsed_domain)
-        {
-            error = "Invalid topology command pane domain.";
-            return std::nullopt;
-        }
-        command.pane_domain = *parsed_domain;
+        error = "Invalid topology command ratio.";
+        return std::nullopt;
     }
+    command.ratio = value["ratio"].get<float>();
+    if (!std::isfinite(command.ratio))
+    {
+        error = "Invalid topology command ratio.";
+        return std::nullopt;
+    }
+    std::string pane_domain;
+    if (!read_string(value, "pane_domain", pane_domain))
+    {
+        error = "Invalid topology command pane domain.";
+        return std::nullopt;
+    }
+    const auto parsed_domain
+        = parse_topology_pane_domain(pane_domain);
+    if (!parsed_domain)
+    {
+        error = "Invalid topology command pane domain.";
+        return std::nullopt;
+    }
+    command.pane_domain = *parsed_domain;
     if (!read_bounded_integer(
             value["expected_revision"],
             command.expected_revision))
@@ -754,18 +739,17 @@ topology_command_result_from_json(
     std::string source_tab_id;
     std::string destination_space_id;
     std::string destination_tab_id;
-    const auto read_optional_string
+    const auto read_result_string
         = [&value](std::string_view key, std::string& target) {
-              return !value.contains(key)
-                  || read_string(value, key, target, true);
+              return read_string(value, key, target, true);
           };
-    if (!read_optional_string("created_id", created_id)
-        || !read_optional_string("moved_pane_id", moved_pane_id)
-        || !read_optional_string("source_space_id", source_space_id)
-        || !read_optional_string("source_tab_id", source_tab_id)
-        || !read_optional_string(
+    if (!read_result_string("created_id", created_id)
+        || !read_result_string("moved_pane_id", moved_pane_id)
+        || !read_result_string("source_space_id", source_space_id)
+        || !read_result_string("source_tab_id", source_tab_id)
+        || !read_result_string(
             "destination_space_id", destination_space_id)
-        || !read_optional_string(
+        || !read_result_string(
             "destination_tab_id", destination_tab_id))
     {
         error = "Invalid topology command result.";

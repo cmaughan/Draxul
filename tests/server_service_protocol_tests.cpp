@@ -142,12 +142,13 @@ TEST_CASE("Session poll keeps duplicate terminal subscriptions independent",
     const auto second_cursor = cursor_for(2);
 
     REQUIRE(service.handle("session-test.resize",
-        {
-            { "client_id", "client-a" },
-            { "request_id", uint64_t{ 9 } },
-            { "cols", 90 },
-            { "rows", 30 },
-        }).ok);
+                       {
+                           { "client_id", "client-a" },
+                           { "request_id", uint64_t{ 9 } },
+                           { "cols", 90 },
+                           { "rows", 30 },
+                       })
+            .ok);
     SessionPollRequest changed = initial;
     changed.request_serial = 2;
     changed.terminals[0].cursor = first_cursor;
@@ -619,6 +620,21 @@ TEST_CASE("server rejects an incompatible protocol major", "[server][protocol]")
     run_guard.join();
 }
 
+TEST_CASE("server rejects an incompatible protocol minor", "[server][protocol]")
+{
+    TempDir temp("draxul-server-incompatible-minor");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .protocol_minor = kServerProtocolMinor + 1,
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    REQUIRE(ServerClient::probe(probe_options(temp.path)).state
+        == ServerProbeState::Incompatible);
+    run_guard.join();
+}
+
 TEST_CASE("server publishes authenticated UI control routes by Session",
     "[server][ui-routing][control]")
 {
@@ -654,7 +670,8 @@ TEST_CASE("server publishes authenticated UI control routes by Session",
             { "session_id", "default" },
             { "control_id", "ui-route-b" },
             { "control_runtime_directory", "D:/control/b" },
-        }).ok);
+        })
+            .ok);
     const auto first = connect("ui-route-a");
     REQUIRE(first.ready());
     REQUIRE(request("ui.register",
@@ -664,7 +681,8 @@ TEST_CASE("server publishes authenticated UI control routes by Session",
             { "session_id", "default" },
             { "control_id", "ui-route-a" },
             { "control_runtime_directory", "D:/control/a" },
-        }).ok);
+        })
+            .ok);
 
     const auto routes = request(
         "ui.list", { { "session_id", "default" } });
@@ -1047,7 +1065,7 @@ TEST_CASE("remote terminal forwards OSC 52 clipboard writes without tracing cont
     ServerRunGuard run_guard(server);
 
     auto client = remote_client(
-        temp.path, "clipboard-client", "clipboard-epoch", "terminal");
+        temp.path, "clipboard-client", "clipboard-epoch", "terminal", std::string(kServerShellTerminalId));
     std::string error;
     REQUIRE(client.attach(error));
 #ifdef _WIN32
@@ -1086,7 +1104,8 @@ TEST_CASE("remote terminal forwards OSC 52 clipboard writes without tracing cont
     {
         const auto metrics = ControlClient::request(
             namespaced_control_id(kServerControlId, temp.path), temp.path,
-            "terminal.metrics");
+            "terminal.metrics",
+            { { "terminal_id", std::string(kServerShellTerminalId) } });
         REQUIRE(metrics.ok);
         if (metrics.result["suppressed_clipboard_events"]
                 .get<uint64_t>()

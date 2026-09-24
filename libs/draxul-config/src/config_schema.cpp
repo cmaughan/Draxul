@@ -37,7 +37,7 @@ namespace
 // Field order mirrors the historical wrong-type-check order in
 // app_config_io.cpp so that, once type-checking is schema-driven, the
 // "first reported error wins" behavior is preserved byte-for-byte.
-constexpr std::array<ConfigFieldDesc, 54> kFields = { {
+constexpr std::array<ConfigFieldDesc, 52> kFields = { {
     // -- top level ---------------------------------------------------------
     { "", "window_width", ValueKind::Int,
         +[](const AppConfig& c) -> const int& { return c.window_width; },
@@ -179,10 +179,6 @@ constexpr std::array<ConfigFieldDesc, 54> kFields = { {
         +[](const AppConfig& c) -> const Color& { return c.chrome.focus_border; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
         "Focused pane border color." },
-    { "chrome", "status_bar_bg", ValueKind::ColorHex,
-        +[](const AppConfig& c) -> const Color& { return c.chrome.status_bar_bg; },
-        RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
-        "Legacy pane status body color retained for config compatibility." },
     { "chrome", "status_bar_fg", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.status_bar_fg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
@@ -191,10 +187,6 @@ constexpr std::array<ConfigFieldDesc, 54> kFields = { {
         +[](const AppConfig& c) -> const Color& { return c.chrome.status_focused_accent_bg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
         "Status bar accent background for the focused pane." },
-    { "chrome", "status_inactive_accent_bg", ValueKind::ColorHex,
-        +[](const AppConfig& c) -> const Color& { return c.chrome.status_inactive_accent_bg; },
-        RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
-        "Legacy inactive pane accent retained for config compatibility." },
     { "chrome", "status_editing_bg", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.status_editing_bg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
@@ -616,11 +608,6 @@ void parse_one_field(const ConfigFieldDesc& field, const toml::table& document, 
             }
             else if constexpr (std::is_same_v<T, float>)
             {
-                // Preserve the legacy exception: palette_bg_alpha accepted only
-                // a TOML floating-point literal, while every other Float field
-                // accepted either an integer or a floating-point literal.
-                if (field.section.empty() && field.key == "palette_bg_alpha" && node->is_integer())
-                    return;
                 if (auto value = node->value<double>())
                     target = apply_float_parse(field, *value, default_value);
                 else if (auto value = node->value<int64_t>())

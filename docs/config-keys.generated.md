@@ -60,10 +60,8 @@ UI chrome color theme.
 | `tab_editing_bg` | color (#RRGGBB) | `#8c90af` |  | Tab background while its name is being edited. |
 | `divider` | color (#RRGGBB) | `#78788c` |  | Spaces/Agents section divider color. |
 | `focus_border` | color (#RRGGBB) | `#7b2828` |  | Focused pane border color. |
-| `status_bar_bg` | color (#RRGGBB) | `#45475a` |  | Legacy pane status body color retained for config compatibility. |
 | `status_bar_fg` | color (#RRGGBB) | `#cdd6f4` |  | Status bar text color. |
 | `status_focused_accent_bg` | color (#RRGGBB) | `#3ca55f` |  | Status bar accent background for the focused pane. |
-| `status_inactive_accent_bg` | color (#RRGGBB) | `#6e738c` |  | Legacy inactive pane accent retained for config compatibility. |
 | `status_editing_bg` | color (#RRGGBB) | `#8c90af` |  | Status bar background while editing. |
 | `resource_pill_bg` | color (#RRGGBB) | `#f9e2af` |  | Resource pill background color. |
 | `resource_pill_fg` | color (#RRGGBB) | `#1a1a1f` |  | Resource pill text color. |

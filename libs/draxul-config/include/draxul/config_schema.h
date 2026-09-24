@@ -49,7 +49,7 @@ enum class ValueKind : uint8_t
 };
 
 // How numeric values are constrained. Fields carry one rule for parse and one
-// for serialize because the legacy behavior differs per key (e.g. scrollback
+// for serialize because the current behavior differs per key (e.g. scrollback
 // falls back to the default on out-of-range parse but clamps on serialize).
 enum class RangeRule : uint8_t
 {

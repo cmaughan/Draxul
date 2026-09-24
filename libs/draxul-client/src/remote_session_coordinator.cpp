@@ -44,7 +44,6 @@ enum class SessionTransportMode
     StreamOpening,
     StreamActive,
     SessionPoll,
-    Legacy,
 };
 
 uint64_t next_request_id()
@@ -124,10 +123,9 @@ public:
         ~Entry()
         {
             request_stop();
-            join_worker();
         }
 
-        bool start(bool legacy_worker)
+        bool start()
         {
             if (!options_.recovery)
             {
@@ -137,20 +135,11 @@ public:
                 options_.recovery->set_server_epoch(
                     options_.expected_server_epoch);
             }
-            reset_client(legacy_worker
-                    ? std::optional<std::chrono::milliseconds>{}
-                    : std::optional<std::chrono::milliseconds>{
-                        kSessionPollRequestBudget });
+            reset_client(kSessionPollRequestBudget);
             bool expected = false;
             if (!running_.compare_exchange_strong(expected, true))
                 return false;
             stopping_ = false;
-            if (legacy_worker)
-            {
-                std::lock_guard lock(worker_exit_mutex_);
-                worker_exited_ = false;
-                worker_ = std::jthread([this] { worker_main(); });
-            }
             return true;
         }
 
@@ -171,85 +160,22 @@ public:
                 });
         }
 
-        void start_legacy_worker()
-        {
-            if (stopping_ || worker_.joinable())
-                return;
-            reset_client(std::nullopt);
-            {
-                std::lock_guard lock(worker_exit_mutex_);
-                worker_exited_ = false;
-            }
-            worker_ = std::jthread([this] { worker_main(); });
-        }
-
         void request_stop()
         {
             stopping_ = true;
-            command_wake_.notify_all();
         }
 
         void stop_until(
             std::chrono::steady_clock::time_point deadline)
         {
+            (void)deadline;
             request_stop();
-            bool exited = false;
-            {
-                std::unique_lock lock(worker_exit_mutex_);
-                if (!worker_exited_)
-                {
-                    worker_exited_changed_.wait_until(
-                        lock, deadline,
-                        [this] { return worker_exited_; });
-                }
-                exited = worker_exited_;
-            }
-            if (exited)
-            {
-                join_worker();
-                running_ = false;
-                return;
-            }
-
-            bool expected = false;
-            if (reaper_started_.compare_exchange_strong(
-                    expected, true))
-            {
-                std::thread([self = shared_from_this()] {
-                    self->join_worker();
-                }).detach();
-            }
             running_ = false;
         }
 
         void stop_async()
         {
             request_stop();
-            bool exited = false;
-            {
-                std::lock_guard lock(worker_exit_mutex_);
-                exited = worker_exited_;
-            }
-            if (exited)
-            {
-                join_worker();
-                running_ = false;
-                return;
-            }
-
-            // Registration destruction is a UI-thread operation. A separate
-            // legacy worker may be blocked in transport I/O for every pane,
-            // so spending the join budget here would make teardown scale as
-            // pane_count * timeout. Entry is shared-owned and the reaper
-            // retains it until its worker has observed request_stop().
-            bool expected = false;
-            if (reaper_started_.compare_exchange_strong(
-                    expected, true))
-            {
-                std::thread([self = shared_from_this()] {
-                    self->join_worker();
-                }).detach();
-            }
             running_ = false;
         }
 
@@ -304,7 +230,6 @@ public:
                 offset += count;
             }
             commands_.swap(staged);
-            command_wake_.notify_one();
             wake_coordinator();
             return true;
         }
@@ -335,7 +260,6 @@ public:
                 });
             }
             commands_.swap(staged);
-            command_wake_.notify_one();
             wake_coordinator();
             return true;
         }
@@ -354,7 +278,6 @@ public:
                 && !commands_.back().attempted)
             {
                 commands_.back() = std::move(command);
-                command_wake_.notify_one();
                 wake_coordinator();
                 return true;
             }
@@ -374,14 +297,12 @@ public:
                             std::numeric_limits<int>::min()),
                         static_cast<int64_t>(
                             std::numeric_limits<int>::max())));
-                command_wake_.notify_one();
                 wake_coordinator();
                 return true;
             }
             if (commands_.size() >= kCommandLimit)
                 return false;
             commands_.push_back(std::move(command));
-            command_wake_.notify_one();
             wake_coordinator();
             return true;
         }
@@ -401,7 +322,6 @@ public:
                     acknowledge_if_idle_locked();
                 }
             }
-            command_wake_.notify_one();
             wake_coordinator();
             return visibility_generation_;
         }
@@ -621,7 +541,6 @@ public:
                 stream_command_in_flight_ = false;
                 commands_.push_front(std::move(command));
             }
-            command_wake_.notify_one();
             wake_coordinator();
         }
 
@@ -635,7 +554,6 @@ public:
                 .kind = CoordinatorCommand::Kind::RefreshScrollback,
                 .request_id = next_request_id(),
             });
-            command_wake_.notify_one();
             wake_coordinator();
         }
 
@@ -950,8 +868,6 @@ public:
         void note_connected(std::string_view channel)
         {
             options_.recovery->note_connected(channel);
-            if (auto coordinator = coordinator_.lock())
-                coordinator->note_legacy_connected();
             remember_error_code({});
         }
 
@@ -988,62 +904,12 @@ public:
             return false;
         }
 
-        bool recover_attachment(std::string& error)
-        {
-            if (!client_->attach(error))
-            {
-                client_error_code();
-                return false;
-            }
-            terminal_id_
-                = client_->projection().version().terminal_id;
-            note_connected(recovery_channel());
-            scroll_offset_ = 0;
-            scrollback_total_ = 0;
-            scrollback_page_.reset();
-            if (presentation_visible_)
-                publish_projection();
-            else
-            {
-                client_->take_grid_update();
-                client_->take_clipboard_write();
-            }
-            return true;
-        }
-
-        void wait_for_retry(std::chrono::milliseconds delay)
-        {
-            std::unique_lock lock(mutex_);
-            command_wake_.wait_for(lock, delay,
-                [this] { return stopping_.load(); });
-        }
-
-        std::chrono::milliseconds note_recoverable_failure(
-            std::string_view error_code, const std::string& error)
-        {
-            const auto delay = options_.recovery->note_failure(
-                recovery_channel(), error_code);
-            const auto recovery = options_.recovery->snapshot(
-                recovery_channel());
-            if (recovery.attempts == 1)
-                publish_error_once(error_code, error);
-            return delay;
-        }
-
         void requeue_commands(
             std::deque<CoordinatorCommand>& batch, size_t from)
         {
             std::lock_guard guard(mutex_);
             for (size_t index = batch.size(); index > from; --index)
                 commands_.push_front(std::move(batch[index - 1]));
-            command_wake_.notify_one();
-        }
-
-        bool refresh_epoch(std::string& error)
-        {
-            return options_.recovery->refresh_server_epoch(
-                options_.runtime_directory,
-                options_.client_id, error);
         }
 
         std::string recovery_channel() const
@@ -1052,375 +918,6 @@ public:
                 + (terminal_id_.empty()
                         ? options_.method_prefix
                         : terminal_id_);
-        }
-
-        void worker_main()
-        {
-            bool terminal_removed = false;
-            bool attached = false;
-            bool suspended = false;
-            while (!stopping_ && !terminal_removed)
-            {
-                if (!attached)
-                {
-                    std::string error;
-                    if (recover_attachment(error))
-                    {
-                        attached = true;
-                    }
-                    else
-                    {
-                        std::string error_code
-                            = client_error_code();
-                        if (is_removed_terminal(error_code))
-                        {
-                            publish_error(std::move(error));
-                            terminal_removed = true;
-                            break;
-                        }
-                        if (needs_identity_refresh(error_code))
-                        {
-                            std::string refresh_error;
-                            if (refresh_epoch(refresh_error))
-                                continue;
-                            error = std::move(refresh_error);
-                        }
-                        const auto delay = note_recoverable_failure(
-                            error_code, error);
-                        wait_for_retry(delay);
-                        continue;
-                    }
-                }
-
-                std::deque<CoordinatorCommand> commands;
-                bool visible = true;
-                {
-                    std::unique_lock lock(mutex_);
-                    if (suspended && !presentation_visible_
-                        && commands_.empty())
-                    {
-                        command_wake_.wait(lock, [this] {
-                            return stopping_ || presentation_visible_
-                                || !commands_.empty();
-                        });
-                    }
-                    else
-                    {
-                        command_wake_.wait_for(lock, kPollInterval,
-                            [this] {
-                                return stopping_ || !commands_.empty()
-                                    || (suspend_available_
-                                        && presentation_visible_
-                                            == presentation_suspended_);
-                            });
-                    }
-                    visible = presentation_visible_;
-                    for (size_t count = 0;
-                        count < kCommandsPerPoll
-                        && !commands_.empty(); ++count)
-                    {
-                        commands.push_back(
-                            std::move(commands_.front()));
-                        commands_.pop_front();
-                    }
-                }
-                if (stopping_)
-                    break;
-
-                if (suspended && (visible || !commands.empty()))
-                {
-                    std::string error;
-                    if (client_->resume(error))
-                    {
-                        suspended = false;
-                        presentation_suspended_ = false;
-                        note_connected(recovery_channel());
-                        scroll_offset_ = 0;
-                        scrollback_total_ = 0;
-                        scrollback_page_.reset();
-                        if (presentation_visible_)
-                            publish_projection();
-                        else
-                        {
-                            client_->take_grid_update();
-                            client_->take_clipboard_write();
-                        }
-                    }
-                    else
-                    {
-                        std::string error_code
-                            = client_error_code();
-                        if (error_code == "not_attached")
-                        {
-                            if (recover_attachment(error))
-                            {
-                                attached = true;
-                                suspended = false;
-                                presentation_suspended_ = false;
-                                continue;
-                            }
-                            error_code = client_error_code();
-                        }
-                        if (is_removed_terminal(error_code))
-                        {
-                            terminal_removed = true;
-                            break;
-                        }
-                        if (needs_identity_refresh(error_code))
-                        {
-                            std::string refresh_error;
-                            if (!refresh_epoch(refresh_error))
-                                error = std::move(refresh_error);
-                            attached = false;
-                            suspended = false;
-                            presentation_suspended_ = false;
-                            continue;
-                        }
-                        const auto delay = note_recoverable_failure(
-                            error_code, error);
-                        wait_for_retry(delay);
-                        continue;
-                    }
-                }
-
-                if (!suspended && !visible && commands.empty()
-                    && suspend_available_)
-                {
-                    std::string error;
-                    if (client_->suspend(error, next_request_id()))
-                    {
-                        suspended = true;
-                        presentation_suspended_ = true;
-                        note_connected(recovery_channel());
-                        client_->take_grid_update();
-                        client_->take_clipboard_write();
-                        continue;
-                    }
-                    const std::string error_code
-                        = client_error_code();
-                    if (error_code == "unknown_method")
-                        suspend_available_ = false;
-                    else if (error_code == "not_attached")
-                    {
-                        attached = false;
-                        continue;
-                    }
-                    else if (is_removed_terminal(error_code))
-                    {
-                        terminal_removed = true;
-                        break;
-                    }
-                    else if (is_transient_client_error(error_code)
-                        || is_resynchronizing_client_error(error_code))
-                    {
-                        const auto delay = note_recoverable_failure(
-                            error_code, error);
-                        wait_for_retry(delay);
-                        continue;
-                    }
-                    else
-                    {
-                        suspend_available_ = false;
-                        publish_error_once(error_code, error);
-                    }
-                }
-
-                bool retry_batch = false;
-                for (size_t command_index = 0;
-                    command_index < commands.size(); ++command_index)
-                {
-                    auto& command = commands[command_index];
-                    if (stopping_)
-                        break;
-                    std::string error;
-                    command.attempted = true;
-                    bool ok = execute_command(command, error);
-                    if (stopping_)
-                        break;
-                    if (!ok)
-                    {
-                        std::string error_code
-                            = client_error_code();
-                        if (error_code == "not_attached")
-                        {
-                            std::string attach_error;
-                            if (recover_attachment(attach_error))
-                            {
-                                attached = true;
-                                error.clear();
-                                ok = execute_command(command, error);
-                                if (ok)
-                                {
-                                    note_connected(recovery_channel());
-                                    continue;
-                                }
-                                error_code = client_error_code();
-                            }
-                            else
-                            {
-                                error = std::move(attach_error);
-                                error_code = client_error_code();
-                            }
-                        }
-                        if (is_removed_terminal(error_code))
-                        {
-                            terminal_removed = true;
-                            break;
-                        }
-                        if (is_expected_command_error(error_code)
-                            || error_code == "unknown_method")
-                        {
-                            publish_error_once(error_code, error);
-                            continue;
-                        }
-                        if (needs_identity_refresh(error_code))
-                        {
-                            std::string refresh_error;
-                            if (!refresh_epoch(refresh_error))
-                                error = std::move(refresh_error);
-                            attached = false;
-                        }
-                        if (is_transient_client_error(error_code)
-                            || is_resynchronizing_client_error(
-                                error_code))
-                        {
-                            requeue_commands(commands, command_index);
-                            const auto delay = note_recoverable_failure(
-                                error_code, error);
-                            wait_for_retry(delay);
-                            retry_batch = true;
-                            break;
-                        }
-                        publish_error_once(error_code, error);
-                        continue;
-                    }
-                    note_connected(recovery_channel());
-                }
-                if (stopping_ || terminal_removed)
-                    break;
-                if (retry_batch)
-                    continue;
-                if (!presentation_visible_ && suspend_available_)
-                    continue;
-
-                bool changed = false;
-                std::string error;
-                if (!client_->poll(changed, error))
-                {
-                    if (stopping_)
-                        break;
-                    std::string error_code = client_error_code();
-                    if (needs_identity_refresh(error_code))
-                    {
-                        std::string refresh_error;
-                        if (refresh_epoch(refresh_error))
-                        {
-                            attached = false;
-                            continue;
-                        }
-                        error = std::move(refresh_error);
-                        attached = false;
-                    }
-                    if (error_code == "not_attached"
-                        || is_resynchronizing_client_error(error_code))
-                    {
-                        attached = false;
-                        std::string attach_error;
-                        if (recover_attachment(attach_error))
-                        {
-                            attached = true;
-                            note_connected(recovery_channel());
-                            continue;
-                        }
-                        error = std::move(attach_error);
-                        error_code = client_error_code();
-                    }
-                    if (is_removed_terminal(error_code))
-                        break;
-                    if (error_code == "unknown_method")
-                    {
-                        publish_error_once(error_code, error);
-                        wait_for_retry(options_.recovery->note_failure(
-                            recovery_channel(), error_code));
-                        continue;
-                    }
-                    if (is_transient_client_error(error_code)
-                        || is_resynchronizing_client_error(error_code))
-                    {
-                        const auto delay = note_recoverable_failure(
-                            error_code, error);
-                        wait_for_retry(delay);
-                        continue;
-                    }
-                    publish_error_once(error_code, error);
-                    attached = false;
-                    const auto delay = note_recoverable_failure(
-                        error_code, error);
-                    wait_for_retry(delay);
-                    continue;
-                }
-                if (stopping_)
-                    break;
-                note_connected(recovery_channel());
-                if (changed)
-                {
-                    if (scroll_offset_ > 0
-                        && !refresh_scrollback_after_output(error))
-                    {
-                        const std::string error_code
-                            = client_error_code();
-                        if (error_code == "unknown_method")
-                        {
-                            scroll_offset_ = 0;
-                            scrollback_page_.reset();
-                            publish_error(std::move(error));
-                        }
-                        else if (is_transient_client_error(error_code)
-                            || is_resynchronizing_client_error(
-                                error_code))
-                        {
-                            const auto delay
-                                = note_recoverable_failure(
-                                    error_code, error);
-                            wait_for_retry(delay);
-                            continue;
-                        }
-                        else
-                        {
-                            publish_error_once(error_code, error);
-                            scroll_offset_ = 0;
-                            scrollback_total_ = 0;
-                            scrollback_page_.reset();
-                        }
-                    }
-                    if (presentation_visible_)
-                        publish_projection();
-                    else
-                    {
-                        client_->take_grid_update();
-                        client_->take_clipboard_write();
-                    }
-                }
-            }
-
-            if (!stopping_ && attached)
-            {
-                std::string ignored;
-                client_->disconnect(ignored);
-            }
-            running_ = false;
-            {
-                std::lock_guard lock(worker_exit_mutex_);
-                worker_exited_ = true;
-            }
-            worker_exited_changed_.notify_all();
-        }
-
-        void join_worker()
-        {
-            std::lock_guard lock(worker_join_mutex_);
-            if (worker_.joinable())
-                worker_.join();
         }
 
         void publish_projection()
@@ -1573,20 +1070,13 @@ public:
         RemoteSessionCoordinatorOptions options_;
         std::string terminal_id_;
         std::unique_ptr<RemoteTerminalClient> client_;
-        std::jthread worker_;
         std::atomic<bool> running_ = false;
         std::atomic<bool> stopping_ = false;
-        std::atomic<bool> reaper_started_ = false;
         std::atomic<bool> presentation_visible_ = true;
         std::atomic<uint64_t> visibility_generation_ = 1;
         std::atomic<bool> presentation_suspended_ = false;
         std::atomic<bool> suspend_available_ = false;
         mutable std::mutex mutex_;
-        std::mutex worker_exit_mutex_;
-        std::condition_variable worker_exited_changed_;
-        bool worker_exited_ = true;
-        std::mutex worker_join_mutex_;
-        std::condition_variable command_wake_;
         std::deque<CoordinatorCommand> commands_;
         std::optional<RemoteTerminalPublishedState> published_state_;
         std::optional<RemoteTerminalScrollbackPage> scrollback_page_;
@@ -1631,11 +1121,9 @@ public:
         , session_poll_supported_(options_.session_poll_supported
               && options_.session_client != nullptr)
         , transport_mode_(options_.session_stream_supported
-                  && options_.session_client != nullptr
-              ? SessionTransportMode::StreamOpening
-              : session_poll_supported_
-              ? SessionTransportMode::SessionPoll
-              : SessionTransportMode::Legacy)
+                      && options_.session_client != nullptr
+                  ? SessionTransportMode::StreamOpening
+                  : SessionTransportMode::SessionPoll)
     {
         if (!options_.recovery)
         {
@@ -1657,14 +1145,17 @@ public:
         bool expected = false;
         if (!running_.compare_exchange_strong(expected, true))
             return false;
-        stopping_ = false;
-        if (transport_mode_ != SessionTransportMode::Legacy)
+        if (transport_mode_ == SessionTransportMode::SessionPoll
+            && !session_poll_supported_)
         {
-            session_worker_ = std::jthread(
-                [this](std::stop_token stop_token) {
-                    session_worker_main(stop_token);
-                });
+            running_ = false;
+            return false;
         }
+        stopping_ = false;
+        session_worker_ = std::jthread(
+            [this](std::stop_token stop_token) {
+                session_worker_main(stop_token);
+            });
         return true;
     }
 
@@ -1712,9 +1203,6 @@ public:
             break;
         case SessionTransportMode::SessionPoll:
             result.transport = RemoteSessionTransportKind::SessionPoll;
-            break;
-        case SessionTransportMode::Legacy:
-            result.transport = RemoteSessionTransportKind::Legacy;
             break;
         }
         result.stream_commands = stream_commands_active_.load();
@@ -1776,8 +1264,7 @@ public:
             entry = std::make_shared<Entry>(weak_from_this(), id,
                 options_, std::move(terminal_id));
             entries_.emplace(id, entry);
-            if (!entry->start(
-                    transport_mode_ == SessionTransportMode::Legacy))
+            if (!entry->start())
             {
                 entries_.erase(id);
                 return 0;
@@ -1857,20 +1344,6 @@ public:
     }
 
 private:
-    void note_legacy_connected()
-    {
-        if (transport_mode_.load()
-            != SessionTransportMode::Legacy)
-        {
-            return;
-        }
-        if (options_.recovery->note_connected("session")
-            && options_.session_client)
-        {
-            options_.session_client->publish_session_recovery();
-        }
-    }
-
     uint64_t next_stream_command_request_id()
     {
         // Shared process-wide allocation prevents a recreated coordinator
@@ -1988,8 +1461,7 @@ private:
     void abandon_stream_commands(bool retry_on_short_control)
     {
         std::deque<QueuedStreamCommand> commands;
-        for (const auto token
-            : stream_policy_.abandon_sent_commands())
+        for (const auto token : stream_policy_.abandon_sent_commands())
         {
             const auto found = stream_command_payloads_.find(token);
             if (found == stream_command_payloads_.end())
@@ -2050,27 +1522,6 @@ private:
             return entry->batch_subscription().subscription_id;
         });
         return result;
-    }
-
-    void fall_back_to_legacy()
-    {
-        std::vector<std::shared_ptr<Entry>> entries;
-        {
-            std::lock_guard guard(mutex_);
-            transport_mode_ = SessionTransportMode::Legacy;
-            entries.reserve(entries_.size());
-            for (const auto& [id, entry] : entries_)
-                entries.push_back(entry);
-        }
-        options_.recovery->note_fallback(
-            "session", "legacy_transport");
-        if (options_.session_client)
-            options_.session_client->enable_legacy_polling();
-        for (const auto& entry : entries)
-        {
-            entry->invalidate_batch_cursor();
-            entry->start_legacy_worker();
-        }
     }
 
     bool refresh_epoch_bounded()
@@ -2148,7 +1599,7 @@ private:
                 });
             if (found != entries.end())
                 changed = (*found)->accept_batch(
-                    batch, latency, stream_commands)
+                              batch, latency, stream_commands)
                     || changed;
         }
         return changed;
@@ -2357,12 +1808,12 @@ private:
                 250, 60'000));
         std::string write_error;
         if (!write_stream_frame({
-                .kind = SessionStreamClientFrameKind::Connect,
-                .connect = SessionStreamConnectRequest{
-                    .server_epoch = response->server_epoch,
-                    .ticket = std::move(response->ticket),
-                },
-            },
+                                    .kind = SessionStreamClientFrameKind::Connect,
+                                    .connect = SessionStreamConnectRequest{
+                                        .server_epoch = response->server_epoch,
+                                        .ticket = std::move(response->ticket),
+                                    },
+                                },
                 stop_token, write_error))
         {
             stream_failure_code_ = "io_error";
@@ -2428,7 +1879,6 @@ private:
             transport_mode_ = SessionTransportMode::SessionPoll;
             return true;
         }
-        fall_back_to_legacy();
         return false;
     }
 
@@ -2462,7 +1912,7 @@ private:
             auto frame = encoded.is_discarded()
                 ? std::nullopt
                 : session_stream_server_frame_from_json(
-                    encoded, parse_error);
+                      encoded, parse_error);
             if (!frame)
             {
                 stream_failure_code_ = "invalid_session_stream";
@@ -2656,15 +2106,15 @@ private:
         }
         std::string error;
         if (!write_stream_frame({
-                .kind = SessionStreamClientFrameKind::Command,
-                .command = SessionStreamCommand{
-                    .request_id = found->second.request_id,
-                    .server_epoch
-                    = options_.recovery->server_epoch(),
-                    .method = found->second.method,
-                    .params = found->second.params,
-                },
-            },
+                                    .kind = SessionStreamClientFrameKind::Command,
+                                    .command = SessionStreamCommand{
+                                        .request_id = found->second.request_id,
+                                        .server_epoch
+                                        = options_.recovery->server_epoch(),
+                                        .method = found->second.method,
+                                        .params = found->second.params,
+                                    },
+                                },
                 stop_token, error))
         {
             stream_failure_code_ = "io_error";
@@ -2825,11 +2275,11 @@ private:
             return true;
         std::string error;
         if (!write_stream_frame({
-                .kind = SessionStreamClientFrameKind::Update,
-                .update = SessionStreamUpdate{
-                    .poll = update->poll,
-                },
-            },
+                                    .kind = SessionStreamClientFrameKind::Update,
+                                    .update = SessionStreamUpdate{
+                                        .poll = update->poll,
+                                    },
+                                },
                 stop_token, error))
         {
             stream_failure_code_ = "io_error";
@@ -2872,7 +2322,7 @@ private:
             {
                 commands_processed
                     = entry->process_batch_commands(
-                        stream_commands_active_)
+                          stream_commands_active_)
                     || commands_processed;
             }
             if (!accept_stream_frames(entries)
@@ -2969,15 +2419,6 @@ private:
                 break;
             if (!result.ok)
             {
-                if (result.error_code == "unknown_method")
-                {
-                    options_.recovery->note_aggregate_failure(
-                        "session", result.error_code);
-                    options_.recovery->note_fallback(
-                        "session.poll", result.error_code);
-                    fall_back_to_legacy();
-                    break;
-                }
                 if (needs_identity_refresh(result.error_code))
                 {
                     options_.recovery->note_resync(
@@ -3070,7 +2511,7 @@ private:
     uint64_t next_registration_id_ = 1;
     bool wake_pending_ = false;
     std::atomic<SessionTransportMode> transport_mode_
-        = SessionTransportMode::Legacy;
+        = SessionTransportMode::SessionPoll;
     std::jthread session_worker_;
     std::mutex worker_mutex_;
     std::condition_variable worker_wake_;
@@ -3174,37 +2615,35 @@ bool RemoteSessionCoordinator::Registration::enqueue_resize(
 {
     const auto entry = state_ ? state_->entry() : nullptr;
     return entry && entry->enqueue({
-                        .kind = CoordinatorCommand::Kind::Resize,
-                        .cols = cols,
-                        .rows = rows,
-                    });
+               .kind = CoordinatorCommand::Kind::Resize,
+               .cols = cols,
+               .rows = rows,
+           });
 }
 
 bool RemoteSessionCoordinator::Registration::enqueue_take_control()
 {
     const auto entry = state_ ? state_->entry() : nullptr;
     return entry && entry->enqueue({
-                        .kind
-                        = CoordinatorCommand::Kind::TakeControl,
-                    });
+               .kind = CoordinatorCommand::Kind::TakeControl,
+           });
 }
 
 bool RemoteSessionCoordinator::Registration::enqueue_scroll(int rows)
 {
     const auto entry = state_ ? state_->entry() : nullptr;
     return entry && entry->enqueue({
-                        .kind = CoordinatorCommand::Kind::Scroll,
-                        .scroll_rows = rows,
-                    });
+               .kind = CoordinatorCommand::Kind::Scroll,
+               .scroll_rows = rows,
+           });
 }
 
 bool RemoteSessionCoordinator::Registration::enqueue_scroll_to_live()
 {
     const auto entry = state_ ? state_->entry() : nullptr;
     return entry && entry->enqueue({
-                        .kind
-                        = CoordinatorCommand::Kind::ScrollToLive,
-                    });
+               .kind = CoordinatorCommand::Kind::ScrollToLive,
+           });
 }
 
 uint64_t RemoteSessionCoordinator::Registration::set_presentation_visible(

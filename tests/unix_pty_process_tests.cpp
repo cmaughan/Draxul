@@ -52,7 +52,7 @@ TEST_CASE("UnixPtyProcess sets xterm-256color shell environment", "[unix_pty_pro
     std::filesystem::remove(dump_path);
 }
 
-TEST_CASE("UnixPtyProcess preserves dimensions above legacy PTY clamps", "[unix_pty_process][resize]")
+TEST_CASE("UnixPtyProcess preserves large PTY dimensions", "[unix_pty_process][resize]")
 {
     const auto dump_path
         = std::filesystem::temp_directory_path() / "draxul-unix-pty-size-dump.txt";

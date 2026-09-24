@@ -296,6 +296,13 @@ RemoteTerminalClient::RemoteTerminalClient(
 
 bool RemoteTerminalClient::attach(std::string& error)
 {
+    if (options_.method_prefix == "terminal"
+        && options_.terminal_id.empty())
+    {
+        last_error_code_ = "invalid_terminal";
+        error = "A server terminal identity is required.";
+        return false;
+    }
     const auto started_at = std::chrono::steady_clock::now();
     nlohmann::json result;
     if (!request(method("attach"), client_params(), result, error))

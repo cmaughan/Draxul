@@ -109,8 +109,7 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
             .scrollback_capacity = options.terminal_scrollback_lines,
         };
     }
-    const bool legacy_generated_name = name == "Server Shell";
-    const std::string display_name = name.empty() || legacy_generated_name
+    const std::string display_name = name.empty()
         ? terminal_display_name(*runtime_options)
         : std::string(name);
     runtime_options->resource_budget

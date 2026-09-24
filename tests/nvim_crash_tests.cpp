@@ -60,7 +60,7 @@ TEST_CASE("nvim rpc unblocks promptly when the child process is force-killed mid
 
     // Launch an in-flight request that will block forever (hang mode never responds).
     std::thread requester([&rpc]() {
-        rpc.request("fake_method", { NvimRpc::make_int(1) });
+        rpc.request("fake_method", { MpackValue::make_int(1) });
     });
 
     // Give the request time to reach the server and block on the response CV.
@@ -170,7 +170,7 @@ TEST_CASE("nvim rpc reader thread exits after SIGKILL on the child process (POSI
 
     // Issue a request that will block; gives the reader thread time to start reading.
     std::thread requester([&rpc]() {
-        rpc.request("fake_method", { NvimRpc::make_int(42) });
+        rpc.request("fake_method", { MpackValue::make_int(42) });
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(50));

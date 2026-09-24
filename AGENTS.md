@@ -31,6 +31,11 @@ families. The detailed current library and product-module graph is in
 
 ## Codex-specific notes
 
+- Draxul has one user and no released backward-compatibility contract yet. Do
+  not add legacy-version fallbacks, migrations, aliases, or compatibility tests;
+  keep stored data, plugin packages, configuration, and protocol peers on the
+  current format. Version checks that reject incompatible input are still
+  required.
 - Do not use MaaS MCP tools or servers for work in this repository.
 - During Draxul client/server development and validation, Codex may terminate
   running Draxul instances when necessary. Resolve the exact Draxul process

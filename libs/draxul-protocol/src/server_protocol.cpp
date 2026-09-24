@@ -328,17 +328,14 @@ bool valid_server_client_id(std::string_view value)
 
 nlohmann::json server_hello_to_json(const ServerHello& hello)
 {
-    nlohmann::json result = {
+    return {
         { "protocol_major", hello.protocol_major },
         { "protocol_minor", hello.protocol_minor },
         { "client_id", hello.client_id },
+        { "connection_token", hello.connection_token },
+        { "registration_nonce", hello.registration_nonce },
         { "capabilities", hello.capabilities },
     };
-    if (!hello.connection_token.empty())
-        result["connection_token"] = hello.connection_token;
-    if (!hello.registration_nonce.empty())
-        result["registration_nonce"] = hello.registration_nonce;
-    return result;
 }
 
 std::optional<ServerHello> server_hello_from_json(
@@ -351,10 +348,10 @@ std::optional<ServerHello> server_hello_from_json(
         || !value["protocol_minor"].is_number_integer()
         || !value.contains("client_id")
         || !value["client_id"].is_string()
-        || (value.contains("connection_token")
-            && !value["connection_token"].is_string())
-        || (value.contains("registration_nonce")
-            && !value["registration_nonce"].is_string())
+        || !value.contains("connection_token")
+        || !value["connection_token"].is_string()
+        || !value.contains("registration_nonce")
+        || !value["registration_nonce"].is_string()
         || !value.contains("capabilities")
         || !valid_capabilities(value["capabilities"]))
     {
@@ -372,16 +369,15 @@ std::optional<ServerHello> server_hello_from_json(
         return std::nullopt;
     }
     hello.client_id = value["client_id"].get<std::string>();
-    hello.connection_token
-        = value.value("connection_token", std::string{});
-    hello.registration_nonce
-        = value.value("registration_nonce", std::string{});
+    hello.connection_token = value["connection_token"].get<std::string>();
+    hello.registration_nonce = value["registration_nonce"].get<std::string>();
     hello.capabilities = read_capabilities(value["capabilities"]);
     if (hello.protocol_major < 0 || hello.protocol_minor < 0
         || !valid_server_client_id(hello.client_id)
         || hello.connection_token.size()
             > kServerMaxConnectionTokenBytes
         || has_control_characters(hello.connection_token)
+        || hello.registration_nonce.empty()
         || hello.registration_nonce.size()
             > kServerMaxConnectionTokenBytes
         || has_control_characters(hello.registration_nonce))
@@ -394,17 +390,15 @@ std::optional<ServerHello> server_hello_from_json(
 
 nlohmann::json server_welcome_to_json(const ServerWelcome& welcome)
 {
-    nlohmann::json result = {
+    return {
         { "protocol_major", welcome.protocol_major },
         { "protocol_minor", welcome.protocol_minor },
         { "server_pid", welcome.server_pid },
         { "server_epoch", welcome.server_epoch },
         { "build_version", welcome.build_version },
+        { "connection_token", welcome.connection_token },
         { "capabilities", welcome.capabilities },
     };
-    if (!welcome.connection_token.empty())
-        result["connection_token"] = welcome.connection_token;
-    return result;
 }
 
 std::optional<ServerWelcome> server_welcome_from_json(
@@ -421,8 +415,8 @@ std::optional<ServerWelcome> server_welcome_from_json(
         || !value["server_epoch"].is_string()
         || !value.contains("build_version")
         || !value["build_version"].is_string()
-        || (value.contains("connection_token")
-            && !value["connection_token"].is_string())
+        || !value.contains("connection_token")
+        || !value["connection_token"].is_string()
         || !value.contains("capabilities")
         || !valid_capabilities(value["capabilities"]))
     {
@@ -443,8 +437,7 @@ std::optional<ServerWelcome> server_welcome_from_json(
     }
     welcome.server_epoch = value["server_epoch"].get<std::string>();
     welcome.build_version = value["build_version"].get<std::string>();
-    welcome.connection_token
-        = value.value("connection_token", std::string{});
+    welcome.connection_token = value["connection_token"].get<std::string>();
     welcome.capabilities = read_capabilities(value["capabilities"]);
     if (welcome.protocol_major < 0 || welcome.protocol_minor < 0
         || welcome.server_pid == 0 || welcome.server_epoch.empty()
@@ -452,6 +445,7 @@ std::optional<ServerWelcome> server_welcome_from_json(
             > kServerMaxHandshakeTextBytes
         || welcome.build_version.size()
             > kServerMaxHandshakeTextBytes
+        || welcome.connection_token.empty()
         || welcome.connection_token.size()
             > kServerMaxConnectionTokenBytes
         || has_control_characters(welcome.connection_token))
@@ -467,7 +461,7 @@ nlohmann::json server_status_to_json(const ServerStatusSnapshot& status)
     nlohmann::json session_statuses = nlohmann::json::array();
     for (const auto& session : status.session_statuses)
         session_statuses.push_back(session_status_to_json(session));
-    nlohmann::json result = {
+    return {
         { "state", status.state },
         { "protocol_major", status.protocol_major },
         { "protocol_minor", status.protocol_minor },
@@ -491,16 +485,9 @@ nlohmann::json server_status_to_json(const ServerStatusSnapshot& status)
         { "checkpoint_error", status.checkpoint_error },
         { "restore_warnings", status.restore_warnings },
         { "session_statuses", std::move(session_statuses) },
+        { "control_transport",
+            control_metrics_to_json(status.control_transport) },
     };
-    // A zero capacity denotes an older/default producer with no transport
-    // diagnostics. Omit the additive field so legacy-shaped snapshots remain
-    // valid and round-trip as unsupported rather than malformed.
-    if (status.control_transport.listener_capacity != 0)
-    {
-        result["control_transport"]
-            = control_metrics_to_json(status.control_transport);
-    }
-    return result;
 }
 
 std::optional<ServerStatusSnapshot> server_status_from_json(
@@ -541,73 +528,57 @@ std::optional<ServerStatusSnapshot> server_status_from_json(
             return std::nullopt;
         }
         status.checkpoint_path
-            = value.value("checkpoint_path", std::string{});
-        if (const auto reserved
-            = value.find("scrollback_cells_reserved");
-            reserved != value.end()
-            && !read_bounded_integer(
-                *reserved, status.scrollback_cells_reserved))
+            = value.at("checkpoint_path").get<std::string>();
+        if (!read_bounded_integer(value.at("scrollback_cells_reserved"),
+                status.scrollback_cells_reserved))
         {
             error = "Server status scrollback reservation is invalid.";
             return std::nullopt;
         }
-        if (const auto limit
-            = value.find("scrollback_cells_limit");
-            limit != value.end()
-            && !read_bounded_integer(
-                *limit, status.scrollback_cells_limit))
+        if (!read_bounded_integer(value.at("scrollback_cells_limit"),
+                status.scrollback_cells_limit))
         {
             error = "Server status scrollback limit is invalid.";
             return std::nullopt;
         }
         status.checkpoint_state
-            = value.value("checkpoint_state", std::string{});
-        if (const auto checkpoint
-            = value.find("last_checkpoint_unix_ms");
-            checkpoint != value.end()
-            && !read_bounded_integer(
-                *checkpoint, status.last_checkpoint_unix_ms))
+            = value.at("checkpoint_state").get<std::string>();
+        if (!read_bounded_integer(value.at("last_checkpoint_unix_ms"),
+                status.last_checkpoint_unix_ms))
         {
             error = "Server status checkpoint timestamp is invalid.";
             return std::nullopt;
         }
         status.checkpoint_error
-            = value.value("checkpoint_error", std::string{});
-        status.restore_warnings = value.value(
-            "restore_warnings", std::vector<std::string>{});
-        if (const auto statuses = value.find("session_statuses");
-            statuses != value.end())
+            = value.at("checkpoint_error").get<std::string>();
+        status.restore_warnings
+            = value.at("restore_warnings").get<std::vector<std::string>>();
+        const auto& statuses = value.at("session_statuses");
+        if (!statuses.is_array()
+            || statuses.size() > kServerMaxSessions)
         {
-            if (!statuses->is_array()
-                || statuses->size() > kServerMaxSessions)
-            {
-                error = "Server Session status list is invalid.";
-                return std::nullopt;
-            }
-            status.session_statuses.reserve(statuses->size());
-            for (const auto& item : *statuses)
-            {
-                auto parsed = session_status_from_json(item);
-                if (!parsed)
-                {
-                    error = "Server Session status is invalid.";
-                    return std::nullopt;
-                }
-                status.session_statuses.push_back(
-                    std::move(*parsed));
-            }
+            error = "Server Session status list is invalid.";
+            return std::nullopt;
         }
-        if (const auto control = value.find("control_transport");
-            control != value.end())
+        status.session_statuses.reserve(statuses.size());
+        for (const auto& item : statuses)
         {
-            const auto parsed = control_metrics_from_json(*control);
+            auto parsed = session_status_from_json(item);
             if (!parsed)
             {
-                error = "Server control transport metrics are invalid.";
+                error = "Server Session status is invalid.";
                 return std::nullopt;
             }
-            status.control_transport = *parsed;
+            status.session_statuses.push_back(std::move(*parsed));
         }
+        const auto parsed_control
+            = control_metrics_from_json(value.at("control_transport"));
+        if (!parsed_control)
+        {
+            error = "Server control transport metrics are invalid.";
+            return std::nullopt;
+        }
+        status.control_transport = *parsed_control;
         if (status.state.empty()
             || status.state.size() > kServerMaxStatusStateBytes
             || status.protocol_major < 0

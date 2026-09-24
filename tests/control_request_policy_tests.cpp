@@ -67,76 +67,61 @@ struct PolicyFixture
                     { "instance_id", request.params.is_object()
                             ? request.params.value("instance_id", "")
                             : "" },
-                });
-            },
+                }); },
             .find_pane = [&](std::string_view) {
                 calls.push_back("find_pane");
-                return pane;
-            },
+                return pane; },
             .focus_pane = [&](const ControlRequestPolicy::PaneTarget&) {
                 calls.push_back("focus_pane");
-                return ControlRequestPolicy::FocusResult::Focused;
-            },
+                return ControlRequestPolicy::FocusResult::Focused; },
             .dispatch_pane_action = [&](const ControlRequestPolicy::PaneTarget&,
                                         std::string_view) {
                 calls.push_back("pane_action");
                 return action_accepted
                     ? ControlRequestPolicy::ActionResult::Dispatched
-                    : ControlRequestPolicy::ActionResult::Rejected;
-            },
+                    : ControlRequestPolicy::ActionResult::Rejected; },
             .reload_plugin = [&](std::string_view) {
                 calls.push_back("reload");
-                return reload;
-            },
+                return reload; },
             .inspect_native_route = [&](std::string_view,
                                         std::string_view,
                                         std::string_view) {
                 calls.push_back("native_route");
-                return native_route;
-            },
+                return native_route; },
             .accept_native_session = [&](std::string_view,
                                          std::string_view,
                                          AgentSessionRef) {
                 calls.push_back("native_accept");
-                return native_result;
-            },
+                return native_result; },
             .focus_space = [&](SpaceId) {
                 calls.push_back("focus_space");
-                return space_focus;
-            },
+                return space_focus; },
             .launch_agent = [&](AgentLaunchRequest) {
                 calls.push_back("launch");
-                return launch;
-            },
+                return launch; },
             .find_agent = [&](std::string_view) {
                 calls.push_back("find_agent");
-                return agent;
-            },
+                return agent; },
             .focus_agent = [&](std::string_view) {
                 calls.push_back("focus_agent");
-                return agent_focus;
-            },
+                return agent_focus; },
             .restart_agent = [&](const AgentProjection&) {
                 calls.push_back("restart_agent");
-                return agent_restart;
-            },
+                return agent_restart; },
             .inspect_agent_route = [&](const AgentProjection&) {
                 calls.push_back("agent_route");
-                return agent_route;
-            },
+                return agent_route; },
             .send_agent_input = [&](const AgentProjection&, std::string_view bytes) {
                 calls.push_back("input");
                 sent_bytes = bytes;
-                return input_accepted;
-            },
+                return input_accepted; },
             .read_events = [&](uint64_t cursor, size_t limit) {
                 calls.push_back("events");
                 event_cursor = cursor;
                 event_limit = limit;
                 return nlohmann::json{
                     { "events", nlohmann::json::array() },
-                };
-            },
+                }; },
         });
     }
 };
@@ -158,7 +143,7 @@ ControlRequest native_report(std::string source = "draxul:codex")
 
 } // namespace
 
-TEST_CASE("control request policy preserves effect order around validation",
+TEST_CASE("control request policy validates before applying effects",
     "[control][app][policy]")
 {
     PolicyFixture fixture;
@@ -173,7 +158,8 @@ TEST_CASE("control request policy preserves effect order around validation",
 
     fixture.calls.clear();
     fixture.pane = ControlRequestPolicy::PaneTarget{
-        .pane_id = "pane-1", .space_id = 2, .tab_id = 3, .has_host = true };
+        .pane_id = "pane-1", .space_id = 2, .tab_id = 3, .has_host = true
+    };
     auto missing_action = policy.handle(
         { "2", "pane.action", { { "pane_id", "pane-1" } } });
     CHECK_FALSE(missing_action.ok);
@@ -186,7 +172,7 @@ TEST_CASE("control request policy preserves effect order around validation",
             { "args", nlohmann::json::array({ std::string(4097, 'x') }) } } });
     CHECK_FALSE(invalid_args.ok);
     CHECK(invalid_args.error_code == "invalid_params");
-    CHECK(fixture.calls == std::vector<std::string>{ "focus_space" });
+    CHECK(fixture.calls.empty());
 }
 
 TEST_CASE("control request policy maps pane reload event and fallback results",
@@ -252,11 +238,10 @@ TEST_CASE("control request policy validates and accepts native sessions in order
     auto accepted = policy.handle(native_report());
     REQUIRE(accepted.ok);
     CHECK(accepted.value["instance_id"] == "agent-1");
-    CHECK(fixture.calls == std::vector<std::string>{
-                               "native_route", "native_accept", "read:agent.get" });
+    CHECK(fixture.calls == std::vector<std::string>{ "native_route", "native_accept", "read:agent.get" });
 }
 
-TEST_CASE("control request policy owns input encoding and route precedence",
+TEST_CASE("control request policy validates input before route lookup",
     "[control][app][policy]")
 {
     PolicyFixture fixture;
@@ -266,9 +251,8 @@ TEST_CASE("control request policy owns input encoding and route precedence",
     auto replaced = policy.handle({ "1", "agent.send_text",
         { { "instance_id", "agent-1" }, { "text", 42 } } });
     CHECK_FALSE(replaced.ok);
-    CHECK(replaced.error_code == "agent_replaced");
-    CHECK(fixture.calls
-        == std::vector<std::string>{ "find_agent", "agent_route" });
+    CHECK(replaced.error_code == "invalid_params");
+    CHECK(fixture.calls == std::vector<std::string>{ "find_agent" });
 
     fixture.calls.clear();
     fixture.agent_route = ControlRequestPolicy::AgentRouteResult::Ready;
@@ -277,8 +261,7 @@ TEST_CASE("control request policy owns input encoding and route precedence",
             { "keys", { "Enter", "CTRL+C", "left" } } } });
     REQUIRE(keys.ok);
     CHECK(fixture.sent_bytes == "\r\x03\x1b[D");
-    CHECK(fixture.calls == std::vector<std::string>{
-                               "find_agent", "agent_route", "input", "read:agent.get" });
+    CHECK(fixture.calls == std::vector<std::string>{ "find_agent", "agent_route", "input", "read:agent.get" });
 
     fixture.calls.clear();
     fixture.input_accepted = false;
@@ -313,9 +296,8 @@ TEST_CASE("control request policy owns wait generation and predicate precedence"
     auto generation = policy.handle({ "3", "agent.wait",
         { { "instance_id", "agent-1" },
             { "runtime_generation", uint64_t{ 6 } },
-            { "until", 17 } } });
+            { "until", { "done" } } } });
     REQUIRE(generation.ok);
     CHECK(generation.value["outcome"] == "agent_replaced");
-    CHECK(fixture.calls == std::vector<std::string>{
-                               "find_agent", "agent_route", "read:agent.get" });
+    CHECK(fixture.calls == std::vector<std::string>{ "find_agent", "agent_route", "read:agent.get" });
 }

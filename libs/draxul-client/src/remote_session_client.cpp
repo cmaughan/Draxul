@@ -322,14 +322,14 @@ public:
         bool changed
             = options_.recovery->note_connected(recovery_channel);
         std::string_view published_channel = recovery_channel;
-        const bool legacy_projection
+        const bool independently_polled_projection
             = recovery_channel == "topology.poll"
             || recovery_channel == "agent.poll";
-        const bool legacy_projections_healthy
+        const bool independent_projections_healthy
             = (!topology_supported_ || !topology_failed_)
             && (!agents_supported_ || !agents_failed_);
-        if (!externally_fed_ && legacy_projection
-            && legacy_projections_healthy)
+        if (!externally_fed_ && independently_polled_projection
+            && independent_projections_healthy)
         {
             changed = options_.recovery->note_connected("session")
                 || changed;
@@ -337,15 +337,6 @@ public:
         }
         if (changed)
             publish_session_recovery(published_channel);
-    }
-
-    void enable_legacy_polling()
-    {
-        {
-            std::lock_guard guard(mutex_);
-            externally_fed_ = false;
-        }
-        wake_.notify_one();
     }
 
 private:
@@ -1113,11 +1104,6 @@ void RemoteSessionClient::accept_stream_topology_command_result(
 {
     impl_->accept_stream_topology_command_result(
         std::move(command), std::move(result));
-}
-
-void RemoteSessionClient::enable_legacy_polling()
-{
-    impl_->enable_legacy_polling();
 }
 
 } // namespace draxul

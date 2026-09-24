@@ -219,18 +219,6 @@ ControlMethodResult ControlRequestPolicy::handle(const ControlRequest& request) 
             return invalid_params("agent.start requires a string 'profile_id'.");
         }
 
-        // Space activation is an observable mutation and deliberately remains
-        // ahead of later args/cwd validation for compatibility.
-        if (request.params.contains("space_id"))
-        {
-            if (!request.params["space_id"].is_number_integer())
-                return invalid_params("'space_id' must be an integer.");
-            const auto activated = operations_.focus_space(
-                request.params["space_id"].get<SpaceId>());
-            if (!activated.ok)
-                return ControlMethodResult::error("not_found", activated.error);
-        }
-
         AgentLaunchRequest launch{
             .profile_id = request.params["profile_id"].get<std::string>(),
         };
@@ -258,6 +246,16 @@ ControlMethodResult ControlRequestPolicy::handle(const ControlRequest& request) 
             if (!request.params["cwd"].is_string())
                 return invalid_params("'cwd' must be a string.");
             launch.working_directory = request.params["cwd"].get<std::string>();
+        }
+
+        if (request.params.contains("space_id"))
+        {
+            if (!request.params["space_id"].is_number_integer())
+                return invalid_params("'space_id' must be an integer.");
+            const auto activated = operations_.focus_space(
+                request.params["space_id"].get<SpaceId>());
+            if (!activated.ok)
+                return ControlMethodResult::error("not_found", activated.error);
         }
 
         auto started = operations_.launch_agent(std::move(launch));
@@ -308,31 +306,15 @@ ControlMethodResult ControlRequestPolicy::handle(const ControlRequest& request) 
             return read_agent(request, instance_id);
         }
 
-        // The old App path resolved the pane route before wait arguments and
-        // input payloads. Keep that ordering so replaced/no-host responses win
-        // over malformed method-specific fields in the same cases.
-        const AgentRouteResult route = operations_.inspect_agent_route(*agent);
-        if (route == AgentRouteResult::Missing)
-        {
-            return ControlMethodResult::error(
-                "agent_replaced", "The agent pane no longer exists.");
-        }
-
         if (request.method == "agent.wait")
         {
+            std::optional<uint64_t> runtime_generation;
             if (request.params.contains("runtime_generation"))
             {
                 if (!request.params["runtime_generation"].is_number_unsigned())
                     return invalid_params("'runtime_generation' must be unsigned.");
-                if (request.params["runtime_generation"].get<uint64_t>()
-                    != agent->generation.value)
-                {
-                    return ControlMethodResult::success({
-                        { "complete", true },
-                        { "outcome", "agent_replaced" },
-                        { "agent", read_agent(request, instance_id).value },
-                    });
-                }
+                runtime_generation
+                    = request.params["runtime_generation"].get<uint64_t>();
             }
 
             std::vector<std::string> desired;
@@ -346,6 +328,22 @@ ControlMethodResult ControlRequestPolicy::handle(const ControlRequest& request) 
                         return invalid_params("'until' values must be strings.");
                     desired.push_back(value.get<std::string>());
                 }
+            }
+            const AgentRouteResult route
+                = operations_.inspect_agent_route(*agent);
+            if (route == AgentRouteResult::Missing)
+            {
+                return ControlMethodResult::error(
+                    "agent_replaced", "The agent pane no longer exists.");
+            }
+            if (runtime_generation
+                && *runtime_generation != agent->generation.value)
+            {
+                return ControlMethodResult::success({
+                    { "complete", true },
+                    { "outcome", "agent_replaced" },
+                    { "agent", read_agent(request, instance_id).value },
+                });
             }
             if (desired.empty())
                 desired = { "blocked", "done", "exited", "failed" };
@@ -361,12 +359,6 @@ ControlMethodResult ControlRequestPolicy::handle(const ControlRequest& request) 
                 { "outcome", complete ? (matches(status) ? status : lifecycle) : "" },
                 { "agent", read_agent(request, instance_id).value },
             });
-        }
-
-        if (route == AgentRouteResult::NoLiveHost)
-        {
-            return ControlMethodResult::error(
-                "not_running", "The agent pane has no live host.");
         }
 
         std::string bytes;
@@ -404,6 +396,19 @@ ControlMethodResult ControlRequestPolicy::handle(const ControlRequest& request) 
             if (!encoded)
                 return invalid_params(std::move(key_error));
             bytes = std::move(*encoded);
+        }
+
+        const AgentRouteResult route
+            = operations_.inspect_agent_route(*agent);
+        if (route == AgentRouteResult::Missing)
+        {
+            return ControlMethodResult::error(
+                "agent_replaced", "The agent pane no longer exists.");
+        }
+        if (route == AgentRouteResult::NoLiveHost)
+        {
+            return ControlMethodResult::error(
+                "not_running", "The agent pane has no live host.");
         }
 
         if (!operations_.send_agent_input(*agent, bytes))

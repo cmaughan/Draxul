@@ -23,10 +23,8 @@
 //       log(r.error().message);
 //   }
 //
-// Conversion to bool is implicit via `explicit operator bool` (contextual
-// conversion), so existing call sites that use `if (spawn(...))` or
-// `REQUIRE(spawn(...))` keep compiling after a `bool` -> `Result<void, Error>`
-// migration.
+// `explicit operator bool` supports concise success checks while preserving
+// access to a structured error on failure.
 
 #include <cassert>
 #include <string>

@@ -869,6 +869,27 @@ TEST_CASE("pane manager: projected host preserves typed initialization failure",
     CHECK(harness.manager.host_count() == 1);
 }
 
+TEST_CASE("pane manager: projected layouts require stable pane identities",
+    "[pane_manager][topology]")
+{
+    PaneManagerHarness harness;
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+
+    SplitTree split_tree;
+    const LeafId root = split_tree.reset(800, 600);
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = split_tree.snapshot();
+    projected.panes = {{
+        .leaf_id = root,
+        .launch = { .kind = HostKind::Nvim },
+    }};
+
+    CHECK_FALSE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    CHECK(harness.manager.error()
+        == "Projected pane is missing its stable identity.");
+}
+
 TEST_CASE("pane manager: failed local restart leaves a retryable placeholder",
     "[pane_manager][restart][recovery]")
 {

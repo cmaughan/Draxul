@@ -33,8 +33,8 @@ Draxul can host trusted, client-local native plugins in a pane or an entire tab.
 Plugins are discovered at startup from `%APPDATA%/draxul/plugins` and
 `<exe>/plugins` on Windows, or `~/Library/Application Support/draxul/plugins`
 and the app bundle's `Contents/PlugIns` on macOS. Each immediate child directory
-contains either a legacy `plugin.toml` plus platform DLL/dylib or atomically
-published immutable generations selected by `current.json`. User plugins override
+contains atomically published immutable generations selected by `current.json`.
+User plugins override
 bundled plugins with the same stable ID. Draxul shadow-copies the complete selected
 package to a host-private per-process runtime directory, so the producer can rebuild
 without overwriting or locking the active DLL/dylib.
@@ -870,10 +870,8 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 | `tab_editing_bg` | `#8c90af` | Tab rename field fill |
 | `divider` | `#78788c` | Spaces/Agents section divider |
 | `focus_border` | `#7b2828` | Focused border when a tab has multiple visible panes |
-| `status_bar_bg` | `#45475a` | Legacy pane status body setting retained for config compatibility |
 | `status_bar_fg` | `#cdd6f4` | Pane status text |
 | `status_focused_accent_bg` | `#3ca55f` | Focused pane status number/accent fill |
-| `status_inactive_accent_bg` | `#6e738c` | Legacy inactive-pane accent retained for config compatibility |
 | `status_editing_bg` | `#8c90af` | Pane rename field fill |
 | `resource_pill_bg` | `#f9e2af` | Normal CPU/RAM pill fill |
 | `resource_pill_fg` | `#1a1a1f` | CPU/RAM pill text |

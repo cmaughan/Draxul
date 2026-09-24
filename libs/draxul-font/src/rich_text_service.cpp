@@ -110,20 +110,6 @@ struct RichTextService::Impl
         return it != services.end() ? &it->second : nullptr;
     }
 
-    StyleService* base_service()
-    {
-        return service_for(base_style, false);
-    }
-
-    const StyleService* base_service() const
-    {
-        if (!initialized)
-            return nullptr;
-
-        auto it = services.find(base_style);
-        return it != services.end() ? &it->second : nullptr;
-    }
-
     StyleService* service_for_atlas(RichTextAtlasId atlas_id)
     {
         for (auto& entry : services)
@@ -302,77 +288,6 @@ void RichTextService::clear_all_atlas_dirty()
             style_service.service->clear_atlas_dirty();
         style_service.reset_pending = false;
     }
-}
-
-AtlasRegion RichTextService::resolve_cluster(const std::string& text, bool is_bold, bool is_italic)
-{
-    auto* style_service = impl_->base_service();
-    if (style_service == nullptr || style_service->service == nullptr)
-        return {};
-
-    const auto atlas = style_service->service->resolve_cluster(text, is_bold, is_italic);
-    impl_->update_reset_state(*style_service);
-    return atlas;
-}
-
-int RichTextService::ligature_cell_span(const std::string& text, bool is_bold, bool is_italic)
-{
-    auto* style_service = impl_->base_service();
-    return style_service != nullptr && style_service->service != nullptr
-        ? style_service->service->ligature_cell_span(text, is_bold, is_italic)
-        : 0;
-}
-
-bool RichTextService::atlas_dirty() const
-{
-    const auto* style_service = impl_->base_service();
-    return style_service != nullptr && style_service->service != nullptr && style_service->service->atlas_dirty();
-}
-
-bool RichTextService::consume_atlas_reset()
-{
-    auto* style_service = impl_->base_service();
-    if (style_service == nullptr)
-        return false;
-
-    impl_->update_reset_state(*style_service);
-    if (!style_service->reset_available)
-        return false;
-
-    style_service->reset_available = false;
-    return true;
-}
-
-void RichTextService::clear_atlas_dirty()
-{
-    auto* style_service = impl_->base_service();
-    if (style_service != nullptr)
-        clear_atlas_dirty(style_service->atlas_id);
-}
-
-const uint8_t* RichTextService::atlas_data() const
-{
-    const auto* style_service = impl_->base_service();
-    return style_service != nullptr && style_service->service != nullptr ? style_service->service->atlas_data() : nullptr;
-}
-
-int RichTextService::atlas_width() const
-{
-    const auto* style_service = impl_->base_service();
-    return style_service != nullptr && style_service->service != nullptr ? style_service->service->atlas_width() : 0;
-}
-
-int RichTextService::atlas_height() const
-{
-    const auto* style_service = impl_->base_service();
-    return style_service != nullptr && style_service->service != nullptr ? style_service->service->atlas_height() : 0;
-}
-
-AtlasDirtyRect RichTextService::atlas_dirty_rect() const
-{
-    const auto* style_service = impl_->base_service();
-    return style_service != nullptr && style_service->service != nullptr ? style_service->service->atlas_dirty_rect()
-                                                                         : AtlasDirtyRect{};
 }
 
 } // namespace draxul

@@ -343,12 +343,12 @@ void NvimRpc::dispatch_rpc_request(const std::vector<MpackValue>& msg_array)
     if (msg_array[3].type() == MpackValue::Array)
         params = msg_array[3].as_array();
 
-    MpackValue result = NvimRpc::make_nil();
-    MpackValue error = NvimRpc::make_nil();
+    MpackValue result = MpackValue::make_nil();
+    MpackValue error = MpackValue::make_nil();
     if (callbacks_.on_request)
         result = callbacks_.on_request(method, params);
     else
-        error = NvimRpc::make_str("no handler for: " + method);
+        error = MpackValue::make_str("no handler for: " + method);
 
     reply_to_request(req_msgid, error, result);
 }
@@ -567,35 +567,6 @@ void NvimRpc::reply_to_request(uint32_t msgid, const MpackValue& error, const Mp
         if (callbacks_.on_notification_available)
             callbacks_.on_notification_available();
     }
-}
-
-MpackValue NvimRpc::make_int(int64_t v)
-{
-    return MpackValue::make_int(v);
-}
-MpackValue NvimRpc::make_uint(uint64_t v)
-{
-    return MpackValue::make_uint(v);
-}
-MpackValue NvimRpc::make_str(const std::string& v)
-{
-    return MpackValue::make_str(v);
-}
-MpackValue NvimRpc::make_bool(bool v)
-{
-    return MpackValue::make_bool(v);
-}
-MpackValue NvimRpc::make_array(std::vector<MpackValue> v)
-{
-    return MpackValue::make_array(std::move(v));
-}
-MpackValue NvimRpc::make_map(std::vector<std::pair<MpackValue, MpackValue>> v)
-{
-    return MpackValue::make_map(std::move(v));
-}
-MpackValue NvimRpc::make_nil()
-{
-    return MpackValue::make_nil();
 }
 
 } // namespace draxul

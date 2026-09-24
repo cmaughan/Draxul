@@ -92,10 +92,8 @@ TEST_CASE("VoidResult alias works", "[result]")
     REQUIRE(r.error().kind == ErrorKind::RpcError);
 }
 
-// Migrated call site: NvimProcess::spawn now returns Result<void, Error>.
-// These tests verify that (a) existing bool-context call sites still compile
-// and behave identically, and (b) the new error payload is populated on
-// failure so callers can surface it.
+// NvimProcess::spawn returns Result<void, Error>. These tests verify both the
+// concise success check and the structured error payload.
 
 TEST_CASE("NvimProcess::spawn returns structured error on missing binary", "[result][nvim_process]")
 {
@@ -110,13 +108,9 @@ TEST_CASE("NvimProcess::spawn returns structured error on missing binary", "[res
     REQUIRE_FALSE(r.error().message.empty());
 }
 
-TEST_CASE("NvimProcess::spawn still usable in bool context", "[result][nvim_process]")
+TEST_CASE("NvimProcess::spawn supports a bool-context success check", "[result][nvim_process]")
 {
     NvimProcess process;
-    // Contextual bool conversion via explicit operator bool — this is the
-    // backwards-compatibility path for the existing `REQUIRE(spawn(...))`
-    // and `if (!spawn(...))` call sites we left unchanged during the WI 24
-    // migration.
     REQUIRE_FALSE(process.spawn(missing_nvim_path()));
 }
 

@@ -2,11 +2,11 @@
 
 #include "../../libs/draxul-server/src/fake_terminal_runtime.h"
 #include "../../libs/draxul-server/src/remote_terminal_service.h"
-#include "server_agent_service.h"
 #include "../../libs/draxul-server/src/server_terminal_runtime.h"
 #include "../../libs/draxul-server/src/session_poll_service.h"
 #include "../../libs/draxul-server/src/session_topology_bridge.h"
 #include "../../libs/draxul-server/src/topology_service.h"
+#include "server_agent_service.h"
 #include "temp_dir.h"
 
 #include <draxul/agent_client.h>
@@ -98,6 +98,7 @@ inline RemoteTerminalClient remote_client(
     std::string client_id,
     std::string epoch = "fixed-epoch",
     std::string method_prefix = "fake",
+    std::string terminal_id = {},
     std::shared_ptr<ClientRecoveryState> recovery = {})
 {
     return RemoteTerminalClient({
@@ -105,6 +106,7 @@ inline RemoteTerminalClient remote_client(
         .client_id = std::move(client_id),
         .expected_server_epoch = std::move(epoch),
         .method_prefix = std::move(method_prefix),
+        .terminal_id = std::move(terminal_id),
         .recovery = std::move(recovery),
     });
 }

@@ -161,7 +161,7 @@ TEST_CASE("remote Session client publishes topology and command results",
                     .sessions = 1,
                     .checkpoint_state = "recovered",
                     .restore_warnings
-                    = { "Imported one legacy Session." },
+                    = { "Recovered one Session checkpoint." },
                     .session_statuses = {
                         {
                             .session_id = "default",
@@ -171,6 +171,9 @@ TEST_CASE("remote Session client publishes topology and command results",
                             .restore_warnings
                             = { "One pane was skipped." },
                         },
+                    },
+                    .control_transport = {
+                        .listener_capacity = 1,
                     },
                 }));
         }
@@ -283,40 +286,6 @@ TEST_CASE("remote Session client publishes topology and command results",
     std::filesystem::remove_all(runtime, ignored);
 }
 
-TEST_CASE("externally fed Session clients stop and enter fallback promptly",
-    "[control][client-worker][wakeup]")
-{
-    const auto runtime = unique_control_runtime_directory();
-    RemoteSessionClient client({
-        .runtime_directory = runtime,
-        .client_id = "wakeup-ui",
-        .externally_fed = true,
-    });
-    REQUIRE(client.start());
-
-    const auto fallback_started = std::chrono::steady_clock::now();
-    client.enable_legacy_polling();
-    bool published_fallback = false;
-    while (std::chrono::steady_clock::now() - fallback_started
-        < std::chrono::seconds(2))
-    {
-        if (client.take_published_state())
-        {
-            published_fallback = true;
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    CHECK(published_fallback);
-
-    const auto stop_started = std::chrono::steady_clock::now();
-    client.stop();
-    CHECK(std::chrono::steady_clock::now() - stop_started
-        < std::chrono::seconds(1));
-    std::error_code ignored;
-    std::filesystem::remove_all(runtime, ignored);
-}
-
 TEST_CASE("externally fed Session stop cannot lose a wake between predicate and wait",
     "[control][client-worker][wakeup][race]")
 {
@@ -344,44 +313,12 @@ TEST_CASE("externally fed Session stop cannot lose a wake between predicate and 
         // A regression must fail rather than strand the test process. This
         // extra notify is cleanup only and happens after the prompt-stop
         // observation has already failed.
-        client.enable_legacy_polling();
+        REQUIRE(client.request_status());
         REQUIRE(stopped.wait_for(std::chrono::seconds(1))
             == std::future_status::ready);
     }
     stopped.get();
     CHECK(stopped_promptly);
-
-    std::error_code ignored;
-    std::filesystem::remove_all(runtime, ignored);
-}
-
-TEST_CASE("externally fed Session fallback cannot lose a wake between predicate and wait",
-    "[control][client-worker][wakeup][race]")
-{
-    const auto runtime = unique_control_runtime_directory();
-    const std::string client_id = "fallback-wakeup-race-ui";
-    RemoteSessionClient client({
-        .runtime_directory = runtime,
-        .client_id = client_id,
-        .externally_fed = true,
-    });
-    WaitTransitionGate gate;
-    ScopedRemoteSessionWaitHook hook(client_id, gate);
-    REQUIRE(client.start());
-    REQUIRE(gate.wait_for_first_wait());
-
-    auto fallback = std::async(std::launch::async, [&] {
-        gate.begin_transition();
-        client.enable_legacy_polling();
-    });
-    REQUIRE(fallback.wait_for(std::chrono::seconds(1))
-        == std::future_status::ready);
-    fallback.get();
-
-    // Reaching another wait proves fallback initialized legacy clients without
-    // relying on a command/status enqueue to wake the worker.
-    REQUIRE(gate.wait_for_calls(2));
-    client.stop();
 
     std::error_code ignored;
     std::filesystem::remove_all(runtime, ignored);

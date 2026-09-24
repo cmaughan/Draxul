@@ -61,7 +61,8 @@ void simulate_display_scale_changed(float new_ppi, float& current_ppi, TextServi
     const int pixel_w = window.width_pixels();
     const int logical_w = window.width_logical();
     if (logical_w > 0)
-        dispatcher.set_pixel_scale(static_cast<float>(pixel_w) / static_cast<float>(logical_w));
+        dispatcher.set_pixel_scale(PixelScale(
+            static_cast<float>(pixel_w) / static_cast<float>(logical_w)));
 }
 
 struct DpiTestFixture
@@ -98,7 +99,7 @@ struct DpiTestFixture
 
         // Set up dispatcher with pixel_scale matching initial window config.
         InputDispatcher::Deps deps;
-        deps.pixel_scale = initial_scale;
+        deps.pixel_scale = PixelScale{ initial_scale };
         deps.ui_panel = &ui_panel;
         dispatcher.reconfigure(std::move(deps));
 
@@ -246,7 +247,7 @@ TEST_CASE("dpi hotplug integration: DisplayScaleEvent fires through window callb
 
     // Wire the dispatcher to the window — this installs the on_display_scale_changed callback.
     InputDispatcher::Deps deps;
-    deps.pixel_scale = 1.0f;
+    deps.pixel_scale = PixelScale{ 1.0f };
     deps.ui_panel = &f.ui_panel;
     deps.on_display_scale_changed = [&](float ppi) {
         simulate_display_scale_changed(ppi, f.current_ppi, f.text_service, f.renderer, f.dispatcher, f.window);

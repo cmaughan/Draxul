@@ -7,6 +7,7 @@
 
 #include <draxul/client_recovery.h>
 #include <draxul/control_plane.h>
+#include <draxul/remote_session_client.h>
 #include <draxul/remote_session_coordinator.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/remote_terminal_host.h>
@@ -981,7 +982,8 @@ TEST_CASE("remote terminal hosts recover after repeated failed reconnect attempt
         {
             const auto metrics = ControlClient::request(
                 namespaced_control_id(kServerControlId, temp.path),
-                temp.path, "terminal.metrics");
+                temp.path, "terminal.metrics",
+                { { "terminal_id", std::string(kServerShellTerminalId) } });
             REQUIRE(metrics.ok);
             if (metrics.result["suspended_subscribers"] == 1)
             {
@@ -995,7 +997,6 @@ TEST_CASE("remote terminal hosts recover after repeated failed reconnect attempt
         first_server.request_stop();
     }
 
-    // The old recovery path orphaned the pane after its first failed request.
     // Observe several real reconnect attempts instead of sleeping through a
     // ten-second wall-clock interval; the retry policy itself is covered by
     // deterministic ClientRecoveryState tests.
@@ -1079,11 +1080,35 @@ TEST_CASE("remote terminal host renders shared state and can take control",
 
     TestHostCallbacks callbacks;
     std::atomic<int> coordinator_wakes = 0;
+    auto recovery = std::make_shared<ClientRecoveryState>(
+        "render-client");
+    auto probe_options = ServerEnsureOptions{
+        .runtime_directory = temp.path,
+        .client_id = "render-client",
+        .registration_nonce = recovery->registration_nonce(),
+        .launch_if_missing = false,
+    };
+    const auto probe = ServerClient::probe(probe_options);
+    REQUIRE(probe.ready());
+    REQUIRE(probe.welcome);
+    REQUIRE(recovery->set_server_identity(
+        probe.welcome->server_epoch,
+        probe.welcome->connection_token));
+    RemoteSessionClient session_client({
+        .runtime_directory = temp.path,
+        .client_id = "render-client",
+        .recovery = recovery,
+        .externally_fed = true,
+    });
     auto coordinator = std::make_shared<RemoteSessionCoordinator>(
         RemoteSessionCoordinatorOptions{
             .runtime_directory = temp.path,
             .client_id = "render-client",
             .expected_server_epoch = "host-test-epoch",
+            .method_prefix = "terminal",
+            .recovery = recovery,
+            .session_poll_supported = true,
+            .session_client = &session_client,
             .wake_consumer = [&] { ++coordinator_wakes; },
         });
     REQUIRE(coordinator->start());
@@ -1091,6 +1116,7 @@ TEST_CASE("remote terminal host renders shared state and can take control",
         .runtime_directory = temp.path,
         .client_id = "render-client",
         .server_epoch = "host-test-epoch",
+        .terminal_id = std::string(kServerShellTerminalId),
         .coordinator = coordinator,
     });
     HostContext context{
@@ -1108,18 +1134,25 @@ TEST_CASE("remote terminal host renders shared state and can take control",
     };
     REQUIRE(host.initialize(context, callbacks));
     CHECK_FALSE(host.requires_periodic_wake());
-    REQUIRE(pump_until(host, [&] {
+    const bool received_initial_state = pump_until(host, [&] {
         return host.grid_cols() == 20 && host.grid_rows() == 5;
-    }));
+    });
+    const auto transport = coordinator->transport_snapshot();
+    INFO(host.status_text());
+    INFO(callbacks.last_toast_message);
+    INFO(transport.recovery.current_reason);
+    INFO(transport.recovery.attempts);
+    REQUIRE(received_initial_state);
     REQUIRE(renderer.last_handle != nullptr);
     REQUIRE(renderer.last_handle->total_cell_updates() > 0);
-    REQUIRE(callbacks.last_window_title == "Draxul Fake Remote");
     REQUIRE(host.status_text().find("controller") != std::string::npos);
 
     RemoteTerminalClient observer({
         .runtime_directory = temp.path,
         .client_id = "observer",
         .expected_server_epoch = "host-test-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = std::string(kServerShellTerminalId),
     });
     std::string error;
     REQUIRE(observer.attach(error));
@@ -1233,7 +1266,8 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
     {
         const auto response = ControlClient::request(
             namespaced_control_id(kServerControlId, temp.path), temp.path,
-            "terminal.metrics");
+            "terminal.metrics",
+            { { "terminal_id", std::string(kServerShellTerminalId) } });
         REQUIRE(response.ok);
         metrics = response.result;
         if (metrics["active_subscribers"] == 0
@@ -1275,7 +1309,8 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
     {
         const auto response = ControlClient::request(
             namespaced_control_id(kServerControlId, temp.path), temp.path,
-            "terminal.metrics");
+            "terminal.metrics",
+            { { "terminal_id", std::string(kServerShellTerminalId) } });
         REQUIRE(response.ok);
         metrics = response.result;
         if (metrics["avoided_delta_encodes"].get<uint64_t>() > 0)
@@ -1307,7 +1342,8 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
     {
         const auto response = ControlClient::request(
             namespaced_control_id(kServerControlId, temp.path), temp.path,
-            "terminal.metrics");
+            "terminal.metrics",
+            { { "terminal_id", std::string(kServerShellTerminalId) } });
         REQUIRE(response.ok);
         if (response.result["resumes"].get<uint64_t>() >= 1
             && response.result["suspensions"].get<uint64_t>() >= 2
@@ -1330,7 +1366,8 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
     {
         const auto response = ControlClient::request(
             namespaced_control_id(kServerControlId, temp.path), temp.path,
-            "terminal.metrics");
+            "terminal.metrics",
+            { { "terminal_id", std::string(kServerShellTerminalId) } });
         REQUIRE(response.ok);
         if (response.result["resumes"].get<uint64_t>() >= 2
             && response.result["suspensions"].get<uint64_t>() >= 3
@@ -1347,7 +1384,8 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
     REQUIRE(pump_until(host, [&] {
         const auto response = ControlClient::request(
             namespaced_control_id(kServerControlId, temp.path), temp.path,
-            "terminal.metrics");
+            "terminal.metrics",
+            { { "terminal_id", std::string(kServerShellTerminalId) } });
         return response.ok
             && response.result["active_subscribers"] == 1
             && response.result["suspended_subscribers"] == 0
@@ -1376,7 +1414,8 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
         {
             const auto response = ControlClient::request(
                 namespaced_control_id(kServerControlId, temp.path), temp.path,
-                "terminal.metrics");
+                "terminal.metrics",
+                { { "terminal_id", std::string(kServerShellTerminalId) } });
             REQUIRE(response.ok);
             suspended_metrics = response.result;
             if (suspended_metrics["active_subscribers"] == 0
@@ -1416,7 +1455,8 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
         {
             const auto response = ControlClient::request(
                 namespaced_control_id(kServerControlId, temp.path), temp.path,
-                "terminal.metrics");
+                "terminal.metrics",
+                { { "terminal_id", std::string(kServerShellTerminalId) } });
             REQUIRE(response.ok);
             if (response.result["active_subscribers"] == 0
                 && response.result["suspended_subscribers"] == 1
@@ -1441,7 +1481,8 @@ TEST_CASE("hidden remote terminal host suspends presentation and resumes with cu
         REQUIRE(pump_until(host, [&] {
             const auto response = ControlClient::request(
                 namespaced_control_id(kServerControlId, temp.path), temp.path,
-                "terminal.metrics");
+                "terminal.metrics",
+                { { "terminal_id", std::string(kServerShellTerminalId) } });
             return response.ok
                 && response.result["active_subscribers"] == 1
                 && response.result["suspended_subscribers"] == 0
@@ -2098,12 +2139,14 @@ TEST_CASE("remote terminal hosts scroll and select server history independently"
         .client_id = "scroll-host-a",
         .server_epoch = "host-scrollback-epoch",
         .method_prefix = "terminal",
+        .terminal_id = std::string(kServerShellTerminalId),
     });
     RemoteTerminalHost second({
         .runtime_directory = temp.path,
         .client_id = "scroll-host-b",
         .server_epoch = "host-scrollback-epoch",
         .method_prefix = "terminal",
+        .terminal_id = std::string(kServerShellTerminalId),
     });
     HostContext first_context{
         .window = &first_window,
@@ -2140,6 +2183,7 @@ TEST_CASE("remote terminal hosts scroll and select server history independently"
         .client_id = "scroll-monitor",
         .expected_server_epoch = "host-scrollback-epoch",
         .method_prefix = "terminal",
+        .terminal_id = std::string(kServerShellTerminalId),
     });
     std::string error;
     REQUIRE(monitor.attach(error));

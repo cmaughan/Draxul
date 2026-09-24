@@ -60,23 +60,21 @@ enum class RemoteSessionTransportKind
 {
     Stream,
     SessionPoll,
-    Legacy,
 };
 
 struct RemoteSessionTransportSnapshot
 {
     RemoteSessionTransportKind transport
-        = RemoteSessionTransportKind::Legacy;
+        = RemoteSessionTransportKind::SessionPoll;
     bool stream_commands = false;
     ClientRecoverySnapshot recovery;
     ClientRecoveryMetricsSnapshot recovery_metrics;
 };
 
 // UI-scoped owner for remote terminal transports. A negotiated event stream
-// is preferred, with one recurring Session poll worker as its fallback;
-// older servers retain the Phase-1 per-terminal workers. Registration,
-// command, recovery, and mailbox behavior is intentionally identical across
-// all three backends.
+// is preferred, with one recurring Session poll worker as its fallback.
+// Registration, command, recovery, and mailbox behavior is identical across
+// both backends.
 class RemoteSessionCoordinator
 {
 public:

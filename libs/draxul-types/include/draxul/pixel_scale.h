@@ -14,15 +14,12 @@ struct PixelScale
 
     PixelScale() = default;
 
-    // Implicit conversion from float so existing `pixel_scale = some_float` assignments
-    // and brace-init from float continue to compile.
-    // NOLINTNEXTLINE(google-explicit-constructor)
-    PixelScale(float s)
+    explicit PixelScale(float s)
         : scale(s)
     {
     }
 
-    // Raw value accessor for backward compatibility (e.g. passing to APIs that take float).
+    // Raw value accessor for APIs that take a float.
     float value() const
     {
         return scale;

@@ -98,8 +98,8 @@ future binary encoding without changing channel semantics.
 - Authenticate with the existing connection token and bind the stream to a client ID,
   Session ID, and server epoch.
 - Negotiate frame and queue budgets.
-- Fall back in order: bidirectional stream, event stream plus control commands,
-  batched Session polling, then the legacy per-channel clients for older servers.
+- Fall back from the bidirectional stream to batched Session polling. Servers
+  without the current Session API are incompatible.
 
 ### Subscriptions and cursors
 
@@ -167,7 +167,7 @@ future binary encoding without changing channel semantics.
 - Register and unregister pane consumers by terminal ID and visibility generation.
 - Route decoded events to pane mailboxes and coalesce all ready projections into one
   UI wake.
-- Retain legacy per-pane transport behind capability negotiation during migration.
+- Require current Session transport capabilities before starting the coordinator.
 
 ### Phase 2: Batched Session polling
 
@@ -234,14 +234,14 @@ terminal/topology work onto the existing `session.poll` fallback.
 - Treat the attached UI as one Session outage rather than surfacing independent
   topology and agent errors. Show one background-reconnect warning after two seconds.
 - Clear the warning state after recovery without emitting a success toast.
-- Expose the active Stream → `session.poll` → legacy path, outage state, reconnect,
+- Expose the active Stream → `session.poll` path, outage state, reconnect,
   fallback, and resynchronization reasons as bounded diagnostics. Show the existing
   short-control request and native-stage failure counters beside them.
 
 The delivered recovery snapshot separates current outage state from bounded cumulative
 reason metrics. This lets the UI suppress transient noise without hiding failures from
 diagnostics. A healthy `session.poll` fallback immediately clears the aggregate outage;
-legacy polling is considered only when the server cannot provide batched Session poll.
+missing Session poll support is an incompatible-server error.
 
 ## Validation
 

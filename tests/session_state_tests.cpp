@@ -1,8 +1,8 @@
 #include "session_id.h"
 #include "session_state.h"
-#include <draxul/split_tree.h>
 #include "support/home_dir_redirect.h"
 #include "support/temp_dir.h"
+#include <draxul/split_tree.h>
 
 #include <catch2/catch_all.hpp>
 
@@ -15,17 +15,6 @@ using namespace draxul::tests;
 
 namespace
 {
-
-std::string read_session_fixture(std::string_view name)
-{
-    const std::filesystem::path path = std::filesystem::path(DRAXUL_PROJECT_ROOT)
-        / "tests" / "fixtures" / "session-state" / name;
-    std::ifstream in(path, std::ios::binary);
-    REQUIRE(in.is_open());
-    return {
-        std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()
-    };
-}
 
 SessionSnapshot make_single_pane_session_snapshot()
 {
@@ -174,9 +163,9 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
             .source_path = "",
             .startup_commands = { "echo right" },
             .client_plugin_id
-                = "dev.draxul.spinning-triangle",
+            = "dev.draxul.spinning-triangle",
             .client_plugin_config_json
-                = R"({"paused":true,"initial_angle":0.5})",
+            = R"({"paused":true,"initial_angle":0.5})",
         },
         .pane_name = "right",
         .pane_id = "pane-right",
@@ -343,42 +332,8 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     CHECK(sessions[0].pane_count == 3);
 }
 
-TEST_CASE("session state: historical v1 fixture decodes through pure codec",
-    "[session_state][fixture]")
-{
-    std::string error;
-    auto decoded = decode_session_state(
-        read_session_fixture("v1-historical-valid.toml"), &error);
-
-    REQUIRE(decoded);
-    REQUIRE(error.empty());
-    CHECK(decoded->version == 4);
-    CHECK(decoded->session_id == "historical");
-    CHECK(decoded->session_name == "Historical Session");
-    CHECK(decoded->active_space_id == kDefaultSpaceId);
-    CHECK(decoded->next_space_id == kDefaultSpaceId + 1);
-    REQUIRE(decoded->spaces.size() == 1);
-    const SpaceSnapshot& migrated_space = decoded->spaces.front();
-    CHECK(migrated_space.id == kDefaultSpaceId);
-    CHECK(migrated_space.name == "default");
-    CHECK(migrated_space.active_tab_id == 3);
-    CHECK(migrated_space.next_tab_id == 4);
-    REQUIRE(migrated_space.tabs.size() == 1);
-    CHECK(migrated_space.tabs[0].id == 3);
-    CHECK(migrated_space.tabs[0].name == "shells");
-    CHECK(migrated_space.tabs[0].name_user_set);
-    REQUIRE(migrated_space.tabs[0].pane_layout.panes.size() == 2);
-    CHECK(migrated_space.tabs[0].pane_layout.panes[0].pane_id == "historical-left");
-    CHECK(migrated_space.tabs[0].pane_layout.panes[1].pane_id == "historical-right");
-
-    SplitTree restored_tree;
-    REQUIRE(restored_tree.restore(migrated_space.tabs[0].pane_layout.tree, 1200, 800));
-    CHECK(restored_tree.leaf_count() == 2);
-    CHECK(restored_tree.focused() == 1);
-}
-
-TEST_CASE("session state: v3 snapshots migrate to the current in-memory model",
-    "[session_state][migration]")
+TEST_CASE("session state: obsolete snapshots are rejected",
+    "[session_state][version]")
 {
     SessionSnapshot state = make_single_pane_session_snapshot();
     std::string error;
@@ -389,40 +344,48 @@ TEST_CASE("session state: v3 snapshots migrate to the current in-memory model",
     REQUIRE(version != std::string::npos);
     encoded->replace(version, std::string("version = 4").size(), "version = 3");
 
-    auto decoded = decode_session_state(*encoded, &error);
-    REQUIRE(decoded);
-    CHECK(error.empty());
-    CHECK(decoded->version == 4);
-    REQUIRE(decoded->spaces.size() == 1);
-    REQUIRE(decoded->spaces[0].tabs.size() == 1);
-    REQUIRE(decoded->spaces[0].tabs[0].pane_layout.panes.size() == 1);
-    CHECK_FALSE(decoded->spaces[0].tabs[0].pane_layout.panes[0].agent_session);
-}
-
-TEST_CASE("session state: malformed and unsupported fixtures fail before file I/O",
-    "[session_state][fixture]")
-{
-    std::string error;
-    CHECK_FALSE(decode_session_state(
-        read_session_fixture("v1-corrupt.toml"), &error));
-    CHECK_FALSE(error.empty());
-
-    error.clear();
-    CHECK_FALSE(decode_session_state(
-        read_session_fixture("v1-unsupported-version.toml"), &error));
+    CHECK_FALSE(decode_session_state(*encoded, &error));
     CHECK(error == "Unsupported session state version.");
 }
 
-TEST_CASE("session state: duplicate stable ids are rejected by value validation",
-    "[session_state][fixture]")
+TEST_CASE("session state: current snapshots require stable pane identities",
+    "[session_state][version]")
 {
+    SessionSnapshot state = make_single_pane_session_snapshot();
     std::string error;
-    CHECK_FALSE(decode_session_state(
-        read_session_fixture("v1-duplicate-tab-id.toml"), &error));
-    CHECK(error == "Session state contains a duplicate tab id.");
+    auto encoded = encode_session_state(state, &error);
+    REQUIRE(encoded);
+    const auto pane_id = encoded->find("pane_id = ");
+    REQUIRE(pane_id != std::string::npos);
+    const auto pane_id_end = encoded->find('\n', pane_id);
+    REQUIRE(pane_id_end != std::string::npos);
+    encoded->erase(pane_id, pane_id_end - pane_id + 1);
+
+    CHECK_FALSE(decode_session_state(*encoded, &error));
+    CHECK(error == "Session state pane is missing its stable identity.");
+
+    state.spaces[0].tabs[0].pane_layout.panes[0].pane_id.clear();
+    CHECK_FALSE(validate_session_snapshot(state, &error));
+    CHECK(error == "Session state pane is missing its stable identity.");
 }
 
-TEST_CASE("session state: v2 rejects duplicate Space identities",
+TEST_CASE("session state: stable pane identities are unique across the Session",
+    "[session_state][version]")
+{
+    SessionSnapshot state = make_single_pane_session_snapshot();
+    SessionSnapshot second = make_single_pane_session_snapshot();
+    SpaceSnapshot duplicate = std::move(second.spaces[0]);
+    duplicate.id = 2;
+    duplicate.tabs[0].id = 2;
+    state.spaces.push_back(std::move(duplicate));
+    state.next_space_id = 3;
+
+    std::string error;
+    CHECK_FALSE(validate_session_snapshot(state, &error));
+    CHECK(error == "Session state contains a duplicate stable pane id.");
+}
+
+TEST_CASE("session state: current snapshots reject duplicate Space identities",
     "[session_state]")
 {
     SessionSnapshot state;
@@ -514,8 +477,7 @@ TEST_CASE("session state: recovery input size and cardinality are bounded",
 
     SessionSnapshot too_deep = make_single_pane_session_snapshot();
     LeafId next_leaf = 0;
-    too_deep.spaces[0].tabs[0].pane_layout.tree.root =
-        make_deep_snapshot_tree(65, next_leaf);
+    too_deep.spaces[0].tabs[0].pane_layout.tree.root = make_deep_snapshot_tree(65, next_leaf);
     too_deep.spaces[0].tabs[0].pane_layout.tree.next_leaf_id = next_leaf;
     CHECK_FALSE(validate_session_snapshot(too_deep, &error));
     CHECK(error == "Session state layout exceeds structural limits.");
@@ -528,49 +490,21 @@ TEST_CASE("session state: diagnostics do not expose commands or paths",
     std::string error;
 
     SessionSnapshot command_state = make_single_pane_session_snapshot();
-    command_state.spaces[0].tabs[0].pane_layout.panes[0].launch.command =
-        std::string(secret) + std::string(8192, 'x');
+    command_state.spaces[0].tabs[0].pane_layout.panes[0].launch.command = std::string(secret) + std::string(8192, 'x');
     CHECK_FALSE(validate_session_snapshot(command_state, &error));
     CHECK(error == "Session state host command exceeds the text limit.");
     CHECK(error.find(secret) == std::string::npos);
 
     SessionSnapshot path_state = make_single_pane_session_snapshot();
-    path_state.spaces[0].root_directory =
-        std::string(secret) + std::string(8192, 'x');
+    path_state.spaces[0].root_directory = std::string(secret) + std::string(8192, 'x');
     CHECK_FALSE(validate_session_snapshot(path_state, &error));
     CHECK(error == "Session state root directory exceeds the text limit.");
     CHECK(error.find(secret) == std::string::npos);
 
-    const std::string malformed =
-        "version = 2\ncommand = \"" + std::string(secret) + "\n";
+    const std::string malformed = "version = 2\ncommand = \"" + std::string(secret) + "\n";
     CHECK_FALSE(decode_session_state(malformed, &error));
     CHECK(error == "Session state TOML could not be parsed.");
     CHECK(error.find(secret) == std::string::npos);
-}
-
-TEST_CASE("session state: filesystem availability and host restorability are not codec concerns",
-    "[session_state][fixture]")
-{
-    std::string error;
-    auto missing_directory = decode_session_state(
-        read_session_fixture("v1-missing-directory.toml"), &error);
-    REQUIRE(missing_directory);
-    REQUIRE(error.empty());
-    REQUIRE(missing_directory->spaces.size() == 1);
-    REQUIRE(missing_directory->spaces[0].tabs.size() == 1);
-    REQUIRE(missing_directory->spaces[0].tabs[0].pane_layout.panes.size() == 1);
-    CHECK(missing_directory->spaces[0].tabs[0].pane_layout.panes[0].launch.working_dir
-        == "Z:/draxul-fixture/path-that-does-not-exist");
-
-    auto non_restorable = decode_session_state(
-        read_session_fixture("v1-non-restorable-host.toml"), &error);
-    REQUIRE(non_restorable);
-    REQUIRE(error.empty());
-    REQUIRE(non_restorable->spaces.size() == 1);
-    REQUIRE(non_restorable->spaces[0].tabs.size() == 1);
-    REQUIRE(non_restorable->spaces[0].tabs[0].pane_layout.panes.size() == 1);
-    CHECK(non_restorable->spaces[0].tabs[0].pane_layout.panes[0].launch.kind
-        == HostKind::Markdown);
 }
 
 TEST_CASE("session state: distinct session ids persist separately", "[session_state]")
@@ -597,6 +531,7 @@ TEST_CASE("session state: distinct session ids persist separately", "[session_st
                 .startup_commands = {},
             },
             .pane_name = "shell",
+            .pane_id = "pane-" + std::to_string(id),
         });
         return tab;
     };
@@ -708,6 +643,7 @@ TEST_CASE("session state: delete removes saved session state", "[session_state]"
             .working_dir = "D:/tmp",
         },
         .pane_name = "shell",
+        .pane_id = "pane-delete-me",
     });
     SpaceSnapshot space;
     space.id = 1;

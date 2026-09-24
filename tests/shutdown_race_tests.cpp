@@ -35,7 +35,7 @@ public:
         released_cv_.wait(lock, [this]() { return released_; });
         in_flight_.fetch_sub(1);
 
-        return RpcResult::ok(NvimRpc::make_nil());
+        return RpcResult::ok(MpackValue::make_nil());
     }
 
     void notify(const std::string&, const std::vector<MpackValue>&) override {}
@@ -91,7 +91,7 @@ TEST_CASE("rpc close() called concurrently with in-flight request returns prompt
 
     std::thread requester([&]() {
         request_started.count_down();
-        rpc.request("fake_method", { NvimRpc::make_int(1) });
+        rpc.request("fake_method", { MpackValue::make_int(1) });
         request_returned.store(true);
     });
 
@@ -141,7 +141,7 @@ TEST_CASE("rpc close() called while multiple concurrent requests are in-flight",
         workers.emplace_back([&, i]() {
             all_started.count_down();
             all_started.wait();
-            rpc.request("fake_method", { NvimRpc::make_int(i) });
+            rpc.request("fake_method", { MpackValue::make_int(i) });
             returned_count.fetch_add(1);
         });
     }
@@ -213,7 +213,7 @@ TEST_CASE("rpc shutdown() mid-flight request returns cleanly without crash", "[n
 
     std::thread requester([&]() {
         request_started.count_down();
-        result = rpc.request("fake_method", { NvimRpc::make_int(42) });
+        result = rpc.request("fake_method", { MpackValue::make_int(42) });
         request_finished.store(true);
     });
 

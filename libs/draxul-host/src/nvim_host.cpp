@@ -175,7 +175,7 @@ void NvimHost::shutdown()
 {
     PERF_MEASURE();
     if (nvim_process_.is_running())
-        rpc_.notify("nvim_input", { NvimRpc::make_str("<C-\\><C-n>:qa!<CR>") });
+        rpc_.notify("nvim_input", { MpackValue::make_str("<C-\\><C-n>:qa!<CR>") });
 
     rpc_.close();
     ui_request_worker_.stop();
@@ -267,8 +267,8 @@ bool NvimHost::handle_copy_action(std::string_view)
     if (clipboard_channel_id_ >= 0)
     {
         rpc_.notify("nvim_exec_lua",
-            { NvimRpc::make_str(nvim_lua::kCopySelection),
-                NvimRpc::make_array({ NvimRpc::make_int(clipboard_channel_id_) }) });
+            { MpackValue::make_str(nvim_lua::kCopySelection),
+                MpackValue::make_array({ MpackValue::make_int(clipboard_channel_id_) }) });
     }
     return true;
 }
@@ -292,9 +292,9 @@ bool NvimHost::handle_open_file_at_function_action(std::string_view action)
         const std::string qualified(rest.substr(sep1 + 1, sep2 - sep1 - 1));
         const std::string func(rest.substr(sep2 + 1));
         rpc_.notify("nvim_exec_lua",
-            { NvimRpc::make_str(nvim_lua::kOpenFileAtFunction),
-                NvimRpc::make_array(
-                    { NvimRpc::make_str(path), NvimRpc::make_str(qualified), NvimRpc::make_str(func) }) });
+            { MpackValue::make_str(nvim_lua::kOpenFileAtFunction),
+                MpackValue::make_array(
+                    { MpackValue::make_str(path), MpackValue::make_str(qualified), MpackValue::make_str(func) }) });
     }
     return true;
 }
@@ -310,8 +310,8 @@ bool NvimHost::handle_open_file_at_type_action(std::string_view action)
         const std::string path(rest.substr(0, sep));
         const std::string qualified(rest.substr(sep + 1));
         rpc_.notify("nvim_exec_lua",
-            { NvimRpc::make_str(nvim_lua::kOpenFileAtType),
-                NvimRpc::make_array({ NvimRpc::make_str(path), NvimRpc::make_str(qualified) }) });
+            { MpackValue::make_str(nvim_lua::kOpenFileAtType),
+                MpackValue::make_array({ MpackValue::make_str(path), MpackValue::make_str(qualified) }) });
     }
     return true;
 }
@@ -321,14 +321,14 @@ bool NvimHost::handle_open_file_action(std::string_view action)
     constexpr std::string_view kPrefix = "open_file:";
     const std::string path(action.substr(kPrefix.size()));
     rpc_.notify("nvim_exec_lua",
-        { NvimRpc::make_str(nvim_lua::kOpenFile), NvimRpc::make_array({ NvimRpc::make_str(path) }) });
+        { MpackValue::make_str(nvim_lua::kOpenFile), MpackValue::make_array({ MpackValue::make_str(path) }) });
     return true;
 }
 
 void NvimHost::request_close()
 {
     if (nvim_process_.is_running())
-        rpc_.notify("nvim_input", { NvimRpc::make_str("<C-\\><C-n>:qa!<CR>") });
+        rpc_.notify("nvim_input", { MpackValue::make_str("<C-\\><C-n>:qa!<CR>") });
 }
 
 void NvimHost::on_viewport_changed()
@@ -374,12 +374,12 @@ bool NvimHost::attach_ui()
 {
     PERF_MEASURE();
     auto attach = rpc_.request("nvim_ui_attach", {
-                                                     NvimRpc::make_int(grid_cols()),
-                                                     NvimRpc::make_int(grid_rows()),
-                                                     NvimRpc::make_map({
-                                                         { NvimRpc::make_str("rgb"), NvimRpc::make_bool(true) },
-                                                         { NvimRpc::make_str("ext_linegrid"), NvimRpc::make_bool(true) },
-                                                         { NvimRpc::make_str("ext_multigrid"), NvimRpc::make_bool(false) },
+                                                     MpackValue::make_int(grid_cols()),
+                                                     MpackValue::make_int(grid_rows()),
+                                                     MpackValue::make_map({
+                                                         { MpackValue::make_str("rgb"), MpackValue::make_bool(true) },
+                                                         { MpackValue::make_str("ext_linegrid"), MpackValue::make_bool(true) },
+                                                         { MpackValue::make_str("ext_multigrid"), MpackValue::make_bool(false) },
                                                      }),
                                                  });
     if (!attach.has_value())
@@ -396,7 +396,7 @@ bool NvimHost::execute_startup_commands()
     PERF_MEASURE();
     for (const auto& command : launch_options().startup_commands)
     {
-        auto response = rpc_.request("nvim_command", { NvimRpc::make_str(command) });
+        auto response = rpc_.request("nvim_command", { MpackValue::make_str(command) });
         if (!response.has_value())
         {
             DRAXUL_LOG_ERROR(LogCategory::App, "Startup command failed: %s (%s)",
@@ -418,15 +418,15 @@ bool NvimHost::apply_environment()
     values.reserve(launch_options().environment.size() * 2);
     for (const auto& [name, value] : launch_options().environment)
     {
-        values.push_back(NvimRpc::make_str(name));
-        values.push_back(NvimRpc::make_str(value));
+        values.push_back(MpackValue::make_str(name));
+        values.push_back(MpackValue::make_str(value));
     }
     constexpr std::string_view script
         = "local values = ...; for index = 1, #values, 2 do "
           "vim.fn.setenv(values[index], values[index + 1]) end";
     auto response = rpc_.request("nvim_exec_lua", {
-        NvimRpc::make_str(std::string(script)),
-        NvimRpc::make_array({ NvimRpc::make_array(std::move(values)) }),
+        MpackValue::make_str(std::string(script)),
+        MpackValue::make_array({ MpackValue::make_array(std::move(values)) }),
     });
     if (!response.has_value())
     {
@@ -450,8 +450,8 @@ bool NvimHost::setup_clipboard_provider()
     refresh_clipboard_cache();
 
     auto result = rpc_.request("nvim_exec_lua", {
-                                                    NvimRpc::make_str(nvim_lua::kClipboardProvider),
-                                                    NvimRpc::make_array({ NvimRpc::make_int(clipboard_channel_id_) }),
+                                                    MpackValue::make_str(nvim_lua::kClipboardProvider),
+                                                    MpackValue::make_array({ MpackValue::make_int(clipboard_channel_id_) }),
                                                 });
     return result.has_value();
 }
@@ -539,7 +539,7 @@ MpackValue NvimHost::handle_rpc_request(const std::string& method, const std::ve
         return clipboard_text_to_response(text);
     }
 
-    return NvimRpc::make_nil();
+    return MpackValue::make_nil();
 }
 
 void NvimHost::handle_clipboard_set(const std::vector<MpackValue>& params)

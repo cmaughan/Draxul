@@ -45,7 +45,7 @@ RpcResult run_request_with_mode(const char* mode, std::vector<RpcNotification>* 
     INFO("rpc initializes");
     REQUIRE(rpc.initialize(process));
 
-    RpcResult result = rpc.request("fake_method", { NvimRpc::make_int(7) });
+    RpcResult result = rpc.request("fake_method", { MpackValue::make_int(7) });
     if (notifications)
         *notifications = rpc.drain_notifications();
 
@@ -154,7 +154,7 @@ TEST_CASE("nvim rpc close() unblocks an in-flight request without waiting for ti
 
     // Send a request that will block forever (server never responds in hang mode).
     std::thread requester([&rpc]() {
-        rpc.request("fake_method", { NvimRpc::make_int(7) });
+        rpc.request("fake_method", { MpackValue::make_int(7) });
     });
 
     // Give the request time to send and block on the response CV.
@@ -185,7 +185,7 @@ TEST_CASE("nvim rpc request from a worker thread completes successfully", "[rpc]
 
     RpcResult result;
     std::thread worker([&rpc, &result]() {
-        result = rpc.request("fake_method", { NvimRpc::make_int(7) });
+        result = rpc.request("fake_method", { MpackValue::make_int(7) });
     });
     worker.join();
 
@@ -212,7 +212,7 @@ TEST_CASE("nvim rpc discards responses with out-of-range msgid and still complet
     REQUIRE(rpc.initialize(process));
 
     auto start = std::chrono::steady_clock::now();
-    RpcResult result = rpc.request("fake_method", { NvimRpc::make_int(7) });
+    RpcResult result = rpc.request("fake_method", { MpackValue::make_int(7) });
     auto elapsed = std::chrono::steady_clock::now() - start;
 
     rpc.shutdown();
@@ -270,7 +270,7 @@ TEST_CASE("nvim rpc notify write failure does not signal notification availabili
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     REQUIRE(std::filesystem::exists(ready_file));
 
-    rpc.notify("fake_notification", { NvimRpc::make_int(7) });
+    rpc.notify("fake_notification", { MpackValue::make_int(7) });
 
     INFO("write failure is tracked as a connection failure");
     REQUIRE(rpc.connection_failed());

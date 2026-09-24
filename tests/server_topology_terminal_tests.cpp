@@ -166,7 +166,7 @@ TEST_CASE("server-wide scrollback cell budget rejects allocation before spawn",
 
     auto client = remote_client(
         temp.path, "budget-client",
-        "scrollback-budget-epoch", "terminal");
+        "scrollback-budget-epoch", "terminal", std::string(kServerShellTerminalId));
     std::string error;
     REQUIRE_FALSE(client.attach(error));
     CHECK(client.last_error_code()
@@ -179,10 +179,10 @@ TEST_CASE("server-wide scrollback cell budget rejects allocation before spawn",
     run_guard.join();
 }
 
-TEST_CASE("restored child topology identities are scoped by their parents",
+TEST_CASE("restored child topology preserves current pane identities",
     "[server][topology][persistence][identity]")
 {
-    const auto tab = [](std::string name) {
+    const auto tab = [](std::string name, std::string pane_id) {
         TabSnapshot result{
             .id = 0,
             .name = std::move(name),
@@ -203,12 +203,12 @@ TEST_CASE("restored child topology identities are scoped by their parents",
                 .source_path = "custom-board",
                 .client_host_kind = "plugin",
                 .client_plugin_id
-                    = "dev.draxul.spinning-triangle",
+                = "dev.draxul.spinning-triangle",
                 .client_plugin_config_json
-                    = R"({"paused":true})",
+                = R"({"paused":true})",
             },
             .pane_name = "Pane",
-            .pane_id = "pane-0",
+            .pane_id = std::move(pane_id),
         });
         return result;
     };
@@ -227,7 +227,8 @@ TEST_CASE("restored child topology identities are scoped by their parents",
             .next_tab_id = 1,
         };
         space.tabs.push_back(
-            tab("Tab " + std::to_string(space_id)));
+            tab("Tab " + std::to_string(space_id),
+                "pane-space-" + std::to_string(space_id)));
         saved.spaces.push_back(std::move(space));
     }
 
@@ -242,8 +243,8 @@ TEST_CASE("restored child topology identities are scoped by their parents",
     const TopologyTab& second
         = restored->topology.spaces[1].tabs[0];
     CHECK(first.tab_id != second.tab_id);
-    CHECK(first.panes[0].pane_id
-        != second.panes[0].pane_id);
+    CHECK(first.panes[0].pane_id == "pane-space-0");
+    CHECK(second.panes[0].pane_id == "pane-space-1");
 
     const auto captured
         = capture_session_topology(
@@ -350,13 +351,12 @@ TEST_CASE("topology layouts reject wrong field types without mutation",
     const nlohmann::json layout{
         { "name", "Validated" },
         { "tabs", nlohmann::json::array({ {
-              { "name", "Main" },
-              { "panes", nlohmann::json::array({
-                    { { "alias", "first" } },
-                    { { "alias", "second" },
-                        { "direction", "right" } },
-                }) },
-          } }) },
+                      { "name", "Main" },
+                      { "panes", nlohmann::json::array({
+                                     { { "alias", "first" } },
+                                     { { "alias", "second" }, { "direction", "right" } },
+                                 }) },
+                  } }) },
     };
 
     auto wrong_dry_run = service.handle("topology.layout_apply",
@@ -393,7 +393,7 @@ TEST_CASE("server topology moves a live pane across Spaces atomically",
     };
     REQUIRE(service.handle("topology.command",
                        topology_command_to_json(create_source_survivor))
-                .ok);
+            .ok);
 
     TopologyCommand create_destination{
         .client_id = "move-client",
@@ -405,7 +405,7 @@ TEST_CASE("server topology moves a live pane across Spaces atomically",
     };
     REQUIRE(service.handle("topology.command",
                        topology_command_to_json(create_destination))
-                .ok);
+            .ok);
     const TopologySpace destination
         = service.snapshot().spaces.back();
     const TopologyTab destination_tab = destination.tabs.front();
@@ -499,7 +499,7 @@ TEST_CASE("cross-tab pane move rejects unsupported routes before mutation",
     };
     REQUIRE(service.handle("topology.command",
                        topology_command_to_json(create_destination))
-                .ok);
+            .ok);
     const TopologySpace destination
         = service.snapshot().spaces.back();
     const TopologyTab destination_tab = destination.tabs.front();
@@ -577,9 +577,9 @@ TEST_CASE("cross-tab pane move rejects unsupported routes before mutation",
             .client_host_kind = "nvim",
         };
         REQUIRE(companion_setup.handle("topology.command",
-                                    topology_command_to_json(
-                                        split_companion_source))
-                    .ok);
+                                   topology_command_to_json(
+                                       split_companion_source))
+                .ok);
         TopologySnapshot companion_snapshot
             = companion_setup.snapshot();
         TopologyTab* companion_source = find_tab(
@@ -748,14 +748,11 @@ TEST_CASE("shared topology creates terminal-free plugin panes and validates desc
 {
     int terminal_allocations = 0;
     TopologyService service("client-local-plugin", {
-        .create_server_terminal
-        = [&terminal_allocations](
-              const ServerTerminalTopologyLaunch&,
-              std::string&) -> std::optional<std::string> {
-            return "terminal-"
-                + std::to_string(++terminal_allocations);
-        },
-    });
+                                                       .create_server_terminal = [&terminal_allocations](const ServerTerminalTopologyLaunch&, std::string&) -> std::optional<std::string> {
+                                                           return "terminal-"
+                                                               + std::to_string(++terminal_allocations);
+                                                       },
+                                                   });
     const int allocations_before = terminal_allocations;
     const auto& space = service.snapshot().spaces.front();
     const auto& tab = space.tabs.front();
@@ -771,16 +768,15 @@ TEST_CASE("shared topology creates terminal-free plugin panes and validates desc
         .pane_domain = TopologyPaneDomain::ClientLocal,
         .client_host_kind = "plugin",
         .client_plugin_id
-            = "dev.draxul.spinning-triangle",
+        = "dev.draxul.spinning-triangle",
         .client_plugin_config_json
-            = R"({"paused":true})",
+        = R"({"paused":true})",
     };
     const auto response = service.handle(
         "topology.command", topology_command_to_json(split));
     REQUIRE(response.ok);
     CHECK(terminal_allocations == allocations_before);
-    const auto& plugin = service.snapshot().spaces.front()
-                             .tabs.front().panes.back();
+    const auto& plugin = service.snapshot().spaces.front().tabs.front().panes.back();
     CHECK(plugin.domain == TopologyPaneDomain::ClientLocal);
     CHECK(plugin.terminal_id.empty());
     CHECK(plugin.client_plugin_id
@@ -796,20 +792,6 @@ TEST_CASE("shared topology creates terminal-free plugin panes and validates desc
     CHECK_FALSE(rejected.ok);
     CHECK(service.snapshot().revision == revision_before);
     CHECK(terminal_allocations == allocations_before);
-}
-
-TEST_CASE("restored topology removes the legacy generated server shell name",
-    "[server][topology][persistence][migration]")
-{
-    TopologyService original("legacy-name", {});
-    TopologySnapshot legacy = original.snapshot();
-    auto& pane = legacy.spaces.front().tabs.front().panes.front();
-    pane.pane_id = "legacy-generated-pane-42";
-    pane.terminal_id = "legacy-generated-terminal-42";
-    pane.name = "Server Shell";
-
-    TopologyService restored(std::move(legacy), {});
-    CHECK(restored.snapshot().spaces.front().tabs.front().panes.front().name.empty());
 }
 
 TEST_CASE("clean server shell exit removes its shared pane for every client",
@@ -1336,7 +1318,7 @@ TEST_CASE("real server keeps terminal process and scrollback across a tab move",
     const TopologyPane source_pane = source_tab.panes.front();
 
     auto terminal = remote_client(
-        temp.path, "move-terminal", "fixed-epoch", "terminal");
+        temp.path, "move-terminal", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     REQUIRE(terminal.attach(error));
     const uint64_t generation_before
         = terminal.projection().version().generation;
@@ -1782,9 +1764,9 @@ TEST_CASE("server-owned shell exposes bounded client-independent scrollback page
     ServerRunGuard run_guard(server);
 
     auto first
-        = remote_client(temp.path, "scroll-a", "fixed-epoch", "terminal");
+        = remote_client(temp.path, "scroll-a", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     auto second
-        = remote_client(temp.path, "scroll-b", "fixed-epoch", "terminal");
+        = remote_client(temp.path, "scroll-b", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     std::string error;
     REQUIRE(first.attach(error));
     REQUIRE(second.attach(error));
@@ -1828,7 +1810,8 @@ TEST_CASE("server-owned shell exposes bounded client-independent scrollback page
 
     const auto metrics = ControlClient::request(
         namespaced_control_id(kServerControlId, temp.path), temp.path,
-        "terminal.metrics");
+        "terminal.metrics",
+        { { "terminal_id", std::string(kServerShellTerminalId) } });
     REQUIRE(metrics.ok);
     REQUIRE(metrics.result["sanitized"] == true);
     REQUIRE(metrics.result["delta_frames"].get<uint64_t>() > 0);
@@ -1855,7 +1838,7 @@ TEST_CASE("suspended remote terminal presentation avoids deltas and resumes from
     ServerRunGuard run_guard(server);
 
     auto client = remote_client(
-        temp.path, "suspend-controller", "fixed-epoch", "terminal");
+        temp.path, "suspend-controller", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     std::string error;
     REQUIRE(client.attach(error));
     REQUIRE(client.projection().is_controller("suspend-controller"));
@@ -1865,7 +1848,8 @@ TEST_CASE("suspended remote terminal presentation avoids deltas and resumes from
 
     auto metrics = ControlClient::request(
         namespaced_control_id(kServerControlId, temp.path), temp.path,
-        "terminal.metrics");
+        "terminal.metrics",
+        { { "terminal_id", std::string(kServerShellTerminalId) } });
     REQUIRE(metrics.ok);
     REQUIRE(metrics.result["active_subscribers"] == 0);
     REQUIRE(metrics.result["suspended_subscribers"] == 1);
@@ -1885,7 +1869,8 @@ TEST_CASE("suspended remote terminal presentation avoids deltas and resumes from
     {
         metrics = ControlClient::request(
             namespaced_control_id(kServerControlId, temp.path), temp.path,
-            "terminal.metrics");
+            "terminal.metrics",
+            { { "terminal_id", std::string(kServerShellTerminalId) } });
         REQUIRE(metrics.ok);
         if (metrics.result["avoided_delta_encodes"].get<uint64_t>() > 32)
         {
@@ -1906,7 +1891,7 @@ TEST_CASE("suspended remote terminal presentation avoids deltas and resumes from
         > version_before_suspend.sequence);
 
     auto verifier = remote_client(
-        temp.path, "suspend-verifier", "fixed-epoch", "terminal");
+        temp.path, "suspend-verifier", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     REQUIRE(verifier.attach(error));
     bool converged = false;
     for (int attempt = 0; attempt < 200; ++attempt)
@@ -1930,14 +1915,15 @@ TEST_CASE("suspended remote terminal presentation avoids deltas and resumes from
 
     metrics = ControlClient::request(
         namespaced_control_id(kServerControlId, temp.path), temp.path,
-        "terminal.metrics");
+        "terminal.metrics",
+        { { "terminal_id", std::string(kServerShellTerminalId) } });
     REQUIRE(metrics.ok);
     REQUIRE(metrics.result["active_subscribers"] == 2);
     REQUIRE(metrics.result["suspended_subscribers"] == 0);
     REQUIRE(metrics.result["resumes"] == 1);
 
     auto observer = remote_client(
-        temp.path, "suspend-observer", "fixed-epoch", "terminal");
+        temp.path, "suspend-observer", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     REQUIRE(observer.attach(error));
     REQUIRE(client.suspend(error, 4));
 #ifdef _WIN32
@@ -1952,7 +1938,8 @@ TEST_CASE("suspended remote terminal presentation avoids deltas and resumes from
     INFO(error);
     metrics = ControlClient::request(
         namespaced_control_id(kServerControlId, temp.path), temp.path,
-        "terminal.metrics");
+        "terminal.metrics",
+        { { "terminal_id", std::string(kServerShellTerminalId) } });
     REQUIRE(metrics.ok);
     REQUIRE(metrics.result["active_subscribers"] == 2);
     REQUIRE(metrics.result["suspended_subscribers"] == 1);
@@ -1979,7 +1966,7 @@ TEST_CASE("server-owned shell rejects unsupported launch kinds clearly",
     ServerRunGuard run_guard(server);
 
     auto client
-        = remote_client(temp.path, "invalid-shell", "fixed-epoch", "terminal");
+        = remote_client(temp.path, "invalid-shell", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     std::string error;
     REQUIRE_FALSE(client.attach(error));
     REQUIRE(client.last_error_code() == "process_start_failed");
@@ -2001,7 +1988,7 @@ TEST_CASE("remote alternate screen preserves Unicode and resize semantics",
     ServerRunGuard run_guard(server);
 
     auto client
-        = remote_client(temp.path, "alternate-a", "fixed-epoch", "terminal");
+        = remote_client(temp.path, "alternate-a", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     std::string error;
     REQUIRE(client.attach(error));
 #ifdef _WIN32

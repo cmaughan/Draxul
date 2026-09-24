@@ -883,10 +883,8 @@ bool App::initialize_chrome_host()
     }
 
     // A server-owned Session must create its first panes directly from the
-    // authoritative topology. Creating a temporary RemoteTerminalHost here
-    // would attach to the legacy default terminal identity before topology is
-    // known, which fails for restored Sessions whose surviving terminals have
-    // different stable IDs.
+    // authoritative topology. Creating a temporary RemoteTerminalHost before
+    // topology is known could attach it to the wrong stable terminal identity.
     if (!restored_session
         && !options_.enable_remote_topology
         && !create_initial_tab(window_->width_pixels(), diagnostics_host_->layout().terminal_height))
@@ -2873,9 +2871,6 @@ void App::update_diagnostics_panel()
             break;
         case RemoteSessionTransportKind::SessionPoll:
             panel.session_transport_mode = "session.poll";
-            break;
-        case RemoteSessionTransportKind::Legacy:
-            panel.session_transport_mode = "legacy";
             break;
         }
         panel.session_connection_phase

@@ -21,7 +21,7 @@ TEST_CASE("server-owned shell discovery converges in two agent clients",
 
     auto terminal = remote_client(
         temp.path, "agent-terminal", "fixed-epoch",
-        "terminal");
+        "terminal", std::string(kServerShellTerminalId));
     std::string error;
     REQUIRE(terminal.attach(error));
     INFO(error);
@@ -623,7 +623,7 @@ TEST_CASE("managed agents launch and restart without a UI",
         = restored_agent.result["route"]["pane_id"]
               .get<std::string>();
     REQUIRE_FALSE(restored_pane_id.empty());
-    CHECK(restored_pane_id != pane_id);
+    CHECK(restored_pane_id == pane_id);
 
     bool restored_environment = false;
     for (int attempt = 0;

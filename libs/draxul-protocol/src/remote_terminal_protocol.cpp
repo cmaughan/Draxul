@@ -630,6 +630,8 @@ std::optional<RemoteTerminalEvent> remote_terminal_event_from_json(
     if (!value.is_object()
         || !value.contains("kind") || !value["kind"].is_string()
         || !value.contains("version")
+        || !value.contains("process_running")
+        || !value["process_running"].is_boolean()
         || !value.contains("controller_client_id")
         || !value["controller_client_id"].is_string())
     {
@@ -645,15 +647,7 @@ std::optional<RemoteTerminalEvent> remote_terminal_event_from_json(
         return std::nullopt;
     }
     event.kind = *kind;
-    if (value.contains("process_running"))
-    {
-        if (!value["process_running"].is_boolean())
-        {
-            error = "Remote terminal process state is invalid.";
-            return std::nullopt;
-        }
-        event.process_running = value["process_running"].get<bool>();
-    }
+    event.process_running = value["process_running"].get<bool>();
     if (value.contains("process_id"))
     {
         if (!value["process_id"].is_number_unsigned())
@@ -776,6 +770,12 @@ std::optional<RemoteTerminalAttach> remote_terminal_attach_from_json(
     attach.pane.name = pane["name"].get<std::string>();
     attach.pane.execution_domain
         = pane["execution_domain"].get<std::string>();
+    if (!pane.contains("process_running")
+        || !pane["process_running"].is_boolean())
+    {
+        error = "Remote pane process state is invalid.";
+        return std::nullopt;
+    }
     if (pane.contains("process_id"))
     {
         if (!pane["process_id"].is_number_unsigned())
@@ -785,16 +785,8 @@ std::optional<RemoteTerminalAttach> remote_terminal_attach_from_json(
         }
         attach.pane.process_id = pane["process_id"].get<uint64_t>();
     }
-    if (pane.contains("process_running"))
-    {
-        if (!pane["process_running"].is_boolean())
-        {
-            error = "Remote pane process state is invalid.";
-            return std::nullopt;
-        }
-        attach.pane.process_running
-            = pane["process_running"].get<bool>();
-    }
+    attach.pane.process_running
+        = pane["process_running"].get<bool>();
     if (pane.contains("exit_code"))
     {
         int exit_code = 0;

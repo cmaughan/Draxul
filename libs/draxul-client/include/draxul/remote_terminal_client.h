@@ -75,9 +75,9 @@ public:
     bool read_scrollback(uint64_t offset_from_live, size_t max_rows,
         RemoteTerminalScrollbackPage& page, std::string& error);
 
-    // Applies transport-decoded state to the same projection used by the
-    // legacy attach/poll methods. Session-level transports use these narrow
-    // helpers so projection validation and dirty-state behavior stay shared.
+    // Applies transport-decoded state to the same projection used by direct
+    // control requests. Session-level transports use these narrow helpers so
+    // projection validation and dirty-state behavior stay shared.
     bool accept_attach(const RemoteTerminalAttach& attach,
         std::string& error,
         std::chrono::microseconds latency = {});

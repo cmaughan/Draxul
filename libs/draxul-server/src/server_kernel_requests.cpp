@@ -211,10 +211,11 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         auto hello = server_hello_from_json(request.params, parse_error);
         if (!hello)
             return ControlMethodResult::error("invalid_hello", std::move(parse_error));
-        if (hello->protocol_major != options.protocol_major)
+        if (hello->protocol_major != options.protocol_major
+            || hello->protocol_minor != options.protocol_minor)
         {
             return ControlMethodResult::error("incompatible_protocol",
-                "Client/server protocol major versions do not match.");
+                "Client/server protocol versions do not match.");
         }
 
         const bool token_capable = std::ranges::find(
@@ -243,8 +244,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         }
         ServerWelcome welcome{
             .protocol_major = options.protocol_major,
-            .protocol_minor = std::min(
-                options.protocol_minor, hello->protocol_minor),
+            .protocol_minor = options.protocol_minor,
             .server_pid = pid,
             .server_epoch = epoch_value,
             .build_version = options.build_version,
@@ -441,15 +441,17 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             SessionServiceNeed::None, {}, failure);
         if (!session)
             return failure;
-        std::string terminal_id
-            = std::string(kServerShellTerminalId);
-        if (request.params.is_object()
-            && request.params.contains("terminal_id")
-            && request.params["terminal_id"].is_string())
+        if (!request.params.is_object()
+            || !request.params.contains("terminal_id")
+            || !request.params["terminal_id"].is_string()
+            || request.params["terminal_id"].get_ref<const std::string&>().empty())
         {
-            terminal_id
-                = request.params["terminal_id"].get<std::string>();
+            return ControlMethodResult::error(
+                "invalid_terminal",
+                "Terminal requests require a stable terminal identity.");
         }
+        const std::string terminal_id
+            = request.params["terminal_id"].get<std::string>();
         const auto terminal = session->terminals.find(terminal_id);
         if (terminal == session->terminals.end())
         {

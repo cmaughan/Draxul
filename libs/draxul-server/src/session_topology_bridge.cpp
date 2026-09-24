@@ -137,19 +137,15 @@ std::optional<TopologyTab> restore_tab(
             error = "Session tab contains an invalid pane identity.";
             return std::nullopt;
         }
-        const std::string scoped_pane_id
-            = "pane-" + std::to_string(space_id)
-            + "-" + std::to_string(source.id)
-            + "-" + std::to_string(pane.leaf_id);
         if (!builder.panes.emplace(
-                              pane.leaf_id, scoped_pane_id)
+                              pane.leaf_id, pane.pane_id)
                 .second)
         {
             error = "Session tab contains an invalid pane identity.";
             return std::nullopt;
         }
         TopologyPane restored{
-            .pane_id = scoped_pane_id,
+            .pane_id = pane.pane_id,
             .name = pane.pane_name,
             .agent = pane.agent,
             .agent_session = pane.agent_session,

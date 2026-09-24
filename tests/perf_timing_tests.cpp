@@ -2,9 +2,6 @@
 
 #include <draxul/perf_timing.h>
 
-#include <chrono>
-#include <mutex>
-
 using namespace draxul;
 
 namespace
@@ -87,17 +84,6 @@ TEST_CASE("runtime perf scope overhead benchmark", "[.perf-benchmark]")
     };
 
     collector.set_enabled(false);
-    std::mutex legacy_mutex;
-    bool legacy_enabled = false;
-    BENCHMARK("legacy disabled scope shape")
-    {
-        const auto start = std::chrono::steady_clock::now();
-        std::lock_guard<std::mutex> lock(legacy_mutex);
-        return legacy_enabled
-            ? std::chrono::steady_clock::now() - start
-            : std::chrono::steady_clock::duration::zero();
-    };
-
     BENCHMARK("disabled scoped measurement")
     {
         ScopedPerfMeasure measurement(kBenchmarkTag);

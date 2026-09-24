@@ -112,8 +112,6 @@ public:
         std::string_view recovery_channel = "session");
     void accept_stream_topology_command_result(
         TopologyCommand command, ControlClientResult result);
-    void enable_legacy_polling();
-
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;

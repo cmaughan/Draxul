@@ -38,8 +38,6 @@ struct RemotePaneDescriptor
     std::string name;
     std::string execution_domain;
     uint64_t process_id = 0;
-    // Defaults live for compatibility with servers predating explicit
-    // process-state publication.
     bool process_running = true;
     std::optional<int> exit_code;
 

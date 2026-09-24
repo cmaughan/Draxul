@@ -246,22 +246,6 @@ def draxul_exe(bd: pathlib.Path, config: str) -> pathlib.Path:
     return bd / "draxul"
 
 
-def draxul_path(root: pathlib.Path) -> pathlib.Path:
-    """Legacy helper — probe common locations for the executable."""
-    if sys.platform.startswith("win"):
-        release = build_dir(root) / "Release" / "draxul.exe"
-        if release.exists():
-            return release
-        debug = build_dir(root) / "Debug" / "draxul.exe"
-        if debug.exists():
-            return debug
-        return release
-    bundle_exe = build_dir(root) / "draxul.app" / "Contents" / "MacOS" / "draxul"
-    if bundle_exe.exists():
-        return bundle_exe
-    return build_dir(root) / "draxul"
-
-
 # ---------------------------------------------------------------------------
 # Build helpers for the `run` command
 # ---------------------------------------------------------------------------
@@ -2252,7 +2236,7 @@ def cmd_score_shot_check(root: pathlib.Path) -> int:
 
 
 def ensure_built(root: pathlib.Path) -> int:
-    exe = draxul_path(root)
+    exe = draxul_exe(build_dir(root), "Release")
     if exe.exists():
         return 0
     rc, _, _, _ = _configure_and_build(root, "release", False, "ninja")

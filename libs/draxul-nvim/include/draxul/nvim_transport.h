@@ -20,7 +20,6 @@ public:
     NvimProcess();
     ~NvimProcess();
 
-    // Result remains contextually convertible to bool for legacy callers.
     Result<void, Error> spawn(const std::string& nvim_path = "nvim",
         const std::vector<std::string>& extra_args = {},
         const std::string& working_dir = {});
@@ -69,16 +68,6 @@ public:
     size_t notification_queue_depth() const;
     // True after an unexpected pipe close rather than requested shutdown.
     bool connection_failed() const;
-
-    // Compatibility factories retained for existing callers. Protocol-only
-    // code should use MpackValue::make_* so it does not require transport.
-    static MpackValue make_int(int64_t v);
-    static MpackValue make_uint(uint64_t v);
-    static MpackValue make_str(const std::string& v);
-    static MpackValue make_bool(bool v);
-    static MpackValue make_array(std::vector<MpackValue> v);
-    static MpackValue make_map(std::vector<std::pair<MpackValue, MpackValue>> v);
-    static MpackValue make_nil();
 
     // Once set, request() asserts that it is not called from this thread.
     void set_main_thread_id(std::thread::id id);

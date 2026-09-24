@@ -19,9 +19,9 @@ TEST_CASE("server-owned shell survives every client detaching and reconnecting",
     ServerRunGuard run_guard(server);
 
     auto controller
-        = remote_client(temp.path, "real-a", "fixed-epoch", "terminal");
+        = remote_client(temp.path, "real-a", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     auto observer
-        = remote_client(temp.path, "real-b", "fixed-epoch", "terminal");
+        = remote_client(temp.path, "real-b", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     std::string error;
     REQUIRE(controller.attach(error));
     INFO(error);
@@ -77,7 +77,7 @@ TEST_CASE("server-owned shell survives every client detaching and reconnecting",
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
 
     auto reconnected
-        = remote_client(temp.path, "real-c", "fixed-epoch", "terminal");
+        = remote_client(temp.path, "real-c", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     REQUIRE(reconnected.attach(error));
     INFO(error);
     REQUIRE(reconnected.projection().pane().process_id == process_id);
@@ -104,7 +104,7 @@ TEST_CASE("server-owned shell survives every client detaching and reconnecting",
     REQUIRE(reconnected.projection().pane().exit_code);
     CHECK(*reconnected.projection().pane().exit_code == 0);
     auto after_restart
-        = remote_client(temp.path, "real-d", "fixed-epoch", "terminal");
+        = remote_client(temp.path, "real-d", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     REQUIRE(after_restart.attach(error));
     REQUIRE(after_restart.projection().version().generation == generation + 1);
     REQUIRE(after_restart.projection().pane().process_id != 0);
@@ -134,7 +134,7 @@ TEST_CASE("binary shell output without subscribers leaves the server running",
     ServerRunGuard run_guard(server);
 
     auto client
-        = remote_client(temp.path, "binary-a", "fixed-epoch", "terminal");
+        = remote_client(temp.path, "binary-a", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     std::string error;
     REQUIRE(client.attach(error));
     const auto completed = temp.path / "binary-output-complete";
@@ -164,7 +164,7 @@ TEST_CASE("binary shell output without subscribers leaves the server running",
     REQUIRE(server.running());
 
     auto reconnected
-        = remote_client(temp.path, "binary-b", "fixed-epoch", "terminal");
+        = remote_client(temp.path, "binary-b", "fixed-epoch", "terminal", std::string(kServerShellTerminalId));
     REQUIRE(reconnected.attach(error));
     INFO(error);
 
@@ -768,7 +768,7 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
         restored_dynamic_pane_id = dynamic->pane_id;
         REQUIRE_FALSE(restored_dynamic_pane_id.empty());
         REQUIRE(restored_dynamic_pane_id
-            != dynamic_pane_id);
+            == dynamic_pane_id);
         REQUIRE(dynamic->agent);
         REQUIRE(dynamic->agent->instance_id
             == "persisted-agent");
@@ -1501,6 +1501,7 @@ TEST_CASE("server restores usable Spaces and checkpoints after partial restore",
     SpaceSnapshot broken = std::move(cloned->spaces.front());
     broken.id = saved->next_space_id++;
     broken.name = "Broken Space";
+    broken.tabs.front().pane_layout.panes.front().pane_id = "broken-pane";
     broken.tabs.front().pane_layout.panes.front().launch.remote_terminal_id.clear();
     saved->spaces.push_back(std::move(broken));
     REQUIRE(save_session_state_to_path(

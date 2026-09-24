@@ -43,11 +43,11 @@ struct RichTextAtlasSnapshot
     bool reset_pending = false;
 };
 
-class RichTextService : public IGlyphAtlas
+class RichTextService
 {
 public:
     RichTextService();
-    ~RichTextService() override;
+    ~RichTextService();
     RichTextService(const RichTextService&) = delete;
     RichTextService& operator=(const RichTextService&) = delete;
     RichTextService(RichTextService&& other) noexcept;
@@ -63,20 +63,6 @@ public:
     bool consume_any_atlas_reset();
     void clear_atlas_dirty(RichTextAtlasId atlas_id);
     void clear_all_atlas_dirty();
-
-    // Rich text styles are backed by separate TextService instances, so each
-    // style owns its own atlas. The IGlyphAtlas compatibility path remains
-    // bound to the base style's single backing TextService.
-    AtlasRegion resolve_cluster(const std::string& text, bool is_bold, bool is_italic) override;
-    int ligature_cell_span(const std::string& text, bool is_bold, bool is_italic) override;
-
-    bool atlas_dirty() const override;
-    bool consume_atlas_reset() override;
-    void clear_atlas_dirty() override;
-    const uint8_t* atlas_data() const override;
-    int atlas_width() const override;
-    int atlas_height() const override;
-    AtlasDirtyRect atlas_dirty_rect() const override;
 
 private:
     struct Impl;

@@ -26,7 +26,7 @@ RpcNotification make_notification(int sequence_number)
 {
     RpcNotification n;
     n.method = "redraw";
-    n.params = { NvimRpc::make_int(static_cast<int64_t>(sequence_number)) };
+    n.params = { MpackValue::make_int(static_cast<int64_t>(sequence_number)) };
     return n;
 }
 
@@ -58,7 +58,7 @@ TEST_CASE("rpc backpressure: NvimRpc drain_notifications returns empty when noth
     INFO("second drain on still-empty queue returns empty vector");
     REQUIRE(second.empty());
 
-    rpc.request("test_method", { NvimRpc::make_int(1) });
+    rpc.request("test_method", { MpackValue::make_int(1) });
     rpc.shutdown();
     process.shutdown();
 }
@@ -79,7 +79,7 @@ TEST_CASE("rpc backpressure: NvimRpc second drain after first drain returns empt
     INFO("rpc initializes");
     REQUIRE(rpc.initialize(process));
 
-    rpc.request("test_method", { NvimRpc::make_int(1) });
+    rpc.request("test_method", { MpackValue::make_int(1) });
 
     auto first = rpc.drain_notifications();
     INFO("first drain gets the queued notification");
@@ -110,7 +110,7 @@ TEST_CASE("rpc backpressure: NvimRpc drain_notifications returns all queued item
     INFO("rpc initializes");
     REQUIRE(rpc.initialize(process));
 
-    RpcResult result = rpc.request("test_method", { NvimRpc::make_int(1) });
+    RpcResult result = rpc.request("test_method", { MpackValue::make_int(1) });
     auto notifications = rpc.drain_notifications();
 
     rpc.shutdown();
@@ -141,7 +141,7 @@ TEST_CASE("rpc backpressure: NvimRpc drains 100 notifications without losing any
     INFO("rpc initializes");
     REQUIRE(rpc.initialize(process));
 
-    RpcResult result = rpc.request("test_method", { NvimRpc::make_int(1) });
+    RpcResult result = rpc.request("test_method", { MpackValue::make_int(1) });
 
     // The reader thread may still be delivering the last notifications;
     // drain in a loop until all 100 have arrived or a deadline expires.
@@ -217,7 +217,7 @@ TEST_CASE("rpc backpressure: NvimRpc concurrent drain consumer and reader thread
 
     // Main thread sends the request; the fake server streams 100
     // notifications then responds.
-    RpcResult result = rpc.request("test_method", { NvimRpc::make_int(1) });
+    RpcResult result = rpc.request("test_method", { MpackValue::make_int(1) });
 
     // Wait for all expected notifications to arrive.
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -271,7 +271,7 @@ TEST_CASE("rpc backpressure: NvimRpc on_notification_available fires for each no
     INFO("rpc initializes");
     REQUIRE(rpc.initialize(process, std::move(cb)));
 
-    RpcResult result = rpc.request("test_method", { NvimRpc::make_int(1) });
+    RpcResult result = rpc.request("test_method", { MpackValue::make_int(1) });
 
     // Wait for all expected callbacks to fire.
     constexpr int kExpected = 100;
@@ -318,7 +318,7 @@ TEST_CASE("rpc WI07: callbacks supplied at initialize() fire for immediate notif
     };
     cb.on_request = [&](const std::string&, const std::vector<MpackValue>&) {
         request_count.fetch_add(1, std::memory_order_relaxed);
-        return NvimRpc::make_nil();
+        return MpackValue::make_nil();
     };
 
     NvimRpc rpc;
@@ -326,7 +326,7 @@ TEST_CASE("rpc WI07: callbacks supplied at initialize() fire for immediate notif
     REQUIRE(rpc.initialize(process, std::move(cb)));
 
     // Trigger the fake server's notification burst.
-    RpcResult result = rpc.request("test_method", { NvimRpc::make_int(1) });
+    RpcResult result = rpc.request("test_method", { MpackValue::make_int(1) });
 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (notify_count.load(std::memory_order_relaxed) == 0
@@ -361,7 +361,7 @@ TEST_CASE("rpc backpressure: NvimRpc drain_notifications after shutdown returns 
     INFO("rpc initializes");
     REQUIRE(rpc.initialize(process));
 
-    rpc.request("test_method", { NvimRpc::make_int(1) });
+    rpc.request("test_method", { MpackValue::make_int(1) });
 
     // Shut down before draining.
     rpc.shutdown();
@@ -401,7 +401,7 @@ TEST_CASE("rpc backpressure: NvimRpc enqueue-then-drain in sequence returns FIFO
     INFO("rpc initializes");
     REQUIRE(rpc.initialize(process));
 
-    RpcResult result = rpc.request("test_method", { NvimRpc::make_int(1) });
+    RpcResult result = rpc.request("test_method", { MpackValue::make_int(1) });
 
     constexpr int kExpected = 100;
     std::vector<RpcNotification> all;

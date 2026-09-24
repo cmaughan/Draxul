@@ -33,13 +33,13 @@ TEST_CASE("server connection tokens bind active client identities",
     REQUIRE_FALSE(unnegotiated.ok);
     CHECK(unnegotiated.error_code == "handshake_required");
 
-    const auto legacy_hello = request(
+    const auto incomplete_hello = request(
         "server.hello",
         server_hello_to_json({
-            .client_id = "legacy-client",
+            .client_id = "incomplete-client",
         }));
-    REQUIRE_FALSE(legacy_hello.ok);
-    CHECK(legacy_hello.error_code == "incompatible_protocol");
+    REQUIRE_FALSE(incomplete_hello.ok);
+    CHECK(incomplete_hello.error_code == "invalid_hello");
 
     auto options = probe_options(temp.path);
     options.client_id = "bound-client";
@@ -332,7 +332,7 @@ TEST_CASE("two remote terminal clients converge through control takeover and rec
     REQUIRE(client_b.poll(changed, error));
 
     auto reconnected_a = remote_client(
-        temp.path, "client-a", "fixed-epoch", "fake",
+        temp.path, "client-a", "fixed-epoch", "fake", {},
         client_a.options().recovery);
     REQUIRE(reconnected_a.attach(error));
     INFO(error);

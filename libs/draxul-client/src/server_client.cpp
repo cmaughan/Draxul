@@ -631,12 +631,13 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             .error_message = std::move(parse_error),
         };
     }
-    if (welcome->protocol_major != options.protocol_major)
+    if (welcome->protocol_major != options.protocol_major
+        || welcome->protocol_minor != options.protocol_minor)
     {
         return {
             .state = ServerProbeState::Incompatible,
             .error_code = "incompatible_protocol",
-            .error_message = "Client/server protocol major versions do not match.",
+            .error_message = "Client/server protocol versions do not match.",
         };
     }
     if (welcome->connection_token.empty()

@@ -290,7 +290,7 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
         probe.welcome->server_epoch,
         probe.welcome->connection_token));
     auto attached_client = remote_client(
-        temp.path, "unit-client", "fixed-epoch", "fake",
+        temp.path, "unit-client", "fixed-epoch", "fake", {},
         recovery);
     {
         const bool attached = attached_client.attach(agent_error);

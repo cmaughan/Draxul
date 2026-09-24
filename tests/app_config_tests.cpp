@@ -343,7 +343,7 @@ TEST_CASE("schema-driven config parsing preserves range and literal semantics", 
     const AppConfig defaults;
 
     CHECK(config.scroll_speed == defaults.scroll_speed);
-    CHECK(config.palette_bg_alpha == defaults.palette_bg_alpha);
+    CHECK(config.palette_bg_alpha == 1.0f);
     CHECK(config.focus_border_width == 1.0f);
     CHECK(config.toast_duration_s == 60.0f);
     CHECK(config.chord_timeout_ms == 100);
@@ -1157,7 +1157,7 @@ TEST_CASE("app config complete schema round-trips every scalar and nested table"
     original.markdown.margin_columns = 4.5f;
 
     using ChromeMember = Color ChromeTheme::*;
-    const std::array<ChromeMember, 22> chrome_members = {
+    const std::array<ChromeMember, 20> chrome_members = {
         &ChromeTheme::tab_bar_bg,
         &ChromeTheme::tab_active_fg,
         &ChromeTheme::tab_inactive_fg,
@@ -1166,10 +1166,8 @@ TEST_CASE("app config complete schema round-trips every scalar and nested table"
         &ChromeTheme::tab_editing_bg,
         &ChromeTheme::divider,
         &ChromeTheme::focus_border,
-        &ChromeTheme::status_bar_bg,
         &ChromeTheme::status_bar_fg,
         &ChromeTheme::status_focused_accent_bg,
-        &ChromeTheme::status_inactive_accent_bg,
         &ChromeTheme::status_editing_bg,
         &ChromeTheme::resource_pill_bg,
         &ChromeTheme::resource_pill_fg,

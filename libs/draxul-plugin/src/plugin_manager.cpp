@@ -155,7 +155,6 @@ std::filesystem::path process_plugin_runtime_directory()
 std::optional<std::filesystem::path> published_manifest(
     const std::filesystem::path& plugin_directory)
 {
-    const auto legacy = plugin_directory / "plugin.toml";
     std::error_code error;
     const auto pointer = plugin_directory / "current.json";
     if (std::filesystem::is_regular_file(pointer, error))
@@ -178,13 +177,10 @@ std::optional<std::filesystem::path> published_manifest(
         catch (...)
         {
         }
-        // Once a publisher marker exists it is authoritative. Returning it
-        // makes discovery surface an invalid manifest instead of silently
-        // falling back to an older, potentially unrelated legacy package.
+        // The publisher marker is authoritative. Returning it makes discovery
+        // surface an invalid package instead of silently ignoring corruption.
         return pointer;
     }
-    if (std::filesystem::is_regular_file(legacy, error))
-        return legacy;
     return std::nullopt;
 }
 
@@ -288,10 +284,7 @@ std::vector<PluginManifest> PluginManager::scan_tier(
     for (const auto& path : manifests)
     {
         PluginManifest manifest = parse_manifest(path, user_installed);
-        if (path.parent_path().parent_path().filename() == "generations")
-            manifest.package_generation = path.parent_path().filename().string();
-        else
-            manifest.package_generation = "legacy";
+        manifest.package_generation = path.parent_path().filename().string();
         const auto existing = ids.find(manifest.id);
         if (!manifest.id.empty() && existing != ids.end())
         {

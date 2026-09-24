@@ -140,7 +140,7 @@ struct TopologyCommand
     std::string space_id;
     std::string tab_id;
     // MovePane keeps space_id/tab_id as the source route. Empty destination
-    // fields retain the legacy same-tab behavior.
+    // fields select the source tab.
     std::string destination_space_id;
     std::string destination_tab_id;
     std::string pane_id;

@@ -13,6 +13,7 @@
 #include <draxul/unavailable_host.h>
 
 #include <charconv>
+#include <unordered_set>
 
 namespace draxul
 {
@@ -102,11 +103,6 @@ HostLaunchOptions restore_launch_options(const PaneManager::SavedLaunchOptions& 
 float imgui_font_size_from_metrics(const FontMetrics& metrics)
 {
     return static_cast<float>(metrics.ascender + metrics.descender);
-}
-
-std::string legacy_pane_id_for_leaf(LeafId leaf_id)
-{
-    return "pane-" + std::to_string(static_cast<int>(leaf_id));
 }
 
 bool parse_generated_pane_id(std::string_view text, uint64_t* value)
@@ -751,9 +747,13 @@ bool PaneManager::restore_layout(
 
         HostLaunchOptions launch = restore_launch_options(pane.launch, deps_);
         const HostLaunchOptions persisted_launch = launch;
-        pane_ids_[pane.leaf_id] = pane.pane_id.empty()
-            ? legacy_pane_id_for_leaf(pane.leaf_id)
-            : pane.pane_id;
+        if (pane.pane_id.empty())
+        {
+            error_ = "Saved session pane is missing its stable identity.";
+            shutdown();
+            return false;
+        }
+        pane_ids_[pane.leaf_id] = pane.pane_id;
         uint64_t parsed_id = 0;
         if (parse_generated_pane_id(pane_ids_[pane.leaf_id], &parsed_id))
             next_pane_serial_ = std::max(next_pane_serial_, parsed_id + 1);
@@ -842,12 +842,23 @@ bool PaneManager::reconcile_projected_layout(
     }
 
     std::unordered_map<LeafId, const PaneSnapshot*> projected;
+    std::unordered_set<std::string> pane_ids;
     for (const PaneSnapshot& pane : state.panes)
     {
         if (pane.leaf_id == kInvalidLeaf
             || !projected.emplace(pane.leaf_id, &pane).second)
         {
             error_ = "Projected layout contains duplicate pane identities.";
+            return false;
+        }
+        if (pane.pane_id.empty())
+        {
+            error_ = "Projected pane is missing its stable identity.";
+            return false;
+        }
+        if (!pane_ids.insert(pane.pane_id).second)
+        {
+            error_ = "Projected layout contains duplicate stable pane identities.";
             return false;
         }
     }
@@ -932,9 +943,7 @@ bool PaneManager::reconcile_projected_layout(
 
     for (const auto& [leaf, pane] : projected)
     {
-        pane_ids_[leaf] = pane->pane_id.empty()
-            ? legacy_pane_id_for_leaf(leaf)
-            : pane->pane_id;
+        pane_ids_[leaf] = pane->pane_id;
         if (pane->pane_name.empty())
             pane_user_names_.erase(leaf);
         else
