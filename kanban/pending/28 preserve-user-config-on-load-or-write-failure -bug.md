@@ -23,3 +23,4 @@ Startup and shutdown treat an unreadable or malformed `config.toml` as defaults.
 - Atomic saves preserve symlink targets and POSIX file permissions. Both `AppConfig` and `ConfigDocument` use the same writer.
 - macOS validation: core aggregate, 25/25 CTest entries passed (42.49s); Debug same-cache smoke passed (6.7s); Release build and startup smoke passed.
 - Windows validation is pending CI because this host is macOS.
+- CI run: https://github.com/cmaughan/Draxul/actions/runs/35987183475. Both hosted jobs stopped during `actions/checkout` because the workflow token cannot read the private `cmaughan/draxul-pcbview` submodule; no compilation or tests ran. There is no submodule access secret configured for this repository. Keep the Windows gate open until checkout credentials are supplied and CI reruns successfully.
