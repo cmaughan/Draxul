@@ -44,3 +44,7 @@ the rebuilt Release app passed `--smoke-test`. The default `py do.py smoke
 --skip-build` exceeded its 30-second guard while loading the existing
 nine-pane shared Session; the same Debug binary completed that startup with
 a 90-second bound.
+
+[Build workflow run 35989867854](https://github.com/cmaughan/Draxul/actions/runs/35989867854)
+stopped in both hosted jobs during checkout because the workflow token cannot
+read the private `draxul-pcbview` submodule. macOS storage execution remains open.

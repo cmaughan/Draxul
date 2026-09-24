@@ -45,3 +45,7 @@ seconds, and the rebuilt Release app passed `--smoke-test`. The default
 `py do.py smoke --skip-build` timed out at 30 seconds while loading the
 existing nine-pane shared Session; the same Debug binary finished that
 startup with a 90-second bound. macOS CI is still pending.
+
+[Build workflow run 35989867854](https://github.com/cmaughan/Draxul/actions/runs/35989867854)
+stopped in both hosted jobs during checkout because the workflow token cannot
+read the private `draxul-pcbview` submodule. macOS config/font execution remains open.

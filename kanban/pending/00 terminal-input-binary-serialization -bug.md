@@ -35,3 +35,6 @@ Legacy mouse coordinates can contain `0x80`, and paste chunking can split UTF-8 
   Release app passed `--smoke-test`. The default `py do.py smoke --skip-build`
   timed out at 30 seconds while loading the existing nine-pane shared Session;
   an identical Debug smoke with a 90-second bound completed successfully.
+- [Build workflow run 35989867854](https://github.com/cmaughan/Draxul/actions/runs/35989867854)
+  stopped in both hosted jobs during checkout because the workflow token cannot
+  read the private `draxul-pcbview` submodule. macOS transport execution remains open.
