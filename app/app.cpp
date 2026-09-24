@@ -344,6 +344,9 @@ bool App::initialize()
     bool ok = time_step("Config", [this]() {
         if (options_.load_user_config)
         {
+            std::error_code exists_error;
+            user_config_file_seen_ = std::filesystem::exists(
+                ConfigDocument::default_path(), exists_error) || bool(exists_error);
             config_ = AppConfig::load();
             config_document_ = ConfigDocument::load();
         }
@@ -5788,24 +5791,58 @@ void App::shutdown()
     {
         init_completed_ = false; // prevent double-save on repeated shutdown() calls
         AppConfig config_to_save = config_;
+        ConfigDocument document_to_save = config_document_;
+        bool can_save_config = true;
         if (options_.load_user_config)
         {
-            config_to_save = AppConfig::load();
-            config_document_ = ConfigDocument::load();
+            const std::filesystem::path path = ConfigDocument::default_path();
+            std::error_code exists_error;
+            const bool file_exists = std::filesystem::exists(path, exists_error);
+            if (exists_error || (user_config_file_seen_ && !file_exists))
+            {
+                DRAXUL_LOG_WARN(LogCategory::App,
+                    "Skipping config save because the previously loaded file is unavailable: %s",
+                    path.string().c_str());
+                can_save_config = false;
+            }
+            else
+            {
+                auto loaded_config = load_app_config_from_path_checked(path);
+                auto loaded_document = load_config_document_from_path_checked(path);
+                if (!loaded_config || !loaded_document)
+                {
+                    const std::string& reason = !loaded_config
+                        ? loaded_config.error().message
+                        : loaded_document.error().message;
+                    DRAXUL_LOG_WARN(LogCategory::App,
+                        "Skipping config save to preserve the existing file: %s",
+                        reason.c_str());
+                    can_save_config = false;
+                }
+                else
+                {
+                    config_to_save = std::move(*loaded_config);
+                    document_to_save = std::move(*loaded_document);
+                }
+            }
         }
-        auto [window_w, window_h] = window_->size_logical();
-        if (window_w > 0 && window_h > 0)
+        if (can_save_config)
         {
-            config_to_save.window_width = window_w;
-            config_to_save.window_height = window_h;
+            auto [window_w, window_h] = window_->size_logical();
+            if (window_w > 0 && window_h > 0)
+            {
+                config_to_save.window_width = window_w;
+                config_to_save.window_height = window_h;
+            }
+            config_to_save.font_size = text_service_.point_size();
+            config_to_save.space_sidebar_columns = config_.space_sidebar_columns;
+            config_to_save.markdown = config_.markdown;
+            config_to_save.font_path = text_service_.primary_font_path();
+            config_ = config_to_save;
+            document_to_save.merge_core_config(config_to_save);
+            document_to_save.save();
+            config_document_ = std::move(document_to_save);
         }
-        config_to_save.font_size = text_service_.point_size();
-        config_to_save.space_sidebar_columns = config_.space_sidebar_columns;
-        config_to_save.markdown = config_.markdown;
-        config_to_save.font_path = text_service_.primary_font_path();
-        config_ = config_to_save;
-        config_document_.merge_core_config(config_to_save);
-        config_document_.save();
     }
 
     text_service_.shutdown();

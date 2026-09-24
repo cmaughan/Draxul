@@ -43,4 +43,9 @@ private:
 [[nodiscard]] Result<ConfigDocument, Error> load_config_document_from_path_checked(
     const std::filesystem::path& path);
 
+// Write a complete TOML document beside the destination, then replace it in
+// one operation. A failed write leaves the existing config intact.
+[[nodiscard]] Result<void, Error> write_config_toml_atomically(
+    const std::filesystem::path& path, std::string_view content);
+
 } // namespace draxul

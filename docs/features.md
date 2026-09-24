@@ -757,6 +757,9 @@ Key syntax: modifiers `Ctrl`/`Control`, `Shift`, `Alt`, `Super`/`Meta`/`Gui` (ca
 ## Configuration (config.toml)
 
 Draxul reads `config.toml` on startup and creates it with defaults on first save if it does not exist.
+When closing, Draxul rereads the file so valid external edits are preserved. If
+the file has become invalid or unavailable, Draxul skips saving rather than
+replacing it with defaults. Successful saves replace the file atomically.
 
 | Platform | Path |
 |----------|------|

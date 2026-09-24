@@ -307,6 +307,7 @@ private:
     std::unique_ptr<MacOsMenu> macos_menu_;
 #endif
     bool init_completed_ = false;
+    bool user_config_file_seen_ = false;
     bool running_ = false;
     bool pending_window_activation_ = true;
     bool saw_frame_ = false;

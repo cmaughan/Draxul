@@ -12,17 +12,20 @@
 #include "support/fake_window.h"
 #include "support/home_dir_redirect.h"
 #include "support/temp_dir.h"
+#include "support/test_support.h"
 
 #include <draxul/chrome_layout.h>
 #include "session_state.h"
 
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include <atomic>
 #include <catch2/catch_all.hpp>
 #include <draxul/app_config.h>
 #include <draxul/control_plane.h>
 #include <draxul/host.h>
 #include <draxul/http/http_client.h>
+#include <draxul/log.h>
 #include <draxul/server_protocol.h>
 #include <draxul/topology_protocol.h>
 #include <filesystem>
@@ -860,6 +863,80 @@ TEST_CASE("app smoke: reload_config action reloads user config from disk", "[app
     CHECK(g_last_reload_host->last_config().scroll_speed == Catch::Approx(2.5f));
 
     app.shutdown();
+}
+
+TEST_CASE("app smoke: shutdown preserves a malformed user config", "[app_smoke][config]")
+{
+    if (!std::filesystem::exists(draxul::tests::bundled_font_path()))
+        SKIP("bundled font not found");
+
+    TempDir temp("draxul-preserve-bad-config");
+    HomeDirRedirect redir(temp.path);
+    std::filesystem::create_directories(redir.config_path.parent_path());
+    {
+        std::ofstream out(redir.config_path);
+        out << "weather_location = \"York, UK\"\n";
+    }
+
+    AppOptions opts = make_smoke_options();
+    opts.load_user_config = true;
+    opts.save_user_config = true;
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+
+    // An external editor can briefly leave an incomplete TOML file while the
+    // app is open. The shutdown save must not turn that file into defaults.
+    const std::string incomplete = "weather_location = \"York, UK\"\n[broken\n";
+    {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        out << incomplete;
+    }
+    ScopedLogCapture capture;
+    app.shutdown();
+
+    CHECK(draxul::tests::read_file(redir.config_path) == incomplete);
+    CHECK(std::ranges::any_of(capture.records, [](const LogRecord& record) {
+        return record.message.find("Skipping config save to preserve the existing file")
+            != std::string::npos;
+    }));
+}
+
+TEST_CASE("app smoke: shutdown preserves external config edits and does not recreate a vanished file",
+    "[app_smoke][config]")
+{
+    if (!std::filesystem::exists(draxul::tests::bundled_font_path()))
+        SKIP("bundled font not found");
+
+    TempDir temp("draxul-preserve-config-edits");
+    HomeDirRedirect redir(temp.path);
+    std::filesystem::create_directories(redir.config_path.parent_path());
+    {
+        std::ofstream out(redir.config_path);
+        out << "weather_location = \"York, UK\"\n";
+    }
+
+    AppOptions opts = make_smoke_options();
+    opts.load_user_config = true;
+    opts.save_user_config = true;
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+
+    // A valid edit made while the app is open must win over its cached copy.
+    {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        out << "weather_location = \"London, UK\"\n";
+    }
+    app.shutdown();
+    CHECK(AppConfig::load_from_path(redir.config_path).weather_location == "London, UK");
+
+    AppOptions second_opts = make_smoke_options();
+    second_opts.load_user_config = true;
+    second_opts.save_user_config = true;
+    App second_app(std::move(second_opts));
+    REQUIRE(second_app.initialize());
+    std::filesystem::remove(redir.config_path);
+    second_app.shutdown();
+    CHECK_FALSE(std::filesystem::exists(redir.config_path));
 }
 
 TEST_CASE("app smoke: closing the window exits and preserves file-backed session state",

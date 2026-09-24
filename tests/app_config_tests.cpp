@@ -12,6 +12,7 @@
 #include <catch2/catch_all.hpp>
 #include <draxul/log.h>
 #include <fstream>
+#include <iterator>
 #include <limits>
 
 using namespace draxul;
@@ -572,6 +573,53 @@ TEST_CASE("app config save logs a warning when the target path is not writable",
     INFO("write failures should be logged");
     REQUIRE(contains_message(capture.records, "Failed to save config to"));
 }
+
+TEST_CASE("atomic config replacement leaves the existing destination intact on failure", "[config]")
+{
+    TempDir temp("draxul-config-replace-failure");
+    const auto destination = temp.path / "config.toml";
+    std::filesystem::create_directory(destination);
+    const auto existing = destination / "existing-content";
+    {
+        std::ofstream out(existing);
+        out << "keep this";
+    }
+
+    const auto saved = write_config_toml_atomically(destination,
+        "weather_location = \"York, UK\"\n");
+    CHECK_FALSE(saved);
+    CHECK(draxul::tests::read_file(existing) == "keep this");
+    CHECK(std::distance(std::filesystem::directory_iterator(temp.path),
+              std::filesystem::directory_iterator{}) == 1);
+}
+
+#ifndef _WIN32
+TEST_CASE("atomic config replacement preserves symlinks and private permissions", "[config]")
+{
+    TempDir temp("draxul-config-symlink");
+    const auto target = temp.path / "actual-config.toml";
+    const auto link = temp.path / "config.toml";
+    {
+        std::ofstream out(target);
+        out << "weather_location = \"York, UK\"\n";
+    }
+    std::filesystem::permissions(target,
+        std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+        std::filesystem::perm_options::replace);
+    std::filesystem::create_symlink(target, link);
+
+    ConfigDocument document;
+    document.root().insert_or_assign("weather_location", "London, UK");
+    document.save_to_path(link);
+
+    CHECK(std::filesystem::is_symlink(std::filesystem::symlink_status(link)));
+    CHECK(AppConfig::load_from_path(target).weather_location == "London, UK");
+    const auto permissions = std::filesystem::status(target).permissions();
+    CHECK((permissions & (std::filesystem::perms::group_all
+                             | std::filesystem::perms::others_all))
+        == std::filesystem::perms::none);
+}
+#endif
 
 TEST_CASE("app config overrides shadow only the explicitly provided fields", "[config]")
 {

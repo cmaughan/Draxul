@@ -1,6 +1,7 @@
 #include "config_schema_driver.h"
 
 #include <draxul/app_config_types.h>
+#include <draxul/config_document.h>
 #include <draxul/config_schema.h>
 #include <draxul/gui_actions.h>
 #include <draxul/keybinding_parser.h>
@@ -16,7 +17,6 @@
 #include <cstdlib>
 #include <draxul/log.h>
 #include <filesystem>
-#include <fstream>
 #include <optional>
 #include <sstream>
 
@@ -492,28 +492,9 @@ Result<AppConfig, Error> load_app_config_from_path_checked(const std::filesystem
 void AppConfig::save_to_path(const std::filesystem::path& path) const
 {
     PERF_MEASURE();
-    try
-    {
-        std::filesystem::create_directories(path.parent_path());
-        std::ofstream out(path, std::ios::trunc);
-        if (!out)
-        {
-            DRAXUL_LOG_WARN(LogCategory::App, "Failed to open config for writing: %s", path.string().c_str());
-            return;
-        }
-
-        out << serialize();
-        if (!out)
-            DRAXUL_LOG_WARN(LogCategory::App, "Failed to write config to %s", path.string().c_str());
-    }
-    catch (const std::filesystem::filesystem_error& ex)
-    {
-        DRAXUL_LOG_WARN(LogCategory::App, "Failed to save config to %s: %s", path.string().c_str(), ex.what());
-    }
-    catch (const std::ios_base::failure& ex)
-    {
-        DRAXUL_LOG_WARN(LogCategory::App, "Failed to save config to %s: %s", path.string().c_str(), ex.what());
-    }
+    auto saved = write_config_toml_atomically(path, serialize());
+    if (!saved)
+        DRAXUL_LOG_WARN(LogCategory::App, "%s", saved.error().message.c_str());
 }
 
 void apply_overrides(AppConfig& config, const AppConfigOverrides& overrides)
