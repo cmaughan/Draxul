@@ -891,10 +891,11 @@ TEST_CASE("app smoke: shutdown preserves a malformed user config", "[app_smoke][
         std::ofstream out(redir.config_path, std::ios::trunc);
         out << incomplete;
     }
+    const std::string incomplete_on_disk = draxul::tests::read_file(redir.config_path);
     ScopedLogCapture capture;
     app.shutdown();
 
-    CHECK(draxul::tests::read_file(redir.config_path) == incomplete);
+    CHECK(draxul::tests::read_file(redir.config_path) == incomplete_on_disk);
     CHECK(std::ranges::any_of(capture.records, [](const LogRecord& record) {
         return record.message.find("Skipping config save to preserve the existing file")
             != std::string::npos;
@@ -915,6 +916,7 @@ TEST_CASE("app smoke: malformed startup config stays intact after defaulted star
         std::ofstream out(redir.config_path);
         out << malformed;
     }
+    const std::string malformed_on_disk = draxul::tests::read_file(redir.config_path);
 
     AppOptions opts = make_smoke_options();
     opts.load_user_config = true;
@@ -926,7 +928,7 @@ TEST_CASE("app smoke: malformed startup config stays intact after defaulted star
         return record.message.find("Failed to parse config from") != std::string::npos;
     }));
     app.shutdown();
-    CHECK(draxul::tests::read_file(redir.config_path) == malformed);
+    CHECK(draxul::tests::read_file(redir.config_path) == malformed_on_disk);
 }
 
 TEST_CASE("app smoke: shutdown preserves external config edits and does not recreate a vanished file",

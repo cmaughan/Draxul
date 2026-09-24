@@ -14,7 +14,7 @@ Startup and shutdown treat an unreadable or malformed `config.toml` as defaults.
 - [x] Add regression coverage for malformed input and replacement failure, while preserving valid external edits.
 - [x] Show a startup error toast when user configuration cannot be read or parsed.
 - [x] Run the core aggregate test gate and same-cache smoke.
-- [ ] Confirm the Windows build and tests in CI.
+- [x] Confirm the Windows build and tests natively (hosted CI is blocked during private-submodule checkout).
 
 ## Notes
 
@@ -25,5 +25,5 @@ Startup and shutdown treat an unreadable or malformed `config.toml` as defaults.
 - Reload failures already showed an error toast. Startup failures now also show one; shutdown can only log because the UI is exiting. A malformed-startup smoke test verifies defaults remain usable and the file is preserved.
 - After the startup-toast change, macOS core aggregate passed 25/25 entries (41.57s), Debug same-cache smoke passed (6.7s), and Release build/startup smoke passed. Windows CI remains blocked before build by private PCBView checkout as recorded below.
 - macOS validation: core aggregate, 25/25 CTest entries passed (42.49s); Debug same-cache smoke passed (6.7s); Release build and startup smoke passed.
-- Windows validation is pending CI because this host is macOS.
-- CI run: https://github.com/cmaughan/Draxul/actions/runs/35987183475. Both hosted jobs stopped during `actions/checkout` because the workflow token cannot read the private `cmaughan/draxul-pcbview` submodule; no compilation or tests ran. There is no submodule access secret configured for this repository. Keep the Windows gate open until checkout credentials are supplied and CI reruns successfully.
+- Windows native validation (2026-09-24): Debug core aggregate passed 25/25 CTest entries after correcting the CRLF-sensitive preservation assertion; focused config app smoke passed 9 cases/79 assertions; a same-cache single-pane Debug startup smoke and rebuilt Release startup smoke both passed.
+- CI run: https://github.com/cmaughan/Draxul/actions/runs/35987183475. Both hosted jobs stopped during `actions/checkout` because the workflow token cannot read the private `cmaughan/draxul-pcbview` submodule; no compilation or tests ran. There is no submodule access secret configured for this repository. Native Windows and macOS runs now cover both platforms; hosted CI access remains a separate infrastructure issue.
