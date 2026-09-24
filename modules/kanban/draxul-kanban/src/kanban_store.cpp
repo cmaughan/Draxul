@@ -633,6 +633,7 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
             }
         }
     }
+    arrange_standard_columns(board.columns);
 
     return board;
 }
@@ -711,6 +712,8 @@ KanbanBoard load_kanban_workspace(
             }
         }
     }
+
+    arrange_standard_columns(workspace.columns);
 
     return workspace;
 }

@@ -25,11 +25,34 @@ TEST_CASE("kanban card icons are exact UTF-8 byte strings", "[kanban][board]")
 
 TEST_CASE("kanban columns sort into preferred first-load order", "[kanban][board]")
 {
-    std::vector<std::string> names{"done", "pending", "ice-box", "review"};
+    std::vector<std::string> names{"done", "review", "pending", "backlog", "ice-box"};
 
     sort_columns_for_first_load(names);
 
-    REQUIRE(names == std::vector<std::string>{"ice-box", "pending", "review", "done"});
+    REQUIRE(names == std::vector<std::string>{"ice-box", "pending", "done", "backlog", "review"});
+}
+
+TEST_CASE("kanban standard columns precede custom columns without reordering them",
+    "[kanban][board]")
+{
+    std::vector<KanbanColumn> columns{
+        KanbanColumn{.name = "review"},
+        KanbanColumn{.name = "done"},
+        KanbanColumn{.name = "backlog"},
+        KanbanColumn{.name = "ice-box"},
+        KanbanColumn{.name = "pending"},
+    };
+
+    arrange_standard_columns(columns);
+
+    REQUIRE(std::vector<std::string>{
+                columns[0].name,
+                columns[1].name,
+                columns[2].name,
+                columns[3].name,
+                columns[4].name,
+            }
+        == std::vector<std::string>{"ice-box", "pending", "done", "review", "backlog"});
 }
 
 TEST_CASE("kanban selection clamps to existing columns and cards", "[kanban][board]")

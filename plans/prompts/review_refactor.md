@@ -41,7 +41,7 @@ Do NOT report:
 - New user-facing features.
 - Pure style or naming preferences without a measurable ownership, dependency, testing, or maintenance benefit.
 - Sweeping rewrites without an incremental boundary and migration path.
-- Items already tracked in `kanban/pending/`, `kanban/ice-box/`, or `kanban/done/`.
+- Items already tracked in any root or product `kanban/pending/`, `kanban/ice-box/`, or `kanban/done/` lane.
 - Proposed library splits that have not been checked against current CMake and include/link relationships.
 
 Rank findings by leverage and sequencing, not file size alone. End with a compact proposed module/target map, the best isolated work packages for parallel agents, and the strongest existing structural qualities worth preserving.

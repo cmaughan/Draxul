@@ -17,13 +17,13 @@ For each confirmed bug, the consensus entry should include:
 - Suggested fix
 - Which agent(s) reported it
 
-Then extract bug-fix work items from the confirmed bugs. Return each complete proposed card under an exact `### kanban/pending/<filename>.md` heading starting from `00 <descriptive-name> -bug.md`, with highest-severity bugs getting the lowest numbers. Each work item should contain:
+Then extract bug-fix work items from the confirmed bugs. Put core and shared-boundary cards under exact `### kanban/pending/<filename>.md` headings. Put defects wholly owned by an initialized product submodule under exact `### plugins/<product>/kanban/pending/<filename>.md` headings, using `megacity`, `satview`, `scoreview`, `pcbview`, or `rezonality`. Include a `**Source:**` line with a backtick-quoted owning source path in each card. Use an available two-digit priority in each owning lane, ranking higher-severity bugs first within that lane. Each work item should contain:
 - The bug description and trigger scenario
 - Investigation steps (checkboxes)
 - Fix strategy (checkboxes)
 - Acceptance criteria (checkboxes)
 
-Do NOT create work items for issues already in `kanban/pending/`, `kanban/ice-box/`, or `kanban/done/`.
+Do NOT create work items for issues already in any root or product `kanban/pending/`, `kanban/ice-box/`, or `kanban/done/` lane.
 
 Append your `<model>` identifier to the consensus file so authorship is traceable.
 Flag any interdependencies between bug fixes in the consensus document.

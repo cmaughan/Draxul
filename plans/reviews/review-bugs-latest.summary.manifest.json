@@ -1,180 +1,145 @@
 {
-  "finished_at": "2026-09-21T08:48:21.965507+00:00",
+  "finished_at": "2026-09-24T08:36:05.463338+00:00",
   "inputs": [
-    "/Users/cmaughan/dev/draxul/plans/reviews/runs/20260921T080741Z-review-bugs-29cda773/reports/anthropic.claude.claude-fable-5-1.md",
-    "/Users/cmaughan/dev/draxul/plans/reviews/runs/20260921T080741Z-review-bugs-29cda773/reports/openai.codex.gpt-6-astra.md"
+    "/Users/cmaughan/dev/draxul/plans/reviews/runs/20260924T074533Z-review-bugs-7985d9ba/reports/anthropic.claude.claude-fable-5-1.md",
+    "/Users/cmaughan/dev/draxul/plans/reviews/runs/20260924T074533Z-review-bugs-7985d9ba/reports/openai.codex.gpt-6-astra.md"
   ],
   "kind": "summary",
   "missing_reviewers": [],
   "name": "review-bugs",
   "prompt": "/Users/cmaughan/dev/draxul/plans/prompts/consensus_review_bugs.md",
-  "run_id": "20260921T083612Z-review-bugs-summary-f067f373",
+  "recovered_from_session": "/Users/cmaughan/.codex/sessions/2026/09/24/rollout-2026-09-24T09-13-50-01a0d27a-5f6d-7da0-81be-cadcd4f91df0.jsonl",
+  "run_id": "20260924T083605Z-review-bugs-summary-recovered-6daaa928",
   "schema_version": 1,
-  "started_at": "2026-09-21T08:36:12.220184+00:00",
+  "started_at": "2026-09-24T08:36:05.437510+00:00",
   "status": "complete",
   "summarizer": {
     "company": "openai",
-    "duration_seconds": 729.387,
+    "duration_seconds": 0.0,
     "effort": "high",
     "error": "",
     "fallback_reason": "",
     "model": "gpt-6-astra",
     "preflight": "passed",
-    "preflight_message": "live response verified",
-    "requested": "codex",
+    "preflight_message": "Recovered from an already-completed persisted Codex session; no provider call was made.",
+    "requested": "codex:gpt-6-astra",
     "sandbox_fallback": "",
     "status": "passed",
     "transport": "codex",
-    "version": "codex-cli 0.155.1"
+    "version": ""
   },
   "work_items": [
     {
-      "path": "kanban/done/05 control-version-type-validation -bug.md",
-      "sha256": "c7b4b227cdd0af03724faf803866645af9721e66a009af96d72c08ad1323034b"
+      "path": "kanban/pending/00 terminal-input-binary-serialization -bug.md",
+      "sha256": "c523ec81b0e472d013974d1f729d28c3127a3297f465e9e155fe239c89acbf94"
     },
     {
-      "path": "kanban/pending/06 layout-stream-exception-containment -bug.md",
-      "sha256": "939ad9b1ca43fae3c526f92ffc45815619056ba8607a368baf6f4d64b44c737a"
+      "path": "kanban/pending/01 plugin-storage-exclusive-temporary-files -bug.md",
+      "sha256": "bed38cba99f95a2489bded7c1df4819effcd09ef36e47c22a7173b97f48f7387"
     },
     {
-      "path": "kanban/pending/07 rezonality-worker-exception-recovery -bug.md",
-      "sha256": "9e91ce71eb8cadf47f4e9146cb5b5caca2ecdb2df7be879e6a996a99e4ee4066"
+      "path": "kanban/pending/02 reject-nonfinite-config-values -bug.md",
+      "sha256": "9e47a265c339a68a264d42467338d26ef2d01d3a75a4a0ecb4fa18d46b8424fe"
     },
     {
-      "path": "kanban/pending/09 rezonality-pending-build-lifetime -bug.md",
-      "sha256": "c27ebbcab55b4c51e6fbd5856f97ed90b668a33846ae4273071edfc0be9ea8af"
+      "path": "plugins/rezonality/kanban/pending/03 rezonality-checked-surface-dimensions -bug.md",
+      "sha256": "5f07244a428b15600ae1aa29b55477c1212df0dd7aa11afa67d8d2b0e603f97b"
     },
     {
-      "path": "kanban/pending/10 vulkan-capture-resize-bounds -bug.md",
-      "sha256": "3966de21b9773a9ac87aaf0f842065dea38de7b0721f657cd1c0fe183a18d4a6"
+      "path": "plugins/pcbview/kanban/pending/04 pcbview-routing-margin-bounds -bug.md",
+      "sha256": "b18c920938544af3be7c0eb23c346c65665c75bab8d232e1caf2e73f117ce0d3"
     },
     {
-      "path": "kanban/pending/14 satview-refresh-thread-retirement -bug.md",
-      "sha256": "57965edf7b2225ce461c80edd119e4070fd5c6b6af0d43073ed18b7b20f9d8d3"
+      "path": "kanban/pending/05 plugin-quiescence-final-storage-saves -bug.md",
+      "sha256": "8dbcb64782df5664c7bb6d8ec946291c483fcebc5d5344e682e2446c152842af"
     },
     {
-      "path": "kanban/pending/16 metal-nanovg-failure-ownership -bug.md",
-      "sha256": "51dc1df3800d726970eb8f249f6f46357ab8b29a0fbd2645d32397df0a0ed4e2"
+      "path": "kanban/pending/06 shared-atlas-reset-invalidation -bug.md",
+      "sha256": "4bb38ebe935e3a9491c735a98344952c5025bd649ddd5dc654ed3bfefa3c60e6"
     },
     {
-      "path": "kanban/pending/18 codex-indented-features-header -bug.md",
-      "sha256": "799db97b6ef0efd550971fde1e59d67ef04bd21cad68498edab34d9aea489f87"
+      "path": "kanban/pending/07 nvim-printable-key-duplication -bug.md",
+      "sha256": "0905ff38b9bf67c95091c0009505a56feb77589cefdecab41bc2a2f6b038393e"
     },
     {
-      "path": "kanban/pending/19 config-reload-action-lifetime -bug.md",
-      "sha256": "325f4cf518bd5867c03b35c719d0a1fd60946729194719bfe053d4252494d426"
+      "path": "kanban/pending/08 windows-nvim-unicode-launch -bug.md",
+      "sha256": "dcac7bd92875739158a363140b23086f75acfa9a29d35751c26621dff8e4cdda"
     },
     {
-      "path": "kanban/pending/24 scoreview-multipart-slice-bounds -bug.md",
-      "sha256": "ddcf36c7918ea5433e56e08e537e0391adba358f856b69faeb0495523b015eb4"
+      "path": "kanban/pending/09 plugin-directory-utf8-abi -bug.md",
+      "sha256": "3e816968ba6ff38c2b77af536aa51a7e4dee237df8be3755d84102a0641d73ba"
     },
     {
-      "path": "kanban/pending/31 pcbview-routing-cell-budget -bug.md",
-      "sha256": "8a5fd6c65899a1922f9c34b748ff5c083d370d610a240ad063c200f494415e8f"
+      "path": "kanban/pending/10 persist-disabled-keybindings -bug.md",
+      "sha256": "84f762f72486b95930dadb4d7992d4abd7b004f471b8da75f7c00537862d861d"
     },
     {
-      "path": "kanban/pending/36 satview-vulkan-stream-buffer-lifetime -bug.md",
-      "sha256": "b1d4bfe19bddfd7a11767ad0c2762521c7135884dfb4683649b2434b209d466f"
+      "path": "kanban/pending/11 integration-installer-toml-sections -bug.md",
+      "sha256": "d89243a87ddff865828725e5e0f9d330bd5a1182acbadc9367b08b89c04bd928"
     },
     {
-      "path": "kanban/pending/38 megacity-vulkan-mesh-pool-lifetime -bug.md",
-      "sha256": "81229b8f9d75223f84aa1b8d7415706ae479dfd0682fe50a7a0a86087e833b61"
+      "path": "kanban/pending/12 kanban-focus-loss-repeat-state -bug.md",
+      "sha256": "508d1f922b1fa1ddaf7852f7abd49b786cd601b1dcd8d16be2703acbd5db73e4"
     },
     {
-      "path": "kanban/pending/39 megacity-ao-descriptor-recording -bug.md",
-      "sha256": "570bf03e07cd62fd79560fe668cfa8ea199bd993fe9531f59d28cfcacceefe08"
+      "path": "plugins/megacity/kanban/pending/13 megacity-plugin-preference-storage -bug.md",
+      "sha256": "3f7de4f12fe53bf758628552bbf2d5e2681b48aeab7e152e3bc0888a6dbe92f6"
     },
     {
-      "path": "kanban/pending/42 rezonality-image-storage-format -bug.md",
-      "sha256": "a266ddf7e320f9adb369446da2d441fd3e4a4768ed4e16abdfde3e48b869d69e"
+      "path": "plugins/satview/kanban/pending/14 satview-plugin-sky-labels -bug.md",
+      "sha256": "8bbee3743a5580fcc9c7a55401acaf8f7f4c6b4dd7860c38fd6acb5aa6117801"
     },
     {
-      "path": "kanban/pending/43 rezonality-diagnostic-utf8 -bug.md",
-      "sha256": "98b6ec620da9cfb8e68645539c36b1757cb607cff0e775f40cff367f702e8c94"
+      "path": "plugins/satview/kanban/pending/15 satview-restored-worker-settings -bug.md",
+      "sha256": "a59f9612de09ca872ce9201950932f75e5819d8ce992ad1a0fb222b0cd597192"
     },
     {
-      "path": "kanban/pending/44 server-filesystem-exception-recovery -bug.md",
-      "sha256": "f4530c638244e06be0f94b56b91c4020e7793aa735656bbfe29360d6a0144b5f"
+      "path": "plugins/satview/kanban/pending/16 satview-authoritative-pause-state -bug.md",
+      "sha256": "0ff00e911f76ce6e78f622e48653dda3772c9d5e8760e83850452243df86de4c"
     },
     {
-      "path": "kanban/pending/45 satview-asset-probe-exception -bug.md",
-      "sha256": "5b05f8e67672336e60e8c022d215fdbe183c23cbd4e2182fa27fd9dcee349615"
+      "path": "plugins/satview/kanban/pending/17 satview-metal-cloud-texture-refresh -bug.md",
+      "sha256": "ad6a8b7277328a7be89216c7b345dfd83559f584bc8f37b5c4fb3ece4280b1b9"
     },
     {
-      "path": "kanban/pending/46 kanban-directory-scan-errors -bug.md",
-      "sha256": "393bff934bdf4c3a5ca60bdb754679d53f794e6cc82c0e30bf3a269f64f3cd86"
+      "path": "plugins/scoreview/kanban/pending/18 scoreview-midi-arrival-time-judgment -bug.md",
+      "sha256": "6c0b6952df9d79b7db97b0f3c258b716515e15e83869f46db5af14f2b19b08e8"
     },
     {
-      "path": "kanban/pending/47 satview-hdr-target-transaction -bug.md",
-      "sha256": "db60428f57c0494457abab2c33aad307edf534c6b0f956bdd54271a926ff1507"
+      "path": "plugins/rezonality/kanban/pending/19 rezonality-pause-clock-anchor -bug.md",
+      "sha256": "e42897acfedb14a40063593ff086cc1d03950e516b1518d40896c52a29e8cb5f"
     },
     {
-      "path": "kanban/pending/48 rezonality-gpu-initialization-rollback -bug.md",
-      "sha256": "5f0a4bfb34808c39f01bac48bbc57992e6faeab8292e645f2e930588dea8e57e"
+      "path": "plugins/rezonality/kanban/pending/20 rezonality-shader-include-watching -bug.md",
+      "sha256": "7b6380265f21e5f85620c0c381f6c00182a9aba517a0d1615ddec2e225947503"
     },
     {
-      "path": "kanban/pending/49 satview-concurrent-cache-publication -bug.md",
-      "sha256": "6a5c747c2ca0ec3c5c7379816b9822efd87a7a9742a2bc7da4b0ebdffae24fad"
+      "path": "plugins/rezonality/kanban/pending/21 rezonality-scaled-model-tangent-basis -bug.md",
+      "sha256": "5dd6bcc22d19f19e92450db43912e6a59691521063678870a3ed925f1a9ad9d1"
     },
     {
-      "path": "kanban/pending/50 pty-backpressure-shutdown-wakeup -bug.md",
-      "sha256": "8464d671138f6053f73a4bb2cced0adf87b2b789c82e0ed5c11637ce833b29fb"
+      "path": "kanban/pending/22 rejected-pane-update-atomicity -bug.md",
+      "sha256": "ad3d4495a3596dc274d415fd79625fa8e198ea53bf7d7268cae9dc514dc6d0e0"
     },
     {
-      "path": "kanban/pending/51 session-client-worker-wakeup -bug.md",
-      "sha256": "5bad82cd6b48604d2f36c3263caed85e6b931fb34b7ff67e317cfc0d9073f2a7"
+      "path": "kanban/pending/23 font-reload-native-resource-cleanup -bug.md",
+      "sha256": "5f468aeb62bf20c39fb2f3f02e2851b3859bc35f95f72a89caac614449e1f448"
     },
     {
-      "path": "kanban/pending/52 vulkan-final-submit-fence-recovery -bug.md",
-      "sha256": "1abbf229275b9af54ae910ae6ef3644612bdba36412c3ca4c7bcc1292f4d3ab0"
+      "path": "plugins/satview/kanban/pending/24 satview-validate-cloud-cache-before-publish -bug.md",
+      "sha256": "1071f3c14cd48a3a7989fd4e4b757f017b7a998fc0cb2d09a7fc85c5d36747b7"
     },
     {
-      "path": "kanban/pending/53 terminal-csi-prefix-dispatch -bug.md",
-      "sha256": "52715d1f7fb8650906d3f131cf435aa07adf7ddadd036933a675338d438b9dc1"
+      "path": "plugins/scoreview/kanban/pending/25 scoreview-notick-mode-parsing -bug.md",
+      "sha256": "dd6ddeaa85e906a65f1be32577638c707753c14ccbefd29ae7dfb62aaacbcdb0"
     },
     {
-      "path": "kanban/pending/54 failed-local-host-restart-state -bug.md",
-      "sha256": "c653d8992c5cb59d3b88417a2c06d8f5b45d6f24861d8f3491a0a1b5f27e4ebc"
+      "path": "plugins/pcbview/kanban/pending/26 pcbview-hidden-route-selection -bug.md",
+      "sha256": "aa99046ef6026122ccb0722716d1fc9af66d21aaebc9e6ec20f6e9efa195a50c"
     },
     {
-      "path": "kanban/pending/55 scoreview-keyboard-resume -bug.md",
-      "sha256": "588aaca656b2e454c4fca91a9c8af2df57fec22e5ff84d8109a80691dfbfe197"
-    },
-    {
-      "path": "kanban/pending/56 windows-nvim-nonblocking-shutdown -bug.md",
-      "sha256": "fe9b337e4e8daffb25a7d73c3696ecdfa2ef6ddd1f8cbcea40d7604ef4785923"
-    },
-    {
-      "path": "kanban/pending/57 windows-osc7-path-normalization -bug.md",
-      "sha256": "1de5611309094d2c778a31a8dfe370c18c97b15c794fa3b67749618b8c1b1c7d"
-    },
-    {
-      "path": "kanban/pending/58 plugin-storage-error-preservation -bug.md",
-      "sha256": "faaa78893a3b2c5b2eacab1f360a57b7b7ed51a3c08f0d8a22187949958249f6"
-    },
-    {
-      "path": "kanban/pending/59 config-integer-representable-bounds -bug.md",
-      "sha256": "c9b92ca32e7a516cd78c8d0eac8ace20a0fdc4c5bda98e465eb26f471b2ecc85"
-    },
-    {
-      "path": "kanban/pending/60 megacity-route-pair-association -bug.md",
-      "sha256": "2b42ca87046487bcc4e35aa377623afc95658b081bdd1cd5c45d6b3fa1e1ea58"
-    },
-    {
-      "path": "kanban/pending/61 conpty-exited-process-id -bug.md",
-      "sha256": "b3bd33b1fa92ad250f9754f3f84069195162dbbc0f9d0f1f05ad40a64e762ceb"
-    },
-    {
-      "path": "kanban/pending/62 sdl-event-registration-failure -bug.md",
-      "sha256": "98b18a7b9cf0ec0fdaa1d10a35aac72c8c6a23df40ceca3d5a7a0ad422b49483"
-    },
-    {
-      "path": "kanban/pending/63 satview-ephemeris-row-commit -bug.md",
-      "sha256": "bfa4e57b2830e0f566c97398e5b32d1c1cb9e9232ad016383da06ed7445c1c83"
-    },
-    {
-      "path": "kanban/pending/64 satview-visible-marker-picking -bug.md",
-      "sha256": "acd9ecc8e5133b0b2d23c1027b03a042fcb98f571397efc905fad0173dd17fc6"
+      "path": "kanban/pending/27 weather-disable-clears-presentation -bug.md",
+      "sha256": "0b5862377e75fa72693ca50d26adce2c982f5ee8b22a8bfbff6604217a84562e"
     }
   ]
 }

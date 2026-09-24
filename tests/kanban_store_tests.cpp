@@ -123,6 +123,7 @@ TEST_CASE("kanban store merges metadata order with discovered entries", "[kanban
 {
     draxul::tests::TempDir temp("draxul-kanban-metadata");
     const auto root = temp.path / "kanban";
+    std::filesystem::create_directories(root / "ice-box");
     std::filesystem::create_directories(root / "pending");
     std::filesystem::create_directories(root / "done");
     std::filesystem::create_directories(root / "review");
@@ -132,7 +133,7 @@ TEST_CASE("kanban store merges metadata order with discovered entries", "[kanban
     write_file(root / "review" / "new.md");
     write_file(root / std::string(kKanbanMetadataFileName),
         "version = 1\n"
-        "columns = [\"done\", \"pending\", \"missing\"]\n"
+        "columns = [\"review\", \"done\", \"pending\", \"ice-box\", \"missing\"]\n"
         "[cards]\n"
         "pending = [\"b-bug.md\", \"missing.md\", \"a-feature.md\"]\n");
 
@@ -140,10 +141,11 @@ TEST_CASE("kanban store merges metadata order with discovered entries", "[kanban
     const auto board = load_kanban_board(root, &error);
 
     REQUIRE(error.empty());
-    REQUIRE(board.columns.size() == 3);
-    REQUIRE(board.columns[0].name == "done");
+    REQUIRE(board.columns.size() == 4);
+    REQUIRE(board.columns[0].name == "ice-box");
     REQUIRE(board.columns[1].name == "pending");
-    REQUIRE(board.columns[2].name == "review");
+    REQUIRE(board.columns[2].name == "done");
+    REQUIRE(board.columns[3].name == "review");
     REQUIRE(board.columns[1].cards[0].file_name == "b-bug.md");
     REQUIRE(board.columns[1].cards[1].file_name == "a-feature.md");
 }
@@ -325,6 +327,8 @@ TEST_CASE("kanban workspace merges initialized recursive submodule boards",
     const auto nested_root = workspace / "plugins" / "megacity" / "vendor" / "notes" / "kanban";
     std::filesystem::create_directories(root / "pending");
     std::filesystem::create_directories(root / "done");
+    std::filesystem::create_directories(root / "review");
+    std::filesystem::create_directories(megacity_root / "ice-box");
     std::filesystem::create_directories(megacity_root / "pending");
     std::filesystem::create_directories(nested_root / "pending");
     write_file(root / "pending" / "same-feature.md");
@@ -348,15 +352,18 @@ TEST_CASE("kanban workspace merges initialized recursive submodule boards",
     REQUIRE(board.sources[0].name == "workspace");
     REQUIRE(board.sources[1].name == "megacity");
     REQUIRE(board.sources[2].name == "notes");
-    REQUIRE(board.columns.size() == 2);
-    REQUIRE(board.columns[0].name == "pending");
-    REQUIRE(board.columns[0].cards.size() == 3);
-    CHECK(board.columns[0].cards[0].source_name == "workspace");
-    CHECK(board.columns[0].cards[1].source_name == "megacity");
-    CHECK(board.columns[0].cards[2].source_name == "notes");
-    CHECK(board.columns[0].cards[0].file_name == "same-feature.md");
-    CHECK(board.columns[0].cards[1].file_name == "same-feature.md");
-    CHECK(board.columns[0].cards[0].path != board.columns[0].cards[1].path);
+    REQUIRE(board.columns.size() == 4);
+    REQUIRE(board.columns[0].name == "ice-box");
+    REQUIRE(board.columns[1].name == "pending");
+    REQUIRE(board.columns[2].name == "done");
+    REQUIRE(board.columns[3].name == "review");
+    REQUIRE(board.columns[1].cards.size() == 3);
+    CHECK(board.columns[1].cards[0].source_name == "workspace");
+    CHECK(board.columns[1].cards[1].source_name == "megacity");
+    CHECK(board.columns[1].cards[2].source_name == "notes");
+    CHECK(board.columns[1].cards[0].file_name == "same-feature.md");
+    CHECK(board.columns[1].cards[1].file_name == "same-feature.md");
+    CHECK(board.columns[1].cards[0].path != board.columns[1].cards[1].path);
 }
 
 TEST_CASE("kanban workspace moves and orders cards within their owning board",

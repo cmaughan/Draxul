@@ -1,13 +1,133 @@
 {
-  "finished_at": "2026-09-21T08:31:31.855676+00:00",
+  "consensus": {
+    "recovered_from_error": "Kanban work item lacks a title heading: 00 terminal-input-binary-serialization -bug.md",
+    "run_id": "20260924T083605Z-review-bugs-summary-recovered-6daaa928",
+    "status": "complete",
+    "summary": "runs/20260924T083605Z-review-bugs-summary-recovered-6daaa928/summary.md",
+    "work_items": [
+      {
+        "path": "kanban/pending/00 terminal-input-binary-serialization -bug.md",
+        "sha256": "c523ec81b0e472d013974d1f729d28c3127a3297f465e9e155fe239c89acbf94"
+      },
+      {
+        "path": "kanban/pending/01 plugin-storage-exclusive-temporary-files -bug.md",
+        "sha256": "bed38cba99f95a2489bded7c1df4819effcd09ef36e47c22a7173b97f48f7387"
+      },
+      {
+        "path": "kanban/pending/02 reject-nonfinite-config-values -bug.md",
+        "sha256": "9e47a265c339a68a264d42467338d26ef2d01d3a75a4a0ecb4fa18d46b8424fe"
+      },
+      {
+        "path": "plugins/rezonality/kanban/pending/03 rezonality-checked-surface-dimensions -bug.md",
+        "sha256": "5f07244a428b15600ae1aa29b55477c1212df0dd7aa11afa67d8d2b0e603f97b"
+      },
+      {
+        "path": "plugins/pcbview/kanban/pending/04 pcbview-routing-margin-bounds -bug.md",
+        "sha256": "b18c920938544af3be7c0eb23c346c65665c75bab8d232e1caf2e73f117ce0d3"
+      },
+      {
+        "path": "kanban/pending/05 plugin-quiescence-final-storage-saves -bug.md",
+        "sha256": "8dbcb64782df5664c7bb6d8ec946291c483fcebc5d5344e682e2446c152842af"
+      },
+      {
+        "path": "kanban/pending/06 shared-atlas-reset-invalidation -bug.md",
+        "sha256": "4bb38ebe935e3a9491c735a98344952c5025bd649ddd5dc654ed3bfefa3c60e6"
+      },
+      {
+        "path": "kanban/pending/07 nvim-printable-key-duplication -bug.md",
+        "sha256": "0905ff38b9bf67c95091c0009505a56feb77589cefdecab41bc2a2f6b038393e"
+      },
+      {
+        "path": "kanban/pending/08 windows-nvim-unicode-launch -bug.md",
+        "sha256": "dcac7bd92875739158a363140b23086f75acfa9a29d35751c26621dff8e4cdda"
+      },
+      {
+        "path": "kanban/pending/09 plugin-directory-utf8-abi -bug.md",
+        "sha256": "3e816968ba6ff38c2b77af536aa51a7e4dee237df8be3755d84102a0641d73ba"
+      },
+      {
+        "path": "kanban/pending/10 persist-disabled-keybindings -bug.md",
+        "sha256": "84f762f72486b95930dadb4d7992d4abd7b004f471b8da75f7c00537862d861d"
+      },
+      {
+        "path": "kanban/pending/11 integration-installer-toml-sections -bug.md",
+        "sha256": "d89243a87ddff865828725e5e0f9d330bd5a1182acbadc9367b08b89c04bd928"
+      },
+      {
+        "path": "kanban/pending/12 kanban-focus-loss-repeat-state -bug.md",
+        "sha256": "508d1f922b1fa1ddaf7852f7abd49b786cd601b1dcd8d16be2703acbd5db73e4"
+      },
+      {
+        "path": "plugins/megacity/kanban/pending/13 megacity-plugin-preference-storage -bug.md",
+        "sha256": "3f7de4f12fe53bf758628552bbf2d5e2681b48aeab7e152e3bc0888a6dbe92f6"
+      },
+      {
+        "path": "plugins/satview/kanban/pending/14 satview-plugin-sky-labels -bug.md",
+        "sha256": "8bbee3743a5580fcc9c7a55401acaf8f7f4c6b4dd7860c38fd6acb5aa6117801"
+      },
+      {
+        "path": "plugins/satview/kanban/pending/15 satview-restored-worker-settings -bug.md",
+        "sha256": "a59f9612de09ca872ce9201950932f75e5819d8ce992ad1a0fb222b0cd597192"
+      },
+      {
+        "path": "plugins/satview/kanban/pending/16 satview-authoritative-pause-state -bug.md",
+        "sha256": "0ff00e911f76ce6e78f622e48653dda3772c9d5e8760e83850452243df86de4c"
+      },
+      {
+        "path": "plugins/satview/kanban/pending/17 satview-metal-cloud-texture-refresh -bug.md",
+        "sha256": "ad6a8b7277328a7be89216c7b345dfd83559f584bc8f37b5c4fb3ece4280b1b9"
+      },
+      {
+        "path": "plugins/scoreview/kanban/pending/18 scoreview-midi-arrival-time-judgment -bug.md",
+        "sha256": "6c0b6952df9d79b7db97b0f3c258b716515e15e83869f46db5af14f2b19b08e8"
+      },
+      {
+        "path": "plugins/rezonality/kanban/pending/19 rezonality-pause-clock-anchor -bug.md",
+        "sha256": "e42897acfedb14a40063593ff086cc1d03950e516b1518d40896c52a29e8cb5f"
+      },
+      {
+        "path": "plugins/rezonality/kanban/pending/20 rezonality-shader-include-watching -bug.md",
+        "sha256": "7b6380265f21e5f85620c0c381f6c00182a9aba517a0d1615ddec2e225947503"
+      },
+      {
+        "path": "plugins/rezonality/kanban/pending/21 rezonality-scaled-model-tangent-basis -bug.md",
+        "sha256": "5dd6bcc22d19f19e92450db43912e6a59691521063678870a3ed925f1a9ad9d1"
+      },
+      {
+        "path": "kanban/pending/22 rejected-pane-update-atomicity -bug.md",
+        "sha256": "ad3d4495a3596dc274d415fd79625fa8e198ea53bf7d7268cae9dc514dc6d0e0"
+      },
+      {
+        "path": "kanban/pending/23 font-reload-native-resource-cleanup -bug.md",
+        "sha256": "5f468aeb62bf20c39fb2f3f02e2851b3859bc35f95f72a89caac614449e1f448"
+      },
+      {
+        "path": "plugins/satview/kanban/pending/24 satview-validate-cloud-cache-before-publish -bug.md",
+        "sha256": "1071f3c14cd48a3a7989fd4e4b757f017b7a998fc0cb2d09a7fc85c5d36747b7"
+      },
+      {
+        "path": "plugins/scoreview/kanban/pending/25 scoreview-notick-mode-parsing -bug.md",
+        "sha256": "dd6ddeaa85e906a65f1be32577638c707753c14ccbefd29ae7dfb62aaacbcdb0"
+      },
+      {
+        "path": "plugins/pcbview/kanban/pending/26 pcbview-hidden-route-selection -bug.md",
+        "sha256": "aa99046ef6026122ccb0722716d1fc9af66d21aaebc9e6ec20f6e9efa195a50c"
+      },
+      {
+        "path": "kanban/pending/27 weather-disable-clears-presentation -bug.md",
+        "sha256": "0b5862377e75fa72693ca50d26adce2c982f5ee8b22a8bfbff6604217a84562e"
+      }
+    ]
+  },
+  "finished_at": "2026-09-24T08:13:38.727707+00:00",
   "input": {
-    "bytes": 23138637,
+    "bytes": 22343027,
     "kind": "repomix",
     "log": "logs/repomix.log",
     "path": "repomix-output.xml",
     "scope": "Tracked and non-ignored untracked files, including initialized submodules; Git metadata, review archives and previous Repomix outputs excluded. Repomix filters binary and security-sensitive files; see its log for exclusions. Input provenance does not certify exhaustive model review.",
-    "sha256": "335076c9ff697639732954ab873251bdca97f7bf1e634d30d185091653c57fc5",
-    "source_files": 1943
+    "sha256": "a83d367dba1ac8a7b7f923aeb82ffac0352466a0c1092ccbd9be5377ae759055",
+    "source_files": 1832
   },
   "kind": "review",
   "name": "review-bugs",
@@ -15,41 +135,41 @@
   "reviewers": [
     {
       "company": "openai",
-      "duration_seconds": 448.985,
+      "duration_seconds": 850.98,
       "effort": "high",
       "error": "",
       "fallback_reason": "",
       "model": "gpt-6-astra",
       "preflight": "passed",
       "preflight_message": "live response verified",
-      "report": "runs/20260921T080741Z-review-bugs-29cda773/reports/openai.codex.gpt-6-astra.md",
+      "report": "runs/20260924T074533Z-review-bugs-7985d9ba/reports/openai.codex.gpt-6-astra.md",
       "requested": "codex",
       "sandbox_fallback": "",
-      "sha256": "19b42e6eb260e5cef0f34a2fbb89b40bb72564bdb18a21490c6fdae5239c331f",
+      "sha256": "6b36f83643bc0242c693433ebf561117b27cfbbad7f0219ae600211478e37f74",
       "status": "passed",
       "transport": "codex",
       "version": "codex-cli 0.155.1"
     },
     {
       "company": "anthropic",
-      "duration_seconds": 1408.32,
+      "duration_seconds": 1667.666,
       "effort": "high",
       "error": "",
       "fallback_reason": "",
       "model": "claude-fable-5-1",
       "preflight": "passed",
       "preflight_message": "live response verified",
-      "report": "runs/20260921T080741Z-review-bugs-29cda773/reports/anthropic.claude.claude-fable-5-1.md",
+      "report": "runs/20260924T074533Z-review-bugs-7985d9ba/reports/anthropic.claude.claude-fable-5-1.md",
       "requested": "claude",
       "sandbox_fallback": "",
-      "sha256": "bf1d4c8ea5931cde3ede3bd93d6e9884d7b618f816ff43977ccf81c27610f57a",
+      "sha256": "8ee52636c8b1302aa585523bf8f52a021ea6f633fb8446fb0d243a178c794987",
       "status": "passed",
       "transport": "claude",
       "version": "2.1.278 (Claude Code)"
     }
   ],
-  "run_id": "20260921T080741Z-review-bugs-29cda773",
+  "run_id": "20260924T074533Z-review-bugs-7985d9ba",
   "schema_version": 1,
-  "started_at": "2026-09-21T08:07:41.389516+00:00",
+  "started_at": "2026-09-24T07:45:33.519235+00:00",
   "status": "complete"
 }

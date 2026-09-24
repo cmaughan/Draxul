@@ -1,946 +1,763 @@
-# Bug consensus
+**28 bugs confirmed: 5 CRITICAL, 17 HIGH, and 6 MEDIUM.** No reported bug was rejected; two unresolved leads remain excluded from work items.
 
-Read both indexed reviews and checked their findings against current source. Verification was static; no files were changed and no builds or tests were run.
+Both indexed inputs were read completely. `01-anthropic-claude-claude-fable-5-1.md` contains only a completion notice, so it provides no review evidence or corroboration. All findings below originate in `02-openai-codex-gpt-6-astra.md`. This is therefore source-verified triage of the Codex findings, not agreement between two substantive reports.
 
-**C** = Claude Fable 5.1; **A** = GPT-6 Astra. The complete cards below contain verified locations, triggers, fixes, attribution, and acceptance criteria for newly accepted work.
+Three read-only verification agents completed their assigned groups. Their supporting source was re-read before accepting findings. No files were changed, and no builds, tests, installations, or project binaries were run.
 
-**Severity rulings:** Both reviewers identify the Rezonality worker exception and Vulkan capture overflow. Merge those duplicates. For capture, accept Astra’s CRITICAL rating over Claude’s MEDIUM: growth can cause an out-of-bounds CPU read. Other confirmed crashes, lifetime violations, integer overflow, and invalid GPU resource use are likewise CRITICAL, regardless of their original labels.
+**Architecture and coverage**
 
-**Confirmed findings, in severity order:**
+| Boundary | Relevant architecture and verification |
+|---|---|
+| Application and configuration | App owns configuration reload, shared text services, input dispatch, chrome, and background host pumping. Checked parsing, save/merge behavior, focus transitions, and weather presentation. |
+| Session and terminal input | Client coordinator serializes terminal commands; server owns revisioned topology. Checked input-byte transport, worker exception boundaries, and rejected topology mutations. Neovim has separate input and process adapters. |
+| Fonts and native plugins | Grid pipelines share a glyph atlas. `PluginHost` owns ABI callbacks and lifecycle; `PluginStorage` owns persistence. Checked atlas invalidation, native font ownership, storage publication, shutdown callbacks, and Windows path encoding. |
+| Products | Plugins own their runtime, services, and rendering. Checked MegaCity preference wiring; SatView settings, scheduling, labels, clouds; ScoreView timing and launch modes; PCBView routing and picking; Rezonality dimensions, animation, dependencies, and model transforms. |
 
-| Severity | Finding | Reporter | Disposition |
-|---|---|---|---|
-| CRITICAL | Wrong-typed control protocol version terminates listener | C #1 | Card below |
-| CRITICAL | Wrong-typed layout fields escape stream dispatch | C #2 | Card below |
-| CRITICAL | Scene parsing and filesystem exceptions escape live-project worker | C #4; A #1 | Merged card below |
-| CRITICAL | Shader activation reads a destroyed pending build | C #3 | Card below |
-| CRITICAL | Vulkan capture reads using replacement swapchain dimensions | C #31; A #2 | Merged card below; Metal extension unconfirmed |
-| CRITICAL | SatView replaces a joinable refresh thread | C #5 | Card below |
-| CRITICAL | Metal NanoVG initialization failure double-deletes context | C #6 | Card below |
-| CRITICAL | Indented Codex features header produces an invalid iterator | C #20 | Card below |
-| CRITICAL | Config reload invalidates the action string used by trace logging | C #35 | Card below |
-| CRITICAL | Multipart score slicing indexes shorter parts out of bounds | C #43 | Card below |
-| CRITICAL | PCB routing dimensions overflow or permit excessive allocation | C #26 | Card below |
-| CRITICAL | SatView overwrites or destroys GPU buffers still in flight | C #15 | Card below |
-| CRITICAL | MegaCity rewrites shared mesh pools still in flight | C #37 | Card below |
-| CRITICAL | MegaCity updates descriptors after binding them | C #24 | Card below |
-| CRITICAL | Rezonality image format disagrees with uploaded pixel storage | C #16 | Card below |
-| CRITICAL | Rezonality diagnostic serialization throws on invalid UTF-8 | C #17 | Card below |
-| CRITICAL | Server filesystem exceptions escape startup/request handling | C #18, #29 | Combined card below |
-| CRITICAL | SatView’s redundant asset existence check can terminate its worker | C #42 | Card below |
-| CRITICAL | Kanban iteration errors escape the UI; construction errors are hidden | C #23 | Card below |
-| CRITICAL | SatView reuses partially initialized HDR targets | C #39 | Card below |
-| CRITICAL | Rezonality retries an incompletely initialized vertex buffer | C #45a | Card below |
-| CRITICAL | ScoreView progress deserialization throws on structurally invalid JSON | C #13 | Existing progress-recovery work |
-| CRITICAL | ScoreView serialization throws on non-UTF-8 text | C #44 | Existing progress-recovery work |
-| CRITICAL | Late plugin callbacks can race host retirement | C #28 | Existing hot-reload work; narrowed trigger |
-| CRITICAL | MegaCity default-root lookup throws when cwd is unavailable | C #38 | Existing degraded-initialization work |
-| HIGH | Concurrent SatView cache writers can remove a successfully published cache | A #3 | Card below |
-| HIGH | PTY shutdown loses the output-backpressure wake | C #9 | Card below |
-| HIGH | Session-client stop/fallback loses an untimed worker wake | C #10 | Card below |
-| HIGH | Failed final Vulkan submission leaves an unsignaled frame fence | C #7 | Card below |
-| HIGH | Unsupported CSI prefixes execute unrelated terminal commands | C #8 | Card below |
-| HIGH | Failed local host restart leaves an orphaned tree leaf | C #12 | Card below; plugin trigger narrowed |
-| HIGH | Showing ScoreView does not restore keyboard input | C #14 | Card below |
-| HIGH | Windows Neovim shutdown blocks the UI | C #34 | Card below |
-| HIGH | Windows OSC 7 paths remain unsuitable for native cwd reuse | C #36 | Card below |
-| HIGH | Legacy remote-pane visibility/stop transitions lose worker wakes | C #11, #27 | Existing hidden-terminal work |
-| MEDIUM | Plugin storage cleanup overwrites the original error | C #21 | Card below |
-| MEDIUM | Minimum-only integer clamping permits narrowing overflow | C #22 | Card below |
-| MEDIUM | Compacted dependency routes use the wrong original pair | C #25 | Card below |
-| MEDIUM | ConPTY publishes a stale PID after exit | C #32 | Card below |
-| MEDIUM | SDL event registration checks the wrong failure sentinel | C #33 | Card below |
-| MEDIUM | Rejected ephemeris rows overwrite accepted metadata | C #40 | Card below |
-| MEDIUM | SatView picking applies the marker limit before horizon filtering | C #41 | Card below |
-| MEDIUM | Failed Rezonality model-texture creation leaks partial resources | C #45b | Included with transactional GPU initialization below |
+The substantive report’s coverage was representative, not exhaustive. This synthesis verified its reported defects and relevant call paths; it does not establish repository-wide correctness. Windows behavior and GPU concurrency were inspected statically, without runtime reproduction.
 
-**Existing work; no duplicate cards:**
+**Tracker reconciliation**
 
-- **ScoreView progress recovery:** `plugins/scoreview/product/draxul-score-learn/src/player_model.cpp:537`, `:554`, `:556`, and `:620` throw on malformed keys or values; `player_model.cpp:486` and `piece_analysis.cpp:1062` use strict serialization. A malformed progress file or imported non-UTF-8 title can escape initialization/save callbacks. Validate into temporary state, return a recoverable load failure, and sanitize or reject invalid text before serialization. Covered by `plugins/scoreview/kanban/ice-box/17 scoreview-progress-crash-safety -test.md`.
-- **Late plugin callbacks:** `libs/draxul-host/src/plugin_host.cpp:715` loads a host pointer before dereferencing its plain `active_callback_context_` at `:716`. A late callback that passes the atomic checks before retirement can race pointer mutation or host destruction. Quiescing compliant workers reduces exposure; the advertised retained-token protection for broken late callbacks still lacks a lifetime barrier. Protect callback entry through completion and drain active callbacks before destruction; atomics alone do not pin the host. Covered by `kanban/done/41 dynamic-plugin-hot-reload -feature.md`.
-- **MegaCity unavailable cwd:** `plugins/megacity/product/draxul-megacity/src/megacity_host.cpp:237` calls throwing `current_path()` when no source is supplied. Deleting the working directory before opening the plugin can escape initialization. Use the error-code overload and return a degraded result. Covered by `plugins/megacity/kanban/ice-box/12 megacity-degraded-init -test.md`.
-- **Legacy terminal wakes:** `libs/draxul-host/src/remote_terminal_host.cpp:459` changes visibility outside the waiter’s mutex; `libs/draxul-client/src/remote_session_coordinator.cpp:186` similarly changes the stop predicate. Racing the untimed suspended wait can strand a shown pane or its teardown worker. Change predicates under the corresponding mutex and notify afterward. Covered by the resume/deadlock/leak requirements in `kanban/pending/34 hidden-remote-terminal-suspension -bug.md`.
+Root `kanban/.draxul-kanban.toml` lists pending and ice-box filenames, but most corresponding card bodies are absent. The supplied done lane contains `134 default-kanban-column-order -feature.md`, which is unrelated. Rezonality’s product tracker metadata has empty lanes; other product tracker lanes are absent.
 
-**Dropped or narrowed claims:**
+No available title establishes an exact duplicate of an accepted finding. Related existing work must remain separate:
 
-- **C #19, local PTY writes freezing the UI:** not confirmed in the current production graph. Concrete PTY writes run through `ServerTerminalRuntime`’s writer thread (`server_terminal_runtime.cpp:170`); the retained local-host abstraction does not establish the claimed concrete UI-thread caller.
-- **C #30, orphaned ConPTY children:** the general claim overlooks `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` at `conpty_process.cpp:788`. The job-creation/assignment fallback warrants reproduction, but detached teardown alone does not establish this finding.
-- **C #31, Metal capture overflow:** dimension sources differ, but the cited path does not recreate resources between recording and synchronous readback. No concrete production interleaving was established; retain only the proven Vulkan defect.
-- **C #45c, Objective-C exception from invalid Metal text:** the unchecked nullable conversion is present, but the claimed exception outcome was not established. No accepted card.
-- **C #12:** missing plugins normally receive `UnavailableHost`; the confirmed restart defect concerns failing non-plugin hosts, including Neovim.
-- **C #7:** device loss does not necessarily produce an infinite fence wait because Vulkan waits can return device-loss errors. The confirmed defect is unsignaled-fence reuse after a failed submission. Resetting the fence *after* successful submission is not a valid fix.
+| Existing card | Relationship |
+|---|---|
+| `kanban/pending/26 protocol-validation-hardening -bug.md` | Broad protocol validation; does not establish coverage of binary terminal-input serialization. |
+| `kanban/pending/41 dynamic-plugin-hot-reload -feature.md` | Related lifecycle work; final storage callbacks are specifically rejected during quiescence. |
+| `kanban/ice-box/27 atlas-dynamic-growth -feature.md` | Atlas capacity work; independent of invalidating other consumers after a reset. |
+| `kanban/pending/31 pcbview-routing-cell-budget -bug.md` | Bounds grid allocation; does not bound clearance-derived integer conversions. |
+| `kanban/pending/42 rezonality-image-storage-format -bug.md` | Image upload validation; procedural surface dimensions bypass those checks. |
+| `kanban/pending/36 satview-vulkan-stream-buffer-lifetime -bug.md` | Vulkan stream buffers; distinct from mutation of a shared Metal cloud texture. |
+| `kanban/pending/49 satview-concurrent-cache-publication -bug.md` | Concurrent writers; distinct from replacing a valid cache with undecodable bytes. |
+| `kanban/ice-box/10 inputdispatcher-focus-loss -bug.md` | Dispatcher focus handling; Kanban retains its own repeat/navigation state after receiving focus loss. |
+| `kanban/pending/88 pcbview-selection-core -refactor.md` | Selection extraction; does not establish coverage of missing routed-track visibility. |
+| `kanban/pending/85 agent-integration-installer -refactor.md`, `kanban/pending/86 weather-service-library -refactor.md`, `kanban/pending/97 font-native-dependency-visibility -refactor.md` | Adjacent refactors, not evidence that the specific defects below are tracked. |
 
-**Dependencies:** Implement stream exception containment with the server filesystem fixes. Coordinate final-submit recovery with `kanban/done/21 vulkan-chunk-flush-failure-state -bug.md`, which concerns mid-frame transitions. Share wakeup regression techniques across PTY, session-client, and existing hidden-terminal work. Rezonality’s worker, diagnostic, activation, and GPU-resource fixes should share a break/repair reload scenario. SatView’s worker race and shared-cache race are independent and both require fixes.
+Missing card bodies prevent definitive full-scope deduplication. The proposed cards cover accepted defects with no demonstrated existing match; they do not recreate the indexed work above. Requested numbering starts at `00`, although existing metadata already uses some of these sequence numbers.
 
-Cards use the requested sequence beginning at `00`; the trusted runner can normalize occupied priorities. These are proposed contents, not created files.
+**Confirmed findings, ordered by severity**
 
-### kanban/done/05 control-version-type-validation -bug.md
+1. **CRITICAL — Terminal input can terminate the GUI.**  
+   **Location:** `libs/draxul-client/src/remote_session_coordinator.cpp:1659`. Strict JSON serialization receives arbitrary terminal bytes, and its exception escapes the worker. **Trigger:** legacy mouse reporting at zero-based column 95 emits `0x80`; byte-sized Unicode paste chunks can also contain invalid UTF-8 fragments. **Fix:** use lossless binary-safe input encoding across client/server and contain worker exceptions. **Reporter:** Codex #1.
 
-# Reject malformed control protocol versions safely
+2. **CRITICAL — Plugin storage temporary files collide across processes.**  
+   **Location:** `libs/draxul-host/src/plugin_storage.cpp:467`. Temporary names use a process-local counter and are opened with truncation. **Trigger:** two clients save the same plugin/pane state concurrently; one can truncate the other’s temporary file or keep writing after it is published. **Fix:** exclusively create writer-unique temporary files, then atomically replace the target. **Reporter:** Codex #2.
 
+3. **CRITICAL — Non-finite configuration reaches undefined integer conversion.**  
+   **Location:** `libs/draxul-config/src/config_schema.cpp:553`; conversion at `libs/draxul-font/src/font_manager.cpp:61`. Float range rules accept NaN. **Trigger:** `font_size = nan` survives startup or checked reload and reaches conversion to `FT_F26Dot6`. **Fix:** reject non-finite values before range handling and defensively validate font inputs. **Reporter:** Codex #3.
+
+4. **CRITICAL — Rezonality surface scales overflow dimension conversions.**  
+   **Location:** `plugins/rezonality/src/native_backend_vulkan.cpp:448`; `plugins/rezonality/src/native_backend_metal.mm:454`. Both backends cast unchecked scaled dimensions. **Trigger:** a procedural surface with `scale: (1e30, 1)` passes parsing but produces an unrepresentable dimension. **Fix:** validate the computed dimensions against numeric and device limits before casting, preserving the last valid generation. **Reporter:** Codex #4.
+
+5. **CRITICAL — PCB routing margins bypass numeric bounds.**  
+   **Location:** `plugins/pcbview/src/autorouter.cpp:243`. Grid-cell limits do not bound clearance-derived radii or subsequent integer arithmetic. **Trigger:** an otherwise ordinary schema-2 board with a mount and `clearance_mm = 1e100` reaches an undefined floating-to-integer conversion. **Fix:** validate derived margins or clip floating bounds to the finite grid before conversion. **Reporter:** Codex #5.
+
+6. **HIGH — Plugin shutdown rejects final state saves.**  
+   **Location:** `libs/draxul-host/src/plugin_host.cpp:224`; callback rejection at `:595`. Shutdown disables callbacks before quiescing the plugin; reload repeats this ordering. **Trigger:** change SatView panel settings and close the pane; its quiescence save is rejected. **Fix:** permit valid main-thread storage calls through quiescence, then retire callbacks. **Reporter:** Codex #6.
+
+7. **HIGH — Atlas overflow leaves other panes using obsolete glyph coordinates.**  
+   **Location:** `libs/draxul-runtime-support/src/grid_rendering_pipeline.cpp:303`. One pipeline consumes the shared reset flag and rebuilds only its own grid. **Trigger:** overflow the atlas in one pane while another remains clean. **Fix:** track atlas generations and invalidate every dependent consumer, including previously processed and hidden grids. **Reporter:** Codex #7.
+
+8. **HIGH — Neovim receives ordinary Space and Backslash twice.**  
+   **Location:** `libs/draxul-nvim/src/input.cpp:122`, `:128`, and `:183`. Keydown sends named printable keys without suppressing their ordinary text events. **Trigger:** type Space or Backslash in insert mode. **Fix:** deliver unmodified printable characters through text input once, retaining modified-key handling. **Reporter:** Codex #8.
+
+9. **HIGH — Windows Neovim launch misinterprets Unicode paths and arguments.**  
+   **Location:** `libs/draxul-nvim/src/nvim_process.cpp:169`. UTF-8 strings are passed to `CreateProcessA`. **Trigger:** launch using a path or argument outside the Windows ANSI code page, such as `C:\用户\...`. **Fix:** convert to UTF-16 and use `CreateProcessW` with a compatible Unicode environment block. **Reporter:** Codex #9.
+
+10. **HIGH — Plugin resource paths violate the Windows UTF-8 ABI contract.**  
+    **Location:** `libs/draxul-host/src/plugin_host.cpp:117`. A native `.string()` is published as `plugin_directory_utf8`, while consumers decode UTF-8. **Trigger:** stage plugins beneath a non-ASCII directory on a non-UTF-8 Windows code page. **Fix:** publish explicit UTF-8 bytes from `u8string()`. **Reporter:** Codex #10.
+
+11. **HIGH — Disabled keybindings return after restart.**  
+    **Location:** `libs/draxul-config/src/app_config_io.cpp:376`. Serialization omits removed bindings, and configuration merging replaces the entire keybindings table. **Trigger:** configure `copy = ""`, then exit and restart; the omitted action regains its default. **Fix:** serialize explicit empty values for disabled default actions. **Reporter:** Codex #11.
+
+12. **HIGH — Integration installation can invalidate valid Codex TOML.**  
+    **Location:** `libs/draxul-agent-integration/src/agent_integration.cpp:322`. Section recognition requires the line to end with `]`. **Trigger:** install into a configuration containing `[features] # comment`; another `[features]` table is appended, producing invalid TOML. **Fix:** recognize TOML structure correctly and validate the transformed document before publication. **Reporter:** Codex #12.
+
+13. **HIGH — Kanban navigation repeats after focus loss.**  
+    **Location:** `modules/kanban/draxul-kanban/src/kanban_host.cpp:300`; repeat execution at `:822`. Focus loss leaves held-key state intact, and background pumping continues repeats. **Trigger:** hold navigation, switch tabs, then release in the new host. **Fix:** clear repeat/navigation state on focus loss and prevent unfocused repeats and preview effects. **Reporter:** Codex #13.
+
+14. **HIGH — MegaCity preferences neither load nor persist through its wrapper.**  
+    **Location:** `plugins/megacity/src/megacity_plugin.cpp:143`. The wrapper leaves `config_document` null; the host loads defaults and its save helper returns immediately. **Trigger:** change renderer/camera preferences, close, and reopen. **Fix:** connect initialization and saving to product-owned durable storage. **Reporter:** Codex #14.
+
+15. **HIGH — SatView sky labels cannot initialize in production plugin instances.**  
+    **Location:** `plugins/satview/src/runtime/satview_runtime.cpp:2286`. Label text initialization requires a host text-service pointer that the wrapper never supplies. **Trigger:** enable cardinal or constellation labels; supplying a font through UI style does not satisfy the guard. **Fix:** initialize the product-owned text service from available font/style information. **Reporter:** Codex #15.
+
+16. **HIGH — Restored SatView settings do not reach its simulation worker.**  
+    **Location:** `plugins/satview/src/satview_plugin.cpp:200`. Saved configuration is applied after worker startup without synchronizing controls or marking render settings dirty. **Trigger:** restore nondefault time speed or track budgets; UI values change while worker values remain at defaults. **Fix:** restore before startup or explicitly synchronize all affected worker settings afterward. **Reporter:** Codex #16.
+
+17. **HIGH — SatView pause state diverges between simulation and scheduling.**  
+    **Location:** `plugins/satview/src/satview_plugin.cpp:361`. Wrapper scheduling uses a separate pause flag from the runtime panel. **Trigger:** pause with Space, then click Resume; the worker resumes while continuous presentation remains disabled. Captured Space can also desynchronize the flags. **Fix:** use one authoritative pause state for input, scheduling, and persistence. **Reporter:** Codex #17.
+
+18. **HIGH — SatView cloud refresh races with Metal sampling.**  
+    **Location:** `plugins/satview/src/render/satview_render.mm:245`. A same-sized refresh overwrites the persistent texture with CPU `replaceRegion` while an earlier frame may still sample it. **Trigger:** refresh clouds during normal asynchronous rendering with two frames in flight. **Fix:** publish a replacement texture with safe lifetime management or synchronize all outstanding readers. **Reporter:** Codex #18.
+
+19. **HIGH — ScoreView judges MIDI processing time instead of arrival time.**  
+    **Location:** `plugins/scoreview/product/draxul-scoreview/src/flow_controller.cpp:323`; pump ordering at `score_runtime.cpp:1517`. Judgment ignores recorded timestamps, and windows expire before queued events are polled. **Trigger:** at 60 QPM, a note arriving at quarter 1.44 for onset 1 is processed at 1.46, beyond the 0.45-quarter late window. **Fix:** map event timestamps to transport position and judge before expiring their windows. **Reporter:** Codex #19.
+
+20. **HIGH — Rezonality animation includes paused time after resume.**  
+    **Location:** `plugins/rezonality/src/rezonality_plugin.cpp:191`; pause toggle at `:306`. Resume does not reset the animation clock anchor. **Trigger:** pause an idle pane for several seconds, then resume; the next frame adds the elapsed paused interval. **Fix:** reanchor time on pause/resume transitions. **Reporter:** Codex #20.
+
+21. **HIGH — Rezonality ignores edits to valid shader includes.**  
+    **Location:** `plugins/rezonality/src/live_project.cpp:1189`. The fingerprint extension whitelist excludes valid include suffixes such as `.inc`. **Trigger:** compile a shader including `parameters.inc`, then edit only that file; no rebuild is scheduled. **Fix:** watch the actual dependency closure or use a conservative strategy covering arbitrary include suffixes. **Reporter:** Codex #21.
+
+22. **HIGH — Nonuniform model scaling leaves incorrect shading vectors.**  
+    **Location:** `plugins/rezonality/src/model_loader.cpp:211`. Positions are scaled while normals, tangents, and bitangents remain unchanged. **Trigger:** apply `(1,2,3)` scale to a sloped, normal-mapped model; the identity model uniform cannot compensate. **Fix:** transform normals with inverse transpose and transform/reorthogonalize the tangent basis. **Reporter:** Codex #22.
+
+23. **MEDIUM — Rejected pane updates still mutate topology.**  
+    **Location:** `libs/draxul-server/src/topology_service.cpp:1201`. Working-directory/source fields change before plugin identity validation fails, and the rejected command skips the revision increment. **Trigger:** submit an update with new paths and a mismatching plugin ID. **Fix:** finish validation before mutating authoritative state. **Reporter:** Codex #23.
+
+24. **MEDIUM — Font configuration reload leaks native resources.**  
+    **Location:** `libs/draxul-font/src/text_service.cpp:83`; replacement at `app/app.cpp:695`. Default move replacement destroys old internals without releasing raw FreeType/HarfBuzz ownership. **Trigger:** repeatedly reload changed font configuration. **Fix:** give resource-owning internals automatic, move-safe cleanup. **Reporter:** Codex #24.
+
+25. **MEDIUM — Invalid cloud downloads replace the last good cache.**  
+    **Location:** `plugins/satview/src/services/satview_cloud_service.cpp:287`. Downloaded bytes are published before image decoding; fallback rereads the invalid replacement. **Trigger:** a nonempty invalid image response replaces a good cache, whose fresh timestamp can then suppress retry after restart. **Fix:** validate before publication and retry invalid fresh caches. **Reporter:** Codex #25.
+
+26. **MEDIUM — ScoreView’s `notick` mode enables beats.**  
+    **Location:** `plugins/scoreview/product/draxul-scoreview/src/score_runtime.cpp:269`. The later `"tick"` substring check overrides the earlier `"notick"` setting. **Trigger:** launch with `mode: "roll-notick"`. **Fix:** parse exact tokens or make metronome choices mutually exclusive. **Reporter:** Codex #26.
+
+27. **MEDIUM — Hidden PCB routes intercept selection.**  
+    **Location:** `plugins/pcbview/src/selection.cpp:90`. Route picking runs regardless of routed-track visibility and precedes airwire picking. **Trigger:** hide routed tracks and click where invisible copper crosses a visible airwire. **Fix:** pass route visibility into selection and gate copper picking accordingly. **Reporter:** Codex #27.
+
+28. **MEDIUM — Disabling weather leaves its stale pill visible.**  
+    **Location:** `libs/draxul-weather/src/weather_service.cpp:49`. Stopping the worker retains its published temperature and emoji, which chrome continues displaying. **Trigger:** after weather loads, clear `weather_location` and reload configuration. **Fix:** clear published state safely when disabling/changing location or explicitly gate presentation. **Reporter:** Codex #28.
+
+**Rulings, unresolved leads, and dependencies**
+
+There is no substantive inter-report disagreement: the Claude input supplies no position. Current source supports the Codex severities. Similar symptoms were kept separate where their causes differ—for example, host rejection of final saves, MegaCity’s missing persistence wiring, and SatView’s missing worker synchronization.
+
+Two leads remain unresolved and receive **no cards**:
+
+- **SatView Vulkan label-texture retirement:** `plugins/satview/src/render/satview_render_vk.cpp:853` destroys the old texture during replacement, but an independently reachable production upload path was not established while finding 15 blocks label initialization. Reassess retirement when restoring labels.
+- **Mixed-DPI IME coordinates:** no complete coordinate-space trace establishes the suspected mismatch.
+
+Fix dependencies:
+
+- Coordinate findings **2 and 6**: allowing final saves increases reachable concurrent storage writes.
+- Findings **6, 14, and 16** need independent persistence/restore coverage; fixing one does not fix the others. MegaCity must account for finding 6 if it saves during quiescence.
+- Findings **16 and 17** share SatView’s wrapper/runtime control boundary and should share integration coverage.
+- Finding **15** requires a Vulkan label-lifetime review before enabling the repaired upload path.
+- Finding **25** shares publication code with existing `kanban/pending/49 satview-concurrent-cache-publication -bug.md`; preserve both validation and concurrency guarantees.
+- Finding **1** requires coordinated client/protocol/server changes. Exception containment alone would still lose valid input.
+- Findings **7 and 24** touch shared text infrastructure but address independent generation and resource-lifetime defects.
+
+The following cards were created by the trusted runner during recovery.
+
+### kanban/pending/00 terminal-input-binary-serialization -bug.md
+
+# Preserve arbitrary terminal input across Session transport
 **Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #1; `libs/draxul-client/src/remote_session_coordinator.cpp:1659`.
 
-`libs/draxul-control/src/control_codec.cpp:180` reads `version` with throwing `value<int>()` before authentication. Sending `{"version":"1"}` or a null version can escape `handle_frame` and terminate a transport listener thread’s process.
+Legacy mouse coordinates can contain `0x80`, and paste chunking can split UTF-8 characters. Strict JSON serialization throws outside the worker boundary and terminates the GUI.
 
 **Investigation**
 
-- [ ] Exercise malformed versions through POSIX and Windows control transports.
+- [ ] Trace arbitrary input bytes and chunk boundaries through current client, protocol, and server paths.
 
 **Fix strategy**
 
-- [ ] Validate the version’s type and range before conversion.
-- [ ] Contain frame-processing exceptions and return a structured failure.
+- [ ] Implement lossless binary-safe wire encoding and matching server decoding; retain current-format version enforcement.
+- [ ] Contain worker exceptions and expose a recoverable failure without silently discarding accepted input.
 
 **Acceptance criteria**
 
-- [ ] String, null, container, and oversized versions fail without disconnecting healthy clients or terminating the process.
-- [ ] Valid protocol versions continue working.
+- [ ] Legacy mouse column 95, arbitrary bytes, and split multibyte pastes arrive intact without terminating the GUI.
+- [ ] Run core aggregate tests and a same-cache smoke; record Windows and macOS transport validation.
 
-### kanban/pending/06 layout-stream-exception-containment -bug.md
+### kanban/pending/01 plugin-storage-exclusive-temporary-files -bug.md
 
-# Contain malformed layout requests on the session stream
-
+# Prevent cross-process plugin storage collisions
 **Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #2; `libs/draxul-host/src/plugin_storage.cpp:467`.
 
-`libs/draxul-server/src/topology_service.cpp:208` converts `dry_run` before checking its type; `:333` converts `direction` without validation. An authenticated stream request with `"dry_run":"yes"` can throw through `session_stream_service.cpp:305` and terminate the server.
+Separate clients saving shared plugin/pane state can select the same `.tmp-N` filename, truncate each other’s writes, or modify an already-published inode.
 
 **Investigation**
 
-- [ ] Exercise wrong-typed layout fields over both control and persistent-stream paths.
+- [ ] Exercise concurrent writers against the same storage key and inspect native creation/replacement behavior on both platforms.
 
 **Fix strategy**
 
-- [ ] Validate fields before conversion.
-- [ ] Catch dispatch exceptions per command, preserving correlation and replay behavior.
+- [ ] Exclusively create unique temporary files per writer and publish only completed writes.
+- [ ] Ensure failure cleanup removes only the calling writer’s temporary file.
 
 **Acceptance criteria**
 
-- [ ] Malformed layouts return structured errors without changing topology.
-- [ ] Other sessions remain usable after each rejected request.
-- [ ] Coordinate exception handling with the server filesystem card.
+- [ ] Concurrent saves always leave one complete valid document, never mixed or truncated content.
+- [ ] Cover replacement failures and abandoned temporary files; run core/plugin storage aggregate coverage and same-cache smoke.
+- [ ] Coordinate with `kanban/pending/05 plugin-quiescence-final-storage-saves -bug.md`.
 
-### kanban/pending/07 rezonality-worker-exception-recovery -bug.md
+### kanban/pending/02 reject-nonfinite-config-values -bug.md
 
-# Recover from live-project parsing and filesystem exceptions
-
+# Reject non-finite numeric configuration before resource initialization
 **Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1; GPT-6 Astra
+**Source:** Codex #3; `libs/draxul-config/src/config_schema.cpp:553`.
 
-`plugins/rezonality/src/live_project.cpp:413` and `:568` accept malformed numeric tokens before calling `std::stof`; `:1237` invokes the build without an exception barrier. Autosaving `field_of_view: -` or `scale: (1, -` terminates the worker’s process. Fingerprinting also contains throwing filesystem operations.
+`font_size = nan` survives range handling and reaches undefined integer conversion in font initialization, including through checked reload.
 
 **Investigation**
 
-- [ ] Exercise incomplete numbers, out-of-range values, and filesystem failures during watching.
+- [ ] Trace float schema fields through startup, checked reload, and downstream integer conversions.
 
 **Fix strategy**
 
-- [ ] Use checked numeric parsing and error-code filesystem operations.
-- [ ] Convert build/watch exceptions into failed diagnostics while continuing the worker.
+- [ ] Reject or safely default non-finite values before range handling, with explicit checked-reload diagnostics.
+- [ ] Validate numeric inputs defensively at the font initialization boundary.
 
 **Acceptance criteria**
 
-- [ ] Invalid edits preserve the last valid scene.
-- [ ] Repairing the file successfully activates a later generation on both backends.
+- [ ] NaN and infinities never reach native font-size conversions; failed reload retains the prior valid configuration.
+- [ ] Verify finite boundary behavior, then run core aggregate tests and same-cache smoke.
 
-### kanban/pending/09 rezonality-pending-build-lifetime -bug.md
+### plugins/rezonality/kanban/pending/03 rezonality-checked-surface-dimensions -bug.md
 
-# Preserve build lifetime while publishing activation status
-
+# Validate procedural surface dimensions before GPU conversion
 **Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #4; `plugins/rezonality/src/native_backend_vulkan.cpp:448` and `native_backend_metal.mm:454`.
 
-`plugins/rezonality/src/rezonality_plugin.cpp:3191` and `:3494` reset `pending_build`, then read its destroyed object through `desired`. A successful pending shader activation reaches this lifetime violation on Metal and Vulkan.
+A procedural surface with `scale: (1e30, 1)` passes parsing and causes an out-of-range floating-to-integer conversion on both backends.
 
 **Investigation**
 
-- [ ] Trace `desired` ownership for pending activation and resize recreation.
+- [ ] Trace procedural dimension calculation during activation and pane resize, including device limits.
 
 **Fix strategy**
 
-- [ ] Build status from the committed `active_build`, or capture required values before resetting the pending build.
-- [ ] Audit both success and failure branches for invalidated aliases.
+- [ ] Compute and validate dimensions before casting or allocating on Vulkan and Metal.
+- [ ] Return actionable diagnostics while retaining the last valid generation.
 
 **Acceptance criteria**
 
-- [ ] Repeated successful reloads produce correct counts without lifetime violations.
-- [ ] Failed reloads and resize recreation retain valid active state.
+- [ ] Huge scales and overflow products fail safely; valid scales and resizing remain supported.
+- [ ] Run the Rezonality aggregate, relevant render checks, and same-cache smoke; record both-platform evidence.
+- [ ] Keep this scope distinct from `kanban/pending/42 rezonality-image-storage-format -bug.md`.
 
-### kanban/done/10 vulkan-capture-resize-bounds -bug.md
+### plugins/pcbview/kanban/pending/04 pcbview-routing-margin-bounds -bug.md
 
-# Keep capture dimensions tied to the recorded image
-
+# Bound routing margins before integer conversion
 **Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1; GPT-6 Astra
+**Source:** Codex #5; `plugins/pcbview/src/autorouter.cpp:243`.
 
-`libs/draxul-renderer/src/vulkan/vk_renderer.cpp:1363` recreates the swapchain before readback. `:409` then uses its new extent to read the old capture allocation. Growing the surface can read beyond mapped storage; shrinking misinterprets the image.
-
-**Investigation**
-
-- [ ] Exercise capture with presentation-triggered swapchain recreation, growing and shrinking.
-
-**Fix strategy**
-
-- [ ] Retain recorded capture dimensions and allocation bounds through completion.
-- [ ] Complete readback before recreation where appropriate, or explicitly cancel invalid captures.
-
-**Acceptance criteria**
-
-- [ ] Captures never read beyond their allocation.
-- [ ] Returned dimensions describe the captured image.
-- [ ] Inspect Metal dimension handling without assuming the same resize mechanism.
-
-### kanban/pending/14 satview-refresh-thread-retirement -bug.md
-
-# Retire completed refresh threads before replacement
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`plugins/satview/src/services/satview_catalog_service.cpp:602` and `satview_cloud_service.cpp:233` assign new threads after checking only `refresh_in_flight_`. Completion between pump and start checks clears that flag while `worker_` remains joinable, causing `std::terminate`.
+A finite but enormous clearance passes board validation and grid budgeting, then overflows margin-derived integer conversions and potentially center/radius arithmetic.
 
 **Investigation**
 
-- [ ] Force completion between result collection and the next refresh decision in both services.
+- [ ] Audit every clearance-, pad-, and via-derived conversion at loader and programmatic routing boundaries.
 
 **Fix strategy**
 
-- [ ] Model completed-but-unjoined workers explicitly.
-- [ ] Consume completion and join the previous worker before replacing it.
+- [ ] Validate derived margins or clip floating bounds to grid bounds before conversion.
+- [ ] Make subsequent integer range arithmetic safe.
 
 **Acceptance criteria**
 
-- [ ] Automatic and manual refresh races cannot replace a joinable thread.
-- [ ] Completion results are applied once, and cancellation remains responsive.
+- [ ] A board with a mount and `clearance_mm = 1e100` fails safely without undefined conversion.
+- [ ] Ordinary routing remains correct; run PCBView aggregate coverage and same-cache smoke.
+- [ ] Preserve the separate grid-budget guarantees indexed by `kanban/pending/31 pcbview-routing-cell-budget -bug.md`.
 
-### kanban/pending/16 metal-nanovg-failure-ownership -bug.md
+### kanban/pending/05 plugin-quiescence-final-storage-saves -bug.md
 
-# Delete the Metal NanoVG context exactly once
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`libs/draxul-nanovg/backend/src/nanovg_mtl.mm:1072` deletes the backend during NanoVG cleanup, and `:1105` deletes it again after initialization failure. The pinned [NanoVG implementation](https://raw.githubusercontent.com/memononen/nanovg/ce3bf745eb2d2dbc14a50bf2446783f691ac4353/src/nanovg.c) invokes that cleanup after renderer or atlas initialization fails.
-
-**Investigation**
-
-- [ ] Inject renderer, atlas, and initial NanoVG allocation failures.
-
-**Fix strategy**
-
-- [ ] Give backend allocation ownership to one layer across successful creation, failed creation, and normal deletion.
-- [ ] Preserve cleanup when NanoVG fails before installing its callbacks.
-
-**Acceptance criteria**
-
-- [ ] Every failure frees resources once, with no double-free or leak.
-- [ ] Normal initialization and teardown pass the deterministic ownership checks.
-
-### kanban/pending/18 codex-indented-features-header -bug.md
-
-# Locate indented features headers without invalid iterators
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`app/agent_integration.cpp:420` searches untrimmed lines after detecting a trimmed `[features]` header. With `  [features]` and no hooks key, `:421` inserts through `end() + 1`, invoking undefined behavior.
-
-**Investigation**
-
-- [ ] Cover indented headers with missing and existing hooks settings.
-
-**Fix strategy**
-
-- [ ] Record the matching header index during the initial scan.
-- [ ] Insert only through a validated position while preserving unrelated settings.
-
-**Acceptance criteria**
-
-- [ ] Installation safely enables hooks for indented and unindented headers.
-- [ ] Repeated installation remains idempotent and preserves valid TOML.
-
-### kanban/pending/19 config-reload-action-lifetime -bug.md
-
-# Own action text across configuration reload
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`app/input_dispatcher.cpp:389` retains an action view into keybindings. Executing `reload_config` replaces their storage at `app/app.cpp:686`, after which trace logging reads the dangling view at `input_dispatcher.cpp:399`.
-
-**Investigation**
-
-- [ ] Dispatch a reload binding with input trace logging enabled and changed keybindings.
-
-**Fix strategy**
-
-- [ ] Copy the selected action before execution, or otherwise retain its owning storage.
-- [ ] Inspect other action dispatch paths for equivalent reentrant invalidation.
-
-**Acceptance criteria**
-
-- [ ] Trace-enabled reload has no invalid memory access.
-- [ ] Logs retain the dispatched action name, and new bindings work afterward.
-
-### kanban/pending/24 scoreview-multipart-slice-bounds -bug.md
-
-# Validate every part before slicing a score window
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`plugins/scoreview/product/draxul-score-learn/src/source_slicer.cpp:256` validates against the first part’s bar count, then indexes every part at `:286` and `:314`. A shorter subsequent part causes out-of-bounds access.
-
-**Investigation**
-
-- [ ] Construct multipart scores with shorter and empty later parts.
-
-**Fix strategy**
-
-- [ ] Validate each requested measure and attribute-state index per part.
-- [ ] Reject incompatible windows or define an explicit safe missing-measure policy.
-
-**Acceptance criteria**
-
-- [ ] Unequal part lengths return a controlled result without invalid access.
-- [ ] Equal-length multipart windows preserve their notation and attribute state.
-
-### kanban/pending/31 pcbview-routing-cell-budget -bug.md
-
-# Bound PCB routing dimensions before arithmetic and allocation
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`plugins/pcbview/src/autorouter.cpp:224` narrows computed dimensions, and `:230` multiplies them as `int`. Positive finite dimensions accepted at `board_model.cpp:115` can overflow or allocate gigabytes; initialization exceptions escape `pcbview_plugin.cpp:96`.
-
-**Investigation**
-
-- [ ] Evaluate extreme board dimensions, fine grid spacing, and layer counts.
-
-**Fix strategy**
-
-- [ ] Check conversions and multiplication before narrowing.
-- [ ] Enforce a documented total routing-memory/cell budget.
-- [ ] Contain initialization failures at the plugin boundary.
-
-**Acceptance criteria**
-
-- [ ] Oversized inputs fail diagnostically before overflow or excessive allocation.
-- [ ] Supported boards still route, and a rejected board cannot terminate Draxul.
-
-### kanban/done/36 satview-vulkan-stream-buffer-lifetime -bug.md
-
-# Keep SatView vertex streams valid across in-flight frames
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`plugins/satview/src/render/satview_render_vk.cpp:833` rewrites shared mapped stream buffers while previous frames may read them. Growth destroys those buffers at `:801` before their GPU users finish.
-
-**Investigation**
-
-- [ ] Trace every stream buffer’s use across buffered frames and revision changes.
-
-**Fix strategy**
-
-- [ ] Use frame-owned buffers or immutable upload generations.
-- [ ] Retire replaced allocations only after all referencing frame slots complete.
-
-**Acceptance criteria**
-
-- [ ] Same-capacity updates and growth produce no GPU lifetime or synchronization errors.
-- [ ] Rapid marker/track updates render correctly with multiple frames in flight.
-- [ ] Review equivalent Metal ownership.
-
-### kanban/pending/38 megacity-vulkan-mesh-pool-lifetime -bug.md
-
-# Protect MegaCity mesh pools from in-flight rewrites
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`plugins/megacity/product/draxul-codeviz-renderer/src/codeviz_render_vk.cpp:1006` rewrites persistent mesh pools on each preparation. A rebuild fitting existing capacity overwrites geometry still referenced by an earlier frame; retirement currently handles growth only.
-
-**Investigation**
-
-- [ ] Trace same-capacity scene updates through all buffered frame slots.
-
-**Fix strategy**
-
-- [ ] Use frame-owned pools or immutable geometry generations with completion-based retirement.
-- [ ] Avoid rewriting unchanged geometry.
-
-**Acceptance criteria**
-
-- [ ] Same-size, shrinking, and growing rebuilds preserve in-flight data.
-- [ ] Vulkan synchronization validation remains clean.
-- [ ] Review Metal’s corresponding mesh lifetime.
-
-### kanban/pending/39 megacity-ao-descriptor-recording -bug.md
-
-# Select AO descriptors before recording their use
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`plugins/megacity/product/draxul-codeviz-renderer/src/codeviz_render_vk.cpp:3799` and `:3953` update a descriptor set already bound at `:3667`. Raw-AO debug mode therefore invalidates recorded commands under the [Vulkan descriptor-update rules](https://docs.vulkan.org/refpages/latest/refpages/source/vkUpdateDescriptorSets.html).
-
-**Investigation**
-
-- [ ] Trace binding 3 through GBuffer, scene, and debug passes.
-
-**Fix strategy**
-
-- [ ] Select and write descriptors before their first recorded binding.
-- [ ] Use separate descriptor sets where passes require different images.
-
-**Acceptance criteria**
-
-- [ ] Raw and denoised AO views use their intended images.
-- [ ] Toggling debug modes produces no descriptor-update validation errors.
-- [ ] Preserve Metal’s corresponding visual behavior.
-
-### kanban/pending/42 rezonality-image-storage-format -bug.md
-
-# Match image formats to uploaded pixel storage
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`plugins/rezonality/src/live_project.cpp:1142` normalizes HDR formats only. An LDR image with `format: rgba16f` retains that override, while `rezonality_plugin.cpp:1187` allocates four bytes per pixel and `:2513` copies the full image into a wider format.
-
-**Investigation**
-
-- [ ] Exercise LDR images with float/depth overrides and HDR images with explicit formats.
-
-**Fix strategy**
-
-- [ ] Derive format from decoded storage, perform an explicit conversion, or reject incompatible overrides.
-- [ ] Validate upload size and row stride on both backends.
-
-**Acceptance criteria**
-
-- [ ] No accepted image upload reads beyond its source storage.
-- [ ] Invalid combinations report diagnostics and preserve the active generation.
-
-### kanban/pending/43 rezonality-diagnostic-utf8 -bug.md
-
-# Make diagnostic publication tolerant of invalid UTF-8
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`plugins/rezonality/src/diagnostics.cpp:33` truncates strings by byte count, while `:180` serializes with strict UTF-8 handling. A multibyte character crossing the message limit, or invalid compiler bytes, can throw through publication and terminate the application.
-
-**Investigation**
-
-- [ ] Exercise invalid compiler text and multibyte messages at each truncation boundary.
-
-**Fix strategy**
-
-- [ ] Sanitize invalid UTF-8 and truncate complete characters.
-- [ ] Make diagnostic serialization failure recoverable.
-
-**Acceptance criteria**
-
-- [ ] Publication always produces valid bounded JSON or a controlled error.
-- [ ] Broken shader diagnostics cannot destroy the active scene or prevent later recovery.
-
-### kanban/pending/44 server-filesystem-exception-recovery -bug.md
-
-# Handle unavailable server paths without process termination
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`libs/draxul-server/src/server_terminal_runtime.cpp:266` uses throwing `current_path()` for an unspecified cwd. `libs/draxul-server/src/server_kernel.cpp:298` uses throwing `exists()` during restore preparation. A deleted cwd or inaccessible checkpoint path can escape server execution.
-
-**Investigation**
-
-- [ ] Exercise terminal startup with a deleted cwd and server startup with an inaccessible checkpoint path.
-
-**Fix strategy**
-
-- [ ] Use error-code filesystem operations and explicit failure/fallback policy.
-- [ ] Preserve startup failure reporting and contain request exceptions with the layout-stream fix.
-
-**Acceptance criteria**
-
-- [ ] Filesystem failures produce actionable errors without terminating unrelated sessions.
-- [ ] Startup failure is reported through the normal discovery/failure channel.
-
-### kanban/pending/45 satview-asset-probe-exception -bug.md
-
-# Remove the throwing redundant SatView asset probe
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`plugins/satview/src/core/satview_catalog.cpp:691` calls throwing `exists()` but returns the same path either way. An inaccessible asset ancestor can therefore terminate initialization or a refresh worker before ordinary file-read error handling runs.
-
-**Investigation**
-
-- [ ] Trace bundled-catalog loading during initialization and refresh.
-
-**Fix strategy**
-
-- [ ] Remove the redundant probe and rely on the existing read-error result.
-- [ ] Verify asset-access errors remain contained at worker boundaries.
-
-**Acceptance criteria**
-
-- [ ] Missing or inaccessible bundled assets produce a controlled diagnostic.
-- [ ] Refresh failure preserves usable catalog state and does not terminate Draxul.
-
-### kanban/pending/46 kanban-directory-scan-errors -bug.md
-
-# Propagate Kanban scan errors without replacing the board
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`modules/kanban/draxul-kanban/src/kanban_store.cpp:289` and `:315` check iterator-construction errors only inside loops that never run on failure. Their range-for increments can also throw. Permission loss or filesystem failure during reload can hide a board or escape the UI callback.
-
-**Investigation**
-
-- [ ] Inject iterator construction and advancement failures for roots and columns.
-
-**Fix strategy**
-
-- [ ] Check construction errors immediately and advance through `increment(error_code)`.
-- [ ] Return scan failures before committing a replacement board.
-
-**Acceptance criteria**
-
-- [ ] Failed reloads preserve the last valid board and expose an error.
-- [ ] Mid-scan failures never escape the UI callback.
-
-### kanban/pending/47 satview-hdr-target-transaction -bug.md
-
-# Publish HDR targets only after complete initialization
-
-**Severity:** CRITICAL  
-**Reported by:** Claude Fable 5.1
-
-`plugins/satview/src/render/satview_render_vk.cpp:1048` considers matching vector size and first-target dimensions sufficient. A later failure at `:1076`, `:1094`, or `:1107` leaves that condition true, allowing subsequent frames to use incomplete targets.
-
-**Investigation**
-
-- [ ] Inject failures after the first target succeeds and within later attachment/descriptor creation.
-
-**Fix strategy**
-
-- [ ] Build a temporary complete target set before publication, or clear every partial set on failure.
-- [ ] Make validity checks cover all required frame resources.
-
-**Acceptance criteria**
-
-- [ ] Failed creation cannot lead to null framebuffer or descriptor use.
-- [ ] A subsequent successful retry recovers cleanly without leaks.
-- [ ] Preserve Metal failure behavior.
-
-### kanban/pending/48 rezonality-gpu-initialization-rollback -bug.md
-
-# Roll back incomplete Rezonality GPU resource creation
-
-**Severity:** CRITICAL; includes a MEDIUM resource leak  
-**Reported by:** Claude Fable 5.1
-
-`plugins/rezonality/src/rezonality_plugin.cpp:1000` treats a non-null vertex buffer as ready after allocation/binding failure at `:1033`. Retrying a candidate can use an unbacked buffer. Separately, model-texture failure at `:1245` or `:1258` leaks resources held only by the local object at `:1522`.
-
-**Investigation**
-
-- [ ] Inject vertex memory, bind/map, sampler, and upload allocation failures.
-
-**Fix strategy**
-
-- [ ] Construct resources transactionally with scoped ownership.
-- [ ] Publish readiness only after complete initialization; clear partial backend state.
-
-**Acceptance criteria**
-
-- [ ] Failed candidates preserve the active generation.
-- [ ] Retrying succeeds without invalid buffer use or cumulative GPU leaks.
-
-### kanban/pending/49 satview-concurrent-cache-publication -bug.md
-
-# Preserve SatView caches during concurrent publication
-
+# Keep valid storage callbacks available during plugin quiescence
 **Severity:** HIGH  
-**Reported by:** GPT-6 Astra
+**Source:** Codex #6; `libs/draxul-host/src/plugin_host.cpp:224`.
 
-`plugins/satview/src/services/satview_catalog_service.cpp:105` gives concurrent writers the same temporary path. After one publishes it, another rename can fail and the fallback at `:124` removes the newly published cache.
+Shutdown and reload mark the host shutting down before quiescence, causing final storage saves—such as SatView preferences—to fail.
 
 **Investigation**
 
-- [ ] Interleave two catalog services writing the same payload and metadata paths.
+- [ ] Trace callback validity, generation checks, and final saves through close, shutdown, and reload.
 
 **Fix strategy**
 
-- [ ] Use unique sibling temporary files.
-- [ ] Replace destinations atomically without deleting the last valid cache on failure.
-- [ ] Keep payload/metadata publication coherent across writers.
+- [ ] Permit legitimate main-thread storage calls during quiescence.
+- [ ] Retire callbacks afterward while continuing to reject late asynchronous and stale-generation calls.
 
 **Acceptance criteria**
 
-- [ ] Concurrent refreshes leave a complete usable cache.
-- [ ] Failed replacement preserves the previous destination on Windows and macOS.
-- [ ] Offline startup remains functional afterward.
+- [ ] SatView panel preferences survive close/reopen and reload.
+- [ ] Callback retirement remains safe; run shared plugin aggregate coverage and same-cache smoke.
+- [ ] Coordinate with `01 plugin-storage-exclusive-temporary-files -bug.md`.
 
-### kanban/pending/50 pty-backpressure-shutdown-wakeup -bug.md
+### kanban/pending/06 shared-atlas-reset-invalidation -bug.md
 
-# Synchronize PTY stop predicates with output waits
-
+# Invalidate every glyph-atlas consumer after overflow
 **Severity:** HIGH  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #7; `libs/draxul-runtime-support/src/grid_rendering_pipeline.cpp:303`.
 
-`libs/draxul-terminal-process/src/unix_pty_process.cpp:298` and `conpty_process.cpp:854` change the reader stop predicate outside `output_mutex_`. Shutdown racing the backpressure wait can lose notification and block a join indefinitely. Unix `request_close()` also omits waking that condition variable.
+An overflowing pane consumes the shared atlas reset and rebuilds only itself, leaving other panes with obsolete glyph coordinates.
 
 **Investigation**
 
-- [ ] Force shutdown between predicate evaluation and blocking with a full output queue.
+- [ ] Identify all shared atlas consumers and their update ordering, including chrome and hidden grids.
 
 **Fix strategy**
 
-- [ ] Change the relevant stop predicate under the waiter’s mutex.
-- [ ] Notify the backpressure condition on every stop/close path.
+- [ ] Introduce generation-aware invalidation so every dependent consumer rebuilds before using replaced atlas contents.
+- [ ] Handle resets occurring after another consumer has already been processed.
 
 **Acceptance criteria**
 
-- [ ] Saturated readers exit within a bounded deadline on both platforms.
-- [ ] Normal backpressure still preserves output ordering and contents.
+- [ ] Overflow triggered by one pane preserves correct text in clean and subsequently revealed panes without manual test invalidation.
+- [ ] Run core aggregate tests, relevant multi-pane render checks, and same-cache smoke on supported backends.
 
-### kanban/done/51 session-client-worker-wakeup -bug.md
+### kanban/pending/07 nvim-printable-key-duplication -bug.md
 
-# Prevent lost session-client stop and fallback wakes
-
+# Deliver Space and Backslash to Neovim once
 **Severity:** HIGH  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #8; `libs/draxul-nvim/src/input.cpp:122`.
 
-`libs/draxul-client/src/remote_session_client.cpp:59` changes `stopping_`, and `:291` changes `externally_fed_`, without the mutex used by the untimed wait at `:811`. A race can hang shutdown or prevent legacy polling from starting.
+Ordinary Space and Backslash produce both named key input and unsuppressed text input, duplicating characters in insert mode.
 
 **Investigation**
 
-- [ ] Force each transition between predicate evaluation and entry into the external-feed wait.
+- [ ] Trace ordinary and modified key/text event pairs through dispatcher and Neovim input handling.
 
 **Fix strategy**
 
-- [ ] Update wait predicates under `mutex_`, then notify.
-- [ ] Audit startup and fallback transitions for consistent synchronization.
+- [ ] Give printable input one delivery path while preserving modified-key notation and text composition behavior.
 
 **Acceptance criteria**
 
-- [ ] An idle externally fed client always stops promptly.
-- [ ] Legacy fallback begins without needing an unrelated command.
-- [ ] Coordinate regression techniques with existing hidden-terminal work.
+- [ ] A keydown/text pair inserts one Space or Backslash; modified combinations retain their intended behavior.
+- [ ] Run core aggregate tests and same-cache smoke; verify actual typing on Windows and macOS.
 
-### kanban/pending/52 vulkan-final-submit-fence-recovery -bug.md
+### kanban/pending/08 windows-nvim-unicode-launch -bug.md
 
-# Recover frame ownership after final submission failure
-
+# Launch Windows Neovim using Unicode process APIs
 **Severity:** HIGH  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #9; `libs/draxul-nvim/src/nvim_process.cpp:169`.
 
-`libs/draxul-renderer/src/vulkan/vk_renderer.cpp:1345` resets the frame fence before submission, but failure at `:1349` leaves it unsignaled and associated with the image. A subsequent `begin_frame()` at `:884` can wait for work never submitted.
+UTF-8 executable, argument, and working-directory strings are interpreted through the Windows ANSI code page.
 
 **Investigation**
 
-- [ ] Inject final-submit failure and inspect fence, image, semaphore, and frame ownership.
+- [ ] Trace launch string encoding, argument quoting, and environment construction.
 
 **Fix strategy**
 
-- [ ] Enter a defined renderer-failure or recovery state that never waits on nonexistent work.
-- [ ] Repair or retire associated synchronization objects safely; do not reset a fence after submitting it.
+- [ ] Convert launch values to UTF-16 and use `CreateProcessW` with wide startup structures and a compatible environment block.
 
 **Acceptance criteria**
 
-- [ ] Submission failure cannot cause indefinite fence reuse or invalid synchronization.
-- [ ] Coordinate with `kanban/done/21 vulkan-chunk-flush-failure-state -bug.md`.
+- [ ] Neovim launches with non-ASCII executable paths, working directories, and arguments on a non-UTF-8 Windows code page.
+- [ ] Preserve quoting and environment behavior; run Windows core aggregate tests and same-cache smoke, with macOS regression coverage.
 
-### kanban/pending/53 terminal-csi-prefix-dispatch -bug.md
+### kanban/pending/09 plugin-directory-utf8-abi -bug.md
 
-# Dispatch CSI commands by their complete prefix
-
+# Publish plugin resource directories as explicit UTF-8
 **Severity:** HIGH  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #10; `libs/draxul-host/src/plugin_host.cpp:117`.
 
-`libs/draxul-terminal-core/src/terminal_core_csi.cpp:129` recognizes only `?`, while dispatch at `:330` ignores that distinction for cursor restore. Keyboard-protocol sequences such as `CSI ? u` move the cursor; `CSI > 4;2 m` changes SGR, and DA2 receives the wrong response.
+The host publishes `.string()` bytes through `plugin_directory_utf8`; plugins decode them as UTF-8, breaking non-ASCII Windows staging paths.
 
 **Investigation**
 
-- [ ] Replay prefixed keyboard, attribute, and device-query sequences alongside ordinary CSI commands.
+- [ ] Trace the ABI directory field and representative plugin resource consumers.
 
 **Fix strategy**
 
-- [ ] Parse private markers and intermediates separately from numeric parameters.
-- [ ] Dispatch supported combinations explicitly and ignore unsupported combinations.
+- [ ] Populate the field using explicit UTF-8 conversion with lifetime extending through instance creation.
 
 **Acceptance criteria**
 
-- [ ] Unsupported extensions cannot mutate cursor or rendition state accidentally.
-- [ ] Existing cursor, SGR, and supported device-query behavior remains correct.
+- [ ] Plugins load assets from non-ASCII Windows directories under non-UTF-8 ANSI settings.
+- [ ] Run shared plugin aggregate coverage and same-cache smoke; verify macOS path behavior remains correct.
 
-### kanban/pending/54 failed-local-host-restart-state -bug.md
+### kanban/pending/10 persist-disabled-keybindings -bug.md
 
-# Keep a valid pane after local host restart failure
-
+# Preserve explicitly disabled default keybindings
 **Severity:** HIGH  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #11; `libs/draxul-config/src/app_config_io.cpp:376`.
 
-`app/pane_manager.cpp:409` erases the old host before recreation. A failed non-plugin initialization at `:1405` removes its pane ID but leaves the tree leaf and launch options. Restarting Neovim after removing its executable can leave a pane that cannot be closed or restarted normally.
+Removed bindings are omitted during serialization, so shutdown saving erases explicit disables and defaults return at restart.
 
 **Investigation**
 
-- [ ] Fail recreation after an existing local host has been shut down.
+- [ ] Trace empty binding parsing, serialization, document merging, and shutdown persistence.
 
 **Fix strategy**
 
-- [ ] Install a recoverable unavailable placeholder or perform complete structural rollback.
-- [ ] Keep tree, host, pane identity, launch options, and input routing consistent.
+- [ ] Serialize explicit empty entries for disabled default actions while preserving configured chords and unrelated settings.
 
 **Acceptance criteria**
 
-- [ ] The failed pane remains closable and retryable.
-- [ ] Session snapshotting and other panes continue working.
-- [ ] Preserve existing missing-plugin placeholder behavior.
+- [ ] `copy = ""` remains disabled after serialization, document merge, and restart.
+- [ ] Verify enabled bindings still round-trip; run core aggregate tests and same-cache smoke.
 
-### kanban/pending/55 scoreview-keyboard-resume -bug.md
+### kanban/pending/11 integration-installer-toml-sections -bug.md
 
-# Restore keyboard input when ScoreView becomes visible
-
+# Preserve valid TOML while enabling integration hooks
 **Severity:** HIGH  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #12; `libs/draxul-agent-integration/src/agent_integration.cpp:322`.
 
-`plugins/scoreview/product/draxul-scoreview/src/score_runtime.cpp:341` clears the input rig when hidden. The show branch at `:347` excludes keyboard input while resuming playback, so returning to a keyboard-driven Roll/Gate pane rejects keys and can record missed notes.
+A valid `[features] # comment` header is missed, causing installation to append a duplicate table and invalidate the configuration.
 
 **Investigation**
 
-- [ ] Hide and show keyboard-driven Roll and Gate modes with background playback disabled.
+- [ ] Examine section recognition with comments, whitespace, quoted keys, and neighboring tables.
 
 **Fix strategy**
 
-- [ ] Restore the requested input rig for every applicable non-Clock mode before resuming.
-- [ ] Preserve input lease and background-playback semantics.
+- [ ] Transform TOML structure correctly while preserving unrelated configuration.
+- [ ] Validate transformed content before atomic publication.
 
 **Acceptance criteria**
 
-- [ ] Keyboard notes work immediately after showing the pane.
-- [ ] Visibility transitions do not create artificial missed-note progress.
-- [ ] Other input modes still reacquire correctly.
+- [ ] Installation handles commented headers without duplicate tables or misplaced assignments and remains idempotent.
+- [ ] Invalid transformations never replace the original file; run core aggregate tests and same-cache smoke.
 
-### kanban/pending/56 windows-nvim-nonblocking-shutdown -bug.md
+### kanban/pending/12 kanban-focus-loss-repeat-state -bug.md
 
-# Move Windows Neovim process waits off the UI thread
-
+# Stop Kanban navigation when the host loses focus
 **Severity:** HIGH  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #13; `modules/kanban/draxul-kanban/src/kanban_host.cpp:300`.
 
-`libs/draxul-nvim/src/nvim_process.cpp:233` and `:237` perform consecutive two-second waits. `libs/draxul-host/src/nvim_host.cpp:182` calls shutdown synchronously, so closing an unresponsive Neovim pane can freeze the interface.
+Holding navigation while switching tabs leaves repeat state active because the release reaches another host; background pumping continues selection changes.
 
 **Investigation**
 
-- [ ] Trace process, RPC reader, and pipe ownership during Windows pane closure.
+- [ ] Trace held-key/navigation state, focus transitions, background pumping, and pinned preview callbacks.
 
 **Fix strategy**
 
-- [ ] Transfer bounded process termination/reaping to a safe background owner.
-- [ ] Preserve cancellation, handle lifetime, and idempotent shutdown.
+- [ ] Clear repeat and navigation state on focus loss and guard unfocused repeat execution.
 
 **Acceptance criteria**
 
-- [ ] Closing an unresponsive Neovim pane leaves other panes responsive.
-- [ ] The child is eventually reaped without leaked handles or worker access to destroyed state.
-- [ ] Preserve the existing nonblocking POSIX behavior.
+- [ ] Hold, switch tabs, and release produces no subsequent background selection or preview changes.
+- [ ] Refocusing requires fresh input and normal repeat still works; run core aggregate tests and same-cache smoke.
 
-### kanban/pending/57 windows-osc7-path-normalization -bug.md
+### plugins/megacity/kanban/pending/13 megacity-plugin-preference-storage -bug.md
 
-# Normalize Windows OSC 7 paths before reuse
-
+# Connect MegaCity preferences to durable plugin storage
 **Severity:** HIGH  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #14; `plugins/megacity/src/megacity_plugin.cpp:143`.
 
-`libs/draxul-terminal-core/src/terminal_core_csi.cpp:689` retains the URI’s leading slash for Windows drive paths. Metadata is reused as a working directory, while `app/app.cpp:3177` recognizes only `/` when naming tabs. Windows OSC 7 paths can therefore produce invalid launch directories or incorrect names.
+The wrapper supplies no configuration document, so the host always loads defaults and preference-save calls return without writing.
 
 **Investigation**
 
-- [ ] Trace drive, UNC, percent-encoded, and backslash-containing paths through metadata, naming, and pane launch.
+- [ ] Inventory renderer and camera preference load/save paths for MegaCity and BioView.
 
 **Fix strategy**
 
-- [ ] Convert file URIs to platform-appropriate filesystem paths.
-- [ ] Extract display basenames using platform-aware rules while preserving POSIX behavior.
+- [ ] Wire product-owned durable configuration through wrapper initialization and preference updates.
+- [ ] Account for quiescence callback availability if final saves occur during close.
 
 **Acceptance criteria**
 
-- [ ] Windows drive and supported UNC paths round-trip into valid working directories.
-- [ ] Tab names show the intended basename.
-- [ ] POSIX paths remain unchanged semantically.
+- [ ] Renderer and camera preferences survive pane close/reopen and reload in both modes.
+- [ ] Run MegaCity aggregate tests, relevant pane checks, and same-cache smoke.
+- [ ] Coordinate any final-save dependency with `kanban/pending/05 plugin-quiescence-final-storage-saves -bug.md`.
 
-### kanban/pending/58 plugin-storage-error-preservation -bug.md
+### plugins/satview/kanban/pending/14 satview-plugin-sky-labels -bug.md
 
-# Preserve plugin storage errors during temporary-file cleanup
+# Initialize SatView label text from plugin UI style
+**Severity:** HIGH  
+**Source:** Codex #15; `plugins/satview/src/runtime/satview_runtime.cpp:2286`.
 
+Production wrappers never provide the host text-service pointer required by label initialization, so sky-label atlases are not created.
+
+**Investigation**
+
+- [ ] Trace UI-style font information through label service creation and both backend upload paths.
+- [ ] Reassess Vulkan label-texture retirement before making uploads reachable.
+
+**Fix strategy**
+
+- [ ] Initialize the product-owned text service from available font/style metrics and refresh it safely on style changes.
+
+**Acceptance criteria**
+
+- [ ] Cardinal and constellation labels render in actual plugin instances.
+- [ ] Run SatView aggregate tests, label render checks, and same-cache smoke; verify safe Vulkan and Metal resource lifetimes.
+
+### plugins/satview/kanban/pending/15 satview-restored-worker-settings -bug.md
+
+# Synchronize restored SatView settings with its worker
+**Severity:** HIGH  
+**Source:** Codex #16; `plugins/satview/src/satview_plugin.cpp:200`.
+
+Saved preferences are applied after simulation startup without publishing restored time speed or track budgets to the worker.
+
+**Investigation**
+
+- [ ] Compare restored runtime fields against worker startup controls and subsequent synchronization paths.
+
+**Fix strategy**
+
+- [ ] Restore before worker startup or explicitly synchronize every affected setting after applying configuration.
+
+**Acceptance criteria**
+
+- [ ] Nondefault restored speed and track budgets affect worker output before any corrective user action.
+- [ ] Cover restore alongside pause-state transitions; run SatView aggregate tests and same-cache smoke.
+- [ ] Coordinate with `plugins/satview/kanban/pending/16 satview-authoritative-pause-state -bug.md`.
+
+### plugins/satview/kanban/pending/16 satview-authoritative-pause-state -bug.md
+
+# Unify SatView pause state and frame scheduling
+**Severity:** HIGH  
+**Source:** Codex #17; `plugins/satview/src/satview_plugin.cpp:361`.
+
+Wrapper and runtime pause flags diverge: Space pause followed by panel Resume restarts simulation while continuous presentation remains stopped.
+
+**Investigation**
+
+- [ ] Trace Space, captured keyboard input, panel controls, persistence, and tick/render deadlines.
+
+**Fix strategy**
+
+- [ ] Establish one authoritative pause state and synchronize worker controls, scheduling, and stored state through it.
+
+**Acceptance criteria**
+
+- [ ] Space and panel Pause/Resume combinations keep simulation, presentation, and stored state consistent.
+- [ ] Captured Space causes no unintended transition; run SatView aggregate tests and same-cache smoke.
+- [ ] Share restore coverage with `plugins/satview/kanban/pending/15 satview-restored-worker-settings -bug.md`.
+
+### plugins/satview/kanban/pending/17 satview-metal-cloud-texture-refresh -bug.md
+
+# Refresh Metal cloud textures without mutating in-flight data
+**Severity:** HIGH  
+**Source:** Codex #18; `plugins/satview/src/render/satview_render.mm:245`.
+
+Same-sized cloud updates overwrite a texture that an earlier asynchronous frame may still sample.
+
+**Investigation**
+
+- [ ] Trace cloud revision publication, texture ownership, and outstanding frame usage.
+
+**Fix strategy**
+
+- [ ] Upload into a replacement texture with safe retirement, or synchronize every outstanding reader before mutation.
+
+**Acceptance criteria**
+
+- [ ] Repeated same-sized refreshes remain correct with multiple frames in flight.
+- [ ] Run SatView aggregate tests, Metal refresh/render checks, and same-cache smoke; inspect Vulkan parity.
+- [ ] Keep this scope separate from `kanban/pending/36 satview-vulkan-stream-buffer-lifetime -bug.md`.
+
+### plugins/scoreview/kanban/pending/18 scoreview-midi-arrival-time-judgment -bug.md
+
+# Judge ScoreView MIDI events by their arrival time
+**Severity:** HIGH  
+**Source:** Codex #19; `plugins/scoreview/product/draxul-scoreview/src/flow_controller.cpp:323`.
+
+Roll judgment uses processing position and expires windows before queued input is read, turning valid delayed-delivery events into misses.
+
+**Investigation**
+
+- [ ] Trace MIDI timestamps through input polling, transport advancement, judgment, and expiration.
+
+**Fix strategy**
+
+- [ ] Map event times onto the transport timeline and judge queued events before expiring their corresponding windows.
+- [ ] Preserve correct mapping through tempo changes, pauses, and delayed pumps.
+
+**Acceptance criteria**
+
+- [ ] At 60 QPM, the onset-1 event arriving at 1.44 remains valid when processed at 1.46.
+- [ ] Truly late events remain misses; run ScoreView aggregate tests and same-cache smoke.
+
+### plugins/rezonality/kanban/pending/19 rezonality-pause-clock-anchor -bug.md
+
+# Exclude paused intervals from Rezonality animation time
+**Severity:** HIGH  
+**Source:** Codex #20; `plugins/rezonality/src/rezonality_plugin.cpp:191`.
+
+Resume leaves the previous render timestamp as the animation anchor, so an idle paused interval is added on the next frame.
+
+**Investigation**
+
+- [ ] Trace animation time through pause, sparse redraws, resume, and state restoration.
+
+**Fix strategy**
+
+- [ ] Reset or reanchor the animation clock at pause/resume transitions.
+
+**Acceptance criteria**
+
+- [ ] Long pauses cause no animation jump, with or without incidental paused redraws.
+- [ ] Verify both backends and reload behavior; run Rezonality aggregate tests, relevant render checks, and same-cache smoke.
+
+### plugins/rezonality/kanban/pending/20 rezonality-shader-include-watching -bug.md
+
+# Watch all shader include dependencies
+**Severity:** HIGH  
+**Source:** Codex #21; `plugins/rezonality/src/live_project.cpp:1189`.
+
+The watcher ignores extensions such as `.inc` even though shader compilation accepts them, leaving valid include-only edits unapplied.
+
+**Investigation**
+
+- [ ] Trace dependency discovery, fingerprinting, and rebuild scheduling for direct and nested includes.
+
+**Fix strategy**
+
+- [ ] Watch the actual dependency closure or conservatively cover include files without relying on the current suffix whitelist.
+- [ ] Preserve last-valid-generation behavior when an include edit breaks compilation.
+
+**Acceptance criteria**
+
+- [ ] Editing, breaking, and repairing an included `.inc` schedules corresponding generations and diagnostics automatically.
+- [ ] Run Rezonality aggregate and real-module edit/recovery coverage, followed by same-cache smoke.
+
+### plugins/rezonality/kanban/pending/21 rezonality-scaled-model-tangent-basis -bug.md
+
+# Transform model shading vectors with baked scale
+**Severity:** HIGH  
+**Source:** Codex #22; `plugins/rezonality/src/model_loader.cpp:211`.
+
+Nonuniform scale changes positions but leaves normals and tangent-space vectors unchanged, producing incorrect lighting and normal mapping.
+
+**Investigation**
+
+- [ ] Trace imported vertex bases through baked scale and shared renderer uniforms.
+
+**Fix strategy**
+
+- [ ] Apply inverse-transpose normal transformation and transform/reorthogonalize tangent vectors.
+- [ ] Define safe behavior for singular and mirrored scales.
+
+**Acceptance criteria**
+
+- [ ] A sloped normal-mapped model scaled by `(1,2,3)` has the expected shading on Vulkan and Metal.
+- [ ] Run Rezonality aggregate tests, relevant render checks, and same-cache smoke.
+
+### kanban/pending/22 rejected-pane-update-atomicity -bug.md
+
+# Keep rejected pane updates free of mutations
 **Severity:** MEDIUM  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #23; `libs/draxul-server/src/topology_service.cpp:1201`.
 
-`libs/draxul-host/src/plugin_host.cpp:190` returns a write failure without assigning an I/O error. Cleanup at `:193` and `:199` reuses the primary error code and can clear replacement failures. Hot reload can consequently report a storage failure as “Success.”
+A mismatching plugin ID is rejected after changing source and working-directory fields, leaving altered topology under the old revision.
 
 **Investigation**
 
-- [ ] Inject open, write, flush, and replacement failures followed by successful cleanup.
+- [ ] Trace validation and mutation ordering for `UpdateClientPane`, including command result and revision handling.
 
 **Fix strategy**
 
-- [ ] Capture the original failure before cleanup.
-- [ ] Use a separate cleanup error code.
+- [ ] Complete immutable-identity validation before committing any field changes.
 
 **Acceptance criteria**
 
-- [ ] Every failed operation returns a meaningful non-success diagnostic.
-- [ ] Successful cleanup cannot erase the original error.
-- [ ] Existing reload rollback behavior remains intact.
+- [ ] A rejected update leaves the complete snapshot and revision unchanged.
+- [ ] A valid update publishes all intended fields with the expected revision advance; run core aggregate tests and same-cache smoke.
 
-### kanban/pending/59 config-integer-representable-bounds -bug.md
+### kanban/pending/23 font-reload-native-resource-cleanup -bug.md
 
-# Bound configuration integers before narrowing
-
+# Release native font resources during text-service replacement
 **Severity:** MEDIUM  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #24; `libs/draxul-font/src/text_service.cpp:83` and `app/app.cpp:695`.
 
-`libs/draxul-config/src/config_schema.cpp:539` applies only a lower bound for `ClampMin`, then narrows at `:553`. A value such as `chord_timeout_ms = 2147483648` becomes an invalid negative timeout on the supported integer representation.
+Reload move-assignment destroys old text-service internals without releasing their raw FreeType/HarfBuzz resources.
 
 **Investigation**
 
-- [ ] Identify every minimum-only integer field and test representable boundaries.
+- [ ] Audit resource ownership through initialization failure, shutdown, destruction, and move replacement.
 
 **Fix strategy**
 
-- [ ] Apply destination-type bounds before conversion.
-- [ ] Keep configured minimum and fallback/clamping semantics explicit.
+- [ ] Add automatic cleanup at the owning layer and preserve safe moved-from and repeated-shutdown behavior.
 
 **Acceptance criteria**
 
-- [ ] Values beyond `int` range cannot wrap into negative or unrelated settings.
-- [ ] Ordinary values and documented minimum clamping remain unchanged.
+- [ ] Repeated successful and failed reloads do not accumulate native resources or double-release them.
+- [ ] Live hosts remain valid after replacement; run core aggregate tests and same-cache smoke.
 
-### kanban/pending/60 megacity-route-pair-association -bug.md
+### plugins/satview/kanban/pending/24 satview-validate-cloud-cache-before-publish -bug.md
 
-# Preserve route-pair identity when failed routes are removed
-
+# Preserve the last valid cloud cache after invalid downloads
 **Severity:** MEDIUM  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #25; `plugins/satview/src/services/satview_cloud_service.cpp:287`.
 
-`plugins/megacity/product/draxul-megacity/src/semantic_city_layout.cpp:1172` compacts successful routes, but `:1258` indexes the original pair vector with the compacted index. An unroutable pair followed by a valid route can assign elevations from the wrong buildings.
+Nonempty downloaded bytes replace the cache before decoding, destroying fallback data and potentially suppressing retries after restart.
 
 **Investigation**
 
-- [ ] Construct a failed route followed by successful routes with distinct layer heights.
+- [ ] Trace download validation, cache publication, fallback, and freshness decisions.
 
 **Fix strategy**
 
-- [ ] Retain each successful result’s original pair identity through compaction.
-- [ ] Compute endpoint elevations from that retained association.
+- [ ] Decode and validate before atomic publication; retain the prior cache on failure.
+- [ ] Retry invalid fresh caches instead of treating freshness alone as sufficient.
 
 **Acceptance criteria**
 
-- [ ] Every route receives elevations from its own endpoints.
-- [ ] Skipping failed routes preserves deterministic ordering and existing valid layouts.
+- [ ] Invalid downloads preserve a usable prior cache, including across restart.
+- [ ] Run SatView aggregate tests and same-cache smoke.
+- [ ] Coordinate publication changes with existing `kanban/pending/49 satview-concurrent-cache-publication -bug.md`.
 
-### kanban/pending/61 conpty-exited-process-id -bug.md
+### plugins/scoreview/kanban/pending/25 scoreview-notick-mode-parsing -bug.md
 
-# Stop publishing exited ConPTY process identifiers
-
+# Honor ScoreView’s `notick` launch mode
 **Severity:** MEDIUM  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #26; `plugins/scoreview/product/draxul-scoreview/src/score_runtime.cpp:269`.
 
-`libs/draxul-terminal-process/src/conpty_process.cpp:973` returns retained `dwProcessId` after the child exits or handles are closed. The server publishes that recyclable PID, unlike the POSIX implementation’s zero result after confirmed exit.
+`roll-notick` selects Off and then matches the later `"tick"` substring check, enabling beats.
 
 **Investigation**
 
-- [ ] Follow PID publication through natural exit, abnormal exit, shutdown, and restart.
+- [ ] Trace plugin mode strings and interactions among `notick`, `tick`, `tick8`, and `locktempo`.
 
 **Fix strategy**
 
-- [ ] Return zero after confirmed exit and clear retired process identity.
-- [ ] Keep unknown process-status handling distinct from confirmed exit.
+- [ ] Parse exact tokens or make tick choices mutually exclusive, keeping unrelated options independent.
 
 **Acceptance criteria**
 
-- [ ] Exited panes never advertise a stale live PID.
-- [ ] Restart publishes the new PID.
-- [ ] Coordinate status semantics with `kanban/pending/29 conpty-process-status-query-failure -bug.md`.
+- [ ] `roll-notick` disables metronome ticks; `tick` and `tick8` retain their intended levels.
+- [ ] Verify combined mode options; run ScoreView aggregate tests and same-cache smoke.
 
-### kanban/pending/62 sdl-event-registration-failure -bug.md
+### plugins/pcbview/kanban/pending/26 pcbview-hidden-route-selection -bug.md
 
-# Check SDL3 event-registration failure correctly
-
+# Exclude hidden routed tracks from PCB picking
 **Severity:** MEDIUM  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #27; `plugins/pcbview/src/selection.cpp:90`.
 
-`libs/draxul-window/src/sdl_window.cpp:175` checks for `Uint32(-1)`, but [SDL3 returns zero on failure](https://wiki.libsdl.org/SDL3/SDL_RegisterEvents). Exhausted event registration therefore leaves unusable wake/file-dialog event IDs while initialization appears successful.
+Routed-track drawing respects visibility, but picking does not; invisible copper can intercept a visible airwire and activate selection effects.
 
 **Investigation**
 
-- [ ] Exercise failed allocation of the two application event IDs.
+- [ ] Trace display flags through runtime selection input and picking precedence.
 
 **Fix strategy**
 
-- [ ] Reject a zero result and unwind initialization through the existing error path.
+- [ ] Add routed-track visibility to selection inputs and gate route picking accordingly.
 
 **Acceptance criteria**
 
-- [ ] Registration failure reports an actionable initialization error.
-- [ ] Successful registration provides distinct working wake and file-dialog events.
-- [ ] Verify both platform startup paths.
+- [ ] Hidden routes cannot intercept selection; visible airwires and pads remain selectable.
+- [ ] Visible-route precedence and layer filtering remain correct; run PCBView aggregate tests and same-cache smoke.
+- [ ] Keep the fix distinct from `kanban/pending/88 pcbview-selection-core -refactor.md`.
 
-### kanban/pending/63 satview-ephemeris-row-commit -bug.md
+### kanban/pending/27 weather-disable-clears-presentation -bug.md
 
-# Commit ephemeris metadata only after accepting a row
-
+# Clear stale weather presentation when disabled
 **Severity:** MEDIUM  
-**Reported by:** Claude Fable 5.1
+**Source:** Codex #28; `libs/draxul-weather/src/weather_service.cpp:49`.
 
-`plugins/satview/src/core/satview_catalog.cpp:1353` updates source and frame before validating the frame and track horizon. A rejected final row can overwrite metadata describing previously accepted samples.
-
-**Investigation**
-
-- [ ] Append invalid-frame and invalid-horizon rows after valid samples for the same object.
-
-**Fix strategy**
-
-- [ ] Parse row metadata into temporary values.
-- [ ] Commit metadata and sample data together only after complete validation.
-
-**Acceptance criteria**
-
-- [ ] Rejected rows leave accepted samples and their metadata unchanged.
-- [ ] Valid rows retain intended source, frame, and horizon values.
-- [ ] Define consistent handling for conflicting accepted frames.
-
-### kanban/pending/64 satview-visible-marker-picking -bug.md
-
-# Apply identical visibility and limits to marker drawing and picking
-
-**Severity:** MEDIUM  
-**Reported by:** Claude Fable 5.1
-
-`plugins/satview/src/runtime/satview_runtime.cpp:871` applies the drawing cap after horizon rejection, while picking applies it at `:4962` before that rejection. With a finite limit and early below-horizon objects, visible later markers cannot be selected.
+Clearing `weather_location` stops the worker but retains its published emoji and temperature, leaving a permanently stale chrome pill.
 
 **Investigation**
 
-- [ ] Build a ground-view snapshot with occluded objects preceding visible markers near the limit.
+- [ ] Trace weather state through location changes, cancellation, worker completion, and chrome presentation.
 
 **Fix strategy**
 
-- [ ] Share marker eligibility and limit ordering between rendering and picking.
-- [ ] Preserve the selected-marker exception explicitly.
+- [ ] Clear published state safely when disabling/changing location, or gate presentation explicitly.
+- [ ] Prevent a completing old worker from republishing stale location data.
 
 **Acceptance criteria**
 
-- [ ] Every displayed eligible marker can be picked at its rendered position.
-- [ ] Occluded markers do not consume the visible-marker budget.
-- [ ] Unlimited, map, and existing selection behavior remain correct.
+- [ ] Clearing the location and reloading removes the pill; switching locations does not retain misleading old data.
+- [ ] Re-enabling weather publishes fresh values; run core aggregate tests and same-cache smoke.
 
-<model>gpt-6-astra</model>
+---
+
+Tracker placement after publication: 14 product-owned cards were moved to their product submodules; 14 core/shared cards remain in the root tracker.
+
+Authorship: `gpt-6-astra`.

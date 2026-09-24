@@ -737,6 +737,102 @@ class ArtifactTests(unittest.TestCase):
             )
             self.assertIn("First task", target.read_text(encoding="utf-8"))
 
+    def test_labeled_card_title_normalizes_without_weakening_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            (root / "kanban" / "pending").mkdir(parents=True)
+            summary = """# Consensus
+
+### kanban/pending/00 first-boundary -bug.md
+
+**Title:** First boundary
+**Severity:** HIGH
+
+- [ ] First task
+"""
+            normalized = review.normalize_kanban_summary(root, summary)
+            self.assertIn("# First boundary\n**Severity:** HIGH", normalized)
+            self.assertIn("**Title:** First boundary", summary)
+            created = review.materialize_kanban_cards(root, normalized)
+            self.assertEqual("# First boundary", (
+                root / created[0]["path"]
+            ).read_text(encoding="utf-8").splitlines()[0])
+
+            invalid = summary.replace("**Title:** First boundary\n", "")
+            with self.assertRaisesRegex(review.ReviewError, "lacks a title heading"):
+                review.normalize_kanban_summary(root, invalid)
+
+    def test_product_source_routes_card_into_initialized_submodule(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            (root / "kanban" / "pending").mkdir(parents=True)
+            product = root / "plugins" / "satview"
+            product.mkdir(parents=True)
+            (product / ".git").write_text("gitdir: fixture\n", encoding="utf-8")
+            summary = """### kanban/pending/00 cloud-refresh -bug.md
+
+**Title:** Refresh cloud texture safely
+**Source:** `plugins/satview/src/render/satview_render.mm:245`
+
+- [ ] Verify a refresh with a frame in flight.
+"""
+            normalized = review.normalize_kanban_summary(root, summary)
+            self.assertIn("### plugins/satview/kanban/pending/00 cloud-refresh -bug.md", normalized)
+            self.assertIn("# Refresh cloud texture safely", normalized)
+            created = review.materialize_kanban_cards(root, normalized)
+            self.assertEqual(
+                ["plugins/satview/kanban/pending/00 cloud-refresh -bug.md"],
+                [item["path"] for item in created],
+            )
+            self.assertFalse((root / "kanban/pending/00 cloud-refresh -bug.md").exists())
+
+    def test_priority_collisions_are_normalized_per_owning_lane(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            (root / "kanban" / "pending").mkdir(parents=True)
+            product = root / "plugins" / "satview"
+            (product / "kanban" / "pending").mkdir(parents=True)
+            (product / ".git").write_text("gitdir: fixture\n", encoding="utf-8")
+            (product / "kanban/pending/00 existing -bug.md").write_text("existing\n")
+            summary = """### kanban/pending/00 core-defect -bug.md
+
+# Core defect
+
+- [ ] Fix core behavior.
+
+### plugins/satview/kanban/pending/00 product-defect -bug.md
+
+# Product defect
+
+**Source:** `plugins/satview/src/runtime.cpp:10`
+
+- [ ] Fix product behavior.
+"""
+            normalized = review.normalize_kanban_summary(root, summary)
+            self.assertIn("kanban/pending/00 core-defect -bug.md", normalized)
+            self.assertIn("plugins/satview/kanban/pending/01 product-defect -bug.md", normalized)
+            created = review.materialize_kanban_cards(root, normalized)
+            self.assertEqual(2, len(created))
+            self.assertTrue((root / "kanban/pending/00 core-defect -bug.md").is_file())
+            self.assertTrue((product / "kanban/pending/01 product-defect -bug.md").is_file())
+
+    def test_product_card_rejects_uninitialized_or_unsupported_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            (root / "plugins" / "satview").mkdir(parents=True)
+            card = review.KanbanCard(
+                "00 defect -bug.md", "# Defect\n\n- [ ] Fix it.\n",
+                "plugins/satview/kanban/pending",
+            )
+            with self.assertRaisesRegex(review.ReviewError, "not initialized"):
+                review.validate_kanban_cards(root, [card])
+            unsafe = review.KanbanCard(
+                "00 defect -bug.md", "# Defect\n\n- [ ] Fix it.\n",
+                "plugins/../kanban/pending",
+            )
+            with self.assertRaisesRegex(review.ReviewError, "Unsupported"):
+                review.validate_kanban_cards(root, [unsafe])
+
     def test_materialize_remaps_collisions_to_lowest_free_priorities(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)

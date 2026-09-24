@@ -12,7 +12,7 @@ Report every distinct, substantiated finding, keeping each entry concise without
 
 Your sole focus is **user-facing features and quality-of-life improvements**. Identify valuable capabilities that are missing, incomplete, awkward to discover, or inconsistent across hosts and platforms. This is not a bug hunt or a refactoring review.
 
-Use `docs/features.md` and the detail pages under `docs/features/` as the implemented-feature baseline. Inspect `kanban/pending/`, `kanban/ice-box/`, and `kanban/done/` before proposing anything, and do not duplicate an existing work item.
+Use `docs/features.md` and the detail pages under `docs/features/` as the implemented-feature baseline. Inspect root and product `kanban/pending/`, `kanban/ice-box/`, and `kanban/done/` lanes before proposing anything, and do not duplicate an existing work item.
 
 Evaluate opportunities in areas such as:
 

@@ -17,6 +17,7 @@ import sys
 import tempfile
 import time
 import uuid
+from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 
 
@@ -91,6 +92,11 @@ class AgentResult:
 class KanbanCard:
     filename: str
     content: str
+    directory: str = "kanban/pending"
+
+    @property
+    def path(self) -> str:
+        return f"{self.directory}/{self.filename}"
 
 
 ADAPTERS = {
@@ -749,8 +755,10 @@ def review_bootstrap(summary: bool = False) -> str:
             "Read INPUT_REVIEWS/index.md and every listed review before responding. "
             "If SYNTHESIS_PROMPT.md requests Kanban work items, include each complete card in "
             "the final response under an exact level-three heading of the form "
-            "`### kanban/pending/<filename>.md`; the trusted parent process will validate and "
-            "create those files. Do not claim that you created them. "
+            "`### kanban/pending/<filename>.md` for core work or "
+            "`### plugins/<product>/kanban/pending/<filename>.md` for product-owned work; "
+            "the trusted parent process will validate and create those files. "
+            "Do not claim that you created them. "
         )
     return (
         f"Read {task} and follow it exactly. {extra}"
@@ -952,11 +960,38 @@ def latest_summary_manifest_path(output_root: pathlib.Path, name: str) -> pathli
 
 
 KANBAN_CARD_HEADING = re.compile(
-    r"(?m)^###\s+`?kanban/pending/(?P<filename>[^`\r\n]+\.md)`?\s*$"
+    r"(?m)^###\s+`?(?P<directory>(?:kanban|plugins/[a-z0-9][a-z0-9-]*/kanban)/pending)/"
+    r"(?P<filename>[^`\r\n]+\.md)`?[ \t]*$"
 )
 KANBAN_CARD_FILENAME = re.compile(
     r"^(?P<priority>\d{2}) [a-z0-9][a-z0-9 -]* -(?:bug|feature|refactor|architecture|test)\.md$"
 )
+
+
+def product_for_directory(directory: str) -> str | None:
+    if directory == "kanban/pending":
+        return None
+    match = re.fullmatch(r"plugins/([a-z0-9][a-z0-9-]*)/kanban/pending", directory)
+    if not match:
+        raise ReviewError(f"Unsupported Kanban work-item directory: {directory}")
+    return match.group(1)
+
+
+def product_from_card_source(root: pathlib.Path, content: str) -> str | None:
+    source = re.search(r"(?m)^\*\*Source:\*\*[^\r\n]*", content)
+    if not source:
+        return None
+    owners: set[str] = set()
+    for path in re.findall(r"`([^`]+)`", source.group()):
+        match = re.match(r"plugins/([a-z0-9][a-z0-9-]*)/", path)
+        if match and (root / "plugins" / match.group(1) / ".git").exists():
+            owners.add(match.group(1))
+        elif "/" in path:
+            owners.add("core")
+    if len(owners) == 1:
+        owner = next(iter(owners))
+        return owner if owner != "core" else None
+    return None
 
 
 def extract_kanban_cards(summary: str) -> list[KanbanCard]:
@@ -967,28 +1002,31 @@ def extract_kanban_cards(summary: str) -> list[KanbanCard]:
         content = summary[match.end() : end].strip()
         if index + 1 == len(matches):
             content = re.sub(r"\n*<model>[^\r\n]*</model>\s*$", "", content).rstrip()
-        cards.append(KanbanCard(match.group("filename").strip(), content + "\n"))
+        cards.append(KanbanCard(
+            match.group("filename").strip(), content + "\n", match.group("directory")
+        ))
     return cards
 
 
 def validate_kanban_card_content(cards: Sequence[KanbanCard]) -> None:
-    proposed_names: set[str] = set()
+    proposed_paths: set[str] = set()
     for card in cards:
+        product_for_directory(card.directory)
         if pathlib.Path(card.filename).name != card.filename or "/" in card.filename or "\\" in card.filename:
             raise ReviewError(f"Unsafe Kanban work-item filename: {card.filename}")
         if not KANBAN_CARD_FILENAME.fullmatch(card.filename):
             raise ReviewError(f"Invalid Kanban work-item filename: {card.filename}")
-        if card.filename in proposed_names:
-            raise ReviewError(f"Duplicate proposed Kanban work item: {card.filename}")
+        if card.path in proposed_paths:
+            raise ReviewError(f"Duplicate proposed Kanban work item: {card.path}")
         if not re.search(r"(?m)^#\s+\S", card.content):
             raise ReviewError(f"Kanban work item lacks a title heading: {card.filename}")
         if not re.search(r"(?m)^- \[ \]\s+\S", card.content):
             raise ReviewError(f"Kanban work item lacks unchecked tasks: {card.filename}")
-        proposed_names.add(card.filename)
+        proposed_paths.add(card.path)
 
 
-def pending_priorities(root: pathlib.Path) -> set[int]:
-    pending = root / "kanban" / "pending"
+def pending_priorities(root: pathlib.Path, directory: str = "kanban/pending") -> set[int]:
+    pending = root / directory
     return {
         int(match.group("priority"))
         for path in pending.glob("*.md")
@@ -997,47 +1035,93 @@ def pending_priorities(root: pathlib.Path) -> set[int]:
 
 
 def normalize_kanban_summary(root: pathlib.Path, summary: str) -> str:
+    # A sole product source owns its card even if the model used a root heading.
+    # Mixed or shared source locations stay in the root tracker.
+    matches = list(KANBAN_CARD_HEADING.finditer(summary))
+    for index in reversed(range(len(matches))):
+        match = matches[index]
+        if match.group("directory") != "kanban/pending":
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(summary)
+        product = product_from_card_source(root, summary[match.end():end])
+        if product:
+            summary = (summary[:match.start("directory")]
+                       + f"plugins/{product}/kanban/pending"
+                       + summary[match.end("directory"):])
+
+    # Keep the provider's raw response archived, but publish cards with the
+    # heading the tracker expects when a complete Title field was supplied.
+    matches = list(KANBAN_CARD_HEADING.finditer(summary))
+    for index in reversed(range(len(matches))):
+        start = matches[index].end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(summary)
+        content = summary[start:end]
+        if re.search(r"(?m)^#\s+\S", content):
+            continue
+        title = re.search(r"(?m)^\*\*Title:\*\*[ \t]*(\S[^\r\n]*?)[ \t]*$", content)
+        if title:
+            replacement = f"# {title.group(1).strip()}"
+            summary = summary[:start + title.start()] + replacement + summary[start + title.end():]
+
     cards = extract_kanban_cards(summary)
     validate_kanban_card_content(cards)
     if not cards:
         return summary
 
-    occupied = pending_priorities(root)
-    proposed = [int(KANBAN_CARD_FILENAME.fullmatch(card.filename).group("priority")) for card in cards]
-    has_collision = bool(occupied.intersection(proposed)) or len(set(proposed)) != len(proposed)
-    if not has_collision:
-        return summary
-
-    available = (priority for priority in range(100) if priority not in occupied)
-    replacements: list[tuple[str, str]] = []
+    by_directory: dict[str, list[KanbanCard]] = {}
     for card in cards:
-        try:
-            priority = next(available)
-        except StopIteration as error:
-            raise ReviewError("No free two-digit Kanban pending priorities remain.") from error
-        replacements.append((card.filename, f"{priority:02d}{card.filename[2:]}"))
+        by_directory.setdefault(card.directory, []).append(card)
 
-    normalized = summary
-    for old_name, new_name in replacements:
-        normalized = normalized.replace(old_name, new_name)
-    return normalized
+    renamed: list[tuple[KanbanCard, str]] = []
+    for directory, lane_cards in by_directory.items():
+        occupied = pending_priorities(root, directory)
+        proposed = [int(card.filename[:2]) for card in lane_cards]
+        if not occupied.intersection(proposed) and len(set(proposed)) == len(proposed):
+            continue
+        available = (priority for priority in range(100) if priority not in occupied)
+        for card in lane_cards:
+            try:
+                priority = next(available)
+            except StopIteration as error:
+                raise ReviewError(f"No free two-digit Kanban pending priorities remain in {directory}.") from error
+            renamed.append((card, f"{priority:02d}{card.filename[2:]}"))
+
+    if not renamed:
+        return summary
+    full_paths = {card.path: f"{card.directory}/{new_name}" for card, new_name in renamed}
+    name_counts = Counter(card.filename for card in cards)
+    bare_names = {
+        card.filename: new_name for card, new_name in renamed
+        if name_counts[card.filename] == 1
+    }
+    full_pattern = "|".join(re.escape(path) for path in sorted(full_paths, key=len, reverse=True))
+    bare_pattern = "|".join(re.escape(name) for name in sorted(bare_names, key=len, reverse=True))
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9_/-])(?:" + full_pattern + r")"
+        + (r"|(?<![A-Za-z0-9_/-])(?:" + bare_pattern + r")" if bare_pattern else "")
+    )
+    return pattern.sub(lambda match: full_paths.get(match.group(), bare_names.get(match.group(), match.group())), summary)
 
 
 def validate_kanban_cards(root: pathlib.Path, cards: Sequence[KanbanCard]) -> None:
     validate_kanban_card_content(cards)
-    pending = root / "kanban" / "pending"
-    existing_priorities = {f"{priority:02d}" for priority in pending_priorities(root)}
-    proposed_priorities: set[str] = set()
+    proposed_priorities: dict[str, set[str]] = {}
     for card in cards:
+        product = product_for_directory(card.directory)
+        if product:
+            checkout = root / "plugins" / product
+            if not checkout.resolve().is_relative_to(root.resolve()) or not (checkout / ".git").exists():
+                raise ReviewError(f"Product submodule is not initialized: {checkout}")
         match = KANBAN_CARD_FILENAME.fullmatch(card.filename)
         assert match is not None
         priority = match.group("priority")
-        target = pending / card.filename
+        target = root / card.path
         if target.exists():
             raise ReviewError(f"Refusing to overwrite existing Kanban work item: {target}")
-        if priority in existing_priorities or priority in proposed_priorities:
-            raise ReviewError(f"Kanban pending priority {priority} is already in use.")
-        proposed_priorities.add(priority)
+        if (int(priority) in pending_priorities(root, card.directory)
+                or priority in proposed_priorities.setdefault(card.directory, set())):
+            raise ReviewError(f"Kanban pending priority {priority} is already in use in {card.directory}.")
+        proposed_priorities[card.directory].add(priority)
 
 
 def materialize_kanban_cards(root: pathlib.Path, summary: str) -> list[dict[str, str]]:
@@ -1046,7 +1130,7 @@ def materialize_kanban_cards(root: pathlib.Path, summary: str) -> list[dict[str,
     created: list[pathlib.Path] = []
     try:
         for card in cards:
-            target = root / "kanban" / "pending" / card.filename
+            target = root / card.path
             atomic_create(target, card.content)
             created.append(target)
     except Exception:
@@ -1207,8 +1291,11 @@ def command_review(args: argparse.Namespace) -> int:
         if args.kanban:
             consensus_text += (
                 "Include complete cards for accepted, untracked work under exact "
-                "### kanban/pending/<filename>.md headings, each with a title and scoped "
-                "unchecked tasks and acceptance criteria. The runner will validate and create them.\n"
+                "### kanban/pending/<filename>.md headings for core/shared work or exact "
+                "### plugins/<product>/kanban/pending/<filename>.md headings for work wholly "
+                "owned by an initialized product submodule. Give each card a title, scoped "
+                "unchecked tasks, acceptance criteria, and a Source line with a backtick-quoted "
+                "owning file path. The runner will validate and create them in the owning tracker.\n"
             )
         else:
             consensus_text += (
@@ -1398,7 +1485,10 @@ def command_summarize(args: argparse.Namespace) -> int:
     if kanban is not None:
         prompt_text += (
             "\n\nRun policy: return complete accepted-work cards under exact "
-            "### kanban/pending/<filename>.md headings for the runner to create.\n"
+            "### kanban/pending/<filename>.md headings for core/shared work and exact "
+            "### plugins/<product>/kanban/pending/<filename>.md headings for work wholly "
+            "owned by an initialized product submodule. Include a Source line with a "
+            "backtick-quoted owning file path. The runner creates cards in the owning tracker.\n"
             if kanban else
             "\n\nRun policy: consensus report only; do not include Kanban card sections. "
             "Task creation is disabled, overriding any earlier request to create cards.\n"

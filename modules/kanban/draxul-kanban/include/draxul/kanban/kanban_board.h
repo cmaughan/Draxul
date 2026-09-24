@@ -57,6 +57,7 @@ struct KanbanSelection
 CardKind card_kind_for_file(std::string_view file_name);
 std::string icon_for_kind(CardKind kind);
 void sort_columns_for_first_load(std::vector<std::string>& names);
+void arrange_standard_columns(std::vector<KanbanColumn>& columns);
 void clamp_selection(const KanbanBoard& board, KanbanSelection& selection);
 bool selection_has_card(const KanbanBoard& board, KanbanSelection selection);
 KanbanCard* selected_card(KanbanBoard& board, KanbanSelection selection);

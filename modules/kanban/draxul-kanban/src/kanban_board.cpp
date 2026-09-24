@@ -15,14 +15,9 @@ bool ends_with(std::string_view text, std::string_view suffix)
 
 int preferred_column_rank(std::string_view name)
 {
-    static constexpr std::array<std::string_view, 8> kPreferredOrder{
+    static constexpr std::array<std::string_view, 3> kPreferredOrder{
         "ice-box",
-        "backlog",
         "pending",
-        "todo",
-        "doing",
-        "in-progress",
-        "review",
         "done",
     };
 
@@ -79,6 +74,14 @@ void sort_columns_for_first_load(std::vector<std::string>& names)
         }
         return lhs < rhs;
     });
+}
+
+void arrange_standard_columns(std::vector<KanbanColumn>& columns)
+{
+    std::stable_sort(columns.begin(), columns.end(),
+        [](const KanbanColumn& lhs, const KanbanColumn& rhs) {
+            return preferred_column_rank(lhs.name) < preferred_column_rank(rhs.name);
+        });
 }
 
 void clamp_selection(const KanbanBoard& board, KanbanSelection& selection)
