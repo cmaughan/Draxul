@@ -335,6 +335,11 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 Work items live in `kanban/`. This is the only tracker — `plans/` holds design docs and
 research notes, never work items.
 
+Create cards for non-trivial features, bugs, and refactors. Source integration,
+branch merges, rebases, syncing, and other branch-specific Git work belong in
+commits and the task conversation, not in Kanban. Track any distinct product
+issue discovered during that work in its own card.
+
 | Directory | Purpose |
 |-----------|---------|
 | `kanban/pending/` | Active items — in scope for the current or next work session |

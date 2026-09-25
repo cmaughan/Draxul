@@ -11,10 +11,14 @@ families. The detailed current library and product-module graph is in
 ## Kanban tracking
 
 - Automatically create a card in `kanban/pending/` for every non-trivial new
-  task, feature, refactor, or bug fix. Treat work as non-trivial when it spans
+  feature, refactor, or bug fix. Treat work as non-trivial when it spans
   multiple implementation steps, needs validation or follow-up gates, or carries
   enough context that another agent may need to continue it. Create and maintain
   the card as part of the work; do not wait for the user to request one.
+- Do not create cards for source integration, branch merges, rebases, syncing,
+  or other branch-specific Git tasks. Record those in commits and the task
+  conversation. If that work exposes a distinct product bug or needed refactor,
+  track that issue in its own card.
 - Use each card as the durable record for its work. Keep its checklist and notes
   current with what changed, why it changed, important decisions and constraints,
   validation evidence, and any remaining follow-ups so another agent can resume
