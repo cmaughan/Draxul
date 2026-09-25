@@ -11,7 +11,7 @@ Use `scripts/review.py` for every provider call. Do not call reviewer CLIs direc
 
 1. Resolve the requested prompt file relative to the repository root. If the user supplied inline text, preserve it exactly in a temporary UTF-8 prompt file.
 2. Choose reviewers:
-   - No selection: use the two-model panel: OpenAI `gpt-6-astra` and Anthropic `claude-fable-5-1` (Claude Fable 5.1).
+   - No selection: use the two-model panel: OpenAI `gpt-6-sol` (GPT-6 Sol) and Anthropic `claude-opus-5-5` (Claude Opus 5.5), both at high effort.
    - “All”: pass `--all` to include every healthy configured company.
    - Named reviewers: pass repeatable `--reviewer transport:model` values. Supported transports are `codex`, `claude`, `google`, `agy`, `gemini`, and `grok`.
 3. Run from the repository root:
@@ -22,7 +22,7 @@ py .agents/skills/draxul-review/scripts/review.py review --prompt-file <prompt> 
 
 4. Arrange a status check every 10 minutes as described below. The runner saves each reviewer report and diagnostics immediately, updates the running manifest, then automatically produces consensus from that exact run. Report the immutable run directory, successful/failed reviewers, fallbacks, latest files, archived Repomix input, consensus path, and any created Kanban cards. Use `--no-consensus` only when the user requests independent reviews without synthesis.
 
-Codex and Claude calls explicitly use **high reasoning effort**, including synthesis. Astra review/synthesis calls enable subagents with a maximum of four concurrent workers and explicitly set worker defaults to the selected model at high effort. Preflight disables delegation. Other optional transports retain their provider effort defaults.
+Codex and Claude calls explicitly use **high reasoning effort**, including synthesis. Codex review/synthesis calls enable subagents with a maximum of four concurrent workers and explicitly set worker defaults to the selected model at high effort. Preflight disables delegation. Other optional transports retain their provider effort defaults.
 
 The feature, bug, and refactor prompts all require an architecture map, explicit read-only subsystem delegation (up to four workers, no nested delegation), substantive investigation of every major area, coordinator verification of accepted findings, and a final cross-component pass. Workers share the same packed source and review-only restrictions. If delegation is unavailable, review sequentially and disclose the limitation. Reports include an investigation coverage table and unreviewed areas, with no finding quota or arbitrary report-length cap. Unresolved leads remain separate from accepted findings and Kanban proposals. Consensus uses the same evidence standard against current source and the exact selected reports.
 
@@ -36,7 +36,7 @@ Generate and inspect the packed input without invoking providers:
 py .agents/skills/draxul-review/scripts/review.py review --prompt-file <prompt> --plan-only
 ```
 
-The runner preflights providers after packing, runs their one-shot reviews concurrently, and owns all report writes. The default timeout is 90 minutes **per reviewer and synthesis**, with a separate preparation timeout of the same duration for Repomix. Each report is published as its reviewer finishes; a slow or failed peer cannot keep completed reports only in memory. After the panel finishes, successful reports are synthesized automatically by `codex:gpt-6-astra` at high effort. Partial panels produce explicitly partial consensus; no successful reports means no synthesis. Consensus failure preserves the reviews and returns a nonzero exit status. Persist real Codex, Claude, and Grok review sessions in their normal provider stores so TokenFu can retain tool-call and token telemetry; keep nonce-only preflight sessions ephemeral. Start fresh sessions and keep cross-session memory disabled.
+The runner preflights providers after packing, runs their one-shot reviews concurrently, and owns all report writes. The default timeout is 90 minutes **per reviewer and synthesis**, with a separate preparation timeout of the same duration for Repomix. Each report is published as its reviewer finishes; a slow or failed peer cannot keep completed reports only in memory. After the panel finishes, successful reports are synthesized automatically by `codex:gpt-6-sol` at high effort. Partial panels produce explicitly partial consensus; no successful reports means no synthesis. Consensus failure preserves the reviews and returns a nonzero exit status. Persist real Codex, Claude, and Grok review sessions in their normal provider stores so TokenFu can retain tool-call and token telemetry; keep nonce-only preflight sessions ephemeral. Start fresh sessions and keep cross-session memory disabled.
 
 ## Monitor through completion
 
@@ -54,7 +54,7 @@ Report final successes/failures, consensus and report paths, and created/merged 
 - Use `--no-kanban` for a consensus report without creating cards; `--kanban` explicitly enables the default behavior.
 - Use `--no-consensus` for independent reports only. It skips both synthesis and card creation and cannot be combined with `--consensus-prompt`.
 - The default consensus prompt is `plans/prompts/consensus_<review-prompt-stem>.md` (for example `consensus_review_bugs.md`); a general reconciliation prompt is used when no matching saved prompt exists.
-- `--consensus-prompt <path>` overrides the saved prompt. `--summarizer transport:model` overrides Astra only when the user names a synthesizer.
+- `--consensus-prompt <path>` overrides the saved prompt. `--summarizer transport:model` overrides GPT-6 Sol only when the user names a synthesizer.
 - Consensus always uses the current immutable review run, not mutable latest-file globs. Its state and summary-run link are recorded in the review manifest, separately from reviewer completion status.
 - `--plan-only` generates the Repomix input without invoking reviewers or consensus.
 
@@ -68,7 +68,7 @@ py .agents/skills/draxul-review/scripts/review.py summarize --prompt-file <synth
 py .agents/skills/draxul-review/scripts/review.py summarize --prompt-file <synthesis-prompt> --glob <pattern>
 ```
 
-Standalone `summarize` also creates validated Kanban cards by default; use `--no-kanban` for a report only. Use `--summarizer transport:model` only when the user names a synthesizer; otherwise keep `codex:gpt-6-astra`. Pass `--name` when an explicit stable artifact name is needed.
+Standalone `summarize` also creates validated Kanban cards by default; use `--no-kanban` for a report only. Use `--summarizer transport:model` only when the user names a synthesizer; otherwise keep `codex:gpt-6-sol`. Pass `--name` when an explicit stable artifact name is needed.
 
 Summarize successful reports from partial runs and identify missing reviewers. When the synthesis prompt requests work items, require complete cards under exact `### kanban/pending/<filename>.md` headings for core/shared work or `### plugins/<product>/kanban/pending/<filename>.md` headings for work owned by an initialized product submodule. Each card needs a title heading and a `**Source:**` line. The trusted runner validates and atomically creates cards in their owning trackers after synthesis; providers remain read-only. A card with a complete `**Title:**` field is normalized to a title heading while the raw response remains archived. If proposed priorities collide, the runner assigns the lowest free priorities within each pending lane and rewrites intra-consensus paths before publishing. Return the summary path, its input list, and created work-item paths.
 

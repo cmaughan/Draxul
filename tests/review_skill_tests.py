@@ -32,12 +32,21 @@ def remove_tree_with_readonly_files(path: pathlib.Path) -> None:
 
 
 class ReviewerSelectionTests(unittest.TestCase):
-    def test_default_panel_uses_astra_and_fable(self) -> None:
+    def test_default_panel_uses_sol_and_opus_at_high_effort(self) -> None:
         panel = review.requested_panel([], False)
         self.assertEqual([("codex", ""), ("claude", "")], panel)
         self.assertEqual(
-            ["gpt-6-astra", "claude-fable-5-1"],
+            ["gpt-6-sol", "claude-opus-5-5"],
             [review.ADAPTERS[transport].default_model for transport, _ in panel],
+        )
+        parser = review.build_parser()
+        self.assertEqual(
+            "codex:gpt-6-sol",
+            parser.parse_args(["review", "--prompt-file", "prompt.md"]).summarizer,
+        )
+        self.assertEqual(
+            "codex:gpt-6-sol",
+            parser.parse_args(["summarize", "--prompt-file", "prompt.md", "--run", "run-id"]).summarizer,
         )
 
     def test_all_panel_adds_google_and_xai(self) -> None:

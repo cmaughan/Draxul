@@ -100,8 +100,8 @@ class KanbanCard:
 
 
 ADAPTERS = {
-    "codex": Adapter("codex", "openai", "codex", "gpt-6-astra", "gpt"),
-    "claude": Adapter("claude", "anthropic", "claude", "claude-fable-5-1", "claude"),
+    "codex": Adapter("codex", "openai", "codex", "gpt-6-sol", "gpt"),
+    "claude": Adapter("claude", "anthropic", "claude", "claude-opus-5-5", "claude"),
     "agy": Adapter("agy", "google", "agy", "default", "gemini"),
     "gemini": Adapter("gemini", "google", "gemini", "default", "gemini"),
     "grok": Adapter("grok", "xai", "grok", "grok-4.5", "grok"),
