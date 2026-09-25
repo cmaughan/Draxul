@@ -22,6 +22,22 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | SatView | `--plugin dev.draxul.satview` at launch or on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and plugin-owned ImGui controls. Full narrative: [docs/features/satview.md](features/satview.md) |
 | Rezonality | `--plugin dev.draxul.rezonality` at launch or on pane/tab commands | Fault-tolerant Vulkan/Metal live graphics viewer ported from VkLive. Direct launch creates and focuses a server-topology plugin tab while preserving terminal access. It watches external edits, compiles complete GLSL candidates off the UI thread, renders named surfaces plus OBJ/glTF models with cameras, PBR/HDR materials, and the Cornell-box ray project through Vulkan ray shader groups or a native Metal kernel, retains the last valid GPU generation when a candidate fails, and publishes bounded agent-readable generation diagnostics. The NYX flight-deck launcher uses full-resolution scenegraphs without a final TV pass by default; `-Crt` selects preserved low-resolution `*-crt.scenegraph` variants. Its explicitly installed native Neovim package joins the live Draxul pane registry with compile records, merges every active pane's errors into inline diagnostics and a cross-file quickfix list, can focus or reload an exact contributing pane, and provides `:RezFiles` to open the deduplicated scenegraphs, shader entrypoints, and quoted includes from every current valid generation, including hidden panes whose compiled candidate is ready but not yet GPU-active. In a listed source buffer, `Ctrl+Enter` saves, flashes the visible text orange, and rebuilds every pane using that file without a chooser, keeping shared instances synchronized; `:help rezonality` documents the complete command and multi-pane behavior. All editor commands use the short `:Rez*` prefix, with the former `:Rezonality*` forms retained as compatibility aliases. |
 
+MegaCity stores City and BioView renderer/camera preferences in separate
+plugin-owned config files, preserving them across pane reopen and plugin reload.
+PCBView rejects unsafe routing margins before integer conversion; hiding routed
+tracks also removes their selection hits, leaving visible airwires selectable.
+Rezonality watches extensionless and nested shader includes, excludes paused
+intervals from shader animation time, rejects procedural surfaces beyond GPU
+texture limits before allocation, and transforms normals and tangent handedness
+correctly for nonuniform or mirrored model scale.
+ScoreView keeps Paged/Flow transport intent across mode changes, releases
+performance devices while Paged, preserves the last valid strip after an
+engraving failure, and judges Roll notes at input arrival time rather than a
+delayed UI pump. Unchanged score analysis is reused across view transitions.
+SatView keeps one authoritative pause state across Space, plugin actions, and
+its panel, restoring worker speed and track settings with saved preferences.
+It validates downloaded cloud images before replacing the last valid cache.
+
 Shell Session splits use the server's platform default shell (Zsh on macOS,
 PowerShell on Windows). Explicit self-contained product windows advertise only
 the client-owned hosts they can create.

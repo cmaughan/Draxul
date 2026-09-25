@@ -8,6 +8,8 @@
 #include "support/fake_renderer.h"
 #include "support/test_host_callbacks.h"
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -815,6 +817,41 @@ TEST_CASE("MegaCity module creates the real City and Biology products",
         host.set_presentation_visible(false);
         CHECK(host.status_text().find("hidden") != std::string::npos);
         host.shutdown();
+
+        const std::filesystem::path preferences_path
+            = temp.root / "storage" / "config" / "dev.draxul.megacity"
+            / (std::string(mode) == "biology"
+                    ? "bioview-preferences.toml"
+                    : "megacity-preferences.toml");
+        REQUIRE(std::filesystem::exists(preferences_path));
+        std::ifstream preferences_input(preferences_path);
+        std::string preferences(std::istreambuf_iterator<char>{ preferences_input }, {});
+        preferences_input.close();
+        CHECK(preferences.find("camera_state_valid = true")
+            != std::string::npos);
+        const std::string enabled = "show_ui_panels = true";
+        const size_t setting = preferences.find(enabled);
+        REQUIRE(setting != std::string::npos);
+        preferences.replace(setting, enabled.size(), "show_ui_panels = false");
+        {
+            std::ofstream preferences_output(preferences_path, std::ios::trunc);
+            REQUIRE(preferences_output.good());
+            preferences_output << preferences;
+        }
+
+        draxul::PluginHost reopened(manager, temp.root / "storage");
+        REQUIRE(reopened.initialize(context, callbacks));
+        std::string reload_error;
+        const auto candidate = reopened.prepare_reload(reload_error);
+        INFO(reload_error);
+        REQUIRE(candidate);
+        std::string reload_warning;
+        reopened.quiesce_for_reload(reload_warning);
+        REQUIRE(reopened.reload(candidate, reload_warning, reload_error));
+        reopened.shutdown();
+        std::ifstream restored_input(preferences_path);
+        const std::string restored(std::istreambuf_iterator<char>{ restored_input }, {});
+        CHECK(restored.find("show_ui_panels = false") != std::string::npos);
     }
 }
 #endif
@@ -1115,6 +1152,28 @@ TEST_CASE("SatView preferences survive real plugin close and reload quiescence",
         host.shutdown();
     }
     CHECK(saved_speed() == 480.0f);
+
+    const auto saved_pause = [&]() -> bool {
+        std::ifstream input(state_file, std::ios::binary);
+        REQUIRE(input.good());
+        const nlohmann::json state = nlohmann::json::parse(input);
+        REQUIRE(state.contains("paused"));
+        return state["paused"].get<bool>();
+    };
+    {
+        draxul::PluginHost host(manager, storage_root);
+        REQUIRE(host.initialize(context, callbacks));
+        REQUIRE(host.dispatch_action("satview_toggle_pause"));
+        CHECK(saved_pause());
+        host.shutdown();
+    }
+    {
+        draxul::PluginHost host(manager, storage_root);
+        REQUIRE(host.initialize(context, callbacks));
+        REQUIRE(host.dispatch_action("satview_toggle_pause"));
+        CHECK_FALSE(saved_pause());
+        host.shutdown();
+    }
 }
 #endif
 

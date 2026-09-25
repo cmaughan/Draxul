@@ -335,6 +335,15 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 Work items live in `kanban/`. This is the only tracker — `plans/` holds design docs and
 research notes, never work items.
 
+Unless the user explicitly narrows the scope, references to `pending`, `done`, or
+`ice-box` mean the whole Draxul project: the root board and every descendant
+board in initialized product submodules, recursively. Enumerate those boards
+before reporting counts, selecting work, or declaring a lane clear. Root-only
+commands such as `do.py kanban-report` are not project-wide evidence; identify
+any uninitialized or inaccessible descendant instead of treating it as empty.
+Update each card in its owning repository and follow the submodule commit and
+pointer workflow for product changes.
+
 Create cards for non-trivial features, bugs, and refactors. Source integration,
 branch merges, rebases, syncing, and other branch-specific Git work belong in
 commits and the task conversation, not in Kanban. Track any distinct product
