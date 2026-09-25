@@ -397,6 +397,12 @@ std::string AppConfig::serialize() const
                 combo = format_gui_keybinding_combo(binding->key, binding->modifiers);
             keybinding_table.insert_or_assign(std::string(action), std::move(combo));
         }
+        else
+        {
+            // A missing known action is an explicit disable. Omitting it would
+            // restore the default binding the next time this file is parsed.
+            keybinding_table.insert_or_assign(std::string(action), "");
+        }
     });
     document.insert_or_assign("keybindings", std::move(keybinding_table));
 

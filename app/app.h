@@ -164,6 +164,7 @@ private:
 
     bool pump_once(std::optional<std::chrono::steady_clock::time_point> wait_deadline = std::nullopt);
     void pump_background_hosts();
+    bool refresh_shared_atlas_consumers();
     void on_resize(int pixel_w, int pixel_h);
     void on_display_scale_changed(float new_ppi);
     void request_frame() override;
@@ -295,6 +296,7 @@ private:
     std::unique_ptr<IWindow> window_;
     RendererBundle renderer_;
     TextService text_service_;
+    uint64_t repaired_atlas_generation_ = 0;
 
     GuiActionHandler gui_action_handler_{ GuiActionHandler::Deps{} };
     std::unique_ptr<DiagnosticsPanelHost> diagnostics_host_;

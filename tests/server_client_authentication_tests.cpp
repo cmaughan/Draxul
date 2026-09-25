@@ -101,7 +101,7 @@ TEST_CASE("server connection tokens bind active client identities",
         {
             { "client_id", "bound-client" },
             { "request_id", uint64_t{ 1 } },
-            { "text", "spoofed" },
+            { "input_base64", remote_terminal_input_base64("spoofed") },
         });
     REQUIRE_FALSE(spoofed_input.ok);
     CHECK(spoofed_input.error_code
@@ -112,7 +112,7 @@ TEST_CASE("server connection tokens bind active client identities",
             { "client_id", "bound-client" },
             { "connection_token", token },
             { "request_id", uint64_t{ 2 } },
-            { "text", "accepted" },
+            { "input_base64", remote_terminal_input_base64("accepted") },
         })
             .ok);
 

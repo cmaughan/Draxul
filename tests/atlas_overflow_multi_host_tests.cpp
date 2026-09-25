@@ -60,7 +60,14 @@ public:
 
         auto it = glyphs_.find(text);
         if (it != glyphs_.end())
-            return it->second;
+        {
+            AtlasRegion region = it->second;
+            // Model repacking: the same glyph has different texture coordinates
+            // after each reset, so stale cell updates are observable.
+            region.uv.x += static_cast<float>(reset_generation_) * 0.01f;
+            region.uv.z += static_cast<float>(reset_generation_) * 0.01f;
+            return region;
+        }
         return {};
     }
 
@@ -80,6 +87,11 @@ public:
             return false;
         atlas_reset_pending_ = false;
         return true;
+    }
+
+    uint64_t atlas_generation() const override
+    {
+        return static_cast<uint64_t>(reset_generation_);
     }
 
     void clear_atlas_dirty() override
@@ -112,6 +124,13 @@ public:
     {
         atlas_reset_pending_ = true;
         ++reset_generation_;
+    }
+
+    void overflow_after_next_resolves(int count)
+    {
+        overflow_after_ = count;
+        resolves_since_last_reset_ = 0;
+        reset_triggered_ = false;
     }
 
     int total_resolve_calls = 0;
@@ -383,4 +402,91 @@ TEST_CASE("atlas overflow multi-host: concurrent dirty cells across handles are 
     REQUIRE(batch_b[0].glyph.bitmap_size.x == 7);
     INFO("handle B cell 1 has correct glyph (A)");
     REQUIRE(batch_b[1].glyph.bitmap_size.x == 7);
+}
+
+TEST_CASE("atlas overflow multi-host: a clean hidden grid rebuilds when later revealed", "[grid][multi-host]")
+{
+    Grid foreground;
+    foreground.resize(2, 1);
+    foreground.set_cell(0, 0, "A", 0, false);
+    foreground.set_cell(1, 0, "B", 0, false);
+    Grid hidden;
+    hidden.resize(2, 1);
+    hidden.set_cell(0, 0, "C", 0, false);
+    hidden.set_cell(1, 0, "D", 0, false);
+
+    HighlightTable highlights;
+    MultiHostFakeAtlas atlas;
+    FakeRenderer renderer;
+    FakeGridHandle foreground_handle;
+    FakeGridHandle hidden_handle;
+    GridRenderingPipeline foreground_pipeline(foreground, highlights, atlas);
+    foreground_pipeline.set_renderer(&renderer);
+    foreground_pipeline.set_grid_handle(&foreground_handle);
+    GridRenderingPipeline hidden_pipeline(hidden, highlights, atlas);
+    hidden_pipeline.set_renderer(&renderer);
+    hidden_pipeline.set_grid_handle(&hidden_handle);
+
+    foreground_pipeline.flush();
+    hidden_pipeline.flush();
+    REQUIRE(hidden.dirty_cell_count() == 0);
+    REQUIRE_FALSE(hidden_handle.update_batches.empty());
+    const float hidden_u_before
+        = hidden_handle.update_batches.back()[0].glyph.uv.x;
+    hidden_handle.update_batches.clear();
+
+    atlas.overflow_after_next_resolves(1);
+    foreground.mark_all_dirty();
+    foreground_pipeline.flush();
+    REQUIRE(atlas.reset_generation_ == 1);
+
+    // No hidden-host input arrived. Its next flush must still reconstruct
+    // both glyph coordinates from the new atlas generation.
+    hidden_pipeline.flush();
+    REQUIRE(hidden_handle.total_cell_updates() == 2);
+    CHECK(hidden_handle.update_batches.back()[0].glyph.bitmap_size.x == 6);
+    CHECK(hidden_handle.update_batches.back()[1].glyph.bitmap_size.x == 7);
+    CHECK(hidden_handle.update_batches.back()[0].glyph.uv.x
+        == Catch::Approx(hidden_u_before + 0.01f));
+}
+
+TEST_CASE("atlas overflow multi-host: a previously flushed pane repairs after a later pane resets", "[grid][multi-host]")
+{
+    Grid first;
+    first.resize(1, 1);
+    first.set_cell(0, 0, "A", 0, false);
+    Grid second;
+    second.resize(1, 1);
+    second.set_cell(0, 0, "B", 0, false);
+
+    HighlightTable highlights;
+    MultiHostFakeAtlas atlas;
+    FakeRenderer renderer;
+    FakeGridHandle first_handle;
+    FakeGridHandle second_handle;
+    GridRenderingPipeline first_pipeline(first, highlights, atlas);
+    first_pipeline.set_renderer(&renderer);
+    first_pipeline.set_grid_handle(&first_handle);
+    GridRenderingPipeline second_pipeline(second, highlights, atlas);
+    second_pipeline.set_renderer(&renderer);
+    second_pipeline.set_grid_handle(&second_handle);
+
+    first_pipeline.flush();
+    second_pipeline.flush();
+    REQUIRE_FALSE(first_handle.update_batches.empty());
+    const float first_u_before
+        = first_handle.update_batches.back()[0].glyph.uv.x;
+    first_handle.update_batches.clear();
+
+    atlas.overflow_after_next_resolves(1);
+    second.mark_all_dirty();
+    second_pipeline.flush();
+    REQUIRE(atlas.reset_generation_ == 1);
+    REQUIRE(first.dirty_cell_count() == 0);
+
+    first_pipeline.flush();
+    REQUIRE(first_handle.total_cell_updates() == 1);
+    CHECK(first_handle.update_batches.back()[0].glyph.bitmap_size.x == 7);
+    CHECK(first_handle.update_batches.back()[0].glyph.uv.x
+        == Catch::Approx(first_u_before + 0.01f));
 }

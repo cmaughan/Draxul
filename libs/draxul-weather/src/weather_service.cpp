@@ -52,6 +52,14 @@ void WeatherService::stop()
     cancellation_.cancel();
     if (thread_.joinable())
         thread_.join();
+    // A cancelled request may have completed just before join. Clear only
+    // after the worker is gone so an old location cannot republish its pill.
+    {
+        std::lock_guard lock(mutex_);
+        emoji_.clear();
+        temperature_.clear();
+        has_data_ = false;
+    }
 }
 
 void WeatherService::set_http_client(std::shared_ptr<http::IHttpClient> http_client)
@@ -104,14 +112,18 @@ void WeatherService::worker_func(std::string location)
     {
         double temperature_c = 0.0;
         int weather_code = 0;
-        if (fetch_temperature(latitude, longitude, temperature_c, weather_code))
+        if (fetch_temperature(latitude, longitude, temperature_c, weather_code)
+            && running_)
         {
             {
                 std::lock_guard lock(mutex_);
-                emoji_ = weather::detail::weather_emoji(weather_code);
-                temperature_ = weather::detail::format_temperature(temperature_c);
+                if (running_)
+                {
+                    emoji_ = weather::detail::weather_emoji(weather_code);
+                    temperature_ = weather::detail::format_temperature(temperature_c);
+                    has_data_ = true;
+                }
             }
-            has_data_ = true;
         }
 
         const auto deadline = std::chrono::steady_clock::now() + kFetchInterval;

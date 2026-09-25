@@ -1,10 +1,13 @@
 #include <draxul/plugin_api.h>
 #include <draxul/plugin_host_services.h>
 
+#include <atomic>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #ifndef DRAXUL_FIXTURE_PLUGIN_ID
@@ -34,6 +37,13 @@ struct FixtureInstance
     bool oversized_reload_export = false;
     bool reject_reload_import = false;
     bool write_storage_on_import = false;
+    bool write_storage_on_quiesce = false;
+    bool race_callback_retirement = false;
+    bool resource_probe_found = false;
+    DraxulPluginStorageServiceV2 storage{};
+    std::atomic<bool> retirement_worker_stop{ false };
+    std::atomic<size_t> retirement_worker_attempts{ 0 };
+    std::thread retirement_worker;
 };
 
 struct CapturedEvent
@@ -48,6 +58,9 @@ const DraxulPluginHostApiV2* last_quiesced_host = nullptr;
 size_t tick_count = 0;
 size_t quiesce_count = 0;
 size_t action_dispatch_count = 0;
+uint32_t quiesce_storage_result = DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
+uint32_t quiesce_worker_storage_result = DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
+DraxulPluginStorageServiceV2 last_quiesced_storage{};
 
 void* create_instance(const DraxulPluginCreateInfoV2* info)
 {
@@ -57,6 +70,23 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
     instance->host = info->host;
     instance->services
         = std::make_unique<draxul::plugin_support::HostServices>(*info);
+    if (info->plugin_directory_utf8)
+    {
+        const auto directory = std::filesystem::u8path(
+            info->plugin_directory_utf8);
+        instance->resource_probe_found = std::filesystem::exists(
+            directory / "assets" / "probe.txt");
+    }
+    instance->storage.struct_size = sizeof(instance->storage);
+    instance->storage.service_version = DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION;
+    if (instance->host->query_service)
+    {
+        (void)instance->host->query_service(instance->host->host_context,
+            DRAXUL_PLUGIN_STORAGE_SERVICE_ID,
+            std::strlen(DRAXUL_PLUGIN_STORAGE_SERVICE_ID),
+            DRAXUL_PLUGIN_STORAGE_SERVICE_VERSION, &instance->storage,
+            sizeof(instance->storage));
+    }
     const std::string_view config(info->config_json ? info->config_json : "",
         info->config_json ? info->config_json_length : 0);
     instance->reload_extension
@@ -69,6 +99,10 @@ void* create_instance(const DraxulPluginCreateInfoV2* info)
         = config.find("\"reload_import\":\"reject\"") != std::string_view::npos;
     instance->write_storage_on_import
         = config.find("\"reload_import\":\"write-storage\"") != std::string_view::npos;
+    instance->write_storage_on_quiesce
+        = config.find("\"quiesce_save\":true") != std::string_view::npos;
+    instance->race_callback_retirement
+        = config.find("\"retirement_race\":true") != std::string_view::npos;
 #ifdef DRAXUL_FIXTURE_FAIL_CREATE
     (void)instance->services->write_json(DRAXUL_PLUGIN_STORAGE_PANE,
         "candidate-create", R"({"written":true})");
@@ -83,14 +117,56 @@ void quiesce_instance(void* opaque)
 {
     auto* instance = static_cast<FixtureInstance*>(opaque);
     last_quiesced_host = instance ? instance->host : nullptr;
+    if (instance && instance->write_storage_on_quiesce
+        && instance->storage.write_json)
+    {
+        last_quiesced_storage = instance->storage;
+        constexpr std::string_view key = "quiesce-save";
+        constexpr std::string_view value = R"({"saved":true})";
+        std::thread worker([&] {
+            quiesce_worker_storage_result = instance->storage.write_json(
+                instance->storage.service_context,
+                DRAXUL_PLUGIN_STORAGE_PANE, key.data(), key.size(),
+                value.data(), value.size());
+        });
+        worker.join();
+        quiesce_storage_result = instance->storage.write_json(
+            instance->storage.service_context,
+            DRAXUL_PLUGIN_STORAGE_PANE, key.data(), key.size(),
+            value.data(), value.size());
+    }
+    if (instance && instance->race_callback_retirement
+        && !instance->retirement_worker.joinable())
+    {
+        // Deliberately keep this broken callback source alive past quiesce to
+        // race the host's token retirement, then join before module unload.
+        instance->retirement_worker = std::thread([instance] {
+            while (!instance->retirement_worker_stop.load())
+            {
+                instance->host->request_tick(
+                    instance->host->host_context);
+                instance->retirement_worker_attempts.fetch_add(1);
+                std::this_thread::yield();
+            }
+        });
+        while (instance->retirement_worker_attempts.load() < 64)
+            std::this_thread::yield();
+    }
     ++quiesce_count;
 }
 
 void destroy_instance(void* opaque)
 {
+    auto* instance = static_cast<FixtureInstance*>(opaque);
+    if (instance)
+    {
+        instance->retirement_worker_stop.store(true);
+        if (instance->retirement_worker.joinable())
+            instance->retirement_worker.join();
+    }
     if (live_instance == opaque)
         live_instance = nullptr;
-    delete static_cast<FixtureInstance*>(opaque);
+    delete instance;
 }
 
 void set_visible(void* opaque, int32_t visible)
@@ -350,6 +426,9 @@ extern "C" DRAXUL_PLUGIN_EXPORT void draxul_fixture_reset_events()
     quiesce_count = 0;
     action_dispatch_count = 0;
     last_quiesced_host = nullptr;
+    last_quiesced_storage = {};
+    quiesce_storage_result = DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
+    quiesce_worker_storage_result = DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
 }
 
 extern "C" DRAXUL_PLUGIN_EXPORT size_t draxul_fixture_event_count()
@@ -392,6 +471,43 @@ extern "C" DRAXUL_PLUGIN_EXPORT size_t draxul_fixture_tick_count()
 extern "C" DRAXUL_PLUGIN_EXPORT size_t draxul_fixture_quiesce_count()
 {
     return quiesce_count;
+}
+
+extern "C" DRAXUL_PLUGIN_EXPORT uint32_t
+draxul_fixture_quiesce_storage_result()
+{
+    return quiesce_storage_result;
+}
+
+extern "C" DRAXUL_PLUGIN_EXPORT uint32_t
+draxul_fixture_quiesce_worker_storage_result()
+{
+    return quiesce_worker_storage_result;
+}
+
+extern "C" DRAXUL_PLUGIN_EXPORT size_t
+draxul_fixture_retirement_worker_attempts()
+{
+    return live_instance
+        ? live_instance->retirement_worker_attempts.load() : 0;
+}
+
+extern "C" DRAXUL_PLUGIN_EXPORT uint32_t
+draxul_fixture_write_storage_from_quiesced()
+{
+    if (!last_quiesced_storage.write_json)
+        return DRAXUL_PLUGIN_STORAGE_SCOPE_UNAVAILABLE;
+    constexpr std::string_view key = "stale-save";
+    constexpr std::string_view value = R"({"saved":true})";
+    return last_quiesced_storage.write_json(
+        last_quiesced_storage.service_context,
+        DRAXUL_PLUGIN_STORAGE_PANE, key.data(), key.size(),
+        value.data(), value.size());
+}
+
+extern "C" DRAXUL_PLUGIN_EXPORT int draxul_fixture_resource_probe_found()
+{
+    return live_instance && live_instance->resource_probe_found ? 1 : 0;
 }
 
 extern "C" DRAXUL_PLUGIN_EXPORT size_t draxul_fixture_action_dispatch_count()

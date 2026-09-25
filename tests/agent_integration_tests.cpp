@@ -106,6 +106,94 @@ TEST_CASE("Codex explicit-path installation is idempotent and preserves configur
     CHECK(remaining["hooks"]["SessionStart"].empty());
 }
 
+TEST_CASE("Codex installation understands commented and quoted TOML sections",
+    "[agent-integration][codex]")
+{
+    TempDir temp("draxul-agent-integration-toml-sections");
+    const auto paths = agent_integration_paths(
+        AgentIntegrationProvider::Codex, temp.path);
+    write_text(paths.features,
+        "model = \"gpt-5\"\n"
+        "[\"features\"] # keep this comment\n"
+        "other = true\n"
+        "[other] # neighboring table\n"
+        "hooks = false\n");
+
+    REQUIRE(apply(AgentIntegrationProvider::Codex,
+        AgentIntegrationAction::Install, paths)
+            .success);
+    const auto first = read_text(paths.features);
+    CHECK(first.find("[\"features\"] # keep this comment\nhooks = true\nother = true")
+        != std::string::npos);
+    CHECK(first.find("[other] # neighboring table\nhooks = false")
+        != std::string::npos);
+    CHECK(inspect_agent_integration(AgentIntegrationProvider::Codex, paths).state
+        == AgentIntegrationState::Current);
+
+    REQUIRE(apply(AgentIntegrationProvider::Codex,
+        AgentIntegrationAction::Install, paths)
+            .success);
+    CHECK(read_text(paths.features) == first);
+}
+
+TEST_CASE("Codex installation updates existing TOML values and refuses invalid config",
+    "[agent-integration][codex]")
+{
+    TempDir temp("draxul-agent-integration-toml-values");
+    const auto paths = agent_integration_paths(
+        AgentIntegrationProvider::Codex, temp.path);
+    write_text(paths.features,
+        "features.hooks = false # deliberate disable\n"
+        "[other]\nhooks = false\n");
+    REQUIRE(apply(AgentIntegrationProvider::Codex,
+        AgentIntegrationAction::Install, paths)
+            .success);
+    CHECK(read_text(paths.features).find(
+              "features.hooks = true # deliberate disable\n"
+              "[other]\nhooks = false")
+        != std::string::npos);
+
+    write_text(paths.features, "[features] # duplicate-prone header\nvalue = true\n[broken\n");
+    const auto original = read_text(paths.features);
+    const auto invalid = apply(AgentIntegrationProvider::Codex,
+        AgentIntegrationAction::Install, paths);
+    CHECK_FALSE(invalid.success);
+    CHECK(invalid.error == "Codex config.toml is invalid TOML.");
+    CHECK(read_text(paths.features) == original);
+
+    write_text(paths.features, "[features]\nhooks = \"no\"\n");
+    const auto wrong_type = apply(AgentIntegrationProvider::Codex,
+        AgentIntegrationAction::Install, paths);
+    CHECK_FALSE(wrong_type.success);
+    CHECK(wrong_type.error == "Codex config.toml 'features.hooks' must be a boolean.");
+    CHECK(read_text(paths.features) == "[features]\nhooks = \"no\"\n");
+}
+
+TEST_CASE("Codex installation preserves inline and implicit feature tables",
+    "[agent-integration][codex]")
+{
+    TempDir temp("draxul-agent-integration-toml-tables");
+    const auto paths = agent_integration_paths(
+        AgentIntegrationProvider::Codex, temp.path);
+
+    write_text(paths.features, "features = { other = true }\nmodel = \"gpt-5\"\n");
+    REQUIRE(apply(AgentIntegrationProvider::Codex,
+        AgentIntegrationAction::Install, paths)
+            .success);
+    CHECK(read_text(paths.features).find("other = true") != std::string::npos);
+    CHECK(read_text(paths.features).find("gpt-5") != std::string::npos);
+    CHECK(inspect_agent_integration(AgentIntegrationProvider::Codex, paths).state
+        == AgentIntegrationState::Current);
+
+    write_text(paths.features, "[features.extra]\nkeep = true\n");
+    REQUIRE(apply(AgentIntegrationProvider::Codex,
+        AgentIntegrationAction::Install, paths)
+            .success);
+    CHECK(read_text(paths.features).find("keep = true") != std::string::npos);
+    CHECK(inspect_agent_integration(AgentIntegrationProvider::Codex, paths).state
+        == AgentIntegrationState::Current);
+}
+
 TEST_CASE("Claude explicit-path installation keeps matcher and payload semantics distinct",
     "[agent-integration][claude]")
 {

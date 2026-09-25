@@ -39,6 +39,14 @@ std::string NvimInput::translate_key(int keycode, ModifierFlags mod) const
     PERF_MEASURE();
     std::string key;
 
+    // SDL also emits TEXT_INPUT for these printable keys. Let that event
+    // carry the composed character (including keyboard-layout/Shift changes)
+    // unless a Ctrl/Alt chord needs Neovim's named-key notation.
+    if (!(mod & (kModCtrl | kModAlt))
+        && (keycode == SDLK_SPACE || keycode == SDLK_LESS
+            || keycode == SDLK_BACKSLASH))
+        return "";
+
     switch (keycode)
     {
     case SDLK_ESCAPE:

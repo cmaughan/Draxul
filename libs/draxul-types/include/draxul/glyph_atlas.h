@@ -24,6 +24,9 @@ public:
 
     virtual bool atlas_dirty() const = 0;
     virtual bool consume_atlas_reset() = 0;
+    // Monotonically changes whenever cached glyph coordinates are invalidated.
+    // Unlike consume_atlas_reset(), every atlas consumer can observe this.
+    virtual uint64_t atlas_generation() const = 0;
     virtual void clear_atlas_dirty() = 0;
     virtual const uint8_t* atlas_data() const = 0;
     virtual int atlas_width() const = 0;

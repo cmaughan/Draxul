@@ -100,7 +100,8 @@ bool TextService::initialize(const TextServiceConfig& config, float point_size, 
 void TextService::shutdown()
 {
     PERF_MEASURE();
-    impl_->shutdown();
+    if (impl_)
+        impl_->shutdown();
 }
 
 bool TextService::set_point_size(float point_size)
@@ -198,6 +199,11 @@ std::vector<std::string> TextService::take_font_warnings()
 bool TextService::consume_atlas_reset()
 {
     return impl_->atlas_manager.consume_atlas_reset();
+}
+
+uint64_t TextService::atlas_generation() const
+{
+    return static_cast<uint64_t>(impl_->atlas_manager.reset_count());
 }
 
 } // namespace draxul

@@ -278,7 +278,7 @@ std::optional<std::chrono::steady_clock::time_point> KanbanHost::next_deadline()
     if (!running_)
         return std::nullopt;
     auto deadline = GridHostBase::next_deadline();
-    if (held_selection_command_ && (!deadline || next_repeat_at_ < *deadline))
+    if (focused_ && held_selection_command_ && (!deadline || next_repeat_at_ < *deadline))
         deadline = next_repeat_at_;
     if (reload_at_ && (!deadline || *reload_at_ < *deadline))
         deadline = reload_at_;
@@ -300,6 +300,9 @@ void KanbanHost::on_focus_gained()
 void KanbanHost::on_focus_lost()
 {
     focused_ = false;
+    held_selection_command_.reset();
+    held_keycode_ = 0;
+    navigation_.reset();
     GridHostBase::on_focus_lost();
 }
 
@@ -791,6 +794,8 @@ void KanbanHost::apply_navigation_command(KanbanNavigationCommand command)
 
 void KanbanHost::update_key_repeat(const KeyEvent& event, KanbanNavigationCommand command)
 {
+    if (!focused_)
+        return;
     if (!event.pressed)
     {
         if (event.keycode == held_keycode_)
@@ -821,7 +826,7 @@ void KanbanHost::update_key_repeat(const KeyEvent& event, KanbanNavigationComman
 
 void KanbanHost::pump_key_repeat(std::chrono::steady_clock::time_point now)
 {
-    if (!held_selection_command_ || now < next_repeat_at_)
+    if (!focused_ || !held_selection_command_ || now < next_repeat_at_)
         return;
 
     apply_navigation_command(*held_selection_command_);

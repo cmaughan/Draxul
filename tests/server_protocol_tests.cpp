@@ -104,7 +104,7 @@ TEST_CASE("Session stream commands preserve correlation and reject malformed env
             .params = {
                 { "terminal_id", "terminal-a" },
                 { "request_id", 9001 },
-                { "text", "echo hello" },
+                { "input_base64", remote_terminal_input_base64("echo hello") },
             },
         },
     };

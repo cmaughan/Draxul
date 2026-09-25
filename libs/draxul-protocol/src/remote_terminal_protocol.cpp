@@ -841,28 +841,11 @@ std::optional<std::string> remote_terminal_input_from_json(
         error = "Terminal input parameters are invalid.";
         return std::nullopt;
     }
-    const bool encoded = params.contains(kRemoteTerminalInputBase64Field);
-    const bool legacy = params.contains("text");
-    if (encoded == legacy)
+    if (!params.contains(kRemoteTerminalInputBase64Field)
+        || params.contains("text"))
     {
-        error = "Exactly one terminal input field is required.";
+        error = "Terminal input requires only input_base64.";
         return std::nullopt;
-    }
-    if (legacy)
-    {
-        if (!params["text"].is_string())
-        {
-            error = "Terminal input text is invalid.";
-            return std::nullopt;
-        }
-        auto bytes = params["text"].get<std::string>();
-        if (bytes.empty() || bytes.size() > 64 * 1024)
-        {
-            error = "Terminal input must be between 1 and 65536 bytes.";
-            return std::nullopt;
-        }
-        error.clear();
-        return bytes;
     }
 
     const auto& value = params[kRemoteTerminalInputBase64Field];

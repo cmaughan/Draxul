@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -582,6 +583,128 @@ TEST_CASE("PluginStorage concurrent writers publish complete documents",
         != documents.end());
 }
 
+#ifdef _WIN32
+TEST_CASE("PluginStorage child process writer", "[.][plugin][storage]")
+{
+    wchar_t root_buffer[32768]{};
+    wchar_t writer_buffer[32]{};
+    REQUIRE(GetEnvironmentVariableW(L"DRAXUL_STORAGE_PROCESS_TEST_ROOT",
+                root_buffer, 32768) > 0);
+    REQUIRE(GetEnvironmentVariableW(L"DRAXUL_STORAGE_PROCESS_TEST_WRITER",
+                writer_buffer, 32) > 0);
+    const auto root = std::filesystem::path(root_buffer);
+    const int writer = std::stoi(writer_buffer);
+    {
+        std::ofstream ready(root / ("ready-" + std::to_string(writer)));
+        REQUIRE(ready.good());
+    }
+    const auto deadline = std::chrono::steady_clock::now()
+        + std::chrono::seconds(20);
+    while (!std::filesystem::exists(root / "start")
+        && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    REQUIRE(std::filesystem::exists(root / "start"));
+
+    draxul::PluginStorage storage(root / "storage");
+    storage.initialize("dev.draxul.storage", "pane", root / "module");
+    const std::string document = "{\"writer\":" + std::to_string(writer)
+        + ",\"payload\":\"" + std::string(16 * 1024,
+            static_cast<char>('a' + writer)) + "\"}";
+    constexpr std::string_view key = "shared";
+    for (int save = 0; save < 16; ++save)
+        REQUIRE(storage.write_json(DRAXUL_PLUGIN_STORAGE_PLUGIN,
+                    key.data(), key.size(), document.data(),
+                    document.size()) == DRAXUL_PLUGIN_STORAGE_OK);
+}
+
+TEST_CASE("PluginStorage separate processes publish complete documents",
+    "[plugin][storage][process]")
+{
+    TempPlugins temp;
+    wchar_t module_buffer[32768]{};
+    const DWORD module_length = GetModuleFileNameW(nullptr, module_buffer,
+        32768);
+    REQUIRE(module_length > 0);
+    REQUIRE(module_length < 32768);
+    const std::wstring executable(module_buffer, module_length);
+    REQUIRE(SetEnvironmentVariableW(L"DRAXUL_STORAGE_PROCESS_TEST_ROOT",
+                temp.root.c_str()));
+
+    std::vector<PROCESS_INFORMATION> children;
+    for (int writer = 0; writer < 8; ++writer)
+    {
+        const auto index = std::to_wstring(writer);
+        REQUIRE(SetEnvironmentVariableW(L"DRAXUL_STORAGE_PROCESS_TEST_WRITER",
+                    index.c_str()));
+        auto command = L"\"" + executable
+            + L"\" \"PluginStorage child process writer\" --reporter compact";
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        PROCESS_INFORMATION child{};
+        const bool started = CreateProcessW(executable.c_str(), command.data(),
+            nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr,
+            &startup, &child) != 0;
+        if (!started)
+        {
+            FAIL_CHECK("could not launch storage writer process: "
+                << GetLastError());
+            break;
+        }
+        children.push_back(child);
+    }
+    SetEnvironmentVariableW(L"DRAXUL_STORAGE_PROCESS_TEST_ROOT", nullptr);
+    SetEnvironmentVariableW(L"DRAXUL_STORAGE_PROCESS_TEST_WRITER", nullptr);
+
+    const auto deadline = std::chrono::steady_clock::now()
+        + std::chrono::seconds(20);
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        bool all_ready = children.size() == 8;
+        for (size_t writer = 0; writer < children.size(); ++writer)
+            all_ready &= std::filesystem::exists(temp.root
+                / ("ready-" + std::to_string(writer)));
+        if (all_ready)
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    {
+        std::ofstream start(temp.root / "start");
+        REQUIRE(start.good());
+    }
+    for (size_t writer = 0; writer < children.size(); ++writer)
+    {
+        auto& child = children[writer];
+        const DWORD waited = WaitForSingleObject(child.hProcess, 30000);
+        if (waited != WAIT_OBJECT_0)
+        {
+            TerminateProcess(child.hProcess, 1);
+            WaitForSingleObject(child.hProcess, INFINITE);
+        }
+        DWORD exit_code = 0;
+        GetExitCodeProcess(child.hProcess, &exit_code);
+        INFO("writer process " << writer);
+        CHECK(waited == WAIT_OBJECT_0);
+        CHECK(exit_code == 0);
+        CloseHandle(child.hThread);
+        CloseHandle(child.hProcess);
+    }
+    REQUIRE(children.size() == 8);
+    draxul::PluginStorage reader(temp.root / "storage");
+    reader.initialize("dev.draxul.storage", "pane", temp.root / "module");
+    constexpr std::string_view key = "shared";
+    const auto final = read_storage(reader, DRAXUL_PLUGIN_STORAGE_PLUGIN, key);
+    bool matches_complete_writer = false;
+    for (int writer = 0; writer < 8; ++writer)
+    {
+        const std::string document = "{\"writer\":" + std::to_string(writer)
+            + ",\"payload\":\"" + std::string(16 * 1024,
+                static_cast<char>('a' + writer)) + "\"}";
+        matches_complete_writer |= final == document;
+    }
+    CHECK(matches_complete_writer);
+}
+#endif
+
 TEST_CASE("PluginStorage reports filesystem failures and partial commit",
     "[plugin][storage][reload]")
 {
@@ -837,6 +960,149 @@ TEST_CASE("spinning triangle persists pane-local state through host services",
         CHECK(host.dispatch_action("toggle_pause"));
         host.shutdown();
     }
+}
+
+TEST_CASE("PluginHost saves pane state during close and reload quiescence",
+    "[plugin][storage][reload][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    install_plugin(bundled, "fixture", "dev.draxul.fixture",
+        DRAXUL_FIXTURE_VALID_PATH);
+    const auto manager = draxul::PluginManager::discover(
+        bundled, temp.root / "user", temp.root / "runtime");
+    draxul::HostContext context;
+    context.launch_options.kind = draxul::HostKind::Plugin;
+    context.launch_options.client_plugin_id = "dev.draxul.fixture";
+    context.launch_options.client_plugin_config_json
+        = R"({"quiesce_save":true,"retirement_race":true})";
+    context.pane_id = "quiesce-pane";
+    context.initial_viewport.pixel_size = { 640, 360 };
+    draxul::tests::FakeTermRenderer renderer;
+    context.grid_renderer = &renderer;
+    const auto saved = temp.root / "storage" / "config"
+        / "dev.draxul.fixture" / "panes" / context.pane_id
+        / "quiesce-save.json";
+    const auto stale = saved.parent_path() / "stale-save.json";
+
+    draxul::PluginHost host(manager, temp.root / "storage");
+    draxul::tests::TestHostCallbacks callbacks;
+    REQUIRE(host.initialize(context, callbacks));
+    const auto old_plugin = host.loaded_plugin();
+    REQUIRE(old_plugin);
+#ifdef _WIN32
+    HMODULE fixture = LoadLibraryW(old_plugin->manifest().library_path.c_str());
+    REQUIRE(fixture);
+    const auto symbol = [&](const char* name) {
+        return reinterpret_cast<void*>(GetProcAddress(fixture, name));
+    };
+#else
+    void* fixture = dlopen(old_plugin->manifest().library_path.c_str(),
+        RTLD_NOW | RTLD_LOCAL);
+    REQUIRE(fixture);
+    const auto symbol = [&](const char* name) { return dlsym(fixture, name); };
+#endif
+    const auto quiesce_result = reinterpret_cast<uint32_t (*)()>(
+        symbol("draxul_fixture_quiesce_storage_result"));
+    const auto worker_result = reinterpret_cast<uint32_t (*)()>(
+        symbol("draxul_fixture_quiesce_worker_storage_result"));
+    const auto stale_write = reinterpret_cast<uint32_t (*)()>(
+        symbol("draxul_fixture_write_storage_from_quiesced"));
+    const auto retirement_attempts = reinterpret_cast<size_t (*)()>(
+        symbol("draxul_fixture_retirement_worker_attempts"));
+    REQUIRE(quiesce_result);
+    REQUIRE(worker_result);
+    REQUIRE(stale_write);
+    REQUIRE(retirement_attempts);
+    CHECK_FALSE(std::filesystem::exists(saved));
+
+    std::string error;
+    const auto candidate = host.prepare_reload(error);
+    REQUIRE(candidate);
+    std::string warning;
+    host.quiesce_for_reload(warning);
+    CHECK(warning.empty());
+    CHECK(retirement_attempts() >= 64);
+    CHECK(quiesce_result() == DRAXUL_PLUGIN_STORAGE_OK);
+    CHECK(worker_result() == DRAXUL_PLUGIN_STORAGE_WRONG_THREAD);
+    CHECK(std::filesystem::exists(saved));
+    CHECK(stale_write() == DRAXUL_PLUGIN_STORAGE_WRONG_THREAD);
+    CHECK_FALSE(std::filesystem::exists(stale));
+
+    REQUIRE(host.reload(candidate, warning, error));
+    CHECK(warning.empty());
+    CHECK(stale_write() == DRAXUL_PLUGIN_STORAGE_WRONG_THREAD);
+    CHECK_FALSE(std::filesystem::exists(stale));
+    host.shutdown();
+#ifdef _WIN32
+    FreeLibrary(fixture);
+#else
+    dlclose(fixture);
+#endif
+
+    // Removing the saved file proves the final close writes it again rather
+    // than merely preserving the reload write.
+    draxul::PluginHost reopened(manager, temp.root / "storage");
+    REQUIRE(reopened.initialize(context, callbacks));
+    REQUIRE(std::filesystem::remove(saved));
+    reopened.shutdown();
+    CHECK(std::filesystem::exists(saved));
+}
+
+TEST_CASE("PluginHost publishes non-ASCII resource directories as UTF-8",
+    "[plugin][integration]")
+{
+    TempPlugins temp;
+    const auto unicode_root = temp.root
+        / std::filesystem::u8path(u8"caf\u00e9-\u732b");
+    const auto bundled = unicode_root / "bundled";
+    install_plugin(bundled, "fixture", "dev.draxul.fixture",
+        DRAXUL_FIXTURE_VALID_PATH);
+    const auto asset = bundled / "fixture" / "generations" / "build-1"
+        / "assets" / "probe.txt";
+    std::filesystem::create_directories(asset.parent_path());
+    {
+        std::ofstream file(asset);
+        file << "resource found";
+    }
+    const auto manager = draxul::PluginManager::discover(
+        bundled, temp.root / "user", unicode_root / "runtime");
+    draxul::PluginHost host(manager, temp.root / "storage");
+    draxul::HostContext context;
+    context.launch_options.kind = draxul::HostKind::Plugin;
+    context.launch_options.client_plugin_id = "dev.draxul.fixture";
+    context.pane_id = "utf8-pane";
+    context.initial_viewport.pixel_size = { 640, 360 };
+    draxul::tests::FakeTermRenderer renderer;
+    context.grid_renderer = &renderer;
+    draxul::tests::TestHostCallbacks callbacks;
+    const bool initialized = host.initialize(context, callbacks);
+    INFO(host.init_error());
+    REQUIRE(initialized);
+    const auto plugin = host.loaded_plugin();
+    REQUIRE(plugin);
+    CHECK(plugin->manifest().directory.u8string().find(
+        u8"caf\u00e9-\u732b") != std::u8string::npos);
+#ifdef _WIN32
+    HMODULE fixture = LoadLibraryW(plugin->manifest().library_path.c_str());
+    REQUIRE(fixture);
+    const auto probe = reinterpret_cast<int (*)()>(
+        GetProcAddress(fixture, "draxul_fixture_resource_probe_found"));
+#else
+    void* fixture = dlopen(plugin->manifest().library_path.c_str(),
+        RTLD_NOW | RTLD_LOCAL);
+    REQUIRE(fixture);
+    const auto probe = reinterpret_cast<int (*)()>(
+        dlsym(fixture, "draxul_fixture_resource_probe_found"));
+#endif
+    REQUIRE(probe);
+    CHECK(probe() == 1);
+    host.shutdown();
+#ifdef _WIN32
+    FreeLibrary(fixture);
+#else
+    dlclose(fixture);
+#endif
 }
 
 TEST_CASE("PluginHost translates SDK-owned input through a real module",

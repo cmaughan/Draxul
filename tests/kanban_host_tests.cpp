@@ -574,6 +574,7 @@ TEST_CASE("kanban host selection movement stays bounded on a large visible board
 TEST_CASE("kanban host repeats held selection keys without waiting for OS repeat", "[kanban][host][input]")
 {
     KanbanHostFixture fixture(4);
+    fixture.host.on_focus_gained();
 
     fixture.host.on_key(key_event(SDLK_J));
     REQUIRE(fixture.host.status_text().find("card-2-feature.md") != std::string::npos);
@@ -587,6 +588,7 @@ TEST_CASE("kanban host repeats held selection keys without waiting for OS repeat
 TEST_CASE("kanban host stops held-key repeat on key release", "[kanban][host][input]")
 {
     KanbanHostFixture fixture(4);
+    fixture.host.on_focus_gained();
 
     fixture.host.on_key(key_event(SDLK_J));
     REQUIRE(fixture.host.status_text().find("card-2-feature.md") != std::string::npos);
@@ -601,4 +603,43 @@ TEST_CASE("kanban host stops held-key repeat on key release", "[kanban][host][in
     fixture.host.pump();
 
     REQUIRE(fixture.host.status_text().find("card-2-feature.md") != std::string::npos);
+}
+
+TEST_CASE("kanban host cancels held navigation and preview updates when focus moves away",
+    "[kanban][host][input]")
+{
+    KanbanHostFixture fixture(5);
+    fixture.host.on_focus_gained();
+    fixture.host.on_key(key_event(SDLK_P));
+    fixture.host.on_key(key_event(SDLK_J));
+    REQUIRE(fixture.host.status_text().find("card-2-feature.md") != std::string::npos);
+    const int previews_after_key = fixture.callbacks.show_preview_calls;
+
+    // The key-up is delivered to another tab, not to this host.
+    fixture.host.on_focus_lost();
+    std::this_thread::sleep_for(std::chrono::milliseconds(180));
+    fixture.host.pump();
+    CHECK(fixture.host.status_text().find("card-2-feature.md") != std::string::npos);
+    CHECK(fixture.callbacks.show_preview_calls == previews_after_key);
+
+    fixture.host.on_focus_gained();
+    const int previews_after_refocus = fixture.callbacks.show_preview_calls;
+    std::this_thread::sleep_for(std::chrono::milliseconds(180));
+    fixture.host.pump();
+    CHECK(fixture.host.status_text().find("card-2-feature.md") != std::string::npos);
+    CHECK(fixture.callbacks.preview_path.find("card-2-feature.md") != std::string::npos);
+    CHECK(fixture.callbacks.show_preview_calls == previews_after_refocus);
+
+    fixture.host.on_key(key_event(SDLK_G));
+    fixture.host.on_focus_lost();
+    fixture.host.on_focus_gained();
+    fixture.host.on_key(key_event(SDLK_G));
+    CHECK(fixture.host.status_text().find("card-2-feature.md") != std::string::npos);
+
+    fixture.host.on_key(key_event(SDLK_J));
+    REQUIRE(fixture.host.status_text().find("card-3-feature.md") != std::string::npos);
+    std::this_thread::sleep_for(std::chrono::milliseconds(180));
+    fixture.host.pump();
+    CHECK(fixture.host.status_text().find("card-4-feature.md") != std::string::npos);
+    CHECK(fixture.callbacks.show_preview_calls > previews_after_key);
 }

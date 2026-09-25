@@ -20,6 +20,7 @@ public:
     bool initialize(const HostContext& context, IHostCallbacks& callbacks) override;
     void set_viewport(const HostViewport& viewport) override;
     void on_font_metrics_changed() override;
+    void on_glyph_atlas_reset() override;
     void on_config_reloaded(const HostReloadConfig& config) override;
     void set_scroll_offset(float px) override;
     void draw(IFrameContext& frame) override;

@@ -221,6 +221,10 @@ public:
     {
         // Default no-op; only grid-capable hosts need to respond to font metric changes.
     }
+    virtual void on_glyph_atlas_reset()
+    {
+        // Default no-op; hosts without cached grid glyph coordinates need no repair.
+    }
     virtual void on_config_reloaded(const HostReloadConfig& /*config*/)
     {
         // Default no-op; only hosts with cached config-driven state override this.

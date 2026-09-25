@@ -13,6 +13,11 @@
 #include <cstdlib>
 #include <filesystem>
 #include <limits>
+#include <utility>
+
+#if defined(_MSC_VER) && defined(_DEBUG)
+#include <crtdbg.h>
+#endif
 
 using namespace draxul;
 
@@ -119,6 +124,89 @@ TEST_CASE("font service rejects non-finite sizes before native conversion", "[fo
     CHECK(service.point_size() == TextService::MAX_POINT_SIZE);
     service.shutdown();
 }
+
+TEST_CASE("font service replacement survives successful and failed reloads",
+    "[font][reload]")
+{
+    const auto font_path = draxul::tests::project_root()
+        / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    REQUIRE(std::filesystem::exists(font_path));
+    TextServiceConfig config;
+    config.font_path = font_path.string();
+
+    TextService live;
+    REQUIRE(live.initialize(config, 11.0f, 96.0f));
+    TextService* const stable_address = &live;
+    for (int reload = 0; reload < 16; ++reload)
+    {
+        TextService candidate;
+        TextServiceConfig next = config;
+        if (reload % 2 == 0)
+        {
+            next.font_path = (font_path.parent_path()
+                / "missing-reload-font.ttf").string();
+            CHECK_FALSE(candidate.initialize(next, 12.0f, 96.0f));
+        }
+        else
+        {
+            REQUIRE(candidate.initialize(next,
+                11.0f + static_cast<float>(reload % 4), 96.0f));
+            live = std::move(candidate);
+            CHECK(&live == stable_address);
+            candidate.shutdown(); // moved-from shutdown is harmless
+        }
+        const auto region = live.resolve_cluster("M");
+        CHECK(region.bitmap_size.x > 0);
+        CHECK(region.bitmap_size.y > 0);
+    }
+    live.shutdown();
+    live.shutdown();
+    REQUIRE(live.initialize(config, 11.0f, 96.0f));
+    CHECK(live.resolve_cluster("M").bitmap_size.x > 0);
+}
+
+#if defined(_MSC_VER) && defined(_DEBUG)
+TEST_CASE("font replacement does not accumulate native CRT allocations",
+    "[font][reload][windows]")
+{
+    const auto font_path = draxul::tests::project_root()
+        / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    REQUIRE(std::filesystem::exists(font_path));
+    TextServiceConfig config;
+    config.font_path = font_path.string();
+
+    const auto replace_repeatedly = [&](int count) {
+        TextService live;
+        if (!live.initialize(config, 11.0f, 96.0f))
+            return false;
+        for (int i = 0; i < count; ++i)
+        {
+            TextService candidate;
+            if (!candidate.initialize(config, 11.0f, 96.0f))
+                return false;
+            live = std::move(candidate);
+            if (live.resolve_cluster("M").bitmap_size.x <= 0)
+                return false;
+        }
+        live.shutdown();
+        return true;
+    };
+
+    REQUIRE(replace_repeatedly(8)); // Warm up lazy CRT/font-library state.
+    _CrtMemState before{};
+    _CrtMemCheckpoint(&before);
+    const bool completed = replace_repeatedly(128);
+    _CrtMemState after{};
+    _CrtMemCheckpoint(&after);
+    REQUIRE(completed);
+
+    const auto retained_bytes = after.lSizes[_NORMAL_BLOCK]
+        - before.lSizes[_NORMAL_BLOCK];
+    INFO("retained normal CRT bytes after 128 font replacements: "
+        << retained_bytes);
+    CHECK(retained_bytes <= 256 * 1024);
+}
+#endif
 
 TEST_CASE("glyph cache dirty rect accumulates newly rasterized glyphs", "[font]")
 {

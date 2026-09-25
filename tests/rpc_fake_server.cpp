@@ -4,12 +4,15 @@
 #include <cstdlib>
 #include <chrono>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #endif
 
 using namespace draxul;
@@ -35,6 +38,52 @@ void write_marker_file(const char* path, const char* text)
         std::fclose(out);
     }
 }
+
+#ifdef _WIN32
+std::string utf8(std::wstring_view text)
+{
+    if (text.empty())
+        return {};
+    const int count = WideCharToMultiByte(CP_UTF8, 0, text.data(),
+        static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+    std::string result(static_cast<size_t>(count), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+        result.data(), count, nullptr, nullptr);
+    return result;
+}
+
+void dump_launch_values(int argc, wchar_t** argv)
+{
+    const char* target = std::getenv("DRAXUL_RPC_FAKE_LAUNCH_DUMP");
+    if (!target)
+        return;
+    FILE* out = std::fopen(target, "wb");
+    if (!out)
+        return;
+    std::wstring cwd(MAX_PATH, L'\0');
+    DWORD length = GetCurrentDirectoryW(static_cast<DWORD>(cwd.size()), cwd.data());
+    if (length >= cwd.size())
+    {
+        cwd.resize(length + 1);
+        length = GetCurrentDirectoryW(static_cast<DWORD>(cwd.size()), cwd.data());
+    }
+    cwd.resize(length);
+    const std::string cwd_utf8 = utf8(cwd);
+    std::fprintf(out, "cwd=%s\n", cwd_utf8.c_str());
+    for (int i = 0; i < argc; ++i)
+    {
+        const std::string argument = utf8(argv[i]);
+        std::fprintf(out, "arg%d=%s\n", i, argument.c_str());
+    }
+    wchar_t unicode[128]{};
+    const DWORD unicode_length = GetEnvironmentVariableW(
+        L"DRAXUL_RPC_FAKE_UNICODE", unicode, 128);
+    const std::string value = unicode_length < 128
+        ? utf8(std::wstring_view(unicode, unicode_length)) : std::string{};
+    std::fprintf(out, "env=%s\n", value.c_str());
+    std::fclose(out);
+}
+#endif
 
 bool marker_file_exists(const char* path)
 {
@@ -117,7 +166,11 @@ bool send_response_with_raw_msgid(const MpackValue& raw_msgid, const MpackValue&
 
 } // namespace
 
+#ifdef _WIN32
+int wmain(int argc, wchar_t** argv)
+#else
 int main()
+#endif
 {
 #ifdef _WIN32
     _setmode(_fileno(stdin), _O_BINARY);
@@ -125,6 +178,13 @@ int main()
 #endif
 
     const std::string current_mode = mode();
+#ifdef _WIN32
+    if (current_mode == "dump_launch_and_exit")
+    {
+        dump_launch_values(argc, argv);
+        return 0;
+    }
+#endif
     if (current_mode == "close_stdin_until_release")
     {
         std::fclose(stdin);

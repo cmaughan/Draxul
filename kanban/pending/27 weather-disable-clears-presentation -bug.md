@@ -6,18 +6,37 @@ Clearing `weather_location` stops the worker but retains its published emoji and
 
 **Investigation**
 
-- [ ] Trace weather state through location changes, cancellation, worker completion, and chrome presentation.
+- [x] Trace weather state through location changes, cancellation, worker completion, and chrome presentation.
 
 **Fix strategy**
 
-- [ ] Clear published state safely when disabling/changing location, or gate presentation explicitly.
-- [ ] Prevent a completing old worker from republishing stale location data.
+- [x] Clear published state safely when disabling/changing location, or gate presentation explicitly.
+- [x] Prevent a completing old worker from republishing stale location data.
 
 **Acceptance criteria**
 
-- [ ] Clearing the location and reloading removes the pill; switching locations does not retain misleading old data.
-- [ ] Re-enabling weather publishes fresh values; run core aggregate tests and same-cache smoke.
+- [x] Service tests show disabling/switching locations clears old values, and re-enabling publishes fresh values.
+- [x] Run the Windows core/product aggregate and a same-cache startup smoke with a sufficient bound.
+- [ ] Confirm in the live UI that config reload removes the pill and a new location shows only fresh data.
 
 ---
 
 Authorship: `gpt-6-astra`.
+
+**Implementation notes:** App reload already calls `stop()` before `start()`
+when `weather_location` changes, and chrome reads the service's separate
+emoji/temperature accessors. `stop()` now cancels and joins before clearing
+those values and `has_data`; the worker also checks `running_` after fetch and
+under the publication lock so a cancelled response cannot republish. Transport
+tests assert old values disappear, remain absent while a new location fetch is
+pending, and reappear only with the new location's result.
+
+**Validation (Windows, 2026-09-25):** `py do.py test debug --products`
+passed 49/49 CTest cases in 238.19s. The standard same-cache smoke exceeded
+its fixed 30s limit while restoring the existing nine-pane session; the
+identical wrapper environment passed with a 90s bound in approximately 45s.
+Live chrome confirmation remains pending.
+An isolated Windows Debug UI was launched with `weather_location = "London"`,
+but the headless control route exposes no rendered chrome state and the window
+was hidden. No pill appearance/removal was visually observed, so the live UI
+acceptance checkbox remains open.

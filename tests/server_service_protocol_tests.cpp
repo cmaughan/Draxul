@@ -292,7 +292,7 @@ TEST_CASE("remote terminal input backpressure is nonfatal and observable",
         "bounded.input",
         {
             { "client_id", "controller" },
-            { "text", "queued" },
+            { "input_base64", remote_terminal_input_base64("queued") },
         });
     REQUIRE_FALSE(rejected.ok);
     CHECK(rejected.error_code == "backpressure");
@@ -303,7 +303,7 @@ TEST_CASE("remote terminal input backpressure is nonfatal and observable",
         "bounded.input",
         {
             { "client_id", "controller" },
-            { "text", "after-backpressure" },
+            { "input_base64", remote_terminal_input_base64("after-backpressure") },
         });
     REQUIRE(accepted.ok);
     CHECK(runtime.received_input() == "after-backpressure");
@@ -371,6 +371,10 @@ TEST_CASE("remote terminal input wire preserves arbitrary byte chunks",
                  { "input_base64", "eA==" },
                  { "text", "x" },
              },
+             nlohmann::json{
+                 { "client_id", "controller" },
+                 { "text", "x" },
+             },
          })
     {
         const auto rejected = service.handle("binary.input", invalid);
@@ -401,14 +405,14 @@ TEST_CASE("remote terminal mutation request ids are idempotent",
         {
             { "client_id", "controller" },
             { "request_id", uint64_t{ 42 } },
-            { "text", "delivered-once" },
+            { "input_base64", remote_terminal_input_base64("delivered-once") },
         });
     REQUIRE(first.ok);
     const auto replay = service.handle("idempotent.input",
         {
             { "client_id", "controller" },
             { "request_id", uint64_t{ 42 } },
-            { "text", "must-not-be-delivered" },
+            { "input_base64", remote_terminal_input_base64("must-not-be-delivered") },
         });
     REQUIRE(replay.ok);
     CHECK(replay.value == first.value);
@@ -548,7 +552,7 @@ TEST_CASE("a saturated non-reading terminal leaves another terminal responsive",
             {
                 { "client_id", "stalled-controller" },
                 { "request_id", static_cast<uint64_t>(attempt + 1) },
-                { "text", input },
+                { "input_base64", remote_terminal_input_base64(input) },
             });
         const auto elapsed
             = std::chrono::steady_clock::now() - started_at;
@@ -570,7 +574,7 @@ TEST_CASE("a saturated non-reading terminal leaves another terminal responsive",
         {
             { "client_id", "responsive-controller" },
             { "request_id", uint64_t{ 1 } },
-            { "text", "still-responsive" },
+            { "input_base64", remote_terminal_input_base64("still-responsive") },
         });
     const auto responsive_elapsed
         = std::chrono::steady_clock::now() - responsive_started_at;
@@ -842,14 +846,14 @@ TEST_CASE("fake endpoint shares service ack and generation resync semantics",
         {
             { "client_id", "fake-client" },
             { "request_id", uint64_t{ 1 } },
-            { "text", "A" },
+            { "input_base64", remote_terminal_input_base64("A") },
         });
     const auto second = request(
         "fake.input",
         {
             { "client_id", "fake-client" },
             { "request_id", uint64_t{ 2 } },
-            { "text", "B" },
+            { "input_base64", remote_terminal_input_base64("B") },
         });
     REQUIRE(first.ok);
     REQUIRE(second.ok);

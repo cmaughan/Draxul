@@ -301,6 +301,35 @@ TEST_CASE("app config parse removes only the requested keybinding", "[config]")
     REQUIRE(font_reset->modifiers == kModAlt);
 }
 
+TEST_CASE("disabled default keybinding survives serialization and document persistence", "[config]")
+{
+    TempDir temp("draxul-disabled-keybinding");
+    const auto path = temp.path / "config.toml";
+    {
+        std::ofstream output(path);
+        output << "[keybindings]\ncopy = \"\"\npaste = \"Ctrl+Alt+V\"\n"
+                  "[plugin_settings]\nkeep = true\n";
+    }
+
+    AppConfig config = AppConfig::load_from_path(path);
+    REQUIRE(find_keybinding(config, "copy") == nullptr);
+    REQUIRE(find_keybinding(config, "paste") != nullptr);
+    const std::string serialized = config.serialize();
+    CHECK(serialized.find("copy = ''") != std::string::npos);
+    CHECK(find_keybinding(AppConfig::parse(serialized), "copy") == nullptr);
+
+    ConfigDocument document = ConfigDocument::load_from_path(path);
+    document.merge_core_config(config);
+    document.save_to_path(path);
+    const AppConfig restarted = AppConfig::load_from_path(path);
+    CHECK(find_keybinding(restarted, "copy") == nullptr);
+    REQUIRE(find_keybinding(restarted, "paste") != nullptr);
+    CHECK(format_gui_keybinding_combo(find_keybinding(restarted, "paste")->key,
+              find_keybinding(restarted, "paste")->modifiers)
+        == "Ctrl+Alt+V");
+    CHECK(draxul::tests::read_file(path).find("[plugin_settings]") != std::string::npos);
+}
+
 TEST_CASE("app config parse clamps out-of-range window dimensions to defaults", "[config]")
 {
     const char* content = "window_width = 99999\n"
@@ -1129,7 +1158,7 @@ TEST_CASE("terminal config section omitted from serialization when both fields e
     // Both terminal.fg and terminal.bg are empty by default
     std::string serialized = config.serialize();
     INFO("terminal section not emitted when both fields are empty");
-    REQUIRE(serialized.find("terminal") == std::string::npos);
+    REQUIRE(serialized.find("[terminal]") == std::string::npos);
 }
 
 TEST_CASE("chrome config section parses partial color overrides", "[config][chrome]")

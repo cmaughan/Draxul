@@ -1198,15 +1198,15 @@ bool TopologyService::apply(const TopologyCommand& command,
             return reject("host_kind_mismatch",
                 "Client-local pane host kind cannot be changed in place.");
         }
-        pane->client_working_directory
-            = command.client_working_directory;
-        pane->client_source_path = command.client_source_path;
         if (!command.client_plugin_id.empty()
             && command.client_plugin_id != pane->client_plugin_id)
         {
             return reject("plugin_id_mismatch",
                 "Client-local plugin id cannot be changed in place.");
         }
+        pane->client_working_directory
+            = command.client_working_directory;
+        pane->client_source_path = command.client_source_path;
         pane->client_plugin_config_json
             = command.client_plugin_config_json;
         return true;

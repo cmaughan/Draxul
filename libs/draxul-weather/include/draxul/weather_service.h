@@ -34,7 +34,7 @@ public:
     // Open-Meteo. No-op if location is empty or the worker is already active.
     void start(const std::string& location);
 
-    // Cancel any in-flight request, stop periodic fetching, and join the worker.
+    // Cancel any in-flight request, join the worker, and clear published data.
     void stop();
 
     // Dependency injection for App-level reload tests. Replacing the client
@@ -62,7 +62,6 @@ private:
     std::string get(std::string url);
 
     mutable std::mutex mutex_;
-    std::string display_text_;
     std::string emoji_;
     std::string temperature_;
     std::atomic<bool> has_data_{ false };

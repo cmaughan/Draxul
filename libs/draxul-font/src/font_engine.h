@@ -35,7 +35,7 @@ class FontManager
 {
 public:
     FontManager() = default;
-    ~FontManager() = default;
+    ~FontManager();
     FontManager(const FontManager&) = delete;
     FontManager& operator=(const FontManager&) = delete;
     FontManager(FontManager&& other) noexcept;

@@ -760,7 +760,7 @@ nlohmann::json run_batched_load_scenario(
                     { "client_id", pane.client_id },
                     { "request_id",
                         static_cast<uint64_t>(round) },
-                    { "text", "x" },
+                    { "input_base64", remote_terminal_input_base64("x") },
                 });
             REQUIRE(update.ok);
         }
@@ -1055,7 +1055,7 @@ nlohmann::json run_stream_load_scenario(
                 {
                     { "client_id", pane.client_id },
                     { "request_id", static_cast<uint64_t>(round) },
-                    { "text", "x" },
+                    { "input_base64", remote_terminal_input_base64("x") },
                 }).ok);
         }
         ++topology.revision;
@@ -1166,7 +1166,7 @@ nlohmann::json run_stream_load_scenario(
                             static_cast<uint64_t>(
                                 kStreamLoadRounds
                                 + backpressure_rounds + 1) },
-                        { "text", "bounded-stream-output" },
+                        { "input_base64", remote_terminal_input_base64("bounded-stream-output") },
                     }).ok);
             }
             ++topology.revision;
@@ -1748,7 +1748,7 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
                   .method = pane.method_prefix + ".input",
                   .params = {
                       { "request_id", request_id + 10'000 },
-                      { "text", std::move(text) },
+                      { "input_base64", remote_terminal_input_base64(text) },
                   },
               };
           };
@@ -1784,7 +1784,8 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
     CHECK(dispatched_commands == 2);
 
     SessionStreamCommand conflict = first_command;
-    conflict.params["text"] = "conflicting-payload";
+    conflict.params["input_base64"]
+        = remote_terminal_input_base64("conflicting-payload");
     REQUIRE(write_stream_command(stream, conflict, error));
     SessionStreamCommandResult rejected;
     REQUIRE(read_stream_command_result(stream, stream_service,
@@ -1874,7 +1875,7 @@ TEST_CASE("Session event stream multiplexes terminals topology and agents withou
             {
                 { "client_id", stream.ui.client_id },
                 { "request_id", expected_sequences.size() },
-                { "text", "stream-" + pane.terminal_id },
+                { "input_base64", remote_terminal_input_base64("stream-" + pane.terminal_id) },
             }).ok);
     }
     ++topology.revision;

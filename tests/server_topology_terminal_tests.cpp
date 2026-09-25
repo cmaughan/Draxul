@@ -782,6 +782,43 @@ TEST_CASE("shared topology creates terminal-free plugin panes and validates desc
     CHECK(plugin.client_plugin_id
         == "dev.draxul.spinning-triangle");
 
+    const TopologySnapshot before_update = service.snapshot();
+    TopologyCommand update{
+        .client_id = "plugin-client",
+        .command_id = "plugin-update-rejected",
+        .expected_revision = before_update.revision,
+        .kind = TopologyCommandKind::UpdateClientPane,
+        .space_id = before_update.spaces.front().space_id,
+        .tab_id = before_update.spaces.front().tabs.front().tab_id,
+        .pane_id = before_update.spaces.front().tabs.front().panes.back().pane_id,
+        .client_host_kind = "plugin",
+        .client_working_directory = "D:/different",
+        .client_source_path = "different.scene",
+        .client_plugin_id = "dev.draxul.satview",
+        .client_plugin_config_json = R"({"paused":false})",
+    };
+    const auto rejected_update = service.handle(
+        "topology.command", topology_command_to_json(update));
+    CHECK_FALSE(rejected_update.ok);
+    CHECK(rejected_update.error_code == "plugin_id_mismatch");
+    CHECK(service.snapshot() == before_update);
+
+    update.command_id = "plugin-update-accepted";
+    update.client_plugin_id
+        = before_update.spaces.front().tabs.front().panes.back().client_plugin_id;
+    const auto accepted_update = service.handle(
+        "topology.command", topology_command_to_json(update));
+    REQUIRE(accepted_update.ok);
+    CHECK(service.snapshot().revision == before_update.revision + 1);
+    const auto& updated_plugin
+        = service.snapshot().spaces.front().tabs.front().panes.back();
+    CHECK(updated_plugin.client_working_directory == "D:/different");
+    CHECK(updated_plugin.client_source_path == "different.scene");
+    CHECK(updated_plugin.client_plugin_id
+        == before_update.spaces.front().tabs.front().panes.back().client_plugin_id);
+    CHECK(updated_plugin.client_plugin_config_json
+        == R"({"paused":false})");
+
     TopologyCommand invalid = split;
     invalid.command_id = "plugin-invalid";
     invalid.expected_revision = service.snapshot().revision;

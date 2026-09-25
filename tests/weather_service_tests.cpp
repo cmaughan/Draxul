@@ -227,6 +227,9 @@ TEST_CASE("weather encodes geocoding data and publishes provider output",
     const std::string city = "York \"&|;#%/?+ \xC3\x9C";
     weather.start(city + ", Kingdom");
     REQUIRE(wait_for_weather(weather));
+    CHECK(weather.emoji() == "⛅");
+    CHECK(weather.temperature() == "18°C");
+    CHECK(weather.display_text() == "⛅ 18°C");
     weather.stop();
 
     const auto requests = client->requests();
@@ -237,9 +240,49 @@ TEST_CASE("weather encodes geocoding data and publishes provider output",
     CHECK(requests[0].url.find('|') == std::string::npos);
     CHECK(requests[1].url.find("latitude=53.9600") != std::string::npos);
     CHECK(requests[1].url.find("longitude=-1.0800") != std::string::npos);
-    CHECK(weather.emoji() == "⛅");
+    CHECK(weather.emoji().empty());
+    CHECK(weather.temperature().empty());
+    CHECK(weather.display_text().empty());
+    CHECK_FALSE(weather.has_data());
+}
+
+TEST_CASE("weather location switch clears old presentation until fresh data arrives",
+    "[weather][transport]")
+{
+    std::atomic<bool> release_second = false;
+    std::atomic<bool> second_entered = false;
+    auto client = std::make_shared<FakeHttpClient>([&](const auto& request, auto cancellation) {
+        if (request.url.find("latitude=40.7000") != std::string::npos)
+        {
+            second_entered = true;
+            while (!release_second && !cancellation.is_cancelled())
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            return success(R"({"current_weather":{"temperature":7.2,"weathercode":61}})");
+        }
+        return success(R"({"current_weather":{"temperature":18.4,"weathercode":2}})");
+    });
+    draxul::WeatherService weather(client);
+    weather.start("51.5,-0.1");
+    REQUIRE(wait_for_weather(weather));
     CHECK(weather.temperature() == "18°C");
-    CHECK(weather.display_text() == "⛅ 18°C");
+
+    weather.stop();
+    CHECK_FALSE(weather.has_data());
+    CHECK(weather.emoji().empty());
+    CHECK(weather.temperature().empty());
+    CHECK(weather.display_text().empty());
+
+    weather.start("40.7,-74.0");
+    REQUIRE(draxul::tests::wait_until([&] { return second_entered.load(); },
+        std::chrono::milliseconds(500), std::chrono::milliseconds(2)));
+    CHECK_FALSE(weather.has_data());
+    CHECK(weather.display_text().empty());
+    release_second = true;
+    REQUIRE(wait_for_weather(weather));
+    CHECK(weather.temperature() == "7°C");
+    CHECK(weather.emoji() == "\xF0\x9F\x8C\xA7\xEF\xB8\x8F");
+    weather.stop();
+    CHECK(weather.display_text().empty());
 }
 
 TEST_CASE("weather requests preserve transport budgets", "[weather][transport]")
@@ -307,9 +350,10 @@ TEST_CASE("weather cancellation unblocks stop and the service can restart",
 
     weather.start("40.7,-74.0");
     REQUIRE(wait_for_weather(weather));
+    CHECK(weather.temperature() == "7°C");
     weather.stop();
     CHECK(calls == 2);
-    CHECK(weather.temperature() == "7°C");
+    CHECK(weather.temperature().empty());
 
     const auto requests = client->requests();
     REQUIRE(requests.size() == 2);

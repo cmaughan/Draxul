@@ -26,6 +26,22 @@ std::filesystem::path isolated_server_executable(
 #endif
 }
 
+bool wait_for_metadata_removal(const std::filesystem::path& runtime)
+{
+    const auto metadata = server_metadata_path(runtime);
+    for (int attempt = 0; attempt < 200; ++attempt)
+    {
+        std::error_code error;
+        const bool exists = std::filesystem::exists(metadata, error);
+        if (!error && !exists)
+            return true;
+        // Windows can briefly report a deletion-pending file as an error
+        // while the detached server is removing its control metadata.
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return false;
+}
+
 } // namespace
 
 #ifdef _WIN32
@@ -89,17 +105,7 @@ TEST_CASE("ensure relaunches past a recycled PID and an expired startup marker",
               REQUIRE(ServerClient::shutdown(runtime,
                   { .confirm_live_terminals = true },
                   shutdown_error));
-              for (int attempt = 0;
-                  attempt < 200
-                  && std::filesystem::exists(
-                      server_metadata_path(runtime));
-                  ++attempt)
-              {
-                  std::this_thread::sleep_for(
-                      std::chrono::milliseconds(10));
-              }
-              REQUIRE_FALSE(std::filesystem::exists(
-                  server_metadata_path(runtime)));
+              REQUIRE(wait_for_metadata_removal(runtime));
           };
 
     TempDir recycled("draxul-server-recycled-pid");
@@ -250,13 +256,6 @@ TEST_CASE("ten concurrent clients converge on one detached server epoch", "[serv
     std::string shutdown_error;
     REQUIRE(ServerClient::shutdown(temp.path,
         { .confirm_live_terminals = true }, shutdown_error));
-    for (int attempt = 0;
-        attempt < 200
-        && std::filesystem::exists(server_metadata_path(temp.path));
-        ++attempt)
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    REQUIRE_FALSE(std::filesystem::exists(server_metadata_path(temp.path)));
+    REQUIRE(wait_for_metadata_removal(temp.path));
 }
 #endif

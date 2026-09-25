@@ -66,6 +66,7 @@ public:
 
     bool atlas_dirty() const override;
     bool consume_atlas_reset() override;
+    uint64_t atlas_generation() const override;
     void clear_atlas_dirty() override;
     const uint8_t* atlas_data() const override;
     int atlas_width() const override;

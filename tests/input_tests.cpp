@@ -35,6 +35,34 @@ TEST_CASE("input translates control chords and suppresses duplicate text", "[inp
     REQUIRE(static_cast<int>(rpc.notifications.size()) == 1);
 }
 
+TEST_CASE("printable named keys use the composed text event exactly once", "[input]")
+{
+    FakeRpcChannel rpc;
+    NvimInput input;
+    input.initialize(&rpc, 10, 20);
+
+    const auto type = [&](int keycode, ModifierFlags mod, const char* text) {
+        input.on_key({ 0, keycode, mod, true });
+        input.on_text_input({ text });
+    };
+    type(SDLK_SPACE, kModNone, " ");
+    type(SDLK_BACKSLASH, kModNone, "\\");
+    type(SDLK_BACKSLASH, kModShift, "|");
+    type(SDLK_LESS, kModNone, "<");
+
+    REQUIRE(rpc.notifications.size() == 4);
+    CHECK(rpc.notifications[0].params[0].as_str() == " ");
+    CHECK(rpc.notifications[1].params[0].as_str() == "\\");
+    CHECK(rpc.notifications[2].params[0].as_str() == "|");
+    CHECK(rpc.notifications[3].params[0].as_str() == "<lt>");
+
+    type(SDLK_SPACE, kModCtrl, " ");
+    type(SDLK_BACKSLASH, kModAlt, "\\");
+    REQUIRE(rpc.notifications.size() == 6);
+    CHECK(rpc.notifications[4].params[0].as_str() == "<C-Space>");
+    CHECK(rpc.notifications[5].params[0].as_str() == "<A-Bslash>");
+}
+
 TEST_CASE("input escapes lt and maps mouse coordinates to grid cells", "[input]")
 {
     FakeRpcChannel rpc;

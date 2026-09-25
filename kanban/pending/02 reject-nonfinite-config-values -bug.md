@@ -49,3 +49,10 @@ startup with a 90-second bound. macOS CI is still pending.
 [Build workflow run 35989867854](https://github.com/cmaughan/Draxul/actions/runs/35989867854)
 stopped in both hosted jobs during checkout because the workflow token cannot
 read the private `draxul-pcbview` submodule. macOS config/font execution remains open.
+
+2026-09-25 follow-up: The current Windows Debug core + all-products aggregate
+passed 49/49 CTest entries in 238.19 seconds. The standard 30-second same-cache
+smoke again timed out while restoring the existing nine-pane Session; the
+identical Debug executable and wrapper environment passed under a 90-second
+bound in roughly 45 seconds. macOS config/font execution remains the only
+unchecked acceptance gate.

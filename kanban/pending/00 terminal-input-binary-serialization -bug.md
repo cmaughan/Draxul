@@ -23,9 +23,11 @@ Legacy mouse coordinates can contain `0x80`, and paste chunking can split UTF-8 
 
 - Current stream and short-control clients encode each terminal input chunk in
   `input_base64`; the server decodes it with strict canonical padding and the
-  existing 64 KiB bound. Older JSON `text` clients remain accepted, but a
-  request cannot contain both fields. Session/control protocol version checks
-  remain in place.
+  existing 64 KiB bound. The earlier `text` fallback was removed on 2026-09-25
+  under the current-format-only policy. The server now rejects both `text`-only
+  and mixed-field requests. Session/control protocol version checks remain in
+  place. Direct service, authentication, stream-load, and protocol tests use
+  the current field, with rejection coverage for the old field.
 - Stream serialization failures now return a transport error so in-flight
   terminal commands can requeue through the existing fallback. Unexpected
   worker exceptions publish a terminal error and stop the affected worker
@@ -38,3 +40,8 @@ Legacy mouse coordinates can contain `0x80`, and paste chunking can split UTF-8 
 - [Build workflow run 35989867854](https://github.com/cmaughan/Draxul/actions/runs/35989867854)
   stopped in both hosted jobs during checkout because the workflow token cannot
   read the private `draxul-pcbview` submodule. macOS transport execution remains open.
+- Windows revalidation on 2026-09-25 after removing the legacy input path:
+  `py do.py test debug --products` passed 49/49 CTest entries in 238.19 seconds.
+  The standard fixed-30-second smoke timed out loading the existing nine-pane
+  Session; the exact same-cache wrapper environment with a 90-second bound
+  passed in approximately 45 seconds. The macOS transport gate remains open.

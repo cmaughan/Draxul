@@ -48,3 +48,27 @@ a 90-second bound.
 [Build workflow run 35989867854](https://github.com/cmaughan/Draxul/actions/runs/35989867854)
 stopped in both hosted jobs during checkout because the workflow token cannot
 read the private `draxul-pcbview` submodule. macOS storage execution remains open.
+
+2026-09-25 follow-up: The current Windows Debug core + all-products aggregate
+passed 49/49 CTest entries in 238.19 seconds. The standard 30-second same-cache
+smoke again timed out while restoring the existing nine-pane Session; the
+identical Debug executable and wrapper environment passed under a 90-second
+bound in roughly 45 seconds. No macOS storage execution has occurred yet.
+
+2026-09-25 native contention follow-up: Repeated the focused Windows Debug
+`PluginStorage concurrent writers publish complete documents` case 100 times
+against the existing build, with 8 independent storage instances and 16 saves
+per instance to the same key on each run. All 12,800 native saves completed
+without a test failure in 32.38 seconds; each final document matched one complete
+writer payload. This is a same-process threaded stress test, not a separate-
+process or macOS execution, so the cross-platform investigation and macOS
+acceptance boxes remain open.
+
+2026-09-25 separate-process follow-up: Added a Windows integration case that
+launches eight child `draxul-test-app` processes, holds them at a shared start
+barrier, and has each make 16 native storage saves to the same key. It checks
+each child exit and requires the final JSON to equal one complete writer
+document. The focused `draxul-test-app` `[plugin][storage][process]` selection
+passed (1 case, 32 assertions, 0.42 seconds). This covers separate-client
+contention on Windows; the macOS-native half of the investigation and the
+macOS acceptance gate remain open.

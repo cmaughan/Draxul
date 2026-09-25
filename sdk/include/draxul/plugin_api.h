@@ -205,6 +205,8 @@ typedef struct DraxulPluginCreateInfoV2
     uint32_t struct_size;
     const DraxulPluginHostApiV2* host;
     const char* plugin_id;
+    // NUL-terminated UTF-8, valid throughout create_instance. Decode as
+    // UTF-8 rather than using the process ANSI code page on Windows.
     const char* plugin_directory_utf8;
     const char* config_json;
     size_t config_json_length;
@@ -358,8 +360,10 @@ typedef struct DraxulPluginApiV2
     const char* plugin_version;
     uint32_t supported_backends;
     void* (*create_instance)(const DraxulPluginCreateInfoV2* create_info);
-    // Stops background work and external callbacks. GPU resources remain alive
-    // until destroy_instance, which Draxul calls only after renderer idle.
+    // Stops background work and external callbacks. Main-thread storage
+    // callbacks remain valid during this call for final saves; other host
+    // callbacks are suppressed and all callbacks retire afterward. GPU
+    // resources remain alive until destroy_instance after renderer idle.
     void (*quiesce_instance)(void* instance);
     void (*destroy_instance)(void* instance);
     void (*set_viewport)(void* instance, const DraxulPluginViewportV2* viewport);

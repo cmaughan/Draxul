@@ -122,6 +122,15 @@ void GridHostBase::on_font_metrics_changed()
     update_text_input_area();
 }
 
+void GridHostBase::on_glyph_atlas_reset()
+{
+    if (!dependencies_available("on_glyph_atlas_reset"))
+        return;
+    // flush() compares generations and rebuilds even a clean or hidden grid.
+    grid_pipeline_->flush();
+    callbacks().request_frame();
+}
+
 void GridHostBase::on_config_reloaded(const HostReloadConfig& config)
 {
     launch_options_.enable_ligatures = config.enable_ligatures;

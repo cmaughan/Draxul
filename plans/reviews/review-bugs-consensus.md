@@ -364,7 +364,7 @@ The host publishes `.string()` bytes through `plugin_directory_utf8`; plugins de
 - [ ] Plugins load assets from non-ASCII Windows directories under non-UTF-8 ANSI settings.
 - [ ] Run shared plugin aggregate coverage and same-cache smoke; verify macOS path behavior remains correct.
 
-### kanban/pending/10 persist-disabled-keybindings -bug.md
+### kanban/done/10 persist-disabled-keybindings -bug.md
 
 # Preserve explicitly disabled default keybindings
 **Severity:** HIGH  
@@ -385,7 +385,7 @@ Removed bindings are omitted during serialization, so shutdown saving erases exp
 - [ ] `copy = ""` remains disabled after serialization, document merge, and restart.
 - [ ] Verify enabled bindings still round-trip; run core aggregate tests and same-cache smoke.
 
-### kanban/pending/11 integration-installer-toml-sections -bug.md
+### kanban/done/11 integration-installer-toml-sections -bug.md
 
 # Preserve valid TOML while enabling integration hooks
 **Severity:** HIGH  
@@ -407,7 +407,7 @@ A valid `[features] # comment` header is missed, causing installation to append 
 - [ ] Installation handles commented headers without duplicate tables or misplaced assignments and remains idempotent.
 - [ ] Invalid transformations never replace the original file; run core aggregate tests and same-cache smoke.
 
-### kanban/pending/12 kanban-focus-loss-repeat-state -bug.md
+### kanban/done/12 kanban-focus-loss-repeat-state -bug.md
 
 # Stop Kanban navigation when the host loses focus
 **Severity:** HIGH  

@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <string_view>
+#include <toml++/toml.hpp>
 #include <vector>
 
 namespace draxul
@@ -292,63 +293,106 @@ DocumentUpdate transform_hook_document(std::string_view document,
     return { true, root.dump(2) + "\n", {} };
 }
 
-bool is_hooks_assignment(std::string_view line)
+bool is_features_header(std::string_view line)
 {
-    const auto equals = line.find('=');
-    if (equals == std::string_view::npos)
+    try
+    {
+        // Parsing this one line recognizes comments and quoted TOML keys, while
+        // distinguishing [features] from [features.some_child].
+        const auto header = toml::parse(line);
+        const auto* features = header["features"].as_table();
+        return header.size() == 1 && features && features->empty();
+    }
+    catch (const toml::parse_error&)
+    {
         return false;
-    auto key = line.substr(0, equals);
-    const auto last = key.find_last_not_of(" \t");
-    key = last == std::string_view::npos ? std::string_view{}
-                                         : key.substr(0, last + 1);
-    return key == "hooks";
+    }
 }
 
 DocumentUpdate transform_codex_features(std::string_view document)
 {
+    toml::table parsed;
+    try
+    {
+        if (!document.empty())
+            parsed = toml::parse(document);
+    }
+    catch (const toml::parse_error&)
+    {
+        return { false, {}, "Codex config.toml is invalid TOML." };
+    }
+
+    auto* features = parsed["features"].as_table();
+    if (parsed.contains("features") && !features)
+        return { false, {}, "Codex config.toml 'features' must be a table." };
+    if (features && features->contains("hooks")
+        && !(*features)["hooks"].is_boolean())
+        return { false, {}, "Codex config.toml 'features.hooks' must be a boolean." };
+
     std::vector<std::string> lines;
     std::istringstream stream{ std::string(document) };
     for (std::string line; std::getline(stream, line);)
         lines.push_back(std::move(line));
-    bool in_features = false;
-    bool saw_features = false;
-    bool saw_hooks = false;
-    size_t features_index = lines.size();
-    for (size_t index = 0; index < lines.size(); ++index)
+    std::string updated;
+    if (features && features->contains("hooks"))
     {
-        auto& line = lines[index];
-        const size_t first = line.find_first_not_of(" \t");
-        const std::string trimmed = first == std::string::npos ? std::string{} : line.substr(first);
-        if (trimmed.starts_with("[") && trimmed.ends_with("]"))
+        const auto* hooks = features->get("hooks");
+        if (hooks->value<bool>().value_or(false))
+            return { true, std::string(document), {} };
+        const auto& source = hooks->source().begin;
+        if (source.line == 0 || source.line > lines.size()
+            || source.column == 0 || source.column > lines[source.line - 1].size()
+            || lines[source.line - 1].compare(source.column - 1, 5, "false") != 0)
         {
-            in_features = trimmed == "[features]";
-            saw_features = saw_features || in_features;
-            if (in_features)
-                features_index = index;
+            return { false, {}, "Unable to locate Codex features.hooks value." };
         }
-        else if (in_features && is_hooks_assignment(trimmed))
-        {
-            line = "hooks = true";
-            saw_hooks = true;
-        }
+        lines[source.line - 1].replace(source.column - 1, 5, "true");
     }
-    if (!saw_features)
+    else if (!features)
     {
         if (!lines.empty() && !lines.back().empty())
             lines.emplace_back();
         lines.emplace_back("[features]");
         lines.emplace_back("hooks = true");
     }
-    else if (!saw_hooks)
+    else
     {
-        lines.insert(lines.begin()
-                + static_cast<std::ptrdiff_t>(features_index + 1),
-            "hooks = true");
+        const auto& source = features->source().begin;
+        if (source.line > 0 && source.line <= lines.size()
+            && is_features_header(lines[source.line - 1]))
+        {
+            lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(source.line),
+                "hooks = true");
+        }
+        else
+        {
+            // An inline or implicit table has no standalone [features] header
+            // into which an assignment can be inserted. Reprint the parsed tree
+            // to preserve every unrelated value while producing valid TOML.
+            features->insert_or_assign("hooks", true);
+            std::ostringstream output;
+            output << parsed << '\n';
+            updated = output.str();
+        }
     }
-    std::ostringstream output;
-    for (const auto& line : lines)
-        output << line << '\n';
-    return { true, output.str(), {} };
+    if (updated.empty())
+    {
+        std::ostringstream output;
+        for (const auto& line : lines)
+            output << line << '\n';
+        updated = output.str();
+    }
+    try
+    {
+        const auto checked = toml::parse(updated);
+        const auto* checked_features = checked["features"].as_table();
+        if (checked_features && (*checked_features)["hooks"].value<bool>() == true)
+            return { true, updated, {} };
+    }
+    catch (const toml::parse_error&)
+    {
+    }
+    return { false, {}, "Unable to produce a valid Codex config.toml." };
 }
 
 bool read_optional_document(const std::filesystem::path& path,
@@ -405,6 +449,11 @@ bool enable_codex_hooks(const std::filesystem::path& config_path,
     if (!read_optional_document(config_path, document, error))
         return false;
     const auto update = transform_codex_features(document);
+    if (!update.success)
+    {
+        error = update.error;
+        return false;
+    }
     return write_atomic(config_path, update.contents, error);
 }
 
@@ -498,20 +547,17 @@ AgentIntegrationStatus inspect_codex(const AgentIntegrationPaths& paths)
         return make_status(AgentIntegrationProvider::Codex,
             AgentIntegrationState::Invalid, paths.features,
             std::move(read_error));
-    std::istringstream config(document);
-    std::string line;
-    bool in_features = false;
-    while (std::getline(config, line))
+    try
     {
-        const size_t first = line.find_first_not_of(" \t");
-        const std::string trimmed = first == std::string::npos ? std::string{} : line.substr(first);
-        if (trimmed.starts_with("[") && trimmed.ends_with("]"))
-            in_features = trimmed == "[features]";
-        else if (in_features && is_hooks_assignment(trimmed))
-        {
-            const auto value = trimmed.substr(trimmed.find('=') + 1);
-            enabled = value.find("true") != std::string::npos;
-        }
+        const toml::table config = document.empty() ? toml::table{} : toml::parse(document);
+        if (const auto* features = config["features"].as_table())
+            enabled = (*features)["hooks"].value<bool>().value_or(false);
+    }
+    catch (const toml::parse_error&)
+    {
+        return make_status(AgentIntegrationProvider::Codex,
+            AgentIntegrationState::Invalid, paths.features,
+            "Codex config.toml is invalid TOML.");
     }
     return make_status(AgentIntegrationProvider::Codex,
         registered && enabled ? AgentIntegrationState::Current

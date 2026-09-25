@@ -115,7 +115,9 @@ private:
         std::string& error);
     void stop_instance(bool wait_for_renderer);
     std::optional<std::string> export_reload_state(std::string& warning);
-    static PluginHost* callback_host(void* context);
+    static PluginHost* callback_host(void* context,
+        bool allow_quiescent_storage = false);
+    void deactivate_callback_context();
     void retire_callback_contexts();
     void send_input(DraxulPluginInputEventV2 event);
     void send_focus(bool focused);
@@ -155,7 +157,7 @@ private:
     float display_ppi_ = 96.0f;
     uint64_t ui_style_generation_ = 1;
     uint64_t callback_generation_ = 0;
-    CallbackContext* active_callback_context_ = nullptr;
+    std::atomic<CallbackContext*> active_callback_context_{ nullptr };
     std::vector<std::unique_ptr<CallbackContext>> callback_contexts_;
     bool reload_prequiesced_ = false;
     std::optional<std::string> prepared_reload_state_;

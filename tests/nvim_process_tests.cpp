@@ -1,12 +1,15 @@
 #include "support/scoped_env_var.h"
+#include "support/temp_dir.h"
 #include "support/test_support.h"
 
 #include <draxul/log.h>
 #include <draxul/nvim_transport.h>
 
 #include <atomic>
+#include <array>
 #include <catch2/catch_all.hpp>
 #include <chrono>
+#include <filesystem>
 #include <latch>
 #include <string>
 #include <thread>
@@ -48,6 +51,42 @@ bool contains_spawn_error(const std::vector<LogRecord>& records)
     return false;
 }
 
+#ifdef _WIN32
+std::string path_utf8(const std::filesystem::path& path)
+{
+    const auto value = path.u8string();
+    return { reinterpret_cast<const char*>(value.data()), value.size() };
+}
+
+class ScopedWideEnvVar
+{
+public:
+    ScopedWideEnvVar(const wchar_t* name, const wchar_t* value)
+        : name_(name)
+    {
+        DWORD required = GetEnvironmentVariableW(name_, nullptr, 0);
+        if (required != 0)
+        {
+            previous_.resize(required);
+            GetEnvironmentVariableW(name_, previous_.data(), required);
+            previous_.resize(required - 1);
+            had_previous_ = true;
+        }
+        SetEnvironmentVariableW(name_, value);
+    }
+
+    ~ScopedWideEnvVar()
+    {
+        SetEnvironmentVariableW(name_, had_previous_ ? previous_.c_str() : nullptr);
+    }
+
+private:
+    const wchar_t* name_;
+    std::wstring previous_;
+    bool had_previous_ = false;
+};
+#endif
+
 } // namespace
 
 TEST_CASE("nvim process spawn returns false and logs an error for a bad path", "[nvim]")
@@ -75,6 +114,82 @@ TEST_CASE("nvim process shutdown is a no-op after spawn failure", "[nvim]")
 }
 
 #ifdef _WIN32
+TEST_CASE("Windows nvim launch preserves Unicode paths arguments and environment", "[nvim][windows]")
+{
+    INFO("Windows ANSI code page: " << GetACP());
+    tests::TempDir temp("draxul-nvim-unicode-launch");
+    const auto executable_dir = temp.path / L"\u65e5\u672c\u8a9e exe";
+    const auto working_dir = temp.path / L"\u03b1\u03b2 work";
+    std::filesystem::create_directories(executable_dir);
+    std::filesystem::create_directories(working_dir);
+    const auto executable = executable_dir / L"rpc \u00e9.exe";
+    std::filesystem::copy_file(DRAXUL_RPC_FAKE_PATH, executable);
+    const auto dump_path = temp.path / "launch.txt";
+    ScopedEnvVar mode("DRAXUL_RPC_FAKE_MODE", "dump_launch_and_exit");
+    ScopedEnvVar dump("DRAXUL_RPC_FAKE_LAUNCH_DUMP", dump_path.string().c_str());
+    ScopedWideEnvVar unicode(L"DRAXUL_RPC_FAKE_UNICODE", L"\u6f22\u5b57");
+
+    const std::string argument = "\xCE\xB2 eta \"quoted\" \\";
+    NvimProcess process;
+    const auto result = process.spawn(path_utf8(executable), { argument }, path_utf8(working_dir));
+    REQUIRE(result);
+    if (result)
+    {
+        const bool exited = wait_until([&] { return !process.is_running(); },
+            std::chrono::seconds(3));
+        process.shutdown();
+        REQUIRE(exited);
+        const std::string output = read_file(dump_path);
+        CHECK(output.find("cwd=" + path_utf8(working_dir) + "\n") != std::string::npos);
+        CHECK(output.find("arg0=" + path_utf8(executable) + "\n") != std::string::npos);
+        CHECK(output.find("arg1=--embed\n") != std::string::npos);
+        CHECK(output.find("arg2=" + argument + "\n") != std::string::npos);
+        CHECK(output.find("env=\xE6\xBC\xA2\xE5\xAD\x97\n") != std::string::npos);
+    }
+}
+
+TEST_CASE("Windows launches real Neovim from Unicode executable and working directories", "[nvim][windows][integration]")
+{
+    INFO("Windows ANSI code page: " << GetACP());
+    std::array<wchar_t, MAX_PATH> resolved{};
+    const DWORD length = SearchPathW(nullptr, L"nvim.exe", nullptr,
+        static_cast<DWORD>(resolved.size()), resolved.data(), nullptr);
+    if (length == 0 || length >= resolved.size())
+        SKIP("nvim.exe is unavailable on PATH for real-process integration");
+
+    tests::TempDir temp("draxul-real-nvim-unicode-launch");
+    const auto executable_dir = temp.path / L"\u65e5\u672c\u8a9e exe";
+    const auto working_dir = temp.path / L"\u03b1\u03b2 work";
+    std::filesystem::create_directories(executable_dir);
+    std::filesystem::create_directories(working_dir);
+    const auto source = std::filesystem::path(resolved.data());
+    const auto executable = executable_dir / L"nvim \u00e9.exe";
+    std::filesystem::copy_file(source, executable);
+    for (const auto& sibling : std::filesystem::directory_iterator(source.parent_path()))
+    {
+        if (sibling.path().extension() == L".dll")
+            std::filesystem::copy_file(sibling.path(), executable_dir / sibling.path().filename());
+    }
+
+    NvimProcess process;
+    REQUIRE(process.spawn(path_utf8(executable), {}, path_utf8(working_dir)));
+    NvimRpc rpc;
+    REQUIRE(rpc.initialize(process));
+    const auto cwd = rpc.request("nvim_call_function", {
+        MpackValue::make_str("getcwd"), MpackValue::make_array({}) });
+    REQUIRE(cwd.has_value());
+    REQUIRE(cwd.value().type() == MpackValue::String);
+    CHECK(std::filesystem::equivalent(
+        std::filesystem::u8path(cwd.value().as_str()), working_dir));
+    process.shutdown();
+    rpc.shutdown();
+    CHECK(wait_until([&] {
+        std::error_code error;
+        std::filesystem::remove_all(executable_dir, error);
+        return !error && !std::filesystem::exists(executable_dir);
+    }, std::chrono::seconds(5)));
+}
+
 TEST_CASE("Windows nvim process status is safe during concurrent shutdown", "[nvim][windows]")
 {
     ScopedEnvVar mode("DRAXUL_RPC_FAKE_MODE", "hang");

@@ -59,6 +59,7 @@ PluginHost::~PluginHost()
 
 void PluginHost::retire_callback_contexts()
 {
+    deactivate_callback_context();
     for (auto& context : callback_contexts_)
     {
         context->active.store(false);
@@ -75,6 +76,13 @@ void PluginHost::retire_callback_contexts()
     for (auto& context : callback_contexts_)
         resident->push_back(std::move(context));
     callback_contexts_.clear();
+}
+
+void PluginHost::deactivate_callback_context()
+{
+    if (auto* context = active_callback_context_.exchange(
+            nullptr, std::memory_order_acq_rel))
+        context->active.store(false, std::memory_order_release);
 }
 
 bool PluginHost::initialize(const HostContext& context, IHostCallbacks& callbacks)
@@ -114,7 +122,10 @@ bool PluginHost::start_instance(const std::shared_ptr<LoadedPlugin>& plugin,
     std::string& error)
 {
     plugin_ = plugin;
-    plugin_directory_ = plugin_->manifest().directory.string();
+    const auto directory_utf8 = plugin_->manifest().directory.u8string();
+    plugin_directory_.assign(
+        reinterpret_cast<const char*>(directory_utf8.data()),
+        directory_utf8.size());
     storage_->initialize(plugin_id_, pane_id_, plugin_->manifest().directory);
     started_at_ = std::chrono::steady_clock::now();
 
@@ -132,11 +143,12 @@ bool PluginHost::start_instance(const std::shared_ptr<LoadedPlugin>& plugin,
         .log = &PluginHost::log_message,
         .query_service = &PluginHost::query_service,
     };
-    active_callback_context_ = callback_context.get();
+    auto* active_context = callback_context.get();
     callback_contexts_.push_back(std::move(callback_context));
+    active_callback_context_.store(active_context, std::memory_order_release);
     const DraxulPluginCreateInfoV2 create_info{
         .struct_size = sizeof(DraxulPluginCreateInfoV2),
-        .host = &active_callback_context_->api,
+        .host = &active_context->api,
         .plugin_id = plugin_id_.c_str(),
         .plugin_directory_utf8 = plugin_directory_.c_str(),
         .config_json = config_json_.c_str(),
@@ -146,8 +158,7 @@ bool PluginHost::start_instance(const std::shared_ptr<LoadedPlugin>& plugin,
     instance_ = plugin_->api().create_instance(&create_info);
     if (!instance_)
     {
-        active_callback_context_->active.store(false);
-        active_callback_context_ = nullptr;
+        deactivate_callback_context();
         error = "Plugin instance creation failed for '" + plugin_id_
             + "'; check its configuration, bundled resources, and Draxul log";
         return false;
@@ -196,12 +207,12 @@ bool PluginHost::start_instance(const std::shared_ptr<LoadedPlugin>& plugin,
     if (!render_pass_)
     {
         error = "Plugin does not support this renderer backend";
+        shutting_down_.store(true);
         if (plugin_->api().quiesce_instance)
             plugin_->api().quiesce_instance(instance_);
+        deactivate_callback_context();
         plugin_->api().destroy_instance(instance_);
         instance_ = nullptr;
-        active_callback_context_->active.store(false);
-        active_callback_context_ = nullptr;
         return false;
     }
     running_ = true;
@@ -214,11 +225,7 @@ void PluginHost::stop_instance(bool wait_for_renderer)
 {
     if (!instance_)
     {
-        if (active_callback_context_)
-        {
-            active_callback_context_->active.store(false);
-            active_callback_context_ = nullptr;
-        }
+        deactivate_callback_context();
         return;
     }
     shutting_down_.store(true);
@@ -226,16 +233,12 @@ void PluginHost::stop_instance(bool wait_for_renderer)
     next_tick_.reset();
     if (plugin_->api().quiesce_instance)
         plugin_->api().quiesce_instance(instance_);
+    deactivate_callback_context();
     render_pass_.reset();
     if (wait_for_renderer && renderer_)
         renderer_->wait_idle();
     plugin_->api().destroy_instance(instance_);
     instance_ = nullptr;
-    if (active_callback_context_)
-    {
-        active_callback_context_->active.store(false);
-        active_callback_context_ = nullptr;
-    }
     running_ = false;
     has_presentation_ = false;
     hot_reload_ = {};
@@ -275,11 +278,7 @@ void PluginHost::quiesce_for_reload(std::string& warning)
     if (plugin_->api().quiesce_instance)
         plugin_->api().quiesce_instance(instance_);
     render_pass_.reset();
-    if (active_callback_context_)
-    {
-        active_callback_context_->active.store(false);
-        active_callback_context_ = nullptr;
-    }
+    deactivate_callback_context();
     reload_prequiesced_ = true;
 }
 
@@ -585,14 +584,19 @@ void PluginHost::notify_presentation_changed(void* context)
         callbacks->wake_window();
 }
 
-PluginHost* PluginHost::callback_host(void* context)
+PluginHost* PluginHost::callback_host(void* context,
+    bool allow_quiescent_storage)
 {
     auto* callback = static_cast<CallbackContext*>(context);
     if (!callback || !callback->active.load())
         return nullptr;
     auto* host = callback->host.load();
-    if (!host || host->active_callback_context_ != callback
-        || host->shutting_down_.load())
+    if (allow_quiescent_storage && host
+        && std::this_thread::get_id() != host->main_thread_id_)
+        return nullptr;
+    if (!host || host->active_callback_context_.load(
+            std::memory_order_acquire) != callback
+        || (host->shutting_down_.load() && !allow_quiescent_storage))
         return nullptr;
     return host;
 }
@@ -687,7 +691,7 @@ int32_t PluginHost::get_service_path(void* context, uint32_t path_kind,
 uint32_t PluginHost::read_storage_json(void* context, uint32_t scope,
     const char* key, size_t key_length, char* buffer, size_t* in_out_size)
 {
-    auto* host = callback_host(context);
+    auto* host = callback_host(context, true);
     if (!host || std::this_thread::get_id() != host->main_thread_id_)
         return DRAXUL_PLUGIN_STORAGE_WRONG_THREAD;
     return host->storage_->read_json(scope, key, key_length, buffer,
@@ -697,7 +701,7 @@ uint32_t PluginHost::read_storage_json(void* context, uint32_t scope,
 uint32_t PluginHost::write_storage_json(void* context, uint32_t scope,
     const char* key, size_t key_length, const char* json, size_t json_length)
 {
-    auto* host = callback_host(context);
+    auto* host = callback_host(context, true);
     if (!host || std::this_thread::get_id() != host->main_thread_id_)
         return DRAXUL_PLUGIN_STORAGE_WRONG_THREAD;
     return host->storage_->write_json(scope, key, key_length, json,
@@ -707,7 +711,7 @@ uint32_t PluginHost::write_storage_json(void* context, uint32_t scope,
 uint32_t PluginHost::remove_storage(void* context, uint32_t scope,
     const char* key, size_t key_length)
 {
-    auto* host = callback_host(context);
+    auto* host = callback_host(context, true);
     if (!host || std::this_thread::get_id() != host->main_thread_id_)
         return DRAXUL_PLUGIN_STORAGE_WRONG_THREAD;
     return host->storage_->remove(scope, key, key_length);

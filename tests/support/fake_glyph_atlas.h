@@ -55,8 +55,14 @@ public:
             return false;
 
         --resets_remaining_;
+        ++atlas_generation_;
         atlas_dirty_ = false;
         return true;
+    }
+
+    uint64_t atlas_generation() const override
+    {
+        return atlas_generation_;
     }
 
     void clear_atlas_dirty() override
@@ -99,6 +105,7 @@ public:
 
 private:
     int resets_remaining_ = 0;
+    uint64_t atlas_generation_ = 0;
     bool atlas_dirty_ = false;
     std::vector<uint8_t> atlas_;
     std::unordered_map<std::string, AtlasRegion> glyphs_;

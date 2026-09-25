@@ -273,6 +273,11 @@ void GridRenderingPipeline::flush()
 
     for (int attempt = 0; attempt < 2; attempt++)
     {
+        const uint64_t atlas_generation = glyph_atlas_.atlas_generation();
+        if (rendered_atlas_generation_ != atlas_generation)
+        {
+            grid_.mark_all_dirty();
+        }
         grid_.refresh_url_detection_for_dirty_rows(url_detection_enabled_);
         if (attempt > 0)
         {
@@ -285,6 +290,7 @@ void GridRenderingPipeline::flush()
         {
             if (force_full_atlas_upload_)
                 upload_atlas();
+            rendered_atlas_generation_ = atlas_generation;
             return;
         }
         const std::vector<Grid::DirtyCell>* dirty_cells = &dirty;
@@ -300,8 +306,8 @@ void GridRenderingPipeline::flush()
         bool atlas_updated = false;
         build_cell_updates(*dirty_cells, updates, atlas_updated);
 
-        bool atlas_reset = glyph_atlas_.consume_atlas_reset();
-        if (atlas_reset)
+        const bool atlas_reset = glyph_atlas_.consume_atlas_reset();
+        if (atlas_reset || glyph_atlas_.atlas_generation() != atlas_generation)
             continue;
 
         if (force_full_atlas_upload_ || atlas_updated)
@@ -309,6 +315,7 @@ void GridRenderingPipeline::flush()
 
         grid_handle_->update_cells(updates);
         grid_.clear_dirty();
+        rendered_atlas_generation_ = atlas_generation;
         return;
     }
 }

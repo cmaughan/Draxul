@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
+#include <iterator>
 #include <nlohmann/json.hpp>
 #include <toml++/toml.hpp>
 
@@ -97,7 +98,18 @@ PluginManifest parse_manifest(const std::filesystem::path& path, bool user_insta
     result.user_installed = user_installed;
     try
     {
-        const toml::table document = toml::parse_file(path.string());
+        // toml++ opens narrow paths through the process code page on Windows.
+        // Open the native filesystem path first so non-ASCII package roots are
+        // not lost before the UTF-8 manifest content reaches the parser.
+        std::ifstream input(path, std::ios::binary);
+        if (!input)
+        {
+            result.error = "Unable to open plugin manifest";
+            return result;
+        }
+        const std::string content{ std::istreambuf_iterator<char>(input),
+            std::istreambuf_iterator<char>{} };
+        const toml::table document = toml::parse(content);
         const auto schema = document["schema_version"].value<int64_t>();
         const auto id = table_string(document, "id");
         const auto name = table_string(document, "name");

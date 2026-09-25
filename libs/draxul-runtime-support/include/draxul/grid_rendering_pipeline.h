@@ -4,6 +4,7 @@
 #include <draxul/grid.h>
 #include <draxul/renderer.h>
 #include <draxul/thread_check.h>
+#include <limits>
 #include <vector>
 
 namespace draxul
@@ -41,6 +42,7 @@ private:
     IGlyphAtlas& glyph_atlas_;
 
     bool force_full_atlas_upload_ = true;
+    uint64_t rendered_atlas_generation_ = std::numeric_limits<uint64_t>::max();
     bool enable_ligatures_ = true;
     bool url_detection_enabled_ = true;
     std::vector<uint8_t> atlas_upload_scratch_;

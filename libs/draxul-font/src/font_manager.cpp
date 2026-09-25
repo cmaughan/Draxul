@@ -26,6 +26,11 @@ bool valid_font_dimensions(float point_size, float display_ppi)
 
 } // namespace
 
+FontManager::~FontManager()
+{
+    shutdown();
+}
+
 FontManager::FontManager(FontManager&& other) noexcept
 {
     *this = std::move(other);
@@ -63,6 +68,7 @@ bool FontManager::initialize(const std::string& font_path, float point_size, flo
         DRAXUL_LOG_ERROR(LogCategory::Font, "Invalid font point size or display PPI");
         return false;
     }
+    shutdown();
     point_size_ = point_size;
     display_ppi_ = display_ppi;
 
@@ -79,6 +85,7 @@ bool FontManager::initialize(const std::string& font_path, float point_size, flo
             DRAXUL_LOG_ERROR(LogCategory::Font, "Failed to load font '%s': FreeType error %d (%s)", font_path.c_str(), ft_err, err_str);
         else
             DRAXUL_LOG_ERROR(LogCategory::Font, "Failed to load font '%s': FreeType error %d", font_path.c_str(), ft_err);
+        shutdown();
         return false;
     }
 
@@ -91,6 +98,7 @@ bool FontManager::initialize(const std::string& font_path, float point_size, flo
     if (!hb_font_)
     {
         DRAXUL_LOG_ERROR(LogCategory::Font, "Failed to create HarfBuzz font");
+        shutdown();
         return false;
     }
 

@@ -312,7 +312,7 @@ App::App(AppDeps deps)
     , window_factory_(std::move(deps.window_factory))
     , renderer_factory_(std::move(deps.renderer_factory))
     , host_factory_(std::move(deps.host_factory))
-    , space_controller_(std::filesystem::path(options_.host_working_dir))
+    , space_controller_(std::filesystem::u8path(options_.host_working_dir))
 {
     if (deps.http_client)
         weather_service_.set_http_client(std::move(deps.http_client));
@@ -2363,6 +2363,13 @@ bool App::render_frame()
 
     walk_draw(render_root_, *frame);
 
+    // Chrome and overlay text can resolve new glyphs after the pre-frame atlas
+    // upload. If they reset or dirty the shared atlas, repair all cached grid
+    // coordinates and upload the new pixels on the following frame.
+    if (text_service_.atlas_generation() != repaired_atlas_generation_
+        || text_service_.atlas_dirty())
+        request_frame();
+
     saw_frame_ = true;
     ++rendered_frame_count_;
     renderer_.grid()->end_frame();
@@ -2442,6 +2449,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         rebuild_render_tree();
         walk_pump(render_root_);
         pump_background_hosts();
+        const bool atlas_ready = refresh_shared_atlas_consumers();
         if (remote_session_coordinator_)
             remote_session_coordinator_->acknowledge_wake();
         refresh_tab_default_names();
@@ -2473,6 +2481,15 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
             return false;
         }
         input_dispatcher_.set_host(active_pane_manager().focused_host());
+
+        if (!atlas_ready)
+        {
+            // A repair itself overflowed the shared atlas after the final
+            // pass. Let the next pump continue repairing before presenting
+            // any grid coordinates from an obsolete generation.
+            runtime_perf_collector().cancel_frame();
+            return running_;
+        }
 
         if (frame_requested_ && !window_->is_minimized())
         {
@@ -2514,6 +2531,31 @@ void App::pump_background_hosts()
             });
         }
     }
+}
+
+bool App::refresh_shared_atlas_consumers()
+{
+    // The reset notification on the atlas is single-consumer. Its generation
+    // is not: a reset in one pane invalidates every visible and hidden grid.
+    // A repair can itself overflow, so repeat if another generation appears.
+    for (int pass = 0; pass < 3; ++pass)
+    {
+        const uint64_t generation = text_service_.atlas_generation();
+        if (generation == repaired_atlas_generation_)
+            return true;
+        repaired_atlas_generation_ = generation;
+        for (const auto& space : space_controller_.spaces())
+        {
+            for (auto& tab : space->tab_controller.tabs())
+            {
+                tab->pane_manager.for_each_host([](LeafId, IHost& host) {
+                    host.on_glyph_atlas_reset();
+                });
+            }
+        }
+        request_frame();
+    }
+    return text_service_.atlas_generation() == repaired_atlas_generation_;
 }
 
 void App::refresh_system_resource_snapshot(std::chrono::steady_clock::time_point now)
@@ -3187,7 +3229,13 @@ PaneManager::Deps App::make_pane_manager_deps(const Space* space)
     PaneManager::Deps deps;
     deps.options = &options_;
     if (space)
-        deps.default_working_dir = space->root_directory.string();
+    {
+        // HostLaunchOptions stores UTF-8; path::string() narrows through the
+        // active ANSI code page on Windows before Neovim can launch in this cwd.
+        const auto utf8 = space->root_directory.u8string();
+        deps.default_working_dir.assign(
+            reinterpret_cast<const char*>(utf8.data()), utf8.size());
+    }
     deps.config = &config_;
     deps.config_document = &config_document_;
     deps.window = window_.get();
@@ -4832,7 +4880,7 @@ Result<SpaceId, Error> App::create_space(
         {
             const std::string cwd = host->current_working_directory();
             if (!cwd.empty())
-                root_directory = cwd;
+                root_directory = std::filesystem::u8path(cwd);
         }
         if (root_directory.empty())
         {
@@ -4840,7 +4888,7 @@ Result<SpaceId, Error> App::create_space(
                 root_directory = active->root_directory;
         }
         if (root_directory.empty())
-            root_directory = options_.host_working_dir;
+            root_directory = std::filesystem::u8path(options_.host_working_dir);
     }
 
     TopologyMutationResult result = mutate_topology({

@@ -5,16 +5,17 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <cwchar>
 #include <mutex>
-#include <sstream>
+#include <limits>
 #include <string_view>
 #include <thread>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 #else
 #include <array>
@@ -61,61 +62,81 @@ NvimProcess::~NvimProcess() = default;
 namespace
 {
 
-bool ascii_iequals(std::string_view lhs, std::string_view rhs)
+bool ascii_iequals(std::wstring_view lhs, std::wstring_view rhs)
 {
     if (lhs.size() != rhs.size())
         return false;
     for (size_t i = 0; i < lhs.size(); ++i)
     {
-        const unsigned char a = static_cast<unsigned char>(lhs[i]);
-        const unsigned char b = static_cast<unsigned char>(rhs[i]);
-        if (std::tolower(a) != std::tolower(b))
+        const wchar_t a = lhs[i];
+        const wchar_t b = rhs[i];
+        if ((a >= L'A' && a <= L'Z' ? a + (L'a' - L'A') : a)
+            != (b >= L'A' && b <= L'Z' ? b + (L'a' - L'A') : b))
             return false;
     }
     return true;
 }
 
-std::vector<char> build_windows_environment_block_with_term_dumb()
+bool widen_utf8(std::string_view text, std::wstring& wide)
 {
-    LPCH inherited_block = GetEnvironmentStringsA();
-    if (!inherited_block)
-        return { 'T', 'E', 'R', 'M', '=', 'd', 'u', 'm', 'b', '\0', '\0' };
-
-    std::vector<std::string> entries;
-    bool term_overridden = false;
-    for (const char* cursor = inherited_block; *cursor != '\0'; cursor += std::strlen(cursor) + 1)
+    if (text.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
+        return false;
+    if (text.empty())
     {
-        std::string entry(cursor);
-        if (!entry.empty() && entry[0] != '=')
+        wide.clear();
+        return true;
+    }
+    const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+        text.data(), static_cast<int>(text.size()), nullptr, 0);
+    if (count <= 0)
+        return false;
+    wide.resize(static_cast<size_t>(count));
+    return MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+               text.data(), static_cast<int>(text.size()), wide.data(), count)
+        == count;
+}
+
+std::vector<wchar_t> build_windows_environment_block_with_term_dumb()
+{
+    LPWCH inherited_block = GetEnvironmentStringsW();
+    if (!inherited_block)
+        return { L'T', L'E', L'R', L'M', L'=', L'd', L'u', L'm', L'b', L'\0', L'\0' };
+
+    std::vector<std::wstring> entries;
+    bool term_overridden = false;
+    for (const wchar_t* cursor = inherited_block; *cursor != L'\0'; cursor += std::wcslen(cursor) + 1)
+    {
+        std::wstring entry(cursor);
+        if (!entry.empty() && entry[0] != L'=')
         {
-            const size_t equals = entry.find('=');
-            if (equals != std::string::npos
-                && ascii_iequals(std::string_view(entry.data(), equals), "TERM"))
+            const size_t equals = entry.find(L'=');
+            if (equals != std::wstring::npos
+                && ascii_iequals(std::wstring_view(entry.data(), equals), L"TERM"))
             {
-                entry = "TERM=dumb";
+                entry = L"TERM=dumb";
                 term_overridden = true;
             }
         }
         entries.push_back(std::move(entry));
     }
-    FreeEnvironmentStringsA(inherited_block);
+    FreeEnvironmentStringsW(inherited_block);
 
     if (!term_overridden)
-        entries.emplace_back("TERM=dumb");
+        entries.emplace_back(L"TERM=dumb");
 
-    size_t total_bytes = 1; // trailing NUL
+    size_t total_chars = 1; // trailing NUL
     for (const auto& entry : entries)
-        total_bytes += entry.size() + 1;
+        total_chars += entry.size() + 1;
 
-    std::vector<char> environment_block(total_bytes, '\0');
-    char* out = environment_block.data();
+    std::vector<wchar_t> environment_block(total_chars, L'\0');
+    wchar_t* out = environment_block.data();
     for (const auto& entry : entries)
     {
-        std::memcpy(out, entry.data(), entry.size());
+        std::memcpy(out, entry.data(), entry.size() * sizeof(wchar_t));
         out += entry.size();
-        *out++ = '\0';
+        *out++ = L'\0';
     }
-    *out = '\0';
+    *out = L'\0';
     return environment_block;
 }
 
@@ -124,6 +145,21 @@ std::vector<char> build_windows_environment_block_with_term_dumb()
 Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::vector<std::string>& extra_args, const std::string& working_dir)
 {
     PERF_MEASURE();
+    std::wstring wide_path;
+    std::wstring wide_working_dir;
+    if (!widen_utf8(nvim_path, wide_path) || !widen_utf8(working_dir, wide_working_dir))
+        return Result<void, Error>::err(Error::spawn("Invalid UTF-8 in Neovim executable or working directory"));
+    std::wstring command = quote_windows_arg(std::wstring_view(wide_path)) + L" --embed";
+    for (const auto& arg : extra_args)
+    {
+        std::wstring wide_arg;
+        if (!widen_utf8(arg, wide_arg))
+            return Result<void, Error>::err(Error::spawn("Invalid UTF-8 in Neovim argument"));
+        command += L' ';
+        command += quote_windows_arg(std::wstring_view(wide_arg));
+    }
+    std::vector<wchar_t> env_block = build_windows_environment_block_with_term_dumb();
+
     SECURITY_ATTRIBUTES sa = {};
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
@@ -147,32 +183,24 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
     }
     SetHandleInformation(stdout_read, HANDLE_FLAG_INHERIT, 0);
 
-    HANDLE nul_handle = CreateFileA("NUL", GENERIC_WRITE, FILE_SHARE_WRITE,
+    HANDLE nul_handle = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_WRITE,
         &sa, OPEN_EXISTING, 0, nullptr);
 
-    STARTUPINFOA si = {};
+    STARTUPINFOW si = {};
     si.cb = sizeof(si);
     si.hStdInput = stdin_read;
     si.hStdOutput = stdout_write;
     si.hStdError = nul_handle;
     si.dwFlags |= STARTF_USESTDHANDLES;
 
-    std::ostringstream command;
-    command << quote_windows_arg(nvim_path) << " --embed";
-    for (const auto& arg : extra_args)
-        command << ' ' << quote_windows_arg(arg);
-    std::string cmd = command.str();
-    std::vector<char> env_block = build_windows_environment_block_with_term_dumb();
-
-    const char* cwd = working_dir.empty() ? nullptr : working_dir.c_str();
     PROCESS_INFORMATION proc_info = {};
-    if (!CreateProcessA(
+    if (!CreateProcessW(
             nullptr,
-            cmd.data(),
+            command.data(),
             nullptr, nullptr,
             TRUE,
-            CREATE_NO_WINDOW,
-            env_block.empty() ? nullptr : env_block.data(), cwd,
+            CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
+            env_block.data(), wide_working_dir.empty() ? nullptr : wide_working_dir.c_str(),
             &si, &proc_info))
     {
         const DWORD err = GetLastError();
