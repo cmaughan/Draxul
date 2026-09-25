@@ -36,3 +36,9 @@ independent work already present on each `main` branch.
   CTest pass. That test passed three focused repeats, then
   `python3 do.py test debug --all` passed 47/47 entries; a subsequent
   `python3 do.py smoke debug --skip-build` passed on the same cache.
+- Root `main` reached `6abc6e09` with all five product pointers published.
+  [Hosted Build run](https://github.com/cmaughan/Draxul/actions/runs/36113740950)
+  failed before compiling on both macOS and Windows: `actions/checkout` cannot
+  read the private `cmaughan/draxul-pcbview` submodule with the workflow token.
+  The Windows gate remains open until checkout receives repository access and
+  the workflow is rerun.
