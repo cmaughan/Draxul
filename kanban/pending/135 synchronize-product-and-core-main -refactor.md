@@ -17,7 +17,7 @@ independent work already present on each `main` branch.
 - [x] Validate the combined root and product checkout on macOS.
 - [x] Push all product `main` branches and record their final commits.
 - [x] Commit and push the root submodule pointer update and integrate root `main`.
-- [x] Leave the working root checkout on `codex/kanban-pending-implementation`.
+- [x] Leave the working root checkout on `main`.
 - [ ] Verify the Windows CI gate for the integrated root `main` commit.
 
 ## Notes
