@@ -4,6 +4,9 @@
 
 #include <draxul/log.h>
 #include <draxul/nvim_transport.h>
+#include <draxul/nvim_ui.h>
+
+#include <SDL3/SDL.h>
 
 #include <atomic>
 #include <array>
@@ -147,6 +150,77 @@ TEST_CASE("Windows nvim launch preserves Unicode paths arguments and environment
         CHECK(output.find("env=\xE6\xBC\xA2\xE5\xAD\x97\n") != std::string::npos);
     }
 }
+
+#endif
+
+TEST_CASE("paired printable events reach a real Neovim buffer exactly once",
+    "[nvim][input][integration]")
+{
+    // Destruction closes the child pipe before joining the RPC reader even if
+    // an assertion below fails.
+    NvimRpc rpc;
+    NvimProcess process;
+    REQUIRE(process.spawn("nvim", { "-u", "NONE", "--noplugin", "-n" }));
+    REQUIRE(rpc.initialize(process));
+
+    REQUIRE(rpc.request("nvim_ui_attach", {
+        MpackValue::make_int(80), MpackValue::make_int(24),
+        MpackValue::make_map({
+            { MpackValue::make_str("rgb"), MpackValue::make_bool(true) },
+            { MpackValue::make_str("ext_linegrid"), MpackValue::make_bool(true) },
+        }),
+    }).has_value());
+
+    const auto command = [&](const char* value) {
+        return rpc.request("nvim_command", { MpackValue::make_str(value) });
+    };
+    REQUIRE(command("inoremap <C-Space> Q").has_value());
+    REQUIRE(command("inoremap <M-Bslash> R").has_value());
+    REQUIRE(rpc.request("nvim_input", { MpackValue::make_str("i") }).has_value());
+    std::string last_mode;
+    const bool entered_insert = wait_until([&] {
+        const auto mode = rpc.request("nvim_get_mode", {});
+        if (!mode || mode.value().type() != MpackValue::Map)
+            return false;
+        const auto& fields = mode.value().as_map();
+        for (const auto& [key, value] : fields)
+        {
+            if (key.type() == MpackValue::String && key.as_str() == "mode"
+                && value.type() == MpackValue::String)
+            {
+                last_mode = value.as_str();
+                return last_mode == "i";
+            }
+        }
+        return false;
+    }, std::chrono::seconds(2));
+    INFO("last Neovim mode: " << last_mode);
+    REQUIRE(entered_insert);
+
+    NvimInput input;
+    input.initialize(&rpc, 8, 16);
+    const auto type = [&](int keycode, ModifierFlags modifiers, const char* text) {
+        input.on_key({ 0, keycode, modifiers, true });
+        input.on_text_input({ text });
+    };
+    type(SDLK_SPACE, kModNone, " ");
+    type(SDLK_BACKSLASH, kModNone, "\\");
+    type(SDLK_BACKSLASH, kModShift, "|");
+    type(SDLK_LESS, kModNone, "<");
+    type(SDLK_SPACE, kModCtrl, " ");
+    type(SDLK_BACKSLASH, kModAlt, "\\");
+
+    const auto expected = std::string(" \\|<QR");
+    REQUIRE(wait_until([&] {
+        const auto line = rpc.request("nvim_get_current_line", {});
+        return line && line.value().type() == MpackValue::String
+            && line.value().as_str() == expected;
+    }, std::chrono::seconds(2)));
+    process.shutdown();
+    rpc.shutdown();
+}
+
+#ifdef _WIN32
 
 TEST_CASE("Windows launches real Neovim from Unicode executable and working directories", "[nvim][windows][integration]")
 {

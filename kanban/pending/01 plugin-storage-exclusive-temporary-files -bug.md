@@ -72,3 +72,9 @@ document. The focused `draxul-test-app` `[plugin][storage][process]` selection
 passed (1 case, 32 assertions, 0.42 seconds). This covers separate-client
 contention on Windows; the macOS-native half of the investigation and the
 macOS acceptance gate remain open.
+
+**Platform scope (2026-09-25):** This card intentionally remains pending
+because publication uses different native creation/replacement APIs on Windows
+and POSIX. The Windows separate-process case is complete; macOS must execute
+the `O_EXCL` and replacement path before the investigation and acceptance gate
+can be checked.

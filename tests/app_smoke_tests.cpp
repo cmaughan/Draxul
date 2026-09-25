@@ -239,6 +239,30 @@ private:
     std::vector<std::string> urls_;
 };
 
+class SequencedWeatherHttpClient final : public http::IHttpClient
+{
+public:
+    http::Response get(const http::Request& request, http::CancellationToken cancellation) override
+    {
+        const bool second = request.url.find("latitude=40.7000") != std::string::npos;
+        if (second)
+        {
+            second_entered = true;
+            while (!release_second && !cancellation.is_cancelled())
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        http::Response response;
+        response.status_code = 200;
+        response.body = second
+            ? R"({"current_weather":{"temperature":7.2,"weathercode":61}})"
+            : R"({"current_weather":{"temperature":18.4,"weathercode":2}})";
+        return response;
+    }
+
+    std::atomic<bool> second_entered = false;
+    std::atomic<bool> release_second = false;
+};
+
 bool wait_for_value(const std::atomic<int>& value, int expected)
 {
     return draxul::tests::wait_until(
@@ -1205,6 +1229,74 @@ TEST_CASE("app smoke: weather reload handles add change and clear with cancellat
     app.shutdown();
 }
 
+TEST_CASE("app weather reload updates the actual chrome layout without stale pills",
+    "[app_smoke][config][reload][weather][chrome]")
+{
+    if (!std::filesystem::exists(draxul::tests::bundled_font_path()))
+        SKIP("bundled font not found");
+
+    TempDir temp("draxul-weather-chrome-reload");
+    HomeDirRedirect redir(temp.path);
+    std::filesystem::create_directories(redir.config_path.parent_path());
+    const auto write_config = [&](std::string_view weather) {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        if (!weather.empty())
+            out << "weather_location = \"" << weather << "\"\n";
+        out << "[keybindings]\nreload_config = \"Ctrl+Alt+R\"\n";
+    };
+    write_config({});
+
+    FakeWindow* window = nullptr;
+    AppOptions opts = make_smoke_options();
+    opts.load_user_config = true;
+    opts.window_factory = [&window]() {
+        auto created = std::make_unique<FakeWindow>();
+        window = created.get();
+        return created;
+    };
+    auto client = std::make_shared<SequencedWeatherHttpClient>();
+    AppDeps deps = AppDeps::from_options(std::move(opts));
+    deps.http_client = client;
+    App app(std::move(deps));
+    REQUIRE(app.initialize());
+    REQUIRE(window != nullptr);
+
+    const auto chrome_text = [&] {
+        const auto layout = app.chrome_layout_snapshot();
+        if (!layout)
+            return std::string{};
+        std::string text;
+        for (const auto& pill : layout->right_pills)
+            for (const auto& cluster : pill.clusters)
+                text += cluster.text;
+        return text;
+    };
+    const auto reload = [&](std::string_view weather) {
+        write_config(weather);
+        window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
+    };
+
+    CHECK(chrome_text().find("⛅") == std::string::npos);
+    reload("51.5000,-0.1000");
+    REQUIRE(draxul::tests::wait_until([&] {
+        return chrome_text().find("⛅ 18°C") != std::string::npos;
+    }, std::chrono::milliseconds(1000), std::chrono::milliseconds(5)));
+
+    reload("40.7000,-74.0000");
+    REQUIRE(draxul::tests::wait_until([&] { return client->second_entered.load(); },
+        std::chrono::milliseconds(1000), std::chrono::milliseconds(5)));
+    CHECK(chrome_text().find("⛅") == std::string::npos);
+    CHECK(chrome_text().find("🌧️") == std::string::npos);
+    client->release_second = true;
+    REQUIRE(draxul::tests::wait_until([&] {
+        return chrome_text().find("🌧️ 7°C") != std::string::npos;
+    }, std::chrono::milliseconds(1000), std::chrono::milliseconds(5)));
+
+    reload({});
+    CHECK(chrome_text().find("🌧️") == std::string::npos);
+    app.shutdown();
+}
+
 // ---------------------------------------------------------------------------
 // WI 107 — inactive tabs also receive config reloads + font updates
 // (regression guard for WI 104 config-font-inactive-tab-bias).
@@ -1304,6 +1396,16 @@ TEST_CASE("app smoke: reload_config propagates to hosts in inactive tabs",
     CHECK(host_inactive->last_config().enable_ligatures == false);
     CHECK(host_active->last_config().enable_ligatures == false);
 
+    const int inactive_pumps = host_inactive->pump_count();
+    const int active_pumps = host_active->pump_count();
+    const int frames = g_last_fake_renderer->begin_frame_calls;
+    REQUIRE(app.run_smoke_test(std::chrono::milliseconds(200)));
+    CHECK(host_inactive->is_running());
+    CHECK(host_active->is_running());
+    CHECK(host_inactive->pump_count() > inactive_pumps);
+    CHECK(host_active->pump_count() > active_pumps);
+    CHECK(g_last_fake_renderer->begin_frame_calls > frames);
+
     app.shutdown();
 }
 
@@ -1389,6 +1491,69 @@ TEST_CASE("app smoke: reload_config propagates to all split panes in the active 
     CHECK(pane_a->last_config().enable_ligatures == false);
     CHECK(pane_b->last_config().enable_ligatures == false);
 
+    const int pumps_a = pane_a->pump_count();
+    const int pumps_b = pane_b->pump_count();
+    const int frames = g_last_fake_renderer->begin_frame_calls;
+    REQUIRE(app.run_smoke_test(std::chrono::milliseconds(200)));
+    CHECK(pane_a->is_running());
+    CHECK(pane_b->is_running());
+    CHECK(pane_a->pump_count() > pumps_a);
+    CHECK(pane_b->pump_count() > pumps_b);
+    CHECK(g_last_fake_renderer->begin_frame_calls > frames);
+
+    app.shutdown();
+}
+
+TEST_CASE("real Neovim host keeps drawing after App replaces the font service",
+    "[app_smoke][config][font][nvim][integration]")
+{
+    if (!std::filesystem::exists(draxul::tests::bundled_font_path()))
+        SKIP("bundled font not found");
+
+    TempDir temp("draxul-real-nvim-font-reload");
+    HomeDirRedirect redir(temp.path);
+    std::filesystem::create_directories(redir.config_path.parent_path());
+    const auto write_config = [&](float size) {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        out << "font_size = " << size << "\n"
+               "[keybindings]\nreload_config = \"Ctrl+Alt+R\"\n";
+    };
+    write_config(11.0f);
+
+    FakeWindow* window = nullptr;
+    AppOptions opts = make_smoke_options();
+    opts.load_user_config = true;
+    opts.host_factory = {}; // Use the registered production NvimHost.
+    opts.host_args = { "-u", "NONE", "--noplugin", "-n" };
+    opts.window_factory = [&window]() {
+        auto created = std::make_unique<FakeWindow>();
+        window = created.get();
+        return created;
+    };
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    REQUIRE(window != nullptr);
+    IHost* host = app.space_controller().active_tab_controller()
+                      .tabs().front()->pane_manager.focused_host();
+    REQUIRE(host != nullptr);
+    REQUIRE(host->is_nvim_host());
+    REQUIRE(host->is_running());
+    REQUIRE(app.run_smoke_test(std::chrono::milliseconds(200)));
+    REQUIRE(host->runtime_state().content_ready);
+    REQUIRE(g_last_fake_renderer->draw_grid_handle_calls > 0);
+
+    const int frames_before = g_last_fake_renderer->begin_frame_calls;
+    const int draws_before = g_last_fake_renderer->draw_grid_handle_calls;
+    const int cell_width_before = g_last_fake_renderer->last_cell_w;
+    write_config(17.0f);
+    window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
+    REQUIRE(host->is_running());
+    REQUIRE(app.run_smoke_test(std::chrono::milliseconds(200)));
+    CHECK(host->is_running());
+    CHECK(host->runtime_state().content_ready);
+    CHECK(g_last_fake_renderer->last_cell_w > cell_width_before);
+    CHECK(g_last_fake_renderer->begin_frame_calls > frames_before);
+    CHECK(g_last_fake_renderer->draw_grid_handle_calls > draws_before);
     app.shutdown();
 }
 

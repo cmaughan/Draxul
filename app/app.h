@@ -1,6 +1,7 @@
 #pragma once
 #include "agent_controller.h"
 #include <draxul/app_shell_layout.h>
+#include <draxul/chrome_layout.h>
 #include "command_palette_host.h"
 #include "diagnostics_panel_host.h"
 #include "frame_timer.h"
@@ -140,6 +141,8 @@ public:
     {
         return shell_layout_;
     }
+    // Read-only main-thread chrome state for diagnostics and integration checks.
+    std::optional<ChromeLayoutOutput> chrome_layout_snapshot() const;
     const std::string& init_error() const
     {
         return last_init_error_;

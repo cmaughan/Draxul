@@ -1,4 +1,5 @@
 #include <draxul/weather_service.h>
+#include <draxul/chrome_layout.h>
 
 #include "weather_parsing.h"
 
@@ -283,6 +284,65 @@ TEST_CASE("weather location switch clears old presentation until fresh data arri
     CHECK(weather.emoji() == "\xF0\x9F\x8C\xA7\xEF\xB8\x8F");
     weather.stop();
     CHECK(weather.display_text().empty());
+}
+
+TEST_CASE("weather updates the chrome pill without retaining a previous location",
+    "[weather][chrome][integration]")
+{
+    std::atomic<bool> release_second = false;
+    std::atomic<bool> second_entered = false;
+    auto client = std::make_shared<FakeHttpClient>([&](const auto& request, auto cancellation) {
+        if (request.url.find("latitude=40.7000") != std::string::npos)
+        {
+            second_entered = true;
+            while (!release_second && !cancellation.is_cancelled())
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            return success(R"({"current_weather":{"temperature":7.2,"weathercode":61}})");
+        }
+        return success(R"({"current_weather":{"temperature":18.4,"weathercode":2}})");
+    });
+    draxul::WeatherService weather(client);
+    draxul::ChromeLayoutInput input;
+    input.viewport_width = 800;
+    input.viewport_height = 600;
+    input.cell_width = 10;
+    input.cell_height = 20;
+    input.show_top_bar = true;
+    input.tabs = { { 1, "weather", true } };
+    input.shell_layout = draxul::compute_app_shell_layout({
+        .window_width = 800,
+        .window_height = 600,
+        .terminal_height = 600,
+        .cell_width = 10,
+        .cell_height = 20,
+    });
+    const auto pill_text = [&] {
+        input.weather_emoji = weather.emoji();
+        input.weather_temperature = weather.temperature();
+        const auto layout = draxul::compute_chrome_layout(input);
+        if (layout.right_pills.empty())
+            return std::string{};
+        std::string text;
+        for (const auto& cluster : layout.right_pills.front().clusters)
+            text += cluster.text;
+        return text;
+    };
+
+    CHECK(pill_text().empty());
+    weather.start("51.5,-0.1");
+    REQUIRE(wait_for_weather(weather));
+    CHECK(pill_text() == "⛅ 18°C");
+
+    weather.stop(); // The same transition used by App::reload_config.
+    CHECK(pill_text().empty());
+    weather.start("40.7,-74.0");
+    REQUIRE(draxul::tests::wait_until([&] { return second_entered.load(); },
+        std::chrono::milliseconds(500), std::chrono::milliseconds(2)));
+    CHECK(pill_text().empty());
+    release_second = true;
+    REQUIRE(wait_for_weather(weather));
+    CHECK(pill_text() == "🌧️ 7°C");
+    weather.stop();
 }
 
 TEST_CASE("weather requests preserve transport budgets", "[weather][transport]")

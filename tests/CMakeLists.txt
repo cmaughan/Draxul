@@ -345,6 +345,7 @@ draxul_add_test_target(draxul-test-nvim-transport "nvim;transport" 2
     ${DRAXUL_NVIM_TRANSPORT_TEST_SOURCES})
 target_link_libraries(draxul-test-nvim-transport PRIVATE
     draxul-nvim-transport
+    draxul-nvim-protocol
     draxul-runtime-support
     draxul-types
 )
@@ -379,6 +380,7 @@ draxul_add_test_target(draxul-test-weather "weather" 2
     ${DRAXUL_WEATHER_TEST_SOURCES})
 target_link_libraries(draxul-test-weather PRIVATE
     draxul-weather-test-internals
+    draxul-app-shell
     draxul-types)
 
 draxul_add_test_target(draxul-test-markdown-layout "markdown;layout" 1
@@ -474,6 +476,15 @@ target_compile_definitions(draxul-test-app PRIVATE
     DRAXUL_FIXTURE_FAIL_CREATE_PATH="$<TARGET_FILE:draxul-plugin-fixture-fail-create>"
     DRAXUL_FIXTURE_NO_SYMBOL_PATH="$<TARGET_FILE:draxul-plugin-fixture-no-symbol>"
 )
+if(TARGET draxul-satview-plugin)
+    if(APPLE)
+        target_compile_definitions(draxul-test-app PRIVATE
+            DRAXUL_TEST_SATVIEW_PACKAGE_ROOT="$<TARGET_BUNDLE_DIR:draxul>/Contents/PlugIns")
+    else()
+        target_compile_definitions(draxul-test-app PRIVATE
+            DRAXUL_TEST_SATVIEW_PACKAGE_ROOT="${CMAKE_BINARY_DIR}/plugins")
+    endif()
+endif()
 draxul_add_test_target(
     draxul-test-markdown-kanban "markdown" 1
     ${DRAXUL_MARKDOWN_TEST_SOURCES}

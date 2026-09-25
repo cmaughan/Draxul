@@ -118,6 +118,9 @@ public:
         shell_layout_ = layout;
     }
 
+    // Read-only main-thread view of the same computed layout used by draw().
+    ChromeLayoutOutput layout_snapshot() const;
+
     // Hit-test a point (physical pixels) against the tab bar.
     // Returns the 1-based tab index if hit, or 0 if not in the tab bar.
     int hit_test_tab(int px, int py) const;

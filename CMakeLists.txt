@@ -281,6 +281,9 @@ target_link_libraries(draxul PRIVATE
 )
 draxul_check_core_product_isolation()
 draxul_stage_registered_plugins(draxul)
+if(TARGET draxul-test-app AND TARGET draxul-stage-plugin-dev_draxul_satview)
+    add_dependencies(draxul-test-app draxul-stage-plugin-dev_draxul_satview)
+endif()
 if(TARGET draxul-spinning-triangle-reload-package)
     add_dependencies(draxul
         draxul-spinning-triangle-reload-package)

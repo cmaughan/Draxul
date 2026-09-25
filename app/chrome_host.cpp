@@ -57,6 +57,11 @@ const ChromeTheme& ChromeHost::theme() const
     return deps_.config ? deps_.config->chrome : defaults;
 }
 
+ChromeLayoutOutput ChromeHost::layout_snapshot() const
+{
+    return compute_chrome_layout(build_layout_input());
+}
+
 bool ChromeHost::initialize(const HostContext& context, IHostCallbacks&)
 {
     viewport_ = context.initial_viewport;

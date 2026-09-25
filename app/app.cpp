@@ -324,6 +324,13 @@ App::App(AppDeps deps)
 
 App::~App() = default;
 
+std::optional<ChromeLayoutOutput> App::chrome_layout_snapshot() const
+{
+    if (!chrome_host_)
+        return std::nullopt;
+    return chrome_host_->layout_snapshot();
+}
+
 bool App::initialize()
 {
     PERF_MEASURE();

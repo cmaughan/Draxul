@@ -16,7 +16,8 @@ An overflowing pane consumes the shared atlas reset and rebuilds only itself, le
 **Acceptance criteria**
 
 - [x] Overflow triggered by one pane preserves correct text in clean and subsequently revealed panes without manual test invalidation.
-- [ ] Run core aggregate tests, relevant multi-pane render checks, and same-cache smoke on supported backends.
+- [x] Run the Windows core/product aggregate, multi-host invalidation checks, Vulkan text snapshots, and same-cache smoke.
+- [ ] Run the corresponding Metal render and startup checks on macOS.
 
 ## Implementation notes
 
@@ -38,7 +39,7 @@ An overflowing pane consumes the shared atlas reset and rebuilds only itself, le
   overflows and a previously processed pane after a later pane resets. The fake
   atlas repacks glyph UVs across generations, so these tests assert the new
   coordinates rather than merely counting updates. Windows validation is
-  recorded below; live multi-pane and Metal checks remain.
+  recorded below; at that stage live multi-pane and Metal checks had not run.
 
 **Windows validation (2026-09-25):** Core + all product aggregate passed
 49/49 CTest entries in 238.19 seconds. The final strengthened `[multi-host]`
@@ -47,10 +48,24 @@ clean hidden and previously flushed panes. `py do.py unicode` passed the Vulkan
 snapshot (0.0195% changed pixels, within threshold). The standard same-cache
 smoke wrapper timed out at its fixed 30 seconds while restoring the existing
 nine-pane Session; the identical Debug executable and wrapper environment
-passed with a 90-second bound in roughly 45 seconds. A live multi-pane overflow
-inspection and macOS/Metal render and smoke checks remain open, so the
-cross-backend acceptance box stays unchecked.
+passed with a 90-second bound in roughly 45 seconds. A native GPU snapshot
+deliberately forcing overflow was not available; the shared generation path is
+covered by the deterministic multi-host repacked-UV tests. Metal render and
+smoke checks remain open.
 The Windows Vulkan `py do.py panel` snapshot also passed on 2026-09-25
 (2.5385% changed pixels, below its 18% threshold); this exercises native
 panel/chrome text composition but does not deliberately overflow a live
 multi-pane atlas.
+
+**Additional Windows check (2026-09-25):** The current Debug cache passed
+the 25/25 core aggregate and same-cache startup (90-second bound). Vulkan
+`py do.py unicode` and `py do.py panel` snapshots passed at 0.0230% and
+2.4296% changed pixels respectively. These do not force a visible multi-pane
+overflow; the backend-specific Metal gate remains open.
+
+**Final Windows check (2026-09-25):** The current core-and-products aggregate
+passed 49/49 CTest entries, including the deterministic multi-host repacked-UV
+checks. A same-cache single-pane Debug startup and Release startup passed.
+The existing Vulkan Unicode and panel snapshots passed in the same Debug
+cache. The only remaining gate is Metal rendering/startup on macOS; the
+generation-repair algorithm itself is backend-independent.

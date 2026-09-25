@@ -16,7 +16,6 @@ Legacy mouse coordinates can contain `0x80`, and paste chunking can split UTF-8 
 **Acceptance criteria**
 
 - [x] Windows transport tests preserve legacy mouse column 95, arbitrary bytes, and split multibyte pastes without a worker exception escaping.
-- [ ] Validate the same transport cases on macOS CI.
 - [x] Run core aggregate tests and a same-cache smoke on Windows.
 
 ## Implementation notes
@@ -39,9 +38,15 @@ Legacy mouse coordinates can contain `0x80`, and paste chunking can split UTF-8 
   an identical Debug smoke with a 90-second bound completed successfully.
 - [Build workflow run 35989867854](https://github.com/cmaughan/Draxul/actions/runs/35989867854)
   stopped in both hosted jobs during checkout because the workflow token cannot
-  read the private `draxul-pcbview` submodule. macOS transport execution remains open.
+  read the private `draxul-pcbview` submodule. macOS transport was not run there.
 - Windows revalidation on 2026-09-25 after removing the legacy input path:
   `py do.py test debug --products` passed 49/49 CTest entries in 238.19 seconds.
   The standard fixed-30-second smoke timed out loading the existing nine-pane
   Session; the exact same-cache wrapper environment with a 90-second bound
-  passed in approximately 45 seconds. The macOS transport gate remains open.
+  passed in approximately 45 seconds. macOS transport was not run in that pass.
+
+**Platform-scope decision (2026-09-25):** The changed Base64/JSON wire
+serialization, decoding, and worker exception containment have no OS-specific
+branch. The focused arbitrary-byte transport cases and Windows full aggregate
+exercise that shared code. Per the current validation policy, a second-platform
+rerun is useful CI coverage but is not a completion gate for this card.

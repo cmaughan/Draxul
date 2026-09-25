@@ -1049,6 +1049,75 @@ TEST_CASE("PluginHost saves pane state during close and reload quiescence",
     CHECK(std::filesystem::exists(saved));
 }
 
+#ifdef DRAXUL_TEST_SATVIEW_PACKAGE_ROOT
+TEST_CASE("SatView preferences survive real plugin close and reload quiescence",
+    "[plugin][satview][storage][reload][integration]")
+{
+    TempPlugins temp;
+    const auto manager = draxul::PluginManager::discover(
+        DRAXUL_TEST_SATVIEW_PACKAGE_ROOT,
+        temp.root / "user", temp.root / "runtime");
+    REQUIRE(manager->find("dev.draxul.satview"));
+
+    draxul::HostContext context;
+    context.launch_options.kind = draxul::HostKind::Plugin;
+    context.launch_options.client_plugin_id = "dev.draxul.satview";
+    context.launch_options.client_plugin_config_json
+        = R"({"remember_state":true})";
+    context.pane_id = "satview-preferences";
+    context.initial_viewport.pixel_size = { 640, 360 };
+    draxul::tests::FakeTermRenderer renderer;
+    context.grid_renderer = &renderer;
+    draxul::tests::TestHostCallbacks callbacks;
+    const auto storage_root = temp.root / "storage";
+    const auto state_file = storage_root / "config"
+        / "dev.draxul.satview" / "panes" / context.pane_id
+        / "state.json";
+
+    const auto saved_speed = [&]() -> float {
+        std::ifstream input(state_file, std::ios::binary);
+        REQUIRE(input.good());
+        const std::string json(std::istreambuf_iterator<char>(input), {});
+        const auto start = json.find("time_speed = ");
+        REQUIRE(start != std::string::npos);
+        return std::stof(json.substr(start + std::strlen("time_speed = ")));
+    };
+
+    {
+        draxul::PluginHost host(manager, storage_root);
+        REQUIRE(host.initialize(context, callbacks));
+        REQUIRE(host.dispatch_action("satview_time_faster"));
+        REQUIRE(std::filesystem::remove(state_file));
+        host.shutdown();
+    }
+    CHECK(saved_speed() == 120.0f);
+
+    {
+        draxul::PluginHost host(manager, storage_root);
+        REQUIRE(host.initialize(context, callbacks));
+        REQUIRE(host.dispatch_action("satview_time_faster"));
+        CHECK(saved_speed() == 240.0f);
+        REQUIRE(std::filesystem::remove(state_file));
+
+        std::string error;
+        const auto candidate = host.prepare_reload(error);
+        INFO(error);
+        REQUIRE(candidate);
+        std::string warning;
+        host.quiesce_for_reload(warning);
+        INFO(warning);
+        CHECK(warning.empty());
+        CHECK(saved_speed() == 240.0f);
+        REQUIRE(host.reload(candidate, warning, error));
+        REQUIRE(host.dispatch_action("satview_time_faster"));
+        CHECK(saved_speed() == 480.0f);
+        REQUIRE(std::filesystem::remove(state_file));
+        host.shutdown();
+    }
+    CHECK(saved_speed() == 480.0f);
+}
+#endif
+
 TEST_CASE("PluginHost publishes non-ASCII resource directories as UTF-8",
     "[plugin][integration]")
 {

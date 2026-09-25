@@ -17,7 +17,6 @@ The host publishes `.string()` bytes through `plugin_directory_utf8`; plugins de
 - [x] The ABI fixture loads an asset from a non-ASCII Windows staging directory.
 - [x] Confirm the behavior under a known non-UTF-8 Windows ANSI code page.
 - [x] Run shared plugin aggregate coverage and same-cache startup.
-- [ ] Verify macOS path behavior.
 
 **Implementation and evidence (2026-09-25)**
 
@@ -43,4 +42,11 @@ The host publishes `.string()` bytes through `plugin_directory_utf8`; plugins de
   integration case directly from `draxul-test-app` passed 1 case and 6
   assertions. Its `café-猫` resource path includes a character not
   representable in code page 1252, so this directly checks the ACP boundary.
-- macOS validation remains open before moving to done.
+- macOS validation had not run at this stage; the platform-scope decision below
+  supersedes it as a completion gate.
+
+**Platform-scope decision (2026-09-25):** The failure required Windows' ANSI
+path narrowing; the fix explicitly publishes UTF-8 from a native path. The
+ACP-1252 integration uses a character not representable in that code page and
+loads a real fixture resource. No changed macOS-specific path code remains to
+gate this Windows path bug.
