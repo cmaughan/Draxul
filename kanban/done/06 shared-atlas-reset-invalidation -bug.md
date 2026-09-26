@@ -17,7 +17,7 @@ An overflowing pane consumes the shared atlas reset and rebuilds only itself, le
 
 - [x] Overflow triggered by one pane preserves correct text in clean and subsequently revealed panes without manual test invalidation.
 - [x] Run the Windows core/product aggregate, multi-host invalidation checks, Vulkan text snapshots, and same-cache smoke.
-- [ ] Run the corresponding Metal render and startup checks on macOS.
+- [x] Run the corresponding Metal render and startup checks on macOS.
 
 ## Implementation notes
 
@@ -67,5 +67,11 @@ overflow; the backend-specific Metal gate remains open.
 passed 49/49 CTest entries, including the deterministic multi-host repacked-UV
 checks. A same-cache single-pane Debug startup and Release startup passed.
 The existing Vulkan Unicode and panel snapshots passed in the same Debug
-cache. The only remaining gate is Metal rendering/startup on macOS; the
-generation-repair algorithm itself is backend-independent.
+cache. At that point, the only remaining gate was Metal rendering/startup on
+macOS; the generation-repair algorithm itself is backend-independent.
+
+**macOS gate (2026-09-26):** `python3 do.py validate debug` built the Metal app
+and all product tests, passed the startup smoke, all five core render scenarios
+(including Unicode and panel text), and 47/47 unit CTest entries. The shared
+multi-host repacked-UV checks ran in that aggregate. This covers the Metal
+presentation path paired with the deterministic overflow tests.

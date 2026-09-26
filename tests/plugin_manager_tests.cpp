@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -27,6 +28,14 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <signal.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+extern char** environ;
+#endif
 #endif
 
 namespace
@@ -585,9 +594,10 @@ TEST_CASE("PluginStorage concurrent writers publish complete documents",
         != documents.end());
 }
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
 TEST_CASE("PluginStorage child process writer", "[.][plugin][storage]")
 {
+#ifdef _WIN32
     wchar_t root_buffer[32768]{};
     wchar_t writer_buffer[32]{};
     REQUIRE(GetEnvironmentVariableW(L"DRAXUL_STORAGE_PROCESS_TEST_ROOT",
@@ -596,6 +606,14 @@ TEST_CASE("PluginStorage child process writer", "[.][plugin][storage]")
                 writer_buffer, 32) > 0);
     const auto root = std::filesystem::path(root_buffer);
     const int writer = std::stoi(writer_buffer);
+#else
+    const char* root_buffer = std::getenv("DRAXUL_STORAGE_PROCESS_TEST_ROOT");
+    const char* writer_buffer = std::getenv("DRAXUL_STORAGE_PROCESS_TEST_WRITER");
+    REQUIRE(root_buffer != nullptr);
+    REQUIRE(writer_buffer != nullptr);
+    const auto root = std::filesystem::path(root_buffer);
+    const int writer = std::stoi(writer_buffer);
+#endif
     {
         std::ofstream ready(root / ("ready-" + std::to_string(writer)));
         REQUIRE(ready.good());
@@ -623,6 +641,7 @@ TEST_CASE("PluginStorage separate processes publish complete documents",
     "[plugin][storage][process]")
 {
     TempPlugins temp;
+#ifdef _WIN32
     wchar_t module_buffer[32768]{};
     const DWORD module_length = GetModuleFileNameW(nullptr, module_buffer,
         32768);
@@ -633,8 +652,18 @@ TEST_CASE("PluginStorage separate processes publish complete documents",
                 temp.root.c_str()));
 
     std::vector<PROCESS_INFORMATION> children;
+#else
+    uint32_t executable_length = 0;
+    REQUIRE(_NSGetExecutablePath(nullptr, &executable_length) == -1);
+    std::vector<char> executable(executable_length);
+    REQUIRE(_NSGetExecutablePath(executable.data(), &executable_length) == 0);
+    std::vector<pid_t> children;
+    const std::string root_variable
+        = "DRAXUL_STORAGE_PROCESS_TEST_ROOT=" + temp.root.string();
+#endif
     for (int writer = 0; writer < 8; ++writer)
     {
+#ifdef _WIN32
         const auto index = std::to_wstring(writer);
         REQUIRE(SetEnvironmentVariableW(L"DRAXUL_STORAGE_PROCESS_TEST_WRITER",
                     index.c_str()));
@@ -653,9 +682,43 @@ TEST_CASE("PluginStorage separate processes publish complete documents",
             break;
         }
         children.push_back(child);
+#else
+        std::string writer_variable
+            = "DRAXUL_STORAGE_PROCESS_TEST_WRITER=" + std::to_string(writer);
+        std::vector<char*> child_environment;
+        for (char** entry = environ; *entry != nullptr; ++entry)
+        {
+            const std::string_view value(*entry);
+            if (!value.starts_with("DRAXUL_STORAGE_PROCESS_TEST_ROOT=")
+                && !value.starts_with("DRAXUL_STORAGE_PROCESS_TEST_WRITER="))
+                child_environment.push_back(*entry);
+        }
+        child_environment.push_back(const_cast<char*>(root_variable.c_str()));
+        child_environment.push_back(writer_variable.data());
+        child_environment.push_back(nullptr);
+        char* const arguments[] = {
+            executable.data(),
+            const_cast<char*>("PluginStorage child process writer"),
+            const_cast<char*>("--reporter"),
+            const_cast<char*>("compact"),
+            nullptr,
+        };
+        pid_t child = -1;
+        const int spawn_error = posix_spawn(&child, executable.data(),
+            nullptr, nullptr, arguments, child_environment.data());
+        if (spawn_error != 0)
+        {
+            FAIL_CHECK("could not launch storage writer process: "
+                << spawn_error);
+            break;
+        }
+        children.push_back(child);
+#endif
     }
+#ifdef _WIN32
     SetEnvironmentVariableW(L"DRAXUL_STORAGE_PROCESS_TEST_ROOT", nullptr);
     SetEnvironmentVariableW(L"DRAXUL_STORAGE_PROCESS_TEST_WRITER", nullptr);
+#endif
 
     const auto deadline = std::chrono::steady_clock::now()
         + std::chrono::seconds(20);
@@ -675,6 +738,7 @@ TEST_CASE("PluginStorage separate processes publish complete documents",
     }
     for (size_t writer = 0; writer < children.size(); ++writer)
     {
+#ifdef _WIN32
         auto& child = children[writer];
         const DWORD waited = WaitForSingleObject(child.hProcess, 30000);
         if (waited != WAIT_OBJECT_0)
@@ -689,6 +753,33 @@ TEST_CASE("PluginStorage separate processes publish complete documents",
         CHECK(exit_code == 0);
         CloseHandle(child.hThread);
         CloseHandle(child.hProcess);
+#else
+        const pid_t child = children[writer];
+        const auto exit_deadline = std::chrono::steady_clock::now()
+            + std::chrono::seconds(30);
+        int status = 0;
+        pid_t waited = 0;
+        while (std::chrono::steady_clock::now() < exit_deadline)
+        {
+            waited = waitpid(child, &status, WNOHANG);
+            if (waited != 0)
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if (waited == 0)
+        {
+            kill(child, SIGKILL);
+            waitpid(child, &status, 0);
+        }
+        INFO("writer process " << writer);
+        CHECK(waited == child);
+        if (waited == child)
+        {
+            CHECK(WIFEXITED(status));
+            if (WIFEXITED(status))
+                CHECK(WEXITSTATUS(status) == 0);
+        }
+#endif
     }
     REQUIRE(children.size() == 8);
     draxul::PluginStorage reader(temp.root / "storage");

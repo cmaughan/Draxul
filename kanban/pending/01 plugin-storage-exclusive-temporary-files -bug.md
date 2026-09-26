@@ -6,7 +6,7 @@ Separate clients saving shared plugin/pane state can select the same `.tmp-N` fi
 
 **Investigation**
 
-- [ ] Exercise concurrent writers against the same storage key and inspect native creation/replacement behavior on both platforms.
+- [x] Exercise concurrent writers against the same storage key and inspect native creation/replacement behavior on both platforms.
 
 **Fix strategy**
 
@@ -78,3 +78,14 @@ because publication uses different native creation/replacement APIs on Windows
 and POSIX. The Windows separate-process case is complete; macOS must execute
 the `O_EXCL` and replacement path before the investigation and acceptance gate
 can be checked.
+
+**macOS native gate (2026-09-26):** Extended the separate-process storage test
+to macOS using `posix_spawn`. Eight child processes each made 16 saves to one
+storage key; all exited successfully and the final JSON matched one complete
+writer document. The case passed 100 repeated runs (12,800 native saves).
+The core aggregate then passed 25/25 CTest entries and the same-cache Debug
+startup smoke passed. This closes the cross-platform investigation. The
+checkbox explicitly requiring hosted macOS CI remains open: the latest
+[Build workflow](https://github.com/cmaughan/Draxul/actions/runs/36156449265)
+still fails at checkout because its token cannot read the private PCBView
+submodule, before any macOS test runs.
