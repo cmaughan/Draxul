@@ -89,3 +89,10 @@ checkbox explicitly requiring hosted macOS CI remains open: the latest
 [Build workflow](https://github.com/cmaughan/Draxul/actions/runs/36156449265)
 still fails at checkout because its token cannot read the private PCBView
 submodule, before any macOS test runs.
+
+**Hosted CI recheck (2026-09-26):** The latest
+[Build workflow](https://github.com/cmaughan/Draxul/actions/runs/36228857760)
+also failed in both jobs at `actions/checkout` before build or tests. The
+previous run's macOS log identifies the private PCBView submodule access failure.
+The hosted macOS checkbox remains open until CI can clone that submodule and
+run the separate-process case.
