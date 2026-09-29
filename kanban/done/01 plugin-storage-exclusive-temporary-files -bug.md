@@ -16,7 +16,7 @@ Separate clients saving shared plugin/pane state can select the same `.tmp-N` fi
 **Acceptance criteria**
 
 - [x] Windows concurrent saves leave one complete valid document, never mixed or truncated content.
-- [ ] Validate concurrent saves on macOS CI.
+- [x] Validate concurrent saves on macOS CI.
 - [x] Cover replacement failures and abandoned temporary files; run core/plugin storage aggregate coverage and a same-cache smoke.
 - [x] Coordinate with `05 plugin-quiescence-final-storage-saves -bug.md`.
 
@@ -102,3 +102,13 @@ public product submodules explicitly and disables the private PCBView product in
 both hosted jobs. This allows the shared build and macOS storage test to execute
 with the workflow token. The hosted macOS acceptance box remains open until a
 new run actually passes the separate-process storage case.
+
+**Hosted macOS validation (2026-09-29):** [Build run 36574849286](https://github.com/cmaughan/Draxul/actions/runs/36574849286)
+checked out the public products, built `draxul-test-app`, and passed both
+`draxul-test-app` shards. The separate-process case is included in shard 1;
+this was verified with Catch2's unfiltered `--shard-count 2 --shard-index 1`
+test listing. The macOS shard passed in 20.19 seconds, covering eight
+independent processes each making 16 saves to the same storage key. The full
+hosted workflow failed other render, SatView test-fixture, core, and external
+SDK checks; those failures do not invalidate the storage-case pass. The
+SatView fixture error introduced in this work was corrected separately.
