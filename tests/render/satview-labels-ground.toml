@@ -1,0 +1,9 @@
+name = "satview-labels-ground"
+host = "plugin"
+plugin_id = "dev.draxul.satview"
+plugin_config_json = '{"paused": true, "remember_state": false, "satview_config_toml": "projection_mode = \"ground\"\ncamera_pov = \"earth\"\nground_fov_degrees = 200.0\nconstellation_labels = true\ncardinal_labels = true\n"}'
+width = 1200
+height = 800
+settle_ms = 300
+timeout_ms = 30000
+commands = [""]

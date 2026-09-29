@@ -208,6 +208,18 @@
       "bless_command": ""
     },
     {
+      "name": "satview-labels-ground",
+      "purpose": "SatView Metal/Vulkan ground scene with constellation and cardinal labels enabled",
+      "status": "developer",
+      "platforms": ["windows", "macos"],
+      "ctest": false,
+      "reference_required": false,
+      "renderall": false,
+      "blessall": false,
+      "compare_command": "",
+      "bless_command": ""
+    },
+    {
       "name": "pcbview-plugin",
       "purpose": "Dynamic PCBView NanoVG board, through holes, airwires, and ImGui layer controls",
       "status": "developer",

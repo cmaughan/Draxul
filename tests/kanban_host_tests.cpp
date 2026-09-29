@@ -622,6 +622,13 @@ TEST_CASE("kanban host cancels held navigation and preview updates when focus mo
     CHECK(fixture.host.status_text().find("card-2-feature.md") != std::string::npos);
     CHECK(fixture.callbacks.show_preview_calls == previews_after_key);
 
+    // The monitor can first notice the fixture's newly created cards during
+    // the wait above. Its debounce then schedules a board reload for a later
+    // pump; finish that reconciliation while this host is still unfocused.
+    std::this_thread::sleep_for(std::chrono::milliseconds(180));
+    fixture.host.pump();
+    CHECK(fixture.callbacks.show_preview_calls == previews_after_key);
+
     fixture.host.on_focus_gained();
     const int previews_after_refocus = fixture.callbacks.show_preview_calls;
     std::this_thread::sleep_for(std::chrono::milliseconds(180));

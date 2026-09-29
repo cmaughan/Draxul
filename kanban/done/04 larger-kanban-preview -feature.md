@@ -27,7 +27,7 @@ closed and reopened. Track validation evidence and remaining gates here.
   configure/generate step reported). One core aggregate: 24/25 CTest entries
   passed in 33.54s, including Markdown and App/pane-manager tests. The unchanged
   Kanban refocus failure remains tracked in
-  `kanban/pending/03 kanban-focus-preview-refresh-regression -bug.md`.
+  `kanban/done/03 kanban-focus-preview-refresh-regression -bug.md`.
 - Same-cache Release startup smoke passed. Markdown render export passed and
   was visually inspected. An isolated visible Kanban render run toggled `p`
   and exported `/tmp/draxul-kanban-preview-check.png`: board occupies the top
@@ -40,6 +40,6 @@ closed and reopened. Track validation evidence and remaining gates here.
   is platform-neutral; live visual validation was on macOS/Metal.
 - Panel recheck also failed (19.799%, 1.19s). This independent snapshot
   investigation is transferred to
-  `kanban/pending/05 diagnostics-panel-snapshot-drift -test.md`; do not treat
+  `kanban/done/05 diagnostics-panel-snapshot-drift -test.md`; do not treat
   the full validation inventory as green. The requested preview behavior was
   verified directly and its host/layout coverage passed.

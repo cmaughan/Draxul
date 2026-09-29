@@ -557,7 +557,7 @@ if(BUILD_TESTING)
         file(GLOB DRAXUL_RENDER_REFERENCE_FILES RELATIVE ${CMAKE_SOURCE_DIR}/tests/render/reference
             ${CMAKE_SOURCE_DIR}/tests/render/reference/*.bmp)
         foreach(DRAXUL_RENDER_REFERENCE_FILE IN LISTS DRAXUL_RENDER_REFERENCE_FILES)
-            string(REGEX REPLACE "\\.(windows|macos|linux)\\.bmp$" "" DRAXUL_RENDER_REFERENCE_NAME
+            string(REGEX REPLACE "\\.(windows|macos|linux)(\\.(debug|release))?\\.bmp$" "" DRAXUL_RENDER_REFERENCE_NAME
                 "${DRAXUL_RENDER_REFERENCE_FILE}")
             if(NOT DRAXUL_RENDER_REFERENCE_NAME IN_LIST DRAXUL_RENDER_DECLARED_SCENARIOS)
                 message(FATAL_ERROR "Unregistered render reference: tests/render/reference/${DRAXUL_RENDER_REFERENCE_FILE}")

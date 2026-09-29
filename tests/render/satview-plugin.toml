@@ -1,7 +1,7 @@
 name = "satview-plugin"
 host = "plugin"
 plugin_id = "dev.draxul.satview"
-plugin_config_json = '{"paused":true,"initial_angle":0.5}'
+plugin_config_json = '{"paused": true, "initial_angle": 0.5, "remember_state": false, "satview_config_toml": "projection_mode = \"globe\"\nconstellation_labels = true\n"}'
 width = 960
 height = 640
 settle_ms = 100

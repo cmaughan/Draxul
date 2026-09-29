@@ -22,7 +22,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+
+      # The workflow token cannot read the private PCBView repository.
+      # Fetch the public products explicitly and disable PCBView below.
+      - name: Checkout public product submodules
+        shell: bash
+        run: git submodule update --init --depth=1 plugins/megacity plugins/scoreview plugins/satview plugins/rezonality
 
       - name: Install Vulkan SDK
         shell: pwsh
@@ -51,7 +57,7 @@ jobs:
           # Hosted Windows runners expose the SDK/compiler but no Vulkan
           # surface. Keep the real external DLL build and discovery smoke;
           # GPU rendering remains covered on GPU-capable developer machines.
-          cmake --preset default -DDRAXUL_ENABLE_EXTERNAL_SDK_RENDER_SMOKE=OFF
+          cmake --preset default -DDRAXUL_ENABLE_EXTERNAL_SDK_RENDER_SMOKE=OFF -DDRAXUL_ENABLE_PCBVIEW=OFF
           cmd /c scripts\run_tests.bat %BUILD_MODE%
 
       - name: Upload artifact
@@ -78,7 +84,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+
+      # The workflow token cannot read the private PCBView repository.
+      # Fetch the public products explicitly and disable PCBView below.
+      - name: Checkout public product submodules
+        shell: bash
+        run: git submodule update --init --depth=1 plugins/megacity plugins/scoreview plugins/satview plugins/rezonality
 
       - name: Install Neovim
         run: brew install neovim
@@ -92,7 +104,9 @@ jobs:
         env:
           DRAXUL_RUN_SLOW_TESTS: "1"
           DRAXUL_BUILD_JOBS: "4"
-        run: bash scripts/run_tests.sh
+        run: |
+          cmake --preset mac-debug -DDRAXUL_ENABLE_PCBVIEW=OFF
+          bash scripts/run_tests.sh
 
       - name: Upload render test outputs
         if: always()

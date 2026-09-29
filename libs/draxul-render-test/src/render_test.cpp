@@ -210,7 +210,17 @@ std::filesystem::path default_output_path(const std::filesystem::path& scenario_
 
 std::filesystem::path RenderTestScenario::reference_image_path() const
 {
-    return scenario_path.parent_path() / "reference" / (scenario_path.stem().string() + "." + platform_suffix() + ".bmp");
+    const auto reference_dir = scenario_path.parent_path() / "reference";
+    const auto reference_stem = scenario_path.stem().string() + "." + platform_suffix();
+#ifdef NDEBUG
+    // Performance panels have different content in optimized builds. Prefer
+    // a Release-specific reference when one is supplied; other scenarios keep
+    // their existing platform reference.
+    const auto release_reference = reference_dir / (reference_stem + ".release.bmp");
+    if (std::filesystem::exists(release_reference))
+        return release_reference;
+#endif
+    return reference_dir / (reference_stem + ".bmp");
 }
 
 std::filesystem::path RenderTestScenario::actual_image_path() const

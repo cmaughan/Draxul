@@ -18,11 +18,11 @@ documented intent; first establish this event boundary before changing host
 behavior or weakening the background-navigation assertions.
 
 - [x] Reproduce the failure in the core aggregate and an independent shard rerun.
-- [ ] Determine whether a deferred file-monitor refresh is legitimate or whether
+- [x] Determine whether a deferred file-monitor refresh is legitimate or whether
   the host issues a redundant preview update after focus returns.
-- [ ] Fix the behavior or synchronize the test to the real event boundary; retain
+- [x] Fix the behavior or synchronize the test to the real event boundary; retain
   coverage that a held navigation key cannot continue after focus loss.
-- [ ] Run the Kanban host aggregate and a same-cache startup smoke.
+- [x] Run the Kanban host aggregate and a same-cache startup smoke.
 
 **Evidence:** `python3 do.py test release` passed 24/25 CTest entries; this
 shard passed 19/20 cases and 160/161 assertions. Rerunning
@@ -31,3 +31,16 @@ reproduced the identical failure. Catch2 seeds were `3098772745` and
 `3229628080`; the shard took 2.76 s and 2.40 s respectively. The aggregate
 took 32.83 s, and the same-cache Release smoke passed. Investigate separately
 from the macOS helper bundle icon/placement work.
+
+**Resolution (2026-09-29):** The fixture creates cards immediately before the
+file monitor begins. The first 180 ms wait can consume the resulting monitor
+event but leaves its 150 ms debounce queued. That reload then fires on the
+first post-refocus pump and legitimately refreshes the same preview path. The
+test now drains the queued reload while unfocused and asserts the preview
+callback count remains unchanged there, preserving the held-key cancellation
+and post-refocus stability checks. No production Kanban behavior changed.
+
+**Validation:** The focused case passed 10/10 repeat seeds in 7.68 s. Release
+core aggregate passed 25/25 CTest entries in 32.23 s; same-cache startup smoke
+passed. No new configure/generate step was needed. The focused run was needed
+to check event timing and was intentionally repeated by the aggregate.

@@ -1875,6 +1875,20 @@ def build_shortcut_exe(
     return 0, exe, env
 
 
+def render_shortcut_exe(
+    root: pathlib.Path, args: list[str]
+) -> tuple[int, pathlib.Path | None, dict[str, str] | None]:
+    skip_build = "--skip-build" in args
+    build_args = [arg for arg in args if arg != "--skip-build"]
+    mode, force_reconfigure, build_system, use_console, extra = _parse_build_args(build_args)
+    if extra or use_console or args.count("--skip-build") > 1:
+        print(f"ERROR: invalid render shortcut arguments: {shlex.join(args)}", file=sys.stderr)
+        return 2, None, None
+    return build_shortcut_exe(
+        root, mode, force_reconfigure, build_system, skip_build
+    )
+
+
 def cmd_smoke(root: pathlib.Path, args: list[str]) -> int:
     skip_build = False
     build_args: list[str] = []
@@ -2473,6 +2487,7 @@ Deterministic render snapshots:
 Bless render references:
 {bless_help}
   blessall     Bless all deterministic references
+  Render and bless shortcuts accept [debug|release] [--skip-build].
 
 Examples:
   do build relwithdebinfo  # Optimized build + symbols (Windows)
@@ -2580,7 +2595,7 @@ def main() -> int:
     render_map = render_command_map(root)
 
     if command in render_map:
-        rc, exe, env = build_shortcut_exe(root)
+        rc, exe, env = render_shortcut_exe(root, args[1:])
         if rc != 0 or exe is None:
             return 1
         scenario_name, bless = render_map[command]
@@ -2593,7 +2608,7 @@ def main() -> int:
         return rc
 
     if command == "renderall":
-        rc, exe, env = build_shortcut_exe(root)
+        rc, exe, env = render_shortcut_exe(root, args[1:])
         if rc != 0 or exe is None:
             return 1
         overall_rc = 0
@@ -2606,7 +2621,7 @@ def main() -> int:
         return overall_rc
 
     if command == "blessall":
-        rc, exe, env = build_shortcut_exe(root)
+        rc, exe, env = render_shortcut_exe(root, args[1:])
         if rc != 0 or exe is None:
             return 1
         for scenario_name in render_scenario_names(root, "blessall"):

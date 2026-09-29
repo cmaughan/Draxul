@@ -92,7 +92,7 @@ stopped; all temporarily toggled permissions are enabled again.
 steps); 24/25 CTest groups passed in 32.83 s. The failing Kanban group reproduced
 unchanged in a 2.40 s rerun, passing 19/20 cases. That existing test/event-boundary
 issue is transferred to
-`kanban/pending/03 kanban-focus-preview-refresh-regression -bug.md`; it does
+`kanban/done/03 kanban-focus-preview-refresh-regression -bug.md`; it does
 not exercise bundle icon staging. `python3 do.py smoke release --skip-build`
 passed its one startup scenario in 2.5 s from the same Release cache. No
 renderer code changed, so render snapshots were not repeated. This slice is

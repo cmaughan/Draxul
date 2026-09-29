@@ -96,3 +96,9 @@ also failed in both jobs at `actions/checkout` before build or tests. The
 previous run's macOS log identifies the private PCBView submodule access failure.
 The hosted macOS checkbox remains open until CI can clone that submodule and
 run the separate-process case.
+
+**Hosted CI checkout fix (2026-09-29):** The Build workflow now fetches the four
+public product submodules explicitly and disables the private PCBView product in
+both hosted jobs. This allows the shared build and macOS storage test to execute
+with the workflow token. The hosted macOS acceptance box remains open until a
+new run actually passes the separate-process storage case.
