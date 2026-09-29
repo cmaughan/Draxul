@@ -23,6 +23,7 @@ namespace draxul::markdown
 
 struct MarkdownHostMetricSnapshot
 {
+    float point_size = 0.0f;
     FontMetrics body_metrics{};
     float row_y = 0.0f;
     float row_height = 0.0f;
@@ -42,6 +43,7 @@ public:
     {
         host.pump();
         MarkdownHostMetricSnapshot snapshot;
+        snapshot.point_size = host.base_point_size_;
         snapshot.body_metrics = host.rich_text_.metrics_for(
             host.theme_.body.rich_text);
 
@@ -326,4 +328,46 @@ TEST_CASE("markdown host keeps layout and glyph metrics aligned across font and 
     CHECK(retina.body_metrics.cell_height > standard.body_metrics.cell_height);
     CHECK(retina.row_height > standard.row_height);
     CHECK(retina.max_glyph_height > standard.max_glyph_height);
+}
+
+TEST_CASE("markdown companion preview keeps its font offset across reload and zoom",
+    "[markdown][host][preview]")
+{
+    TempDir temp("draxul-markdown-preview");
+    const auto source = temp.path / "card.md";
+    std::ofstream(source) << "Card body text.\n";
+    AppConfig config;
+    config.font_path = draxul::tests::bundled_font_path().string();
+    config.markdown.font_size = 12.0f;
+    HostContext context;
+    context.config = &config;
+    context.launch_options.kind = HostKind::Markdown;
+    context.launch_options.source_path = source.string();
+    context.launch_options.companion_owner_pane_id = "kanban-pane";
+    context.initial_viewport.pixel_size = { 800, 600 };
+    context.display_ppi = 96.0f;
+    TestHostCallbacks callbacks;
+    MarkdownHost preview;
+    REQUIRE(preview.initialize(context, callbacks));
+    CHECK(MarkdownHostTestAccess::metric_snapshot(preview).point_size == 10.0f);
+    REQUIRE(preview.dispatch_action("font_increase"));
+    CHECK(MarkdownHostTestAccess::metric_snapshot(preview).point_size == 10.5f);
+    CHECK(config.markdown.font_size == 12.0f);
+    REQUIRE(preview.dispatch_action("font_reset"));
+    CHECK(MarkdownHostTestAccess::metric_snapshot(preview).point_size == 10.0f);
+    REQUIRE(preview.dispatch_action("reload"));
+    CHECK(MarkdownHostTestAccess::metric_snapshot(preview).point_size == 10.0f);
+
+    HostReloadConfig reload;
+    reload.markdown_font_size = 14.0f;
+    preview.on_config_reloaded(reload);
+    CHECK(MarkdownHostTestAccess::metric_snapshot(preview).point_size == 12.0f);
+    reload.markdown_font_size = 6.0f;
+    preview.on_config_reloaded(reload);
+    CHECK(MarkdownHostTestAccess::metric_snapshot(preview).point_size == 6.0f);
+
+    context.launch_options.companion_owner_pane_id.clear();
+    MarkdownHost standalone;
+    REQUIRE(standalone.initialize(context, callbacks));
+    CHECK(MarkdownHostTestAccess::metric_snapshot(standalone).point_size == 12.0f);
 }

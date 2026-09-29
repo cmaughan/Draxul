@@ -587,7 +587,7 @@ TEST_CASE("pane manager: markdown preview splits below the owner and keeps focus
     REQUIRE_FALSE(harness.manager.has_markdown_preview());
 
     const LeafId preview = harness.manager.show_markdown_preview(
-        owner, 2.0f / 3.0f, "/tmp/card.md", harness.callbacks);
+        owner, 1.0f / 3.0f, "/tmp/card.md", harness.callbacks);
     REQUIRE(preview != kInvalidLeaf);
     REQUIRE(preview != owner);
     REQUIRE(harness.manager.has_markdown_preview());
@@ -596,13 +596,13 @@ TEST_CASE("pane manager: markdown preview splits below the owner and keeps focus
     // Focus stays on the board, not the freshly-created preview pane.
     CHECK(harness.manager.focused_leaf() == owner);
 
-    // The preview sits below the owner and takes roughly the bottom third.
+    // The preview sits below the owner and takes roughly the bottom two-thirds.
     const PaneDescriptor owner_desc = harness.manager.tree().descriptor_for(owner);
     const PaneDescriptor preview_desc = harness.manager.tree().descriptor_for(preview);
     CHECK(preview_desc.pixel_pos.y > owner_desc.pixel_pos.y);
-    CHECK(owner_desc.pixel_size.y > preview_desc.pixel_size.y);
-    CHECK(preview_desc.pixel_size.y >= 150);
-    CHECK(preview_desc.pixel_size.y <= 240);
+    CHECK(owner_desc.pixel_size.y < preview_desc.pixel_size.y);
+    CHECK(preview_desc.pixel_size.y >= 360);
+    CHECK(preview_desc.pixel_size.y <= 420);
 }
 
 TEST_CASE("pane manager: markdown preview reuses the pane and reloads on refresh", "[pane_manager]")
@@ -614,10 +614,10 @@ TEST_CASE("pane manager: markdown preview reuses the pane and reloads on refresh
     // First call creates the pane; the initial source arrives via the host's
     // launch options (loaded on init), so it is not a dispatch_action.
     const LeafId first
-        = harness.manager.show_markdown_preview(owner, 2.0f / 3.0f, "/tmp/a.md", harness.callbacks);
+        = harness.manager.show_markdown_preview(owner, 1.0f / 3.0f, "/tmp/a.md", harness.callbacks);
     // Second call must reuse the same pane and reload it via dispatch_action.
     const LeafId second
-        = harness.manager.show_markdown_preview(owner, 2.0f / 3.0f, "/tmp/b.md", harness.callbacks);
+        = harness.manager.show_markdown_preview(owner, 1.0f / 3.0f, "/tmp/b.md", harness.callbacks);
 
     CHECK(first == second);
     CHECK(harness.manager.host_count() == 2);
@@ -632,7 +632,7 @@ TEST_CASE("pane manager: hiding the markdown preview restores the owner", "[pane
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     const LeafId owner = harness.manager.focused_leaf();
 
-    harness.manager.show_markdown_preview(owner, 2.0f / 3.0f, "/tmp/card.md", harness.callbacks);
+    harness.manager.show_markdown_preview(owner, 1.0f / 3.0f, "/tmp/card.md", harness.callbacks);
     REQUIRE(harness.manager.host_count() == 2);
 
     harness.manager.hide_markdown_preview();
@@ -652,7 +652,7 @@ TEST_CASE("pane manager: closing the preview pane clears preview tracking", "[pa
     const LeafId owner = harness.manager.focused_leaf();
 
     const LeafId preview
-        = harness.manager.show_markdown_preview(owner, 2.0f / 3.0f, "/tmp/card.md", harness.callbacks);
+        = harness.manager.show_markdown_preview(owner, 1.0f / 3.0f, "/tmp/card.md", harness.callbacks);
     REQUIRE(harness.manager.has_markdown_preview());
 
     // Closing the preview by any other path must not leave a dangling ref.

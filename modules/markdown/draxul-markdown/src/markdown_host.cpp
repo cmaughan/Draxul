@@ -19,6 +19,12 @@ namespace
 constexpr float kScrollbarWidth = 10.0f;
 constexpr float kScrollbarInset = 4.0f;
 
+float preview_point_size(float point_size, bool companion_preview)
+{
+    return std::clamp(point_size - (companion_preview ? 2.0f : 0.0f),
+        TextService::MIN_POINT_SIZE, TextService::MAX_POINT_SIZE);
+}
+
 TextServiceConfig text_config_from_context(const HostContext& context)
 {
     TextServiceConfig config;
@@ -101,7 +107,8 @@ bool MarkdownHost::initialize(const HostContext& context, IHostCallbacks& callba
     config_ = context.config;
     viewport_ = context.initial_viewport;
     display_ppi_ = context.display_ppi;
-    base_point_size_ = markdown_point_size_from_context(context);
+    companion_preview_ = !context.launch_options.companion_owner_pane_id.empty();
+    base_point_size_ = preview_point_size(markdown_point_size_from_context(context), companion_preview_);
     margin_columns_ = markdown_margin_columns_from_context(context);
     theme_ = default_markdown_theme(base_point_size_);
     text_config_ = text_config_from_context(context);
@@ -159,12 +166,13 @@ void MarkdownHost::set_viewport(const HostViewport& viewport)
 
 void MarkdownHost::on_config_reloaded(const HostReloadConfig& config)
 {
-    const bool font_changed = config.markdown_font_size != base_point_size_;
+    const float point_size = preview_point_size(config.markdown_font_size, companion_preview_);
+    const bool font_changed = point_size != base_point_size_;
     const bool margin_changed = config.markdown_margin_columns != margin_columns_;
     if (!font_changed && !margin_changed)
         return;
 
-    base_point_size_ = config.markdown_font_size;
+    base_point_size_ = point_size;
     margin_columns_ = config.markdown_margin_columns;
     theme_ = default_markdown_theme(base_point_size_);
     if (font_changed)
@@ -280,7 +288,9 @@ bool MarkdownHost::dispatch_action(std::string_view action)
     if (action == "font_decrease")
         return change_font_size(base_point_size_ - 0.5f);
     if (action == "font_reset")
-        return change_font_size(TextService::DEFAULT_POINT_SIZE);
+        return change_font_size(preview_point_size(
+            companion_preview_ && config_ ? config_->markdown.font_size : TextService::DEFAULT_POINT_SIZE,
+            companion_preview_));
     return false;
 }
 
@@ -383,7 +393,9 @@ bool MarkdownHost::change_font_size(float point_size)
         return true;
     }
 
-    if (config_ != nullptr)
+    // Preview zoom is local; persisting its reduced size would shrink every
+    // Markdown pane and subtract the preview offset again on the next launch.
+    if (config_ != nullptr && !companion_preview_)
         config_->markdown.font_size = base_point_size_;
     mark_layout_dirty();
     return true;

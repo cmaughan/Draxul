@@ -316,9 +316,9 @@ AppConfig::AppConfig()
         // new_tab = Ctrl+S, C
         { "new_tab", static_cast<int32_t>(SDLK_S), kModCtrl,
             static_cast<int32_t>(SDLK_C), kModNone },
-        // close_tab = Ctrl+S, & (Shift+7)
+        // close_tab = Ctrl+S, Shift+X
         { "close_tab", static_cast<int32_t>(SDLK_S), kModCtrl,
-            static_cast<int32_t>(SDLK_7), kModShift },
+            static_cast<int32_t>(SDLK_X), kModShift },
         // next_tab = Ctrl+S, N
         { "next_tab", static_cast<int32_t>(SDLK_S), kModCtrl,
             static_cast<int32_t>(SDLK_N), kModNone },

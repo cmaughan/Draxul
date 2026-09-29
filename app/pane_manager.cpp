@@ -521,6 +521,7 @@ LeafId PaneManager::show_markdown_preview(
     HostLaunchOptions launch;
     launch.kind = HostKind::Markdown;
     launch.source_path = std::string(path);
+    launch.companion_owner_pane_id = pane_id(owner);
     const LeafId preview = split_focused(SplitDirection::Horizontal, std::move(launch), callbacks);
     if (preview == kInvalidLeaf)
     {

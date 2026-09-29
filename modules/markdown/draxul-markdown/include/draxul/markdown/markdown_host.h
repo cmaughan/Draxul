@@ -80,6 +80,7 @@ private:
     draxul::TextServiceConfig text_config_;
     float display_ppi_ = 96.0f;
     float base_point_size_ = draxul::TextService::DEFAULT_POINT_SIZE;
+    bool companion_preview_ = false;
     float margin_columns_ = 2.0f;
 
     std::filesystem::path source_path_;

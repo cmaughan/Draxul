@@ -6,6 +6,8 @@
 	<string>English</string>
 	<key>CFBundleExecutable</key>
 	<string>draxul-server</string>
+	<key>CFBundleIconFile</key>
+	<string>draxul.icns</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.draxul.draxul.server</string>
 	<key>CFBundleInfoDictionaryVersion</key>

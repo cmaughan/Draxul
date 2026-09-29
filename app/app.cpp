@@ -52,7 +52,7 @@ namespace
 // Fraction of the owner pane's height kept for its content when a Markdown
 // preview pane is attached below it (Kanban card preview). The preview
 // occupies the remaining bottom third.
-constexpr float kMarkdownPreviewTopRatio = 2.0f / 3.0f;
+constexpr float kMarkdownPreviewTopRatio = 1.0f / 3.0f;
 
 // Compute the pixel size for ImGui fonts from actual font metrics.
 //

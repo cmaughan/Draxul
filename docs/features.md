@@ -10,7 +10,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 |------|------|-------------|
 | Neovim | `--host nvim` | Embeds `nvim --embed` via msgpack-RPC over stdin/stdout pipes |
 | Markdown | `--host markdown --source <file.md>` | Native Draxul markdown viewer host using the FreeType/HarfBuzz font pipeline, MD4C parsing, variable-height document rows, configurable body text size/margins, restrained styled headings, section indentation, front matter/code/list/table decorations, mouse wheel/PageUp/PageDown/Home/End plus Vim-style `j/k`, `Ctrl+F/B`, `gg`, `G` scrolling, and a draggable proportional scrollbar |
-| Kanban | `--host kanban [--source <folder>]` | Native grid-backed kanban viewer for a `kanban/` folder. By default it combines the current repository board with every initialized recursive Git submodule board, prefixes cards with their source, and uses `b` to cycle all/root/sub-board filters. Subfolders become columns, Markdown files become cards, each board's `.draxul-kanban.toml` stores its own ordering, Vim-style `h/j/k/l`, `Ctrl+F/B`, `gg`, and `G` move selection within the current column, shifted up/down arrows reorder cards inside their owning board, `<`/`>` move files between that board's column folders, capital `D` deletes the selected card only from `done` or `ice-box`, `z` zooms to the selected column full-width (`z` again restores all columns), `p` pins a bottom-third Markdown preview of the selected card that follows the selection (`p` again removes it), and Enter opens the selected card's Markdown file in a background Neovim host (reusing an existing Neovim pane or spawning a split) without moving focus off the board |
+| Kanban | `--host kanban [--source <folder>]` | Native grid-backed kanban viewer for a `kanban/` folder. By default it combines the current repository board with every initialized recursive Git submodule board, prefixes cards with their source, and uses `b` to cycle all/root/sub-board filters. Subfolders become columns, Markdown files become cards, each board's `.draxul-kanban.toml` stores its own ordering, Vim-style `h/j/k/l`, `Ctrl+F/B`, `gg`, and `G` move selection within the current column, shifted up/down arrows reorder cards inside their owning board, `<`/`>` move files between that board's column folders, capital `D` deletes the selected card only from `done` or `ice-box`, `z` zooms to the selected column full-width (`z` again restores all columns), `p` pins a bottom-two-thirds Markdown preview of the selected card that follows the selection (`p` again removes it), and Enter opens the selected card's Markdown file in a background Neovim host (reusing an existing Neovim pane or spawning a split) without moving focus off the board |
 | Bash | `--host bash` | Server-owned PTY terminal (Unix) |
 | Zsh | `--host zsh` | Server-owned PTY terminal (Unix) |
 | PowerShell | `--host powershell` | Server-owned ConPTY terminal on Windows |
@@ -279,7 +279,8 @@ filename drift and dynamic-loader or ABI failures are caught on both platforms.
   reports connected clients, Sessions, Spaces, terminals, live terminals, and agents,
   and provides Open Draxul, refresh, open-log, and one guarded Stop Server action.
   The stop dialog runs in a short-lived helper process on Windows. On macOS the server
-  itself runs as a nested `LSUIElement` app with a distinct bundle identifier, and its
+  itself runs as a nested `LSUIElement` app with a distinct bundle identifier and its
+  own bundled Draxul icon for Finder and System Settings. Its
   dialog runs in the menu-bar process while the RPC loop continues on the server thread.
   The normal Draxul app therefore remains purely a UI client and always attaches to the
   existing server when reopened. The dialog tries graceful shutdown first and offers
@@ -559,7 +560,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **Kanban navigation**: Kanban panes support Vim-style card selection with `h/j/k/l`, `Ctrl+F/B` page jumps, `gg`/`G` beginning/end jumps within the current column, shifted up/down arrows for reordering cards, `<`/`>` for moving files between columns, capital `D` for deleting the selected card only from `done` or `ice-box`, `b` to cycle all/root/recursive-submodule board filters, `r` to reload, and Enter to open the selected card's Markdown file for editing in a Neovim host. Aggregate cards are grouped by board in each column and carry a `[source]` prefix; mutations stay inside the selected card's owning board and persist only that board's metadata.
 - **Kanban automatic refresh**: Native filesystem notifications refresh open boards after external card edits, additions, deletions, lane moves, and ordering metadata changes, including already-discovered submodule boards. Updates debounce for 150 ms and reconcile on the UI thread; selection follows a uniquely named card moved within its owning board. There is no recurring filesystem poll. `r` remains a manual reload/rearm and discovers newly added submodule boards. Watch/scan failures produce a toast; a failed scan retains the previous board. Watched board roots must remain in place: after replacing/moving a root, use `r` to rearm.
 - **Kanban column zoom**: `z` collapses the board to just the selected column at full width (moving left/right pages between columns while zoomed); `z` again restores the multi-column view.
-- **Kanban card preview**: `p` pins a live Markdown preview pane across the bottom third of the board that always renders the currently selected card; it follows the selection as you move and Enter keeps input focus on the board so the preview and the board stay in view together. In shared topology, the server owns the preview split and source descriptor so every connected UI projects it and reconnect restores it. `p` again closes the preview.
+- **Kanban card preview**: `p` pins a live Markdown preview pane across the bottom two-thirds of the board that always renders the currently selected card; it follows the selection as you move and Enter keeps input focus on the board so the preview and the board stay in view together. In shared topology, the server owns the preview split and source descriptor so every connected UI projects it and reconnect restores it. `p` again closes the preview. Companion preview text defaults to two points below `[markdown].font_size` (minimum 6pt); preview zoom stays local and font reset restores this reduced size.
 - **GUI keybindings**: Chord-style prefix bindings (e.g. `ctrl+s, |`)
 - **Command palette**: `Ctrl+Shift+P` opens a centered fuzzy-search overlay for all GUI actions with fzf-style scoring, `Ctrl+J/K` navigation, keybinding hints, and palette-rendered text prompts for actions needing short values
 - **Print pane** (`print_pane` action, palette or `[keybindings]`): captures the focused pane's pixels, composes a single-page A4 PDF (aspect-fit inside margins, auto landscape for wide panes, CoreGraphics), and presents the native macOS print dialog for it (PDFKit print operation: preview, printer/paper choice, and auto-rotation so landscape pages land correctly on portrait paper); toasts report printed/canceled/failed. Hosts advise the printer via `IHost::print_hint()` — a pane-relative content rect plus a paper-white flag — so ScoreView prints just the page/band (no backdrop border) with its warm screen sheet tint snapped to pure white instead of printed stipple. macOS-only for now. `DRAXUL_PRINT_DRY_RUN=1` composes the PDF but skips the dialog and toasts the temp path (test hook)
@@ -694,7 +695,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - Space, Agent, tab, and pane-status labels share one pill layout and palette model for capsule size, number accent width, text columns, foreground contrast, and active/inactive/editing colours. Each collection keeps a 30%-brightness version of its unchanged role colour across every pill; the selected/focused number segment uses the brighter role colour (Space blue, Agent mauve, tab red, pane green).
 - The top tab bar remains visible even with a single tab and shows right-aligned pills for live system usage and active chord prefixes
 - `new_tab` (`Ctrl+S, C`): Create a new tab
-- `close_tab` (`Ctrl+S, &`): Close the active tab (disabled when only one tab remains)
+- `close_tab` (`Ctrl+S, Shift+X`): Close the active tab (disabled when only one tab remains)
 - `next_tab` (`Ctrl+S, N`): Cycle to the next tab
 - `prev_tab` (`Ctrl+S, P`): Cycle to the previous tab
 - Tab switching preserves focus state per tab (focus lost/gained notifications)
@@ -754,7 +755,7 @@ Toggle with F12. Shows:
 | `resize_pane_down` | `Ctrl + S, Down` |
 | `open_file_dialog` | (unbound) |
 | `new_tab` | `Ctrl + S, C` |
-| `close_tab` | `Ctrl + S, &` |
+| `close_tab` | `Ctrl + S, Shift + X` |
 | `next_tab` | `Ctrl + S, N` |
 | `prev_tab` | `Ctrl + S, P` |
 | `rename_tab` | `Ctrl + S, ,` |

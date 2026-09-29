@@ -305,15 +305,22 @@ if(APPLE)
         ${CMAKE_BINARY_DIR}/DraxulServerInfo.plist
         @ONLY
     )
+    set_property(TARGET draxul APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_BINARY_DIR}/DraxulServerInfo.plist"
+        "${DRAXUL_ICON_FILE}")
     add_custom_command(TARGET draxul POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_BUNDLE_DIR:draxul>/Contents/Helpers/Draxul Server.app/Contents/MacOS"
+            "$<TARGET_BUNDLE_DIR:draxul>/Contents/Helpers/Draxul Server.app/Contents/Resources"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "$<TARGET_FILE:draxul>"
             "$<TARGET_BUNDLE_DIR:draxul>/Contents/Helpers/Draxul Server.app/Contents/MacOS/draxul-server"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_BINARY_DIR}/DraxulServerInfo.plist"
             "$<TARGET_BUNDLE_DIR:draxul>/Contents/Helpers/Draxul Server.app/Contents/Info.plist"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${DRAXUL_ICON_FILE}"
+            "$<TARGET_BUNDLE_DIR:draxul>/Contents/Helpers/Draxul Server.app/Contents/Resources/draxul.icns"
         VERBATIM
     )
 
