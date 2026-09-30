@@ -61,9 +61,10 @@ def main() -> int:
 
         if args.render:
             user_dir = sdk_smoke.user_plugin_dir(env, PLUGIN_ID)
-            shutil.copytree(plugin_dir, user_dir)
+            shutil.copytree(plugin_dir.parent.parent, user_dir)
             sdk_smoke.assert_plugin_loads(
-                args.draxul, PLUGIN_ID, user_dir / module.name, env,
+                args.draxul, PLUGIN_ID,
+                user_dir / "generations" / plugin_dir.name / module.name, env,
                 timeout=None)
 
             scenario_dir = temp / "render"

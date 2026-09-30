@@ -174,17 +174,8 @@ class AgentGuidanceReferenceTests(unittest.TestCase):
         self.assertNotIn("build-ninja-release", megacity_guidance)
         self.assertIn("do.py test debug --megacity", megacity_guidance)
 
-    def test_named_aggregate_targets_exist_in_authoritative_cmake(self) -> None:
-        tests_cmake = (ROOT / "tests" / "CMakeLists.txt").read_text(encoding="utf-8")
-        for target in (
-            "draxul-tests-core",
-            "draxul-tests-megacity",
-            "draxul-tests-satview",
-            "draxul-tests-scoreview",
-            "draxul-tests-pcbview",
-            "draxul-tests-rezonality",
-        ):
-            self.assertIn(target, tests_cmake)
+    # Aggregate existence is exercised by test_scope_integration using actual
+    # CMake targets and CTest selection, rather than searching source literals.
 
 
 class ExternalSdkSmokeCommandTests(unittest.TestCase):
@@ -754,10 +745,10 @@ class CleanCommandTests(unittest.TestCase):
 
 
 class TestCommandTests(unittest.TestCase):
-    def test_help_describes_fast_unit_scope(self) -> None:
+    def test_help_describes_behavioral_scope(self) -> None:
         help_output = draxul_do.help_text()
 
-        self.assertIn("run core unit tests in parallel", help_output.lower())
+        self.assertIn("run core unit and integration tests in parallel", help_output.lower())
         self.assertIn("--satview", help_output)
         self.assertIn("--scoreview", help_output)
         self.assertIn("--pcbview", help_output)
@@ -794,14 +785,7 @@ class TestCommandTests(unittest.TestCase):
             targets=("draxul-tests-core",),
         )
         _, ctest_filter, _ = draxul_do._test_scope_selection(set(), False)
-        self.assertIn("draxul-test-weather-shard", ctest_filter[1])
-        self.assertIn("draxul-test-markdown-layout-shard", ctest_filter[1])
-        self.assertIn("draxul-test-kanban-core-shard", ctest_filter[1])
-        self.assertIn("draxul-test-kanban-host-shard", ctest_filter[1])
-        self.assertIn("draxul-test-file-monitor-shard", ctest_filter[1])
-        self.assertIn("draxul-test-nanovg-paint-shard", ctest_filter[1])
-        self.assertIn("draxul-test-plugin-nanovg-shard", ctest_filter[1])
-        self.assertIn("draxul-test-render-contracts-shard", ctest_filter[1])
+        self.assertEqual(["--label-regex", "^scope-(core)$"], ctest_filter)
         run_mock.assert_called_once_with(
             [
                 "ctest",
@@ -859,13 +843,7 @@ class TestCommandTests(unittest.TestCase):
             ),
             targets,
         )
-        self.assertEqual("--tests-regex", ctest_filter[0])
-        self.assertIn("draxul-test-satview-shard", ctest_filter[1])
-        self.assertIn("draxul-satview-catalog-py-tests", ctest_filter[1])
-        self.assertIn("draxul-test-scoreview-shard", ctest_filter[1])
-        self.assertIn("draxul-test-scoreview-runtime-shard", ctest_filter[1])
-        self.assertNotIn("draxul-test-megacity-shard", ctest_filter[1])
-        self.assertNotIn("draxul-test-megacity-parser-shard", ctest_filter[1])
+        self.assertEqual(["--label-regex", "^scope-(core|satview|scoreview)$"], ctest_filter)
         self.assertEqual("core + satview, scoreview", label)
 
     def test_label_filters_the_selected_scope_and_rejects_zero_matches(self) -> None:
@@ -898,7 +876,7 @@ class TestCommandTests(unittest.TestCase):
             targets=("draxul-tests-core", "draxul-tests-satview"),
         )
         command = run_mock.call_args.args[0]
-        self.assertIn("--tests-regex", command)
+        self.assertEqual(2, command.count("--label-regex"))
         self.assertIn("--label-regex", command)
         self.assertIn("^kanban$", command)
         self.assertIn("--no-tests=error", command)
@@ -918,8 +896,8 @@ class TestCommandTests(unittest.TestCase):
         )
 
         self.assertEqual(("draxul-tests-core",), targets)
-        self.assertEqual("--tests-regex", ctest_filter[0])
-        self.assertIn("draxul-test-agent-integration-shard", ctest_filter[1])
+        self.assertEqual("--label-regex", ctest_filter[0])
+        self.assertEqual("^scope-(core)$", ctest_filter[1])
         self.assertEqual(
             ["--label-regex", "^agent\\-integration$"], ctest_filter[2:]
         )
@@ -953,23 +931,10 @@ class TestCommandTests(unittest.TestCase):
             ),
             targets,
         )
-        for product in ("megacity", "satview", "scoreview", "pcbview", "rezonality"):
-            self.assertIn(f"draxul-test-{product}-shard", ctest_filter[1])
-        self.assertIn("draxul-test-megacity-parser-shard", ctest_filter[1])
-        self.assertIn("draxul-render-rezonality-pbr-robot", ctest_filter[1])
-        self.assertIn("draxul-render-rezonality-ray-tracer", ctest_filter[1])
-        self.assertIn("draxul-render-rezonality-audio-spectrum", ctest_filter[1])
-        self.assertIn("draxul-render-rezonality-plugin", ctest_filter[1])
-        self.assertIn("draxul-test-rezonality-project-shard", ctest_filter[1])
-        self.assertIn("draxul-test-rezonality-runtime-shard", ctest_filter[1])
-        self.assertIn("draxul-test-rezonality-audio-shard", ctest_filter[1])
-        self.assertIn("draxul-render-pcbview-plugin", ctest_filter[1])
-        self.assertIn("draxul-render-rezonality-blend-waves", ctest_filter[1])
-        self.assertIn("draxul-render-rezonality-deferred-shading", ctest_filter[1])
-        self.assertIn(
-            "draxul-render-rezonality-protoplanetary-disc", ctest_filter[1]
+        self.assertEqual(
+            ["--label-regex", "^scope-(core|megacity|satview|scoreview|pcbview|rezonality)$"],
+            ctest_filter,
         )
-        self.assertIn("draxul-rezonality-agent-layout", ctest_filter[1])
         self.assertEqual(
             "core + megacity, satview, scoreview, pcbview, rezonality", label
         )
@@ -978,7 +943,7 @@ class TestCommandTests(unittest.TestCase):
         parsed = draxul_do._parse_test_args(["--all"])
 
         self.assertEqual(
-            (("draxul-tests",), ["--label-regex", "unit"], "all unit tests"),
+            (("draxul-tests",), ["--label-regex", "^(unit|integration)$"], "all unit and integration tests"),
             draxul_do._test_scope_selection(parsed[4], parsed[5]),
         )
 
@@ -1329,18 +1294,18 @@ class FinalValidationCommandTests(unittest.TestCase):
             ctest_command = run_step.call_args_list[1].args[0]
             self.assertEqual("ctest", ctest_command[0])
             self.assertIn("--label-regex", ctest_command)
-            self.assertIn("unit", ctest_command)
+            self.assertIn("^(unit|integration)$", ctest_command)
             self.assertIn("targets built: draxul, draxul-tests", output.getvalue())
             self.assertIn("tests selected: 37 CTest entries", output.getvalue())
             self.assertIn("steps: 4/4 passed", output.getvalue())
 
     def test_final_summary_reports_retained_failure_log_and_category(self) -> None:
         step = draxul_do.ValidationStepResult(
-            "ctest-unit",
+            "ctest-behavior",
             "ctest",
             1,
             3.5,
-            pathlib.Path("build/validation-logs/ctest-unit.log"),
+            pathlib.Path("build/validation-logs/ctest-behavior.log"),
         )
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
@@ -1355,7 +1320,7 @@ class FinalValidationCommandTests(unittest.TestCase):
         self.assertIn("product-test failure", summary)
         self.assertIn("41 CTest entries", summary)
         self.assertIn("panel-view", summary)
-        self.assertIn("ctest-unit.log", summary)
+        self.assertIn("ctest-behavior.log", summary)
 
 
 class DeployPackagingTests(unittest.TestCase):

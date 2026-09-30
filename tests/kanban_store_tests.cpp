@@ -67,6 +67,26 @@ TEST_CASE("kanban store scans folders and markdown files", "[kanban][store]")
     REQUIRE(board.columns[1].name == "done");
 }
 
+TEST_CASE("kanban store reads card priorities without changing file identity", "[kanban][store]")
+{
+    draxul::tests::TempDir temp("draxul-kanban-priority");
+    const auto root = temp.path / "kanban";
+    std::filesystem::create_directories(root / "pending");
+    write_file(root / "pending" / "01 urgent -bug.md", "# Urgent\n\n**Priority:** P1 — fix now\n");
+    write_file(root / "pending" / "02 later -test.md", "# Later\nPriority: p2 / sequence 02\n");
+    write_file(root / "pending" / "03 plain.md", "# Plain\n");
+
+    std::string error;
+    const auto board = load_kanban_board(root, &error);
+    REQUIRE(error.empty());
+    REQUIRE(board.columns[0].cards.size() == 3);
+    CHECK(board.columns[0].cards[0].priority == 1);
+    CHECK(board.columns[0].cards[1].priority == 2);
+    CHECK_FALSE(board.columns[0].cards[2].priority.has_value());
+    CHECK(board.columns[0].cards[0].file_name == "01 urgent -bug.md");
+    CHECK(board.columns[0].cards[1].kind == CardKind::Test);
+}
+
 TEST_CASE("kanban store reports root and column iterator failures",
     "[kanban][store][scan-error]")
 {

@@ -124,9 +124,9 @@ run_config() {
   if [ "$UNIT_ONLY" -eq 1 ]; then
     run cmake --build build --target draxul-tests --parallel "$BUILD_JOBS"
     if [ "$VERBOSE" -eq 1 ]; then
-      run ctest --test-dir build --label-regex unit --parallel 4 --verbose --timeout 120
+      run ctest --test-dir build --label-regex "^(unit|integration)$" --parallel 4 --verbose --timeout 120
     else
-      run ctest --test-dir build --label-regex unit --parallel 4 --output-on-failure --timeout 120
+      run ctest --test-dir build --label-regex "^(unit|integration)$" --parallel 4 --output-on-failure --timeout 120
     fi
     return
   fi

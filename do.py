@@ -955,7 +955,7 @@ def _parse_test_args(
             all_tests = True
         elif arg == "--unit":
             # Compatibility with t.bat/scripts/run_tests.* terminology. `do test`
-            # is intentionally the focused unit path by default.
+            # is intentionally the scoped behavior-test path by default.
             pass
         else:
             build_args.append(arg)
@@ -991,68 +991,22 @@ def _test_scope_selection(
 ) -> tuple[tuple[str, ...], list[str], str]:
     if all_tests:
         if test_label:
-            return (
-                ("draxul-tests",),
-                ["--label-regex", f"^{re.escape(test_label)}$"],
-                f"all tests labeled {test_label}",
-            )
-        return ("draxul-tests",), ["--label-regex", "unit"], "all unit tests"
+            return (("draxul-tests",),
+                    ["--label-regex", f"^{re.escape(test_label)}$"],
+                    f"all tests labeled {test_label}")
+        return (("draxul-tests",), ["--label-regex", "^(unit|integration)$"],
+                "all unit and integration tests")
 
-    targets = ["draxul-tests-core"]
-    patterns = [
-        r"draxul-test-core-shard-[0-9]+",
-        r"draxul-test-app-shard-[0-9]+",
-        r"draxul-test-agent-integration-shard-[0-9]+",
-        r"draxul-test-weather-shard-[0-9]+",
-        r"draxul-test-markdown-layout-shard-[0-9]+",
-        r"draxul-test-markdown-kanban-shard-[0-9]+",
-        r"draxul-test-kanban-core-shard-[0-9]+",
-        r"draxul-test-kanban-host-shard-[0-9]+",
-        r"draxul-test-file-monitor-shard-[0-9]+",
-        r"draxul-test-nanovg-paint-shard-[0-9]+",
-        r"draxul-test-nvim-protocol-shard-[0-9]+",
-        r"draxul-test-nvim-transport-shard-[0-9]+",
-        r"draxul-test-plugin-nanovg-shard-[0-9]+",
-        r"draxul-test-render-contracts-shard-[0-9]+",
-        r"draxul-do-py-tests",
-        r"draxul-review-skill-py-tests",
-    ]
-    for scope in _TEST_PRODUCT_SCOPES:
-        if scope not in product_scopes:
-            continue
-        targets.append(f"draxul-tests-{scope}")
-        patterns.append(rf"draxul-test-{scope}-shard-[0-9]+")
-        if scope == "megacity":
-            patterns.append(r"draxul-test-megacity-parser-shard-[0-9]+")
-        elif scope == "satview":
-            patterns.append(r"draxul-satview-catalog-py-tests")
-        elif scope == "scoreview":
-            patterns.append(r"draxul-test-scoreview-runtime-shard-[0-9]+")
-        elif scope == "pcbview":
-            patterns.append(r"draxul-render-pcbview-plugin")
-        elif scope == "rezonality":
-            patterns.append(r"draxul-test-rezonality-project-shard-[0-9]+")
-            patterns.append(r"draxul-test-rezonality-runtime-shard-[0-9]+")
-            patterns.append(r"draxul-test-rezonality-audio-shard-[0-9]+")
-            patterns.append(r"draxul-rezonality-agent-layout")
-            patterns.append(r"draxul-rezonality-neovim")
-            patterns.append(r"draxul-render-rezonality-plugin")
-            patterns.append(r"draxul-render-rezonality-blend-waves")
-            patterns.append(r"draxul-render-rezonality-deferred-shading")
-            patterns.append(r"draxul-render-rezonality-protoplanetary-disc")
-            patterns.append(r"draxul-render-rezonality-pbr-robot")
-            patterns.append(r"draxul-render-rezonality-ray-tracer")
-            patterns.append(r"draxul-render-rezonality-audio-spectrum")
-
-    scope_label = "core" if not product_scopes else "core + " + ", ".join(
-        scope for scope in _TEST_PRODUCT_SCOPES if scope in product_scopes
-    )
-    regex = "^(" + "|".join(patterns) + ")$"
-    ctest_filter = ["--tests-regex", regex]
+    scopes = ["core", *(scope for scope in _TEST_PRODUCT_SCOPES if scope in product_scopes)]
+    targets = tuple(f"draxul-tests-{scope}" for scope in scopes)
+    scope_label = "core" if not product_scopes else "core + " + ", ".join(scopes[1:])
+    # CMake registers scope labels together with each suite/aggregate. CTest
+    # intersects repeated -L expressions, so a user label cannot escape scope.
+    ctest_filter = ["--label-regex", "^scope-(" + "|".join(scopes) + ")$"]
     if test_label:
         ctest_filter.extend(["--label-regex", f"^{re.escape(test_label)}$"])
         scope_label += f" labeled {test_label}"
-    return tuple(targets), ctest_filter, scope_label
+    return targets, ctest_filter, scope_label
 
 
 def _focused_test_executable(
@@ -1159,7 +1113,7 @@ def _ctest_selection_count(
 
 
 def cmd_test(root: pathlib.Path, args: list[str]) -> int:
-    """Build and run unit tests through the same cached path as build/run."""
+    """Build and run scoped behavior suites through the build/run cache."""
     try:
         (
             mode,
@@ -2018,7 +1972,7 @@ def _print_final_validation_summary(
 
 
 def cmd_validate(root: pathlib.Path, args: list[str]) -> int:
-    """Build once, then run smoke, selected snapshots, and the full unit inventory."""
+    """Build once, then run smoke, selected snapshots, and the full unit/integration inventory."""
     try:
         mode, force_reconfigure, build_system, render_names = _parse_validate_args(
             root, args
@@ -2136,7 +2090,7 @@ def cmd_validate(root: pathlib.Path, args: list[str]) -> int:
                 )
                 print_render_report(root, scenario_name)
 
-        ctest_filter = ["--label-regex", "unit"]
+        ctest_filter = ["--label-regex", "^(unit|integration)$"]
         selection_rc, selected_tests, selection_output = _ctest_selection_count(
             root, bd, config, env, ctest_filter
         )
@@ -2167,7 +2121,7 @@ def cmd_validate(root: pathlib.Path, args: list[str]) -> int:
                         "--output-on-failure",
                     ],
                     root,
-                    step_name="ctest-unit",
+                    step_name="ctest-behavior",
                     kind="ctest",
                     log_dir=log_dir,
                     env=env,
@@ -2467,12 +2421,12 @@ Single-word shortcuts:
        [--label <label>]
        [--target <draxul-test-*> [--catch <filter>] [--repeat N] [--seed N]]
        [--megacity|--satview|--scoreview|--pcbview|--rezonality|--products|--all]
-               Build and run core unit tests in parallel (default: debug, ninja)
+               Build and run core unit and integration tests in parallel (default: debug, ninja)
                --label runs only that CTest label and fails when it matches no tests;
                --target builds one Catch2 executable, preflights its filter, and
                can repeat it with a new reported seed without another build;
                Product flags add their suites; --products adds all products;
-               --all builds and runs the complete unit inventory
+               --all builds and runs the complete unit/integration inventory
   shot         Regenerate the README hero screenshot
   api          Build local Doxygen API docs
   docs         Build all docs artifacts
@@ -2502,13 +2456,13 @@ Examples:
   do clean
   do test                  # Core tests in the Debug development cache
   do test --label kanban   # Core tests carrying the exact kanban label
-  do test --target draxul-test-core --catch "[server]" --repeat 3
+  do test --target draxul-test-server --catch "[server]" --repeat 3
                              # Build once, preflight, then repeat with new seeds
   do test --satview        # Core + SatView tests
   do test --pcbview        # Core + PCBView tests
   do test --rezonality     # Core + Rezonality tests
   do test --products       # Core + every product test suite
-  do test --all            # Complete unit inventory
+  do test --all            # Complete unit/integration inventory
   do smoke --skip-build    # Reuse that already-built Debug cache
   do validate --render panel-view
                             # One final build, smoke, panel snapshot, full CTest

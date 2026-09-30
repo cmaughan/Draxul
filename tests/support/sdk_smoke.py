@@ -152,7 +152,7 @@ def build_external(args: argparse.Namespace, build_dir: pathlib.Path,
 def stage_app_layout(temp: pathlib.Path, draxul: pathlib.Path,
                      plugin_id: str) -> tuple[pathlib.Path, pathlib.Path]:
     """Create the isolated executable + bundled-plugin directories and copy
-    the Draxul binary in. Returns (executable_dir, plugin_dir)."""
+    the Draxul binary in. Returns (executable_dir, generation_payload_dir)."""
     if sys.platform == "darwin":
         app_root = temp / "Draxul.app"
         executable_dir = app_root / "Contents" / "MacOS"
@@ -161,9 +161,15 @@ def stage_app_layout(temp: pathlib.Path, draxul: pathlib.Path,
         executable_dir = temp / "app"
         plugin_dir = executable_dir / "plugins" / plugin_id
     executable_dir.mkdir(parents=True)
-    plugin_dir.mkdir(parents=True)
+    payload_dir = plugin_dir / "generations" / "sdk-smoke"
+    payload_dir.mkdir(parents=True)
+    # Discovery accepts published generations. Stage the isolated fixture in
+    # that same current package format before launching its first consumer.
+    (plugin_dir / "current.json").write_text(
+        json.dumps({"schema_version": 1, "generation": payload_dir.name}),
+        encoding="utf-8")
     shutil.copy2(draxul, executable_dir / draxul.name)
-    return executable_dir, plugin_dir
+    return executable_dir, payload_dir
 
 
 def isolated_env(temp: pathlib.Path) -> dict[str, str]:
@@ -191,7 +197,11 @@ def assert_plugin_loads(draxul: pathlib.Path, plugin_id: str,
     and that the loaded library is the expected isolated copy."""
     result = subprocess.run(
         [str(draxul), "plugin", "get", plugin_id, "--json"],
-        check=True, capture_output=True, text=True, env=env, timeout=timeout)
+        capture_output=True, text=True, env=env, timeout=timeout)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"plugin discovery exited {result.returncode}: "
+            f"{result.stdout}\n{result.stderr}")
     metadata = json.loads(result.stdout)
     if not metadata.get("available"):
         raise RuntimeError(f"external plugin did not load: {metadata}")

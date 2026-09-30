@@ -28,6 +28,10 @@ enum HighlightId : uint16_t
     HlRefactor = 9,
     HlMuted = 10,
     HlStatus = 11,
+    HlPriorityUrgent = 12,
+    HlPriorityHigh = 13,
+    HlPriorityMedium = 14,
+    HlPriorityLow = 15,
 };
 
 HlAttr attr(Color fg, Color bg, bool bold = false)
@@ -51,9 +55,26 @@ uint16_t icon_highlight(CardKind kind)
         return HlFeature;
     case CardKind::Refactor:
         return HlRefactor;
+    case CardKind::Test:
+        return HlFeature;
     case CardKind::Note:
     default:
         return HlCard;
+    }
+}
+
+uint16_t priority_highlight(int priority)
+{
+    switch(priority)
+    {
+    case 0:
+        return HlPriorityUrgent;
+    case 1:
+        return HlPriorityHigh;
+    case 2:
+        return HlPriorityMedium;
+    default:
+        return HlPriorityLow;
     }
 }
 
@@ -234,6 +255,13 @@ void KanbanHost::pump()
         return;
 
     const auto now = std::chrono::steady_clock::now();
+    if (focused_ && preview_close_pending_
+        && !callbacks().is_markdown_preview_visible())
+    {
+        preview_close_pending_ = false;
+        if (preview_requested_ == true)
+            refresh_card_preview();
+    }
     if (file_monitor_ && file_monitor_->consume_changes())
     {
         reload_at_ = now + std::chrono::milliseconds(150);
@@ -429,6 +457,10 @@ void KanbanHost::configure_highlights()
     highlights().set(HlRefactor, attr(color_from_rgb(0x7DD3A8), bg, true));
     highlights().set(HlMuted, attr(color_from_rgb(0x87909C), bg));
     highlights().set(HlStatus, attr(color_from_rgb(0xB8C0CC), color_from_rgb(0x1B222C)));
+    highlights().set(HlPriorityUrgent, attr(color_from_rgb(0xFF6262), bg, true));
+    highlights().set(HlPriorityHigh, attr(color_from_rgb(0xFF9966), bg, true));
+    highlights().set(HlPriorityMedium, attr(color_from_rgb(0xF2D272), bg, true));
+    highlights().set(HlPriorityLow, attr(color_from_rgb(0x8DAAD4), bg));
 }
 
 bool KanbanHost::reload_board(bool rearm_monitor, bool update_preview)
@@ -683,12 +715,30 @@ void KanbanHost::draw_card_row(const KanbanCardRowLayout& row)
     const std::string icon = icon_for_kind(card.kind);
     const int icon_cells = text_cell_width(icon);
     draw_text(row.x, row.y, icon, row.selected ? HlSelected : icon_highlight(card.kind), row.width);
-    const int text_x = row.x + icon_cells + 1;
-    const int text_width = row.width - icon_cells - 1;
+    int text_x = row.x + icon_cells + 1;
+    if(card.priority)
+    {
+        const std::string priority_icon = icon_for_priority(*card.priority);
+        draw_text(text_x, row.y, priority_icon, row.selected ? HlSelected : priority_highlight(*card.priority), row.width - (text_x - row.x));
+        text_x += text_cell_width(priority_icon) + 1;
+    }
+    const int text_width = row.width - (text_x - row.x);
     std::string label;
-    if (workspace_board_.sources.size() > 1)
-        label = "[" + card.source_name + "] ";
-    label += card.file_name;
+    const auto number = card_sequence_number(card.file_name);
+    if (workspace_board_.sources.size() > 1 || number)
+    {
+        label = "[";
+        if(workspace_board_.sources.size() > 1)
+            label += card.source_name;
+        if(number)
+        {
+            if(workspace_board_.sources.size() > 1)
+                label += " ";
+            label += "#" + *number;
+        }
+        label += "] ";
+    }
+    label += card_display_name(card.file_name);
     draw_text(text_x, row.y, truncate_to_cells(label, text_width), card_hl, text_width);
 }
 
@@ -1036,10 +1086,14 @@ void KanbanHost::delete_selected_card()
     keep_selection_visible();
     update_status();
     if (!selected_card(board_, selection_)
-        && (preview_visible_ || callbacks().is_markdown_preview_visible()))
+        && preview_requested_.value_or(callbacks().is_markdown_preview_visible()))
     {
-        preview_visible_ = false;
-        callbacks().hide_markdown_preview();
+        preview_requested_ = false;
+        if (!preview_close_pending_ && callbacks().is_markdown_preview_visible())
+        {
+            preview_close_pending_ = true;
+            callbacks().hide_markdown_preview();
+        }
     }
     else
     {
@@ -1079,16 +1133,22 @@ void KanbanHost::toggle_column_zoom()
 
 void KanbanHost::toggle_card_preview()
 {
-    preview_visible_ = preview_visible_
-        || callbacks().is_markdown_preview_visible();
-    if (preview_visible_)
+    const bool actual_visible = callbacks().is_markdown_preview_visible();
+    if (preview_requested_.value_or(actual_visible))
     {
-        preview_visible_ = false;
-        callbacks().hide_markdown_preview();
+        preview_requested_ = false;
+        if (!preview_close_pending_ && actual_visible)
+        {
+            preview_close_pending_ = true;
+            callbacks().hide_markdown_preview();
+        }
         return;
     }
 
-    preview_visible_ = true;
+    preview_requested_ = true;
+    if (preview_close_pending_ && actual_visible)
+        return;
+    preview_close_pending_ = false;
     refresh_card_preview();
 }
 
@@ -1128,6 +1188,9 @@ void KanbanHost::rebuild_visible_board(
         }
     }
 
+    for(auto& column : board_.columns)
+        sort_cards_by_priority(column.cards);
+
     if (preferred_card)
     {
         if (const auto found = find_card_selection(board_, *preferred_card))
@@ -1158,9 +1221,8 @@ void KanbanHost::rebuild_visible_board(
 
 void KanbanHost::refresh_card_preview()
 {
-    preview_visible_ = preview_visible_
-        || callbacks().is_markdown_preview_visible();
-    if (!preview_visible_)
+    if (!preview_requested_.value_or(callbacks().is_markdown_preview_visible())
+        || preview_close_pending_)
         return;
 
     // No card to show yet (empty board / empty column): leave the toggle armed

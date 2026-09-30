@@ -14,7 +14,7 @@ target_link_libraries(draxul-kanban PUBLIC
 )
 
 target_link_libraries(draxul-kanban PRIVATE
-    SDL3::SDL3
+    SDL3::Headers
 )
 
 add_library(draxul-kanban-host STATIC

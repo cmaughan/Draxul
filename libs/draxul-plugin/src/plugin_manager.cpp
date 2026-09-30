@@ -373,7 +373,7 @@ std::shared_ptr<LoadedPlugin> PluginManager::load(std::string_view id, std::stri
     std::scoped_lock lock(mutex_);
     if (const auto loaded = loaded_.find(key); loaded != loaded_.end())
         return loaded->second;
-    const PluginManifest* manifest = find(id);
+    const PluginManifest* manifest = find(key);
     if (!manifest)
     {
         error = "Plugin is not installed: " + key;
@@ -462,13 +462,16 @@ std::shared_ptr<LoadedPlugin> PluginManager::load_generation(
 std::shared_ptr<LoadedPlugin> PluginManager::prepare_reload(
     std::string_view id, std::string& error)
 {
+    // The caller may have borrowed the ID from the manifest inventory that
+    // refresh replaces. Own it across that refresh, just as load does.
+    const std::string key(id);
     if (!refresh(error))
         return {};
     std::scoped_lock lock(mutex_);
-    const PluginManifest* manifest = find(id);
+    const PluginManifest* manifest = find(key);
     if (!manifest)
     {
-        error = "Plugin is not installed: " + std::string(id);
+        error = "Plugin is not installed: " + key;
         return {};
     }
     if (!manifest->error.empty())

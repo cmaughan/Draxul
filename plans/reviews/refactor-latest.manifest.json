@@ -1,0 +1,222 @@
+{
+  "consensus": {
+    "run_id": "20260930T075037Z-refactor-summary-3cef59c6",
+    "status": "complete",
+    "summary": "runs/20260930T075037Z-refactor-summary-3cef59c6/summary.md",
+    "work_items": [
+      {
+        "path": "kanban/pending/00 test-graph-and-scope -refactor.md",
+        "sha256": "674b67a85b8f2616dd7a594cf6acf24d3ef927b484df1ff65e48b57b57772a2e"
+      },
+      {
+        "path": "kanban/pending/03 headless-cli-launch -refactor.md",
+        "sha256": "0c2ba441cd7c2edb0af942bce9e6be41425dce4d74da0551f0a8cd5a9effc132"
+      },
+      {
+        "path": "kanban/pending/04 app-orchestration-collaborators -refactor.md",
+        "sha256": "e103371e50a4c9b200ffa9a24be60001e2ec4708887481aed73d5f02cd56ba4e"
+      },
+      {
+        "path": "kanban/pending/05 remote-command-queue -refactor.md",
+        "sha256": "74603ea0e5c577745b7c46d6c93082533394c4e852375063ec1777b4524bafea"
+      },
+      {
+        "path": "kanban/pending/06 client-control-recovery -refactor.md",
+        "sha256": "a902f6e376a256dea0b5482e39432c79887a7f6e9eae260089ce74f938b1d63a"
+      },
+      {
+        "path": "kanban/pending/07 protocol-vocabulary-and-requests -refactor.md",
+        "sha256": "7eb2f9aea36f3f76d2afbcd4bc5e81c8166930e9ef3fd212e13c80267503e55f"
+      },
+      {
+        "path": "kanban/pending/08 server-agent-command-policy -refactor.md",
+        "sha256": "6946410db51a127dd7db43ec2fa2febd53c25735f8676a5da8964401613ef738"
+      },
+      {
+        "path": "kanban/pending/09 server-checkpoint-state -refactor.md",
+        "sha256": "822f5339deba98ff4e31862ab037dff96b17aea44eab41c92b68a845047cf823"
+      },
+      {
+        "path": "kanban/pending/10 session-model-store -refactor.md",
+        "sha256": "0feff0c2ab55f087209ad5b5a4ae6baef41b38e3b90ba3eaca3637d637c1cce5"
+      },
+      {
+        "path": "kanban/pending/11 atomic-file-replacement -refactor.md",
+        "sha256": "1e14482e399fb0c79c5f63ed32751c9a6a4169813a446604e23e84952a210ac5"
+      },
+      {
+        "path": "kanban/pending/12 terminal-process-factory -refactor.md",
+        "sha256": "0d69ff972071ac46a64be28968daeec670aea77230bfd035afcf7a38e891b82a"
+      },
+      {
+        "path": "kanban/pending/13 pane-launch-values -refactor.md",
+        "sha256": "0d775cb3598446ccd6c98bd1a47060e667a16aaad452fc5171926689eb95615e"
+      },
+      {
+        "path": "kanban/pending/14 effective-config-reload -refactor.md",
+        "sha256": "95dc00e387971ae792db24ee3339cf130986cfebd913894aeda81a9963ed4e54"
+      },
+      {
+        "path": "kanban/pending/15 pid-process-identity -refactor.md",
+        "sha256": "2cba3ef2844a1883469ce1991d8a8be49e8ed8ffb4bcb405661e1471c73f0d7d"
+      },
+      {
+        "path": "kanban/pending/16 internal-include-test-seams -refactor.md",
+        "sha256": "b593adb441f7bb4ddd078631a8fe4c3c742d00a7a236d9db3af2ad4919b4fc10"
+      },
+      {
+        "path": "kanban/pending/17 shader-build-helper -refactor.md",
+        "sha256": "8f95fe65376004c93c30d45f48c2f439af5270af30070f56aafc589b80ccd323"
+      },
+      {
+        "path": "kanban/pending/18 product-render-manifests -refactor.md",
+        "sha256": "23565a8cda2b446e8dca0d03ca277721f96738180ff4964b792626c4387c2dd8"
+      },
+      {
+        "path": "kanban/pending/19 installed-cxx-sdk-targets -refactor.md",
+        "sha256": "7963f591c9201cfdf120ec2c9b9d5c06debced7a8e8aaddddd8b305518060fea"
+      },
+      {
+        "path": "kanban/pending/20 plugin-runtime-test-fixtures -refactor.md",
+        "sha256": "6811b01a542db855bff740172c2f1ee57cf2ae1dcc5fc3bfe7a907dc045a1da2"
+      },
+      {
+        "path": "kanban/pending/21 render-contract-host-links -refactor.md",
+        "sha256": "ab653cd68bec647169ed6753ea2ee9c1f448235ee6e45f76527554f79155b871"
+      },
+      {
+        "path": "kanban/pending/22 plugin-frame-input-bridge -refactor.md",
+        "sha256": "25227af43348d531287aef929d61840e66bf59cffd220b408938b54849401a58"
+      },
+      {
+        "path": "kanban/pending/23 native-renderer-operation-tests -refactor.md",
+        "sha256": "6d7997911afee9ecbc3ee2afba2aa75df3736598417bb45235d2ddfe14695afd"
+      },
+      {
+        "path": "kanban/pending/24 nanovg-cpu-batches -refactor.md",
+        "sha256": "8300f4309610ce7279d673b550ff606053ee157b6af2da62d52ce331df9925fb"
+      },
+      {
+        "path": "kanban/pending/25 markdown-gpu-planning -refactor.md",
+        "sha256": "e7634793bc12c8de4f2344e420030ef45d75757413abf729ae93de985df8bc69"
+      },
+      {
+        "path": "kanban/pending/26 plugin-imgui-vulkan-api -refactor.md",
+        "sha256": "731c65ebd61ed91ea001e6a88dd7a1ec826245a1025186f3cbbaeffd6d5aa4ec"
+      },
+      {
+        "path": "kanban/pending/27 imgui-input-injection -refactor.md",
+        "sha256": "6c08bc3792ed43b26eeeb6dfbfdf0c70a9ac30fd39031c61972b1fd05e3ff93a"
+      },
+      {
+        "path": "kanban/pending/28 glyph-atlas-overlay-layout -refactor.md",
+        "sha256": "008e68bc00b9fe651e54715d0c1b6520998f61400050adca5f47bd0ef7852ab9"
+      },
+      {
+        "path": "kanban/pending/29 kanban-interaction-policy -refactor.md",
+        "sha256": "29e2547890da94966520f95dfd90b8544be1f8324b2bee9da846bba44af4be30"
+      },
+      {
+        "path": "kanban/pending/30 render-harness-core -refactor.md",
+        "sha256": "5fb2e0d0650f0db2cef2c67a3e2211434fabf496157e76ea0b37c4b4e4234650"
+      },
+      {
+        "path": "kanban/pending/31 nanovg-frame-driver -refactor.md",
+        "sha256": "a15cfa6b3387577e02507ea436a9148256aaf2a15032b79fd7df26a276c9c390"
+      },
+      {
+        "path": "plugins/megacity/kanban/pending/01 megacity-worker-ownership -refactor.md",
+        "sha256": "2dd8537829db471e1e6f80d9190a46a05e36840d8b82485d7fb847b1ecd5a7c5"
+      },
+      {
+        "path": "plugins/megacity/kanban/pending/02 megacity-frame-preparation -refactor.md",
+        "sha256": "05862beb9c7da9cb11ef1ce3221b3db9f4ec7099216bf128efdff694694dd776"
+      },
+      {
+        "path": "plugins/megacity/kanban/pending/03 megacity-geometry-tests -refactor.md",
+        "sha256": "995d5c3681e369fbd3937b9ce08e58d45f10a152d196224513042e57567d13c8"
+      },
+      {
+        "path": "plugins/satview/kanban/pending/01 satview-test-boundaries -refactor.md",
+        "sha256": "13dbe6bd4b225aea8466c61e71a62819eca4df8d5c52ca867cd64e79ae8d1d1c"
+      },
+      {
+        "path": "plugins/satview/kanban/pending/02 satview-configuration-ownership -refactor.md",
+        "sha256": "1dd9e64eb213a3d4e3f0856424c0c7ad0a178fd8ef46e69db14d8b446fab376d"
+      },
+      {
+        "path": "plugins/satview/kanban/pending/03 satview-scene-frame-composition -refactor.md",
+        "sha256": "2862f6403590294f72763d62b4e18ed6f79301b32d964f8ff23315a083c14056"
+      },
+      {
+        "path": "plugins/rezonality/kanban/pending/01 rezonality-compiler-adapter -refactor.md",
+        "sha256": "d2a338ace74120a40d08bd50f7b1db3f0ed459d3ccaf329c765989ffab115f9d"
+      },
+      {
+        "path": "plugins/rezonality/kanban/pending/02 rezonality-module-test-boundaries -refactor.md",
+        "sha256": "8b409e58af13ee0b19d52a98ee3bc7dce67c9ee4f3eb48b5fd9911c3814b776b"
+      },
+      {
+        "path": "plugins/scoreview/kanban/pending/01 scoreview-header-ownership -refactor.md",
+        "sha256": "42232a854c67379c8606bad4ac054935c8e87eae7a422f7f9695692955826b28"
+      },
+      {
+        "path": "plugins/pcbview/kanban/pending/01 pcbview-selection-ownership -refactor.md",
+        "sha256": "a5da02b76f2420ec315349537b15f7080ad64d450c7926bdd9e3ee1bdcc2e699"
+      }
+    ]
+  },
+  "finished_at": "2026-09-30T07:50:30.779045+00:00",
+  "input": {
+    "bytes": 22756574,
+    "kind": "repomix",
+    "log": "logs/repomix.log",
+    "path": "repomix-output.xml",
+    "scope": "Tracked and non-ignored untracked files, including initialized submodules; Git metadata, review archives and previous Repomix outputs excluded. Repomix filters binary and security-sensitive files; see its log for exclusions. Input provenance does not certify exhaustive model review.",
+    "sha256": "d88986c03e389cd5f07793c9953be96add521294a2e02ad26e4c195fca7c39c8",
+    "source_files": 1890
+  },
+  "kind": "review",
+  "name": "refactor",
+  "prompt": "/Users/cmaughan/dev/draxul/plans/prompts/review_refactor.md",
+  "reviewers": [
+    {
+      "company": "openai",
+      "duration_seconds": 904.24,
+      "effort": "high",
+      "error": "",
+      "fallback_reason": "",
+      "model": "gpt-6-sol",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs/20260930T072551Z-refactor-c65e85c0/reports/openai.codex.gpt-6-sol.md",
+      "requested": "codex",
+      "sandbox_fallback": "",
+      "sha256": "f3a36f6bf82bcf0dba0af4851d6e1e89d9af72f8711ec037fc1b89839fb40871",
+      "status": "passed",
+      "transport": "codex",
+      "version": "codex-cli 0.158.0"
+    },
+    {
+      "company": "anthropic",
+      "duration_seconds": 1461.483,
+      "effort": "high",
+      "error": "",
+      "fallback_reason": "",
+      "model": "claude-opus-5-5",
+      "preflight": "passed",
+      "preflight_message": "live response verified",
+      "report": "runs/20260930T072551Z-refactor-c65e85c0/reports/anthropic.claude.claude-opus-5-5.md",
+      "requested": "claude",
+      "sandbox_fallback": "",
+      "sha256": "02b272e6021fa92a0738a71580dce0e7b648baec52b2fb2c253710e6cf01ce98",
+      "status": "passed",
+      "transport": "claude",
+      "version": "2.1.284 (Claude Code)"
+    }
+  ],
+  "run_id": "20260930T072551Z-refactor-c65e85c0",
+  "schema_version": 1,
+  "started_at": "2026-09-30T07:25:51.621646+00:00",
+  "status": "complete"
+}

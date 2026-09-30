@@ -388,6 +388,72 @@ TEST_CASE("shared topology preserves the selected shell for a new tab",
     CHECK(rejected.error_code == "invalid_shell_kind");
 }
 
+TEST_CASE("shared topology reuses a Kanban tab for the same resolved board",
+    "[server][topology][kanban]")
+{
+    TempDir temp("draxul-kanban-tab-reuse");
+    const auto project = temp.path / "project";
+    const auto board = project / "kanban";
+    std::filesystem::create_directories(board);
+    TopologyService service("kanban-tab-reuse", {});
+
+    TopologyCommand command{
+        .client_id = "kanban-client",
+        .command_id = "first-board",
+        .expected_revision = service.snapshot().revision,
+        .kind = TopologyCommandKind::CreateTab,
+        .space_id = service.snapshot().spaces.front().space_id,
+        .name = "Kanban",
+        .pane_domain = TopologyPaneDomain::ClientLocal,
+        .client_host_kind = "kanban",
+        .client_working_directory = project.string(),
+        .client_source_path = "kanban",
+    };
+    const auto create = [&service](TopologyCommand request) {
+        request.expected_revision = service.snapshot().revision;
+        const auto response = service.handle(
+            "topology.command", topology_command_to_json(request));
+        INFO(response.error_message);
+        REQUIRE(response.ok);
+        std::string error;
+        const auto result = topology_command_result_from_json(
+            response.value, error);
+        INFO(error);
+        REQUIRE(result);
+        return *result;
+    };
+
+    const auto first = create(command);
+    REQUIRE(first.snapshot.spaces.front().tabs.size() == 2);
+
+    command.command_id = "same-absolute-board";
+    command.client_source_path = board.string();
+    const auto same = create(command);
+    CHECK(same.created_id == first.created_id);
+    CHECK(same.snapshot.spaces.front().tabs.size() == 2);
+
+    command.command_id = "different-board";
+    command.client_source_path = (project / "other-board").string();
+    const auto different = create(command);
+    CHECK(different.created_id != first.created_id);
+    CHECK(different.snapshot.spaces.front().tabs.size() == 3);
+
+    TopologyCommand create_space{
+        .client_id = "kanban-client",
+        .command_id = "another-space",
+        .kind = TopologyCommandKind::CreateSpace,
+        .name = "Another Space",
+    };
+    const auto space = create(create_space);
+    REQUIRE(space.snapshot.spaces.size() == 2);
+    command.command_id = "same-board-from-other-space";
+    command.space_id = space.created_id;
+    command.client_source_path.clear();
+    const auto cross_space = create(command);
+    CHECK(cross_space.created_id == first.created_id);
+    CHECK(cross_space.snapshot.spaces.back().tabs.size() == 1);
+}
+
 TEST_CASE("topology layouts reject wrong field types without mutation",
     "[server][topology][layout][validation]")
 {

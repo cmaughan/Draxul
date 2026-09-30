@@ -1,6 +1,6 @@
 #include <catch2/catch_all.hpp>
 
-#include "cli_args.h"
+#include <draxul/cli_args.h>
 #include "command_palette.h"
 #include "support/fake_host.h"
 

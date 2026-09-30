@@ -1,6 +1,7 @@
 #pragma once
 
-#include <draxul/server_protocol.h>
+#include <draxul/server_status_text.h>
+#include <draxul/executable_layout.h>
 
 #include <filesystem>
 #include <memory>
@@ -9,22 +10,6 @@
 
 namespace draxul
 {
-
-struct ServerStatusText
-{
-    std::string state;
-    std::string clients_and_terminals;
-    std::string sessions_spaces_and_agents;
-};
-
-ServerStatusText format_server_status_text(
-    const ServerStatusSnapshot& status);
-std::string format_server_status_summary(
-    const ServerStatusSnapshot& status);
-std::string format_server_session_listing_table(
-    const std::vector<ServerSessionStatusSnapshot>& sessions);
-std::filesystem::path default_server_log_path(
-    const std::filesystem::path& runtime_directory);
 
 bool launch_draxul_ui(const std::filesystem::path& executable,
     const std::filesystem::path& runtime_directory,

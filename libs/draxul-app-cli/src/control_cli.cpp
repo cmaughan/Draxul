@@ -1,4 +1,4 @@
-#include "control_cli.h"
+#include <draxul/control_cli.h>
 
 #include <draxul/config_document.h>
 #include <draxul/control_plane.h>
@@ -66,13 +66,13 @@ std::optional<int> parse_duration_ms(std::string_view text)
     return *value * multiplier;
 }
 
-void print_human(const ControlCliCommand& command, const nlohmann::json& result)
+void print_human(const CliContext& io, const ControlCliCommand& command, const nlohmann::json& result)
 {
     if (command.method == "space.list")
     {
         for (const auto& space : result)
         {
-            std::printf("%c %d  %s  (%d tabs, %d panes)\n",
+            std::fprintf(io.output, "%c %d  %s  (%d tabs, %d panes)\n",
                 space.value("active", false) ? '*' : ' ',
                 space.value("id", -1),
                 space.value("name", "").c_str(),
@@ -102,7 +102,7 @@ void print_human(const ControlCliCommand& command, const nlohmann::json& result)
                 = route_text("space_id");
             const std::string tab
                 = route_text("tab_id");
-            std::printf("%c %-20s %-10s %-8s space=%s tab=%s pane=%s\n",
+            std::fprintf(io.output, "%c %-20s %-10s %-8s space=%s tab=%s pane=%s\n",
                 agent.value("focused", false) ? '*' : ' ',
                 agent.value("instance_id", "").c_str(),
                 agent.value("kind", "").c_str(),
@@ -116,20 +116,20 @@ void print_human(const ControlCliCommand& command, const nlohmann::json& result)
     if (command.method == "pane.read")
     {
         for (const auto& line : result.value("lines", nlohmann::json::array()))
-            std::printf("%s\n", line.get<std::string>().c_str());
+            std::fprintf(io.output, "%s\n", line.get<std::string>().c_str());
         return;
     }
     if (command.method == "ui.list")
     {
         for (const auto& ui : result)
         {
-            std::printf("%s  %s\n",
+            std::fprintf(io.output, "%s  %s\n",
                 ui.value("control_id", "").c_str(),
                 ui.value("control_runtime_directory", "").c_str());
         }
         return;
     }
-    std::printf("%s\n", result.dump(2).c_str());
+    std::fprintf(io.output, "%s\n", result.dump(2).c_str());
 }
 
 } // namespace
@@ -602,7 +602,7 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
     return parsed;
 }
 
-int run_control_cli(const ControlCliCommand& command)
+int run_control_cli(const ControlCliCommand& command, const CliContext& io)
 {
     nlohmann::json params = nlohmann::json::object();
     if (command.method == "space.get" || command.method == "space.focus")
@@ -724,7 +724,7 @@ int run_control_cli(const ControlCliCommand& command)
             std::string topology_error;
             if (!topology.refresh(topology_error))
             {
-                std::fprintf(stderr,
+                std::fprintf(io.error,
                     "server_unavailable: %s\n",
                     topology_error.c_str());
                 return 1;
@@ -751,7 +751,7 @@ int run_control_cli(const ControlCliCommand& command)
             }
             if (!found)
             {
-                std::fprintf(stderr,
+                std::fprintf(io.error,
                     "pane_not_found: The replacement pane was not found.\n");
                 return 1;
             }
@@ -765,7 +765,7 @@ int run_control_cli(const ControlCliCommand& command)
         });
         if (!probe.ready())
         {
-            std::fprintf(stderr, "%s: %s\n",
+            std::fprintf(io.error, "%s: %s\n",
                 probe.error_code.empty()
                     ? "server_unavailable"
                     : probe.error_code.c_str(),
@@ -778,7 +778,7 @@ int run_control_cli(const ControlCliCommand& command)
                 "managed-agent-v2")
             == probe.welcome->capabilities.end())
         {
-            std::fprintf(stderr,
+            std::fprintf(io.error,
                 "unsupported_server: The running Draxul server predates in-place agent launch; stop it and retry with this build.\n");
             return 1;
         }
@@ -796,7 +796,7 @@ int run_control_cli(const ControlCliCommand& command)
         = [&](const nlohmann::json& request_params) {
               if (!using_global_server)
               {
-                  auto local = ControlClient::request(
+                  auto local = io.request(
                       command.control_id, runtime,
                       command.method, request_params);
                   if (local.ok
@@ -817,14 +817,14 @@ int run_control_cli(const ControlCliCommand& command)
                   = command.session_id.empty()
                   ? "default"
                   : command.session_id;
-              return ControlClient::request(
+              return io.request(
                   namespaced_control_id(
                       kServerControlId, server_runtime),
                   server_runtime, command.method,
                   std::move(global_params));
           };
     const auto route_ui_request = [&]() -> ControlClientResult {
-        auto local = ControlClient::request(command.control_id,
+        auto local = io.request(command.control_id,
             runtime, command.method, params);
         if (local.ok || command.control_id_explicit
             || (local.error_code != "endpoint_unavailable"
@@ -833,7 +833,7 @@ int run_control_cli(const ControlCliCommand& command)
             return local;
         }
 
-        auto routes = ControlClient::request(
+        auto routes = io.request(
             namespaced_control_id(kServerControlId, server_runtime),
             server_runtime, "ui.list",
             { { "session_id", command.session_id.empty()
@@ -863,7 +863,7 @@ int run_control_cli(const ControlCliCommand& command)
                     "invalid_ui_route",
                     "The server returned an invalid UI control route." };
             }
-            return ControlClient::request(
+            return io.request(
                 route["control_id"].get<std::string>(),
                 route["control_runtime_directory"].get<std::string>(),
                 command.method, params);
@@ -938,14 +938,14 @@ int run_control_cli(const ControlCliCommand& command)
     }
     if (!result.ok)
     {
-        std::fprintf(stderr, "%s: %s\n",
+        std::fprintf(io.error, "%s: %s\n",
             result.error_code.c_str(), result.error_message.c_str());
         return 1;
     }
     if (command.json)
-        std::printf("%s\n", result.result.dump(2).c_str());
+        std::fprintf(io.output, "%s\n", result.result.dump(2).c_str());
     else
-        print_human(command, result.result);
+        print_human(io, command, result.result);
     return 0;
 }
 

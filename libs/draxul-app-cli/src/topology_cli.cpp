@@ -1,4 +1,4 @@
-#include "topology_cli.h"
+#include <draxul/topology_cli.h>
 
 #include <draxul/config_document.h>
 #include <draxul/control_plane.h>
@@ -308,11 +308,11 @@ nlohmann::json node_json(
     return encoded;
 }
 
-int print_error(std::string_view code, std::string_view message, bool json)
+int print_error(const CliContext& io, std::string_view code, std::string_view message, bool json)
 {
     if (json)
     {
-        std::fprintf(stderr, "%s\n", nlohmann::json{
+        std::fprintf(io.error, "%s\n", nlohmann::json{
                                          { "ok", false },
                                          { "error", { { "code", code }, { "message", message } } },
                                      }
@@ -321,31 +321,31 @@ int print_error(std::string_view code, std::string_view message, bool json)
     }
     else
     {
-        std::fprintf(stderr, "%.*s: %.*s\n",
+        std::fprintf(io.error, "%.*s: %.*s\n",
             static_cast<int>(code.size()), code.data(),
             static_cast<int>(message.size()), message.data());
     }
     return 1;
 }
 
-void print_result(const nlohmann::json& value, bool json)
+void print_result(const CliContext& io, const nlohmann::json& value, bool json)
 {
     if (json)
     {
-        std::printf("%s\n", value.dump(2).c_str());
+        std::fprintf(io.output, "%s\n", value.dump(2).c_str());
         return;
     }
     if (value.is_array())
     {
         for (const auto& row : value)
         {
-            std::printf("%-16s %s\n",
+            std::fprintf(io.output, "%-16s %s\n",
                 row.value("id", row.value("node_id", "")).c_str(),
                 row.value("name", row.value("kind", "")).c_str());
         }
         return;
     }
-    std::printf("%s\n", value.dump(2).c_str());
+    std::fprintf(io.output, "%s\n", value.dump(2).c_str());
 }
 
 std::string snapshot_text(const TerminalSemanticSnapshot& snapshot)
@@ -802,13 +802,16 @@ ParseTopologyCliResult parse_topology_cli(
     return parsed;
 }
 
-int run_topology_cli(const TopologyCliCommand& command)
+int run_topology_cli(const TopologyCliCommand& command, const CliContext& io)
 {
     if (command.noun == "plugin")
     {
         const auto manager = PluginManager::discover_default();
         nlohmann::json output = nlohmann::json::array();
-        for (const auto& manifest : manager->manifests())
+        // Loading refreshes the manager's inventory. Keep this iteration and
+        // its manifest IDs alive across that refresh.
+        const auto manifests = manager->manifests();
+        for (const auto& manifest : manifests)
         {
             if (command.verb == "get" && manifest.id != command.target_id)
                 continue;
@@ -840,11 +843,11 @@ int run_topology_cli(const TopologyCliCommand& command)
         if (command.verb == "get")
         {
             if (output.empty())
-                return print_error("plugin_not_found", "Plugin was not found.", command.json);
-            print_result(output.front(), command.json);
+                return print_error(io, "plugin_not_found", "Plugin was not found.", command.json);
+            print_result(io, output.front(), command.json);
         }
         else
-            print_result(output, command.json);
+            print_result(io, output, command.json);
         return 0;
     }
 
@@ -857,7 +860,7 @@ int run_topology_cli(const TopologyCliCommand& command)
     });
     if (!probe.ready())
     {
-        return print_error(
+        return print_error(io,
             probe.error_code.empty()
                 ? "server_unavailable"
                 : probe.error_code,
@@ -870,7 +873,7 @@ int run_topology_cli(const TopologyCliCommand& command)
             "topology-control-v2")
         == probe.welcome->capabilities.end())
     {
-        return print_error("unsupported_server",
+        return print_error(io, "unsupported_server",
             "The running Draxul server predates headless topology control; stop it and retry with this build.",
             command.json);
     }
@@ -880,7 +883,7 @@ int run_topology_cli(const TopologyCliCommand& command)
                "client-plugin-pane-v1")
             == probe.welcome->capabilities.end())
     {
-        return print_error("unsupported_server",
+        return print_error(io, "unsupported_server",
             "The running Draxul server does not support plugin panes.",
             command.json);
     }
@@ -893,14 +896,14 @@ int run_topology_cli(const TopologyCliCommand& command)
         std::string source;
         if (command.target_id == "-")
         {
-            source.assign(std::istreambuf_iterator<char>(std::cin),
+            source.assign(std::istreambuf_iterator<char>(*io.input),
                 std::istreambuf_iterator<char>());
         }
         else
         {
             std::ifstream input(command.target_id, std::ios::binary);
             if (!input)
-                return print_error("layout_file_unavailable",
+                return print_error(io, "layout_file_unavailable",
                     "Could not open layout file: " + command.target_id,
                     command.json);
             source.assign(std::istreambuf_iterator<char>(input),
@@ -913,9 +916,9 @@ int run_topology_cli(const TopologyCliCommand& command)
         }
         catch (const std::exception& exception)
         {
-            return print_error("invalid_json", exception.what(), command.json);
+            return print_error(io, "invalid_json", exception.what(), command.json);
         }
-        auto result = ControlClient::request(
+        auto result = io.request(
             namespaced_control_id(kServerControlId, runtime),
             runtime, "topology.layout_apply",
             {
@@ -924,9 +927,9 @@ int run_topology_cli(const TopologyCliCommand& command)
                 { "dry_run", command.dry_run },
             });
         if (!result.ok)
-            return print_error(result.error_code,
+            return print_error(io, result.error_code,
                 result.error_message, command.json);
-        print_result(result.result, command.json);
+        print_result(io, result.result, command.json);
         return 0;
     }
 
@@ -938,7 +941,7 @@ int run_topology_cli(const TopologyCliCommand& command)
     std::string error;
     if (!client.refresh(error))
     {
-        return print_error(
+        return print_error(io,
             client.last_error_code().empty()
                 ? "server_unavailable"
                 : client.last_error_code(),
@@ -955,11 +958,11 @@ int run_topology_cli(const TopologyCliCommand& command)
     {
         const auto located = find_pane(snapshot, command.target_id);
         if (!located)
-            return print_error("pane_not_found", "Pane was not found.", command.json);
+            return print_error(io, "pane_not_found", "Pane was not found.", command.json);
         if (located->pane->domain != TopologyPaneDomain::ServerTerminal
             || located->pane->terminal_id.empty())
         {
-            return print_error("client_local_pane",
+            return print_error(io, "client_local_pane",
                 "Only server terminal panes support headless terminal control.",
                 command.json);
         }
@@ -974,7 +977,7 @@ int run_topology_cli(const TopologyCliCommand& command)
         });
         if (!terminal.attach(error))
         {
-            return print_error(
+            return print_error(io,
                 terminal.last_error_code().empty()
                     ? "terminal_attach_failed"
                     : terminal.last_error_code(),
@@ -996,7 +999,7 @@ int run_topology_cli(const TopologyCliCommand& command)
                 && !terminal.take_control(error, 1))
             {
                 disconnect();
-                return print_error(
+                return print_error(io,
                     terminal.last_error_code().empty()
                         ? "take_control_failed"
                         : terminal.last_error_code(),
@@ -1011,7 +1014,7 @@ int run_topology_cli(const TopologyCliCommand& command)
                     if (!encoded)
                     {
                         disconnect();
-                        return print_error("unknown_key",
+                        return print_error(io, "unknown_key",
                             "Unknown key name: " + key, command.json);
                     }
                     input += *encoded;
@@ -1026,14 +1029,14 @@ int run_topology_cli(const TopologyCliCommand& command)
             if (!terminal.send_input(input, error, 2))
             {
                 disconnect();
-                return print_error(
+                return print_error(io,
                     terminal.last_error_code().empty()
                         ? "terminal_input_failed"
                         : terminal.last_error_code(),
                     error, command.json);
             }
             disconnect();
-            print_result({
+            print_result(io, {
                              { "ok", true },
                              { "command", "pane." + command.verb },
                              { "pane_id", command.target_id },
@@ -1057,7 +1060,7 @@ int run_topology_cli(const TopologyCliCommand& command)
                 if (!terminal.poll(changed, error))
                 {
                     disconnect();
-                    return print_error(
+                    return print_error(io,
                         terminal.last_error_code().empty()
                             ? "terminal_poll_failed"
                             : terminal.last_error_code(),
@@ -1071,7 +1074,7 @@ int run_topology_cli(const TopologyCliCommand& command)
             if (text.find(command.text) == std::string::npos)
             {
                 disconnect();
-                return print_error("timeout",
+                return print_error(io, "timeout",
                     "Timed out waiting for pane output.", command.json);
             }
         }
@@ -1091,11 +1094,11 @@ int run_topology_cli(const TopologyCliCommand& command)
         };
         disconnect();
         if (command.json)
-            print_result(output, true);
+            print_result(io, output, true);
         else
         {
             for (const auto& line : lines)
-                std::printf("%s\n", line.c_str());
+                std::fprintf(io.output, "%s\n", line.c_str());
         }
         return 0;
     }
@@ -1116,7 +1119,7 @@ int run_topology_cli(const TopologyCliCommand& command)
             {
                 size_t index = 0;
                 if (!find_space(snapshot, command.target_id, &index))
-                    return print_error("space_not_found", "Space was not found.", command.json);
+                    return print_error(io, "space_not_found", "Space was not found.", command.json);
                 output = topology_snapshot_to_json(snapshot)["spaces"][index];
                 output["id"] = command.target_id;
             }
@@ -1127,7 +1130,7 @@ int run_topology_cli(const TopologyCliCommand& command)
             {
                 const auto* space = find_space(snapshot, command.space_id);
                 if (!space)
-                    return print_error("space_not_found", "Space was not found.", command.json);
+                    return print_error(io, "space_not_found", "Space was not found.", command.json);
                 for (const auto& tab : space->tabs)
                 {
                     const auto located = find_tab(snapshot, tab.tab_id);
@@ -1138,7 +1141,7 @@ int run_topology_cli(const TopologyCliCommand& command)
             {
                 const auto located = find_tab(snapshot, command.target_id);
                 if (!located)
-                    return print_error("tab_not_found", "Tab was not found.", command.json);
+                    return print_error(io, "tab_not_found", "Tab was not found.", command.json);
                 output = tab_json(snapshot, *located);
             }
         }
@@ -1168,7 +1171,7 @@ int run_topology_cli(const TopologyCliCommand& command)
             {
                 const auto located = find_pane(snapshot, command.target_id);
                 if (!located)
-                    return print_error("pane_not_found",
+                    return print_error(io, "pane_not_found",
                         "Pane was not found: " + command.target_id,
                         command.json);
                 output = pane_json(snapshot, *located);
@@ -1178,7 +1181,7 @@ int run_topology_cli(const TopologyCliCommand& command)
         {
             const auto located_tab = find_tab(snapshot, command.tab_id);
             if (!located_tab)
-                return print_error("tab_not_found", "Tab was not found.", command.json);
+                return print_error(io, "tab_not_found", "Tab was not found.", command.json);
             for (const auto& node : located_tab->tab->nodes)
             {
                 if (node.is_leaf)
@@ -1187,7 +1190,7 @@ int run_topology_cli(const TopologyCliCommand& command)
                 output.push_back(node_json(snapshot, *located));
             }
         }
-        print_result(output, command.json);
+        print_result(io, output, command.json);
         return 0;
     }
 
@@ -1234,7 +1237,7 @@ int run_topology_cli(const TopologyCliCommand& command)
         {
             const auto located = find_tab(snapshot, command.target_id);
             if (!located)
-                return print_error("tab_not_found", "Tab was not found.", command.json);
+                return print_error(io, "tab_not_found", "Tab was not found.", command.json);
             mutation.kind = command.verb == "rename"
                 ? TopologyCommandKind::RenameTab
                 : command.verb == "close"
@@ -1250,7 +1253,7 @@ int run_topology_cli(const TopologyCliCommand& command)
     {
         const auto located = find_pane(snapshot, command.target_id);
         if (!located)
-            return print_error("pane_not_found", "Pane was not found.", command.json);
+            return print_error(io, "pane_not_found", "Pane was not found.", command.json);
         mutation.space_id = located->space->space_id;
         mutation.tab_id = located->tab->tab_id;
         mutation.pane_id = located->pane->pane_id;
@@ -1292,7 +1295,7 @@ int run_topology_cli(const TopologyCliCommand& command)
             const auto target = find_pane(snapshot, command.secondary_id);
             if (!target)
             {
-                return print_error("pane_not_found",
+                return print_error(io, "pane_not_found",
                     "Pane move target was not found.", command.json);
             }
             if ((!command.space_id.empty()
@@ -1301,7 +1304,7 @@ int run_topology_cli(const TopologyCliCommand& command)
                 || (!command.tab_id.empty()
                     && command.tab_id != target->tab->tab_id))
             {
-                return print_error("destination_mismatch",
+                return print_error(io, "destination_mismatch",
                     "Pane move --space/--tab must identify the target pane's route.",
                     command.json);
             }
@@ -1325,7 +1328,7 @@ int run_topology_cli(const TopologyCliCommand& command)
             const auto target = find_pane(snapshot, command.secondary_id);
             if (!target || target->tab->tab_id != located->tab->tab_id)
             {
-                return print_error("pane_not_found",
+                return print_error(io, "pane_not_found",
                     "Pane swap requires two panes in the same tab.", command.json);
             }
             mutation.kind = TopologyCommandKind::SwapPane;
@@ -1343,7 +1346,7 @@ int run_topology_cli(const TopologyCliCommand& command)
         if (command.verb == "equalize")
         {
             if (!tab)
-                return print_error("tab_not_found", "Tab was not found.", command.json);
+                return print_error(io, "tab_not_found", "Tab was not found.", command.json);
             mutation.kind = TopologyCommandKind::EqualizeSplits;
             mutation.space_id = tab->space->space_id;
             mutation.tab_id = tab->tab->tab_id;
@@ -1351,7 +1354,7 @@ int run_topology_cli(const TopologyCliCommand& command)
         else
         {
             if (!node || node->node->is_leaf)
-                return print_error("split_not_found", "Split was not found.", command.json);
+                return print_error(io, "split_not_found", "Split was not found.", command.json);
             mutation.kind = TopologyCommandKind::SetSplitRatio;
             mutation.space_id = node->space->space_id;
             mutation.tab_id = node->tab->tab_id;
@@ -1369,14 +1372,14 @@ int run_topology_cli(const TopologyCliCommand& command)
             nlohmann::json output = topology_command_result_to_json(result);
             output["ok"] = true;
             output["command"] = command.noun + "." + command.verb;
-            print_result(output, command.json);
+            print_result(io, output, command.json);
             return 0;
         }
         if (client.last_error_code() != "revision_conflict"
             || !client.refresh(error))
             break;
     }
-    return print_error(
+    return print_error(io,
         client.last_error_code().empty()
             ? "topology_command_failed"
             : client.last_error_code(),

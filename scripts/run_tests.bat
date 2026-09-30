@@ -98,9 +98,9 @@ if "%UNIT_ONLY%"=="1" (
     call :run cmake --build build --config %CONFIG% --target draxul-tests --parallel -- %BUILD_LOG_ARGS%
     if errorlevel 1 exit /b !errorlevel!
     if "%VERBOSE%"=="1" (
-        call :run ctest --test-dir build --build-config %CONFIG% --label-regex unit --parallel 4 --verbose --timeout 120
+        call :run ctest --test-dir build --build-config %CONFIG% --label-regex "^(unit|integration)$" --parallel 4 --verbose --timeout 120
     ) else (
-        call :run ctest --test-dir build --build-config %CONFIG% --label-regex unit --parallel 4 --output-on-failure --timeout 120
+        call :run ctest --test-dir build --build-config %CONFIG% --label-regex "^(unit|integration)$" --parallel 4 --output-on-failure --timeout 120
     )
     if errorlevel 1 exit /b !errorlevel!
     exit /b 0

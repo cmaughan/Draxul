@@ -88,7 +88,10 @@ private:
     // 'p' pins a Markdown preview pane below the board that follows the
     // selection. Both are pure view state owned by this host.
     bool column_zoom_ = false;
-    bool preview_visible_ = false;
+    // Null until the first local toggle, so a restored companion pane can be
+    // recognized. Thereafter the user's intent wins over a stale server view.
+    std::optional<bool> preview_requested_;
+    bool preview_close_pending_ = false;
     bool focused_ = false;
     bool preview_refresh_pending_ = false;
     std::optional<size_t> source_filter_;

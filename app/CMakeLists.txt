@@ -8,17 +8,13 @@ endif()
 
 add_library(draxul-app
     agent_controller.cpp
-    agent_integration.cpp
     app.cpp
     chrome_host.cpp
     chrome_text_layer.cpp
     chrome_vector_pass.cpp
-    cli_args.cpp
-    cli_help.cpp
     server_status_surface.cpp
     command_palette.cpp
     command_palette_host.cpp
-    control_cli.cpp
     control_event_journal.cpp
     control_request_policy.cpp
     control_request_router.cpp
@@ -28,10 +24,8 @@ add_library(draxul-app
     input_dispatcher.cpp
     pane_manager.cpp
     render_tree.cpp
-    session_id.cpp
     space_controller.cpp
     tab_controller.cpp
-    topology_cli.cpp
     topology_mutation_route.cpp
     ${DRAXUL_APP_PLATFORM_SOURCES}
 )
@@ -40,6 +34,7 @@ target_include_directories(draxul-app PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 target_link_libraries(draxul-app PUBLIC
     draxul-agent
+    draxul-app-cli
     draxul-app-shell
     draxul-session-model
     draxul-control

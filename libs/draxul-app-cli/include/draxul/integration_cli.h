@@ -1,5 +1,7 @@
 #pragma once
 
+#include <draxul/cli_context.h>
+
 #include <optional>
 #include <string>
 #include <vector>
@@ -23,6 +25,6 @@ struct ParseIntegrationCliResult
 
 ParseIntegrationCliResult parse_integration_cli(
     const std::vector<std::string>& args);
-int run_integration_cli(const IntegrationCliCommand& command);
+int run_integration_cli(const IntegrationCliCommand& command, const CliContext& io = {});
 
 } // namespace draxul

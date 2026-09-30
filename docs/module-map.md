@@ -28,7 +28,7 @@ target graph has four layers:
 
 ```text
 draxul executable
-├── draxul-app
+├── draxul-app → draxul-app-cli
 ├── draxul-client / draxul-server
 ├── draxul-markdown-host
 ├── draxul-kanban-host → draxul-kanban
@@ -70,6 +70,22 @@ interrupts blocking waits. Creation/runtime failures are explicit. Watched roots
 must exist and remain at their paths (Windows supports 63 roots per instance).
 Kanban is the first consumer; Rezonality's existing watcher is unchanged.
 
+### libs/draxul-app-cli/
+
+Headless launch and subcommand parsing, dispatch, session naming, startup capability
+checks, and server status text. Its public `<draxul/...>` headers have no window or
+renderer dependency. `CliInvocation` records parsing/console requirements before
+execution; `CliContext` supplies per-invocation input/output and the control request
+port. Production defaults use real streams and transport. `ParsedArgs` has the same
+layout in render-enabled and render-disabled consumers; flag recognition stays
+build-capability gated. The `draxul-test-cli` integration target exercises parsing,
+dispatch, and a real server without building the graphics application.
+
+Executable lookup, Windows sibling-helper paths, macOS nested-bundle paths and the
+server log path belong to `draxul-client::executable_layout`. Platform entry points
+keep native console attachment and detached/exec helper launch. App maps launch
+values into `AppOptions` and renders native server status surfaces.
+
 ### app/
 
 Top-level orchestration only.
@@ -83,7 +99,7 @@ Owns:
 
 Good place for:
 - app lifecycle
-- top-level CLI/test harness behavior
+- native entry points, console setup, helper execution and test harness wiring
 - integration glue
 
 Bad place for:
@@ -399,10 +415,10 @@ Use this when:
 
 ### Fast confidence
 
-- `python do.py test debug` — build and run core unit shards in the shared Debug cache
-- `python do.py test debug --megacity|--satview|--scoreview|--pcbview` — add only an affected product suite
+- `python do.py test debug` — build and run core unit/integration suites in the shared Debug cache
+- `python do.py test debug --megacity|--satview|--scoreview|--pcbview|--rezonality` — add only an affected product suite
 - `python do.py test debug --products` — add every product suite for shared plugin seams
-- `python do.py test debug --all` — explicit complete unit inventory
+- `python do.py test debug --all` — explicit complete unit/integration inventory
 - `python do.py smoke --skip-build` — startup-check that already-built app
 - `python do.py run release` — final Release build and startup confirmation
 

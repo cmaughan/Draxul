@@ -4,6 +4,7 @@ add_library(draxul-markdown
     src/markdown_draw_list.cpp
     src/markdown_layout.cpp
     src/markdown_parser_md4c.cpp
+    src/markdown_navigation.cpp
     src/markdown_scroll.cpp
     src/markdown_theme.cpp
 )
@@ -18,7 +19,7 @@ target_include_directories(draxul-markdown SYSTEM PRIVATE
 
 target_link_libraries(draxul-markdown
     PUBLIC draxul-font
-    PRIVATE md4c
+    PRIVATE md4c SDL3::Headers
 )
 
 if(APPLE)
@@ -33,7 +34,6 @@ endif()
 
 add_library(draxul-markdown-host STATIC
     src/markdown_host.cpp
-    src/markdown_navigation.cpp
     src/markdown_render_pass.cpp
     ${DRAXUL_MARKDOWN_HOST_PLATFORM_SOURCE}
 )

@@ -503,33 +503,6 @@ std::filesystem::path server_metadata_path(
         namespaced_control_id(kServerControlId, runtime_directory));
 }
 
-#ifdef _WIN32
-std::filesystem::path windows_server_helper_executable(
-    const std::filesystem::path& client_executable)
-{
-    if (_wcsicmp(client_executable.filename().c_str(),
-            L"draxul-server.exe")
-        == 0)
-    {
-        return client_executable;
-    }
-    return client_executable.parent_path()
-        / "draxul-server.exe";
-}
-
-std::filesystem::path windows_client_executable(
-    const std::filesystem::path& current_executable)
-{
-    if (_wcsicmp(current_executable.filename().c_str(),
-            L"draxul-server.exe")
-        != 0)
-    {
-        return current_executable;
-    }
-    return current_executable.parent_path() / "draxul.exe";
-}
-#endif
-
 std::string make_server_client_id()
 {
     std::random_device random;

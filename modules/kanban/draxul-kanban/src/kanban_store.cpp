@@ -5,6 +5,8 @@
 #include <draxul/string_util.h>
 
 #include <algorithm>
+#include <charconv>
+#include <cctype>
 #include <fstream>
 #include <optional>
 #include <set>
@@ -248,6 +250,51 @@ void apply_card_metadata(KanbanColumn& column, const OrderedNames& metadata_orde
     }
 
     column.cards = std::move(ordered);
+}
+
+std::optional<int> read_card_priority(const std::filesystem::path& path)
+{
+    std::ifstream file(path);
+    if(!file)
+        return std::nullopt;
+
+    std::string line;
+    for(int line_number = 0; line_number < 40 && std::getline(file, line); ++line_number)
+    {
+        std::string_view value = line;
+        const auto first = value.find_first_not_of(" \t\r");
+        if(first == std::string_view::npos)
+            continue;
+        value.remove_prefix(first);
+        constexpr std::string_view bold_prefix = "**Priority:**";
+        constexpr std::string_view plain_prefix = "Priority:";
+        if(value.starts_with(bold_prefix))
+            value.remove_prefix(bold_prefix.size());
+        else if(value.starts_with(plain_prefix))
+            value.remove_prefix(plain_prefix.size());
+        else
+            continue;
+
+        const auto priority_start = value.find_first_not_of(" \t");
+        if(priority_start == std::string_view::npos)
+            return std::nullopt;
+        value.remove_prefix(priority_start);
+        if(value.empty() || (value.front() != 'P' && value.front() != 'p'))
+            return std::nullopt;
+        value.remove_prefix(1);
+        size_t digits = 0;
+        while(digits < value.size() && std::isdigit(static_cast<unsigned char>(value[digits])))
+            ++digits;
+        if(digits == 0 || (digits < value.size()
+                && std::isalnum(static_cast<unsigned char>(value[digits]))))
+            return std::nullopt;
+        int priority = 0;
+        const auto [end, error] = std::from_chars(value.data(), value.data() + digits, priority);
+        if(error == std::errc{} && end == value.data() + digits)
+            return priority;
+        return std::nullopt;
+    }
+    return std::nullopt;
 }
 
 std::string quote(std::string_view value)
@@ -610,6 +657,7 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
                 .file_name = file_name,
                 .path = entry.path(),
                 .kind = card_kind_for_file(file_name),
+                .priority = read_card_priority(entry.path()),
                 .source_index = 0,
                 .source_name = board.sources.front().name,
                 .source_root = root,
@@ -889,11 +937,13 @@ bool reorder_card(KanbanBoard& board, KanbanSelection selection, int row_delta, 
     auto& cards = board.columns[static_cast<size_t>(selection.column)].cards;
     const auto card_index = static_cast<size_t>(selection.card);
     const size_t source_index = cards[card_index].source_index;
+    const auto priority = cards[card_index].priority;
 
     std::vector<size_t> source_cards;
     for (size_t index = 0; index < cards.size(); ++index)
     {
-        if (cards[index].source_index == source_index)
+        if (cards[index].source_index == source_index
+            && cards[index].priority == priority)
             source_cards.push_back(index);
     }
 

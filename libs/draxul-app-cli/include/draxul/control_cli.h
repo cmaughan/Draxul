@@ -1,5 +1,7 @@
 #pragma once
 
+#include <draxul/cli_context.h>
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -48,6 +50,6 @@ struct ParseControlCliResult
 };
 
 ParseControlCliResult parse_control_cli(const std::vector<std::string>& args);
-int run_control_cli(const ControlCliCommand& command);
+int run_control_cli(const ControlCliCommand& command, const CliContext& io = {});
 
 } // namespace draxul

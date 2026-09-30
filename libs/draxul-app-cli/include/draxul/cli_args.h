@@ -41,12 +41,10 @@ struct ParsedArgs
     std::string server_command;
     std::filesystem::path server_working_dir;
     int server_scrollback_lines = 10000;
-#ifdef DRAXUL_ENABLE_RENDER_TESTS
     bool bless_render_test = false;
     bool show_render_test_window = false;
     std::filesystem::path render_test_path;
     std::filesystem::path export_render_test_path;
-#endif
     std::optional<HostKind> host_kind;
     std::string host_command;
     std::filesystem::path host_source_path;

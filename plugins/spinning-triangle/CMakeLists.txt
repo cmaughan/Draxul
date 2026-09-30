@@ -215,4 +215,6 @@ if(NOT DRAXUL_TRIANGLE_STANDALONE)
     endif()
 endif()
 
-draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")
+if(NOT DRAXUL_TRIANGLE_STANDALONE)
+    draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")
+endif()

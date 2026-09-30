@@ -261,6 +261,40 @@ TEST_CASE("markdown host opens another source from dispatch action", "[markdown]
     CHECK(callbacks.last_window_title == "second.md");
 }
 
+TEST_CASE("missing companion preview source does not disconnect its Kanban tab",
+    "[markdown][host][preview]")
+{
+    const std::string font = draxul::tests::bundled_font_path().string();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    TempDir temp("draxul-markdown-missing-preview");
+    const auto missing = temp.path / "moved-card.md";
+    const auto current = temp.path / "current-card.md";
+    std::ofstream(current) << "# Current card\n";
+
+    AppConfig config;
+    config.font_path = font;
+    HostContext context;
+    context.config = &config;
+    context.launch_options.kind = HostKind::Markdown;
+    context.launch_options.source_path = missing.string();
+    context.initial_viewport.pixel_size = { 800, 600 };
+    context.display_ppi = 96.0f;
+    TestHostCallbacks callbacks;
+
+    MarkdownHost standalone;
+    REQUIRE_FALSE(standalone.initialize(context, callbacks));
+
+    context.launch_options.companion_owner_pane_id = "kanban-pane";
+    MarkdownHost companion;
+    REQUIRE(companion.initialize(context, callbacks));
+    CHECK(companion.is_running());
+    CHECK(companion.status_text() == "markdown | moved-card.md");
+    REQUIRE(companion.dispatch_action("open_file:" + current.string()));
+    CHECK(companion.status_text() == "markdown | current-card.md");
+}
+
 TEST_CASE("markdown host keeps layout and glyph metrics aligned across font and DPI changes",
     "[markdown][host][dpi]")
 {

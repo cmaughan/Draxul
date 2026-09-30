@@ -9,7 +9,7 @@ target_link_libraries(draxul-nvim-protocol
     PRIVATE
         draxul-performance
         mpack_lib
-        SDL3::SDL3
+        SDL3::Headers
 )
 
 add_library(draxul-nvim-transport STATIC

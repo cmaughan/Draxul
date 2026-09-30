@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <filesystem>
 #include <nlohmann/json.hpp>
 #include <numeric>
 #include <unordered_set>
@@ -15,6 +16,61 @@ namespace draxul
 
 namespace
 {
+
+std::optional<std::filesystem::path> kanban_root_path(
+    std::string_view source, std::string_view working_directory)
+{
+    std::error_code error;
+    std::filesystem::path base = working_directory.empty()
+        ? std::filesystem::current_path(error)
+        : std::filesystem::path(working_directory);
+    if (error)
+        return std::nullopt;
+
+    std::filesystem::path root = source.empty()
+        ? base / "kanban"
+        : std::filesystem::path(source);
+    if (root.is_relative())
+        root = base / root;
+    auto canonical = std::filesystem::weakly_canonical(root, error);
+    return error ? std::nullopt
+                 : std::optional(canonical.lexically_normal());
+}
+
+std::string existing_kanban_tab_id(const TopologySnapshot& snapshot,
+    const TopologyCommand& command)
+{
+    if (command.pane_domain != TopologyPaneDomain::ClientLocal
+        || command.client_host_kind != "kanban")
+        return {};
+    const auto requested = kanban_root_path(
+        command.client_source_path,
+        command.client_working_directory);
+    if (!requested)
+        return {};
+
+    for (const auto& space : snapshot.spaces)
+        for (const auto& tab : space.tabs)
+            for (const auto& pane : tab.panes)
+            {
+                if (pane.domain != TopologyPaneDomain::ClientLocal
+                    || pane.client_host_kind != "kanban"
+                    || !pane.companion_owner_pane_id.empty())
+                    continue;
+                const auto existing = kanban_root_path(
+                    pane.client_source_path,
+                    pane.client_working_directory);
+                if (existing)
+                {
+                    std::error_code error;
+                    if (*existing == *requested
+                        || std::filesystem::equivalent(
+                            *existing, *requested, error))
+                        return tab.tab_id;
+                }
+            }
+    return {};
+}
 
 TopologyNode* find_leaf_for_pane(
     TopologyTab& tab, std::string_view pane_id)
@@ -1084,6 +1140,12 @@ bool TopologyService::apply(const TopologyCommand& command,
     }
     if (command.kind == TopologyCommandKind::CreateTab)
     {
+        // The command result activates its created_id in the requesting UI.
+        // Returning an existing Kanban tab keeps repeated board requests in
+        // one shared tab, even when that tab lives in another Space.
+        created_id = existing_kanban_tab_id(snapshot_, command);
+        if (!created_id.empty())
+            return true;
         if (space->tabs.size() >= kTopologyMaxTabsPerSpace)
             return reject("limit_reached", "Topology tab limit reached.");
         TopologyTab tab = make_client_local_tab(

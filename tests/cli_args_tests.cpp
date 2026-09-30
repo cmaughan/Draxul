@@ -4,8 +4,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include "cli_args.h"
-#include "cli_help.h"
+#include <draxul/cli_args.h>
+#include <draxul/cli_help.h>
 
 #include <string>
 #include <vector>

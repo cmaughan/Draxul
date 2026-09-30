@@ -36,7 +36,7 @@ Requires CMake 3.25+, Visual Studio 2022, and Vulkan SDK (with glslc).
 ```bash
 py do.py build debug    # Default development build: Ninja Debug
 py do.py run debug      # Incremental Debug build and launch
-py do.py test debug     # Same Ninja Debug cache; parallel core unit tests
+py do.py test debug     # Same Ninja Debug cache; parallel core unit/integration tests
 py do.py run release    # Final Release build and startup confirmation
 ```
 
@@ -50,7 +50,7 @@ Requires CMake 3.25+, Xcode Command Line Tools (for Metal compiler).
 ```bash
 python3 do.py build debug                            # Configure/build Debug
 python3 do.py run debug                              # Incremental Debug build and launch
-python3 do.py test debug                             # Same Debug cache; parallel core unit tests
+python3 do.py test debug                             # Same Debug cache; parallel core unit/integration tests
 python3 do.py run release                            # Final Release build and startup confirmation
 ```
 
@@ -89,7 +89,9 @@ Use the `--log-file` and `--log-level` CLI flags for debug logging. These are re
 
 ## Project Structure
 
-- `app/`: executable and `draxul-app` orchestration target.
+- `app/`: executable and `draxul-app` orchestration target. Headless CLI parsing,
+  dispatch and launch policy live in `libs/draxul-app-cli/`; native entry points
+  retain console/helper launch and map parsed values into `AppOptions`.
 - `libs/`: reusable infrastructure libraries; see the complete ownership list in
   [docs/module-map.md](docs/module-map.md#core-libraries).
 - `modules/markdown/` and `modules/kanban/`: product modules built by default.
@@ -257,13 +259,19 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
   `<build-tree>/.draxul-build-result.json` after an interrupted caller; a stale
   lock is reclaimed only after its recorded process is no longer running.
 - `do.py test` is core-scoped by default. Add `--megacity`, `--satview`,
-  `--scoreview`, or `--pcbview` only when that product or a seam it consumes changed. Use
+  `--scoreview`, `--pcbview`, or `--rezonality` only when that product or a seam it consumes changed. Use
   `--products` when shared plugin SDK/support/renderer changes can affect every
-  product, and `--all` only for an explicitly requested complete unit inventory.
+  product, and `--all` only for an explicitly requested complete unit/integration inventory.
+- CMake owns test build aggregates and CTest `scope-*` labels. Register a new
+  suite with its actual dependencies and explicit source owner; do not add a
+  second list of CTest names to `do.py`. Focused targets are iteration tools,
+  not substitutes for the aggregate and same-cache smoke. Preserve real
+  integration behavior when reorganizing tests; add isolated unit cases only
+  when they provide meaningful additional evidence.
 - Add `--label <label>` to run only tests carrying that exact CTest label within
   the selected core/product scope. A label that matches no tests is an error.
 - For an iteration that belongs to one Catch2 executable, use
-  `py do.py test debug --target draxul-test-core --catch "[server]"`. The runner
+  `py do.py test debug --target draxul-test-server --catch "[server]"`. The runner
   builds only that target, rejects a zero-match filter before the test run, and
   accepts `--repeat N [--seed N]` to rerun without another configure/build while
   reporting every seed. Supported subprocesses run in an owned process tree;
@@ -283,8 +291,9 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 - When a change warrants the complete local inventory, use `py do.py validate debug`
   instead of stacking separate build, smoke, render, and CTest commands. It holds one
   build-tree lease, builds the app and full test aggregate once, then runs smoke, the
-  five platform core snapshots, and the complete unit CTest inventory without another
-  configure/build. Repeat `--render <scenario>` to replace the default snapshot set,
+  five platform core snapshots, and the complete unit/integration CTest inventory without another
+  core configure/build. That inventory includes the standalone plugin SDK smoke,
+  which performs its own isolated consumer build and may fetch dependencies. Repeat `--render <scenario>` to replace the default snapshot set,
   or use `--no-render` only when visual coverage is explicitly irrelevant. Successful
   steps stay concise; a failed step prints a short tail and retains its complete log
   under `<build-tree>/validation-logs/`, with the final summary classifying build,

@@ -249,6 +249,7 @@ else()
     set(DRAXUL_EXEC_PLATFORM_SOURCES "")
 endif()
 
+add_subdirectory(libs/draxul-app-cli)
 add_subdirectory(app)
 
 add_executable(draxul
@@ -281,8 +282,8 @@ target_link_libraries(draxul PRIVATE
 )
 draxul_check_core_product_isolation()
 draxul_stage_registered_plugins(draxul)
-if(TARGET draxul-test-app AND TARGET draxul-stage-plugin-dev_draxul_satview)
-    add_dependencies(draxul-test-app draxul-stage-plugin-dev_draxul_satview)
+if(TARGET draxul-test-plugin-integration AND TARGET draxul-stage-plugin-dev_draxul_satview)
+    add_dependencies(draxul-test-plugin-integration draxul-stage-plugin-dev_draxul_satview)
 endif()
 if(TARGET draxul-spinning-triangle-reload-package)
     add_dependencies(draxul
@@ -292,8 +293,8 @@ if(DRAXUL_ENABLE_RENDER_TESTS)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_RENDER_TESTS)
 endif()
 
-if(TARGET draxul-test-core)
-    add_dependencies(draxul-test-core draxul)
+if(TARGET draxul-test-server-integration)
+    add_dependencies(draxul-test-server-integration draxul)
 endif()
 
 if(APPLE)
@@ -504,7 +505,9 @@ if(BUILD_TESTING)
                 endif()
                 set(DRAXUL_RENDER_TEST_LABELS render)
                 if(DRAXUL_RENDER_TEST_SCOPE)
-                    list(APPEND DRAXUL_RENDER_TEST_LABELS ${DRAXUL_RENDER_TEST_SCOPE})
+                    list(APPEND DRAXUL_RENDER_TEST_LABELS ${DRAXUL_RENDER_TEST_SCOPE}
+                        scope-${DRAXUL_RENDER_TEST_SCOPE})
+                    add_dependencies(draxul-tests-${DRAXUL_RENDER_TEST_SCOPE} draxul)
                 endif()
                 set_tests_properties(draxul-render-${DRAXUL_RENDER_NAME}
                     PROPERTIES LABELS "${DRAXUL_RENDER_TEST_LABELS}" RESOURCE_LOCK draxul_gpu TIMEOUT 30)

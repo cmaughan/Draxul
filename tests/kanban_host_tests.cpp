@@ -57,7 +57,8 @@ public:
     void hide_markdown_preview() override
     {
         ++hide_preview_calls;
-        preview_visible = false;
+        if (!defer_preview_hide)
+            preview_visible = false;
     }
 
     bool is_markdown_preview_visible() const override
@@ -84,6 +85,7 @@ public:
     int show_preview_calls = 0;
     int hide_preview_calls = 0;
     bool preview_visible = false;
+    bool defer_preview_hide = false;
     std::string preview_path;
 };
 
@@ -349,6 +351,39 @@ TEST_CASE("kanban host toggles a Markdown preview pane with p", "[kanban][host][
     fixture.host.on_key(key_event(SDLK_P));
     REQUIRE(fixture.callbacks.hide_preview_calls == 1);
     REQUIRE_FALSE(fixture.callbacks.preview_visible);
+
+    // The same board can create a new preview after the previous one closed.
+    fixture.host.on_key(key_event(SDLK_P));
+    REQUIRE(fixture.callbacks.show_preview_calls == 2);
+    REQUIRE(fixture.callbacks.preview_visible);
+}
+
+TEST_CASE("kanban host reopens a preview after an asynchronous close",
+    "[kanban][host][input][preview]")
+{
+    KanbanHostFixture fixture(2);
+    fixture.host.on_focus_gained();
+    fixture.callbacks.defer_preview_hide = true;
+
+    fixture.host.on_key(key_event(SDLK_P));
+    REQUIRE(fixture.callbacks.show_preview_calls == 1);
+    fixture.host.on_key(key_event(SDLK_P));
+    REQUIRE(fixture.callbacks.hide_preview_calls == 1);
+    REQUIRE(fixture.callbacks.preview_visible); // close command is still pending
+
+    // A selection refresh must not revive a preview the user just closed.
+    fixture.host.on_key(key_event(SDLK_J));
+    REQUIRE(fixture.callbacks.show_preview_calls == 1);
+
+    // The next 'p' requests reopen even while the old pane remains projected.
+    fixture.host.on_key(key_event(SDLK_P));
+    REQUIRE(fixture.callbacks.hide_preview_calls == 1);
+    REQUIRE(fixture.callbacks.show_preview_calls == 1);
+    fixture.callbacks.preview_visible = false; // server close reaches the UI
+    fixture.host.pump();
+    REQUIRE(fixture.callbacks.show_preview_calls == 2);
+    REQUIRE(fixture.callbacks.preview_visible);
+    REQUIRE(fixture.callbacks.preview_path.find("card-2-feature.md") != std::string::npos);
 }
 
 TEST_CASE("kanban host preview follows the moved-to card", "[kanban][host][input]")

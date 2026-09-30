@@ -85,40 +85,6 @@
 namespace draxul
 {
 
-std::filesystem::path macos_server_helper_executable(
-    const std::filesystem::path& client_executable)
-{
-    if (client_executable.filename() == "draxul-server")
-        return client_executable;
-    const auto macos_directory = client_executable.parent_path();
-    const auto contents_directory = macos_directory.parent_path();
-    if (macos_directory.filename() != "MacOS"
-        || contents_directory.filename() != "Contents")
-    {
-        return client_executable;
-    }
-    return contents_directory / "Helpers" / "Draxul Server.app"
-        / "Contents" / "MacOS" / "draxul-server";
-}
-
-std::filesystem::path macos_client_executable(
-    const std::filesystem::path& current_executable)
-{
-    if (current_executable.filename() != "draxul-server")
-        return current_executable;
-    const auto helper_macos_directory
-        = current_executable.parent_path();
-    const auto helper_contents_directory
-        = helper_macos_directory.parent_path();
-    const auto helper_bundle_directory
-        = helper_contents_directory.parent_path();
-    const auto helpers_directory
-        = helper_bundle_directory.parent_path();
-    const auto client_contents_directory
-        = helpers_directory.parent_path();
-    return client_contents_directory / "MacOS" / "draxul";
-}
-
 bool configure_macos_server_status_application(
     MacosServerApplicationCallback reopen_callback,
     MacosServerApplicationCallback quit_callback,

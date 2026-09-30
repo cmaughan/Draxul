@@ -1,5 +1,7 @@
 #pragma once
 
+#include <draxul/cli_context.h>
+
 #include <optional>
 #include <string>
 #include <vector>
@@ -42,6 +44,6 @@ struct ParseTopologyCliResult
 
 ParseTopologyCliResult parse_topology_cli(
     const std::vector<std::string>& args);
-int run_topology_cli(const TopologyCliCommand& command);
+int run_topology_cli(const TopologyCliCommand& command, const CliContext& io = {});
 
 } // namespace draxul

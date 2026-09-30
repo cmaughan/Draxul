@@ -1,9 +1,9 @@
 #include <catch2/catch_all.hpp>
 
 #include "agent_controller.h"
-#include "agent_integration.h"
+#include <draxul/integration_cli.h>
 #include "app.h"
-#include "control_cli.h"
+#include <draxul/control_cli.h>
 #include "control_event_journal.h"
 #include "control_request_router.h"
 #include "space_controller.h"
@@ -53,129 +53,6 @@ ControlClientResult request_while_pumping(App& app,
 }
 
 } // namespace
-
-TEST_CASE("control CLI recognizes read-only Space and pane commands", "[control][cli]")
-{
-    auto spaces = parse_control_cli(
-        { "draxul", "space", "list", "--session", "work", "--json" });
-    REQUIRE(spaces.command);
-    CHECK(spaces.command->method == "space.list");
-    CHECK(spaces.command->session_id == "work");
-    CHECK(spaces.command->json);
-
-    auto pane = parse_control_cli({ "draxul", "pane", "read", "pane-4", "--lines", "25" });
-    REQUIRE(pane.command);
-    CHECK(pane.command->method == "pane.read");
-    CHECK(pane.command->value == "pane-4");
-    CHECK(pane.command->lines == 25);
-
-    auto invalid = parse_control_cli({ "draxul", "pane", "read", "pane-4", "--lines", "201" });
-    CHECK(invalid.recognized);
-    CHECK(invalid.error);
-
-    auto reload = parse_control_cli({
-        "draxul", "plugin", "reload", "dev.draxul.fixture", "--json" });
-    REQUIRE(reload.command);
-    CHECK(reload.command->method == "plugin.reload");
-    CHECK(reload.command->value == "dev.draxul.fixture");
-    CHECK(reload.command->json);
-
-    auto focus = parse_control_cli(
-        { "draxul", "pane", "focus", "pane-9", "--session", "work" });
-    REQUIRE(focus.command);
-    CHECK(focus.command->method == "pane.focus");
-    CHECK(focus.command->value == "pane-9");
-
-    auto action = parse_control_cli({ "draxul", "pane", "action", "pane-9",
-        "--action", "rezonality_reload", "--json" });
-    REQUIRE(action.command);
-    CHECK(action.command->method == "pane.action");
-    CHECK(action.command->action == "rezonality_reload");
-    CHECK(action.command->json);
-
-    auto routed_focus = parse_control_cli({ "draxul", "pane", "focus",
-        "pane-9", "--ui", "ui-window-2", "--json" });
-    REQUIRE(routed_focus.command);
-    CHECK(routed_focus.command->control_id == "ui-window-2");
-    CHECK(routed_focus.command->control_id_explicit);
-
-    auto uis = parse_control_cli(
-        { "draxul", "ui", "list", "--session", "work", "--json" });
-    REQUIRE(uis.command);
-    CHECK(uis.command->method == "ui.list");
-    CHECK(uis.command->session_id == "work");
-
-    auto missing_action = parse_control_cli(
-        { "draxul", "pane", "action", "pane-9" });
-    CHECK(missing_action.error);
-}
-
-TEST_CASE("control CLI keeps agent argv structured and parses wait policy", "[control][cli]")
-{
-    auto start = parse_control_cli({ "draxul", "agent", "start", "codex",
-        "--cwd", "D:/work", "--space", "2", "--", "--model", "gpt-5" });
-    REQUIRE(start.command);
-    CHECK(start.command->method == "agent.start");
-    CHECK(start.command->working_directory == "D:/work");
-    CHECK(start.command->space_id == 2);
-    CHECK(start.command->arguments
-        == std::vector<std::string>{ "--model", "gpt-5" });
-
-    auto wait = parse_control_cli({ "draxul", "agent", "wait", "agent-4",
-        "--until", "blocked,done", "--timeout", "10m" });
-    REQUIRE(wait.command);
-    CHECK(wait.command->timeout_ms == 10 * 60 * 1000);
-    CHECK(wait.command->values
-        == std::vector<std::string>{ "blocked", "done" });
-
-    auto report = parse_control_cli({
-        "draxul",
-        "pane",
-        "report-agent-session",
-        "pane-7",
-        "--agent-instance",
-        "agent-7",
-        "--source",
-        "draxul:codex",
-        "--agent",
-        "codex",
-        "--integration-version",
-        "1",
-        "--sequence",
-        "9",
-        "--session-ref",
-        "native-7",
-        "--server-epoch",
-        "epoch-7",
-        "--runtime-generation",
-        "3",
-        "--server-runtime-dir",
-        "D:/runtime",
-    });
-    REQUIRE(report.command);
-    CHECK(report.command->server_epoch == "epoch-7");
-    CHECK(report.command->runtime_generation == 3);
-    CHECK(report.command->server_runtime_directory
-        == "D:/runtime");
-}
-
-
-TEST_CASE("integration CLI supports both official native session hooks",
-    "[control][integration]")
-{
-    auto status = parse_integration_cli({ "draxul", "integration", "status", "--json" });
-    REQUIRE(status.command);
-    CHECK(status.command->target.empty());
-    CHECK(status.command->json);
-
-    auto claude = parse_integration_cli({ "draxul", "integration", "install", "claude" });
-    REQUIRE(claude.command);
-    CHECK(claude.command->target == "claude");
-
-    auto invalid = parse_integration_cli({ "draxul", "integration", "install", "other" });
-    CHECK(invalid.recognized);
-    CHECK(invalid.error);
-}
 
 TEST_CASE("control event subscriptions are bounded cursor projections", "[control]")
 {

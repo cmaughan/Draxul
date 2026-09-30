@@ -1,4 +1,4 @@
-#include "agent_integration.h"
+#include <draxul/integration_cli.h>
 
 #include <draxul/agent_integration.h>
 
@@ -76,12 +76,12 @@ nlohmann::json status_json(const AgentIntegrationStatus& status)
     return result;
 }
 
-void print_status(const AgentIntegrationStatus& status, bool json)
+void print_status(const CliContext& io, const AgentIntegrationStatus& status, bool json)
 {
     if (json)
-        std::printf("%s\n", status_json(status).dump(2).c_str());
+        std::fprintf(io.output, "%s\n", status_json(status).dump(2).c_str());
     else
-        std::printf("%s: %s\n",
+        std::fprintf(io.output, "%s: %s\n",
             agent_integration_provider_name(status.provider),
             agent_integration_state_name(status.state));
 }
@@ -132,7 +132,7 @@ ParseIntegrationCliResult parse_integration_cli(
     return result;
 }
 
-int run_integration_cli(const IntegrationCliCommand& command)
+int run_integration_cli(const IntegrationCliCommand& command, const CliContext& io)
 {
     if (command.action != "status")
     {
@@ -154,7 +154,7 @@ int run_integration_cli(const IntegrationCliCommand& command)
                     ? "Claude config directory cannot be resolved."
                     : "Codex home cannot be resolved.";
             }
-            std::fprintf(stderr, "%s\n", error.c_str());
+            std::fprintf(io.error, "%s\n", error.c_str());
             return 1;
         }
         const auto result = apply_agent_integration({
@@ -166,10 +166,10 @@ int run_integration_cli(const IntegrationCliCommand& command)
         });
         if (!result.success)
         {
-            std::fprintf(stderr, "%s\n", result.error.c_str());
+            std::fprintf(io.error, "%s\n", result.error.c_str());
             return 1;
         }
-        print_status(result.status, command.json);
+        print_status(io, result.status, command.json);
         return 0;
     }
 
@@ -180,14 +180,14 @@ int run_integration_cli(const IntegrationCliCommand& command)
             status_json(status_for(AgentIntegrationProvider::Claude)),
         });
         if (command.json)
-            std::printf("%s\n", statuses.dump(2).c_str());
+            std::fprintf(io.output, "%s\n", statuses.dump(2).c_str());
         else
         {
             for (const auto provider : { AgentIntegrationProvider::Codex,
                      AgentIntegrationProvider::Claude })
             {
                 const auto status = status_for(provider);
-                std::printf("%s: %s\n",
+                std::fprintf(io.output, "%s: %s\n",
                     agent_integration_provider_name(provider),
                     agent_integration_state_name(status.state));
             }
@@ -195,7 +195,7 @@ int run_integration_cli(const IntegrationCliCommand& command)
         return 0;
     }
 
-    print_status(status_for(*integration_provider(command.target)), command.json);
+    print_status(io, status_for(*integration_provider(command.target)), command.json);
     return 0;
 }
 

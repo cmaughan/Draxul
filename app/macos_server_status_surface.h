@@ -16,9 +16,4 @@ bool configure_macos_server_status_application(
     MacosServerApplicationCallback quit_callback,
     void* userdata, std::string& error);
 
-std::filesystem::path macos_server_helper_executable(
-    const std::filesystem::path& client_executable);
-std::filesystem::path macos_client_executable(
-    const std::filesystem::path& current_executable);
-
 } // namespace draxul

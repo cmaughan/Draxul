@@ -343,8 +343,15 @@ bool MarkdownHost::load_source(const HostLaunchOptions& launch_options)
     std::string source = read_file_to_string(path, &read_error);
     if (!read_error.empty())
     {
-        init_error_ = read_error;
-        return false;
+        if (!companion_preview_)
+        {
+            init_error_ = read_error;
+            return false;
+        }
+        // A card can move lanes while its path is stored in shared topology.
+        // Keep the companion host alive so the owning Kanban tab still projects
+        // and can close or retarget this preview on the next selection.
+        source = "# Preview unavailable\n\n" + read_error + "\n";
     }
 
     auto parsed = parse_markdown(path, std::move(source));
@@ -356,6 +363,7 @@ bool MarkdownHost::load_source(const HostLaunchOptions& launch_options)
 
     source_path_ = path;
     document_ = std::move(parsed.document);
+    init_error_.clear();
     status_ = "markdown | " + source_path_.filename().string();
     scroll_.home();
     navigation_.reset();

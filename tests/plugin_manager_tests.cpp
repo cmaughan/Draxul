@@ -890,7 +890,9 @@ TEST_CASE("MegaCity module creates the real City and Biology products",
 
         draxul::PluginHost host(manager, temp.root / "storage");
         draxul::tests::TestHostCallbacks callbacks;
-        REQUIRE(host.initialize(context, callbacks));
+        const bool initialized = host.initialize(context, callbacks);
+        INFO(host.status_text());
+        REQUIRE(initialized);
         CHECK(host.display_name() == expected_name);
         CHECK(host.runtime_state().content_ready);
 
@@ -967,7 +969,9 @@ TEST_CASE("ScoreView module creates its real runtime through the public ABI",
 
     draxul::PluginHost host(manager, temp.root / "storage");
     draxul::tests::TestHostCallbacks callbacks;
-    REQUIRE(host.initialize(context, callbacks));
+    const bool initialized = host.initialize(context, callbacks);
+    INFO(host.status_text());
+    REQUIRE(initialized);
     CHECK(host.display_name() == "ScoreView");
     CHECK(host.status_text().find("ScoreView plugin failed")
         == std::string::npos);
@@ -1663,7 +1667,8 @@ TEST_CASE("plugin manager loads and caches a real native module",
         DRAXUL_FIXTURE_VALID_PATH);
     const auto manager = draxul::PluginManager::discover(bundled, user);
     std::string error;
-    const auto first = manager->load("dev.draxul.fixture", error);
+    REQUIRE(manager->manifests().size() == 1);
+    const auto first = manager->load(manager->manifests().front().id, error);
     REQUIRE(first);
     REQUIRE(error.empty());
     const auto second = manager->load("dev.draxul.fixture", error);
@@ -1671,6 +1676,9 @@ TEST_CASE("plugin manager loads and caches a real native module",
     CHECK(first->api().supported_backends
         == (DRAXUL_PLUGIN_BACKEND_VULKAN
             | DRAXUL_PLUGIN_BACKEND_METAL));
+    const auto reloaded = manager->prepare_reload(manager->manifests().front().id, error);
+    REQUIRE(reloaded);
+    CHECK(reloaded->manifest().id == "dev.draxul.fixture");
 }
 
 TEST_CASE("PluginHost rejects a module unsupported by the active backend",

@@ -566,6 +566,7 @@ TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
         } },
     };
     std::atomic<int> create_commands = 0;
+    std::atomic<bool> kanban_request_has_working_directory = false;
     const auto dispatch = [&](const ControlRequest& request) {
         if (request.method == "topology.snapshot")
             return ControlMethodResult::success(
@@ -588,6 +589,17 @@ TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
                     "invalid_command", parse_error);
             }
             ++create_commands;
+            if (command->client_host_kind == "kanban")
+            {
+                kanban_request_has_working_directory
+                    = !command->client_working_directory.empty();
+                return ControlMethodResult::success(
+                    topology_command_result_to_json({
+                        .applied = true,
+                        .created_id = "tab-1",
+                        .snapshot = topology,
+                    }));
+            }
             topology.revision = 2;
             topology.spaces.front().tabs.push_back({
                 .tab_id = "tab-2",
@@ -647,7 +659,7 @@ TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
     while (hosts.size() < 1
         && std::chrono::steady_clock::now() < initial_deadline)
     {
-        REQUIRE(app.run_smoke_test(std::chrono::milliseconds(50)));
+        app.run_smoke_test(std::chrono::milliseconds(50));
     }
     REQUIRE(hosts.size() == 1);
     REQUIRE(launched_kinds == std::vector{ HostKind::Kanban });
@@ -672,7 +684,7 @@ TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
                        .active_tab_id() == first_tab_id)
         && std::chrono::steady_clock::now() < created_deadline)
     {
-        REQUIRE(app.run_smoke_test(std::chrono::milliseconds(50)));
+        app.run_smoke_test(std::chrono::milliseconds(50));
     }
     REQUIRE(create_commands == 1);
     REQUIRE(hosts.size() == 2);
@@ -698,6 +710,28 @@ TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
     });
     CHECK(hosts[0]->key_events.empty());
     CHECK(hosts[1]->key_events.size() == 1);
+
+    // The server can reuse a Kanban tab, including one behind the active tab.
+    REQUIRE(app.dispatch_gui_action("command_palette"));
+    g_last_fake_window->on_text_input({ .text = "new_tab kanban" });
+    g_last_fake_window->on_key({
+        .scancode = 40,
+        .keycode = SDLK_RETURN,
+        .mod = kModNone,
+        .pressed = true,
+    });
+    const auto reused_deadline = std::chrono::steady_clock::now()
+        + std::chrono::seconds(3);
+    while (tabs.active_tab_id() != first_tab_id
+        && std::chrono::steady_clock::now() < reused_deadline)
+    {
+        app.run_smoke_test(std::chrono::milliseconds(50));
+    }
+    CHECK(create_commands == 2);
+    CHECK(kanban_request_has_working_directory);
+    CHECK(tabs.active_tab_id() == first_tab_id);
+    CHECK(tabs.count() == 2);
+    CHECK(hosts.size() == 2);
 
     app.shutdown();
     server_thread.request_stop();

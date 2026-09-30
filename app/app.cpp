@@ -1348,11 +1348,18 @@ void App::wire_gui_actions()
     gui_deps.on_new_tab = [this](GuiLaunchTarget target) {
         const int pw = window_->width_pixels();
         const int th = diagnostics_host_->layout().terminal_height;
+        std::filesystem::path working_directory;
+        if (target.host_kind == HostKind::Kanban)
+        {
+            std::error_code error;
+            working_directory = std::filesystem::current_path(error);
+        }
         TopologyMutationResult result = mutate_topology({
             .kind = TopologyMutationKind::CreateTab,
             .space_id = space_controller_.active_space_id(),
             .name = initial_tab_name(
                 target.host_kind, target.plugin_id),
+            .working_directory = std::move(working_directory),
             .host_kind = target.host_kind,
             .plugin_id = std::move(target.plugin_id),
             .plugin_config_json
@@ -5419,10 +5426,17 @@ bool App::create_initial_tab(int pixel_w, int pixel_h)
 
 int App::add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
 {
+    std::filesystem::path working_directory;
+    if (host_kind == HostKind::Kanban)
+    {
+        std::error_code error;
+        working_directory = std::filesystem::current_path(error);
+    }
     TopologyMutationResult result = mutate_topology({
         .kind = TopologyMutationKind::CreateTab,
         .space_id = space_controller_.active_space_id(),
         .name = initial_tab_name(host_kind),
+        .working_directory = std::move(working_directory),
         .host_kind = host_kind,
         .pixel_width = pixel_w,
         .pixel_height = pixel_h,
