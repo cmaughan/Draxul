@@ -67,6 +67,31 @@ float imgui_font_size_from_metrics(const FontMetrics& metrics)
     return static_cast<float>(metrics.ascender + metrics.descender);
 }
 
+std::string initial_tab_name(std::optional<HostKind> host_kind,
+    std::string_view plugin_id = {})
+{
+    if (!plugin_id.empty())
+    {
+        const auto plugins = PluginManager::discover_default();
+        if (const PluginManifest* plugin = plugins->find(plugin_id);
+            plugin && !plugin->name.empty())
+        {
+            return plugin->name;
+        }
+        return std::string(plugin_id);
+    }
+
+    const HostKind kind = host_kind.value_or(
+        PaneManager::platform_default_split_host_kind());
+    if (const HostProviderMetadata* provider
+        = HostProviderRegistry::global().metadata(kind);
+        provider && !provider->display_name.empty())
+    {
+        return provider->display_name;
+    }
+    return std::string(to_string(kind));
+}
+
 void normalize_render_target_window_size(IWindow& window, const AppOptions& options)
 {
     if (options.render_target_pixel_width <= 0 || options.render_target_pixel_height <= 0)
@@ -1326,7 +1351,8 @@ void App::wire_gui_actions()
         TopologyMutationResult result = mutate_topology({
             .kind = TopologyMutationKind::CreateTab,
             .space_id = space_controller_.active_space_id(),
-            .name = "Tab",
+            .name = initial_tab_name(
+                target.host_kind, target.plugin_id),
             .host_kind = target.host_kind,
             .plugin_id = std::move(target.plugin_id),
             .plugin_config_json
@@ -1334,7 +1360,7 @@ void App::wire_gui_actions()
             .pixel_width = pw,
             .pixel_height = th,
         });
-        if (result.accepted())
+        if (result.applied_locally())
         {
             // Set the font on the new host so ImGui uses the app's font, not the default.
             if (IHost* h = active_pane_manager().host())
@@ -1346,10 +1372,12 @@ void App::wire_gui_actions()
             input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
         }
-        else
+        else if (!result.accepted())
         {
             push_toast(2, result.error.empty() ? "Failed to create tab." : result.error);
         }
+        // A server-backed tab is selected after the acknowledged topology is
+        // projected; until then the existing tab keeps keyboard focus.
     };
     gui_deps.on_close_tab = [this]() {
         if (tab_count() <= 1)
@@ -4093,6 +4121,11 @@ void App::apply_remote_command_activation(
         {
             activate_space(mapped->first);
             activate_tab(mapped->second);
+            if (IHost* host = active_pane_manager().focused_host())
+            {
+                host->set_imgui_font(text_service_.primary_font_path(),
+                    imgui_font_size_from_metrics(text_service_.metrics()));
+            }
         }
     }
     else if (command.kind
@@ -5389,7 +5422,7 @@ int App::add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
     TopologyMutationResult result = mutate_topology({
         .kind = TopologyMutationKind::CreateTab,
         .space_id = space_controller_.active_space_id(),
-        .name = "Tab",
+        .name = initial_tab_name(host_kind),
         .host_kind = host_kind,
         .pixel_width = pixel_w,
         .pixel_height = pixel_h,
@@ -5426,7 +5459,11 @@ void App::activate_tab(int tab_id)
     const int previous = active_tab_controller().active_tab_id();
     active_tab_controller().activate_tab(tab_id);
     if (active_tab_controller().active_tab_id() != previous)
+    {
         mark_session_dirty();
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
+        request_frame();
+    }
     refresh_app_shell_layout();
 }
 

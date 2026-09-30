@@ -694,7 +694,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - Multiple tabs, each with its own independent split tree and host set
 - Space, Agent, tab, and pane-status labels share one pill layout and palette model for capsule size, number accent width, text columns, foreground contrast, and active/inactive/editing colours. Each collection keeps a 30%-brightness version of its unchanged role colour across every pill; the selected/focused number segment uses the brighter role colour (Space blue, Agent mauve, tab red, pane green).
 - The top tab bar remains visible even with a single tab and shows right-aligned pills for live system usage and active chord prefixes
-- `new_tab` (`Ctrl+S, C`): Create a new tab
+- `new_tab` (`Ctrl+S, C`): Create and select a new tab. Its initial name comes from the launched host or plugin; shell directory updates can then replace that default name until the user explicitly renames it.
 - `close_tab` (`Ctrl+S, Shift+X`): Close the active tab (disabled when only one tab remains)
 - `next_tab` (`Ctrl+S, N`): Cycle to the next tab
 - `prev_tab` (`Ctrl+S, P`): Cycle to the previous tab

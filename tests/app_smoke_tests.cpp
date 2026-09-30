@@ -531,6 +531,176 @@ TEST_CASE("app smoke: failed remote projection retries and restores input routin
     server.stop();
 }
 
+TEST_CASE("app smoke: palette-created shared tab selects and names its host",
+    "[app_smoke][topology][tabs]")
+{
+    TempDir temp("draxul-app-remote-new-tab");
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &start_error));
+
+    TopologySnapshot topology{
+        .revision = 1,
+        .session_id = "default",
+        .spaces = { {
+            .space_id = "space-1",
+            .name = "Work",
+            .tabs = { {
+                .tab_id = "tab-1",
+                .name = "Neovim",
+                .name_user_set = false,
+                .root_node_id = "node-1",
+                .nodes = { {
+                    .node_id = "node-1",
+                    .is_leaf = true,
+                    .pane_id = "pane-1",
+                } },
+                .panes = { {
+                    .pane_id = "pane-1",
+                    .domain = TopologyPaneDomain::ClientLocal,
+                    .client_host_kind = "nvim",
+                } },
+            } },
+        } },
+    };
+    std::atomic<int> create_commands = 0;
+    const auto dispatch = [&](const ControlRequest& request) {
+        if (request.method == "topology.snapshot")
+            return ControlMethodResult::success(
+                topology_snapshot_to_json(topology));
+        if (request.method == "topology.poll")
+        {
+            return ControlMethodResult::success({
+                { "changed", false },
+                { "revision", topology.revision },
+            });
+        }
+        if (request.method == "topology.command")
+        {
+            std::string parse_error;
+            auto command = topology_command_from_json(
+                request.params, parse_error);
+            if (!command || command->kind != TopologyCommandKind::CreateTab)
+            {
+                return ControlMethodResult::error(
+                    "invalid_command", parse_error);
+            }
+            ++create_commands;
+            topology.revision = 2;
+            topology.spaces.front().tabs.push_back({
+                .tab_id = "tab-2",
+                .name = command->name,
+                .name_user_set = false,
+                .root_node_id = "node-2",
+                .nodes = { {
+                    .node_id = "node-2",
+                    .is_leaf = true,
+                    .pane_id = "pane-2",
+                } },
+                .panes = { {
+                    .pane_id = "pane-2",
+                    .domain = command->pane_domain,
+                    .terminal_id = "terminal-2",
+                } },
+            });
+            return ControlMethodResult::success(
+                topology_command_result_to_json({
+                    .applied = true,
+                    .created_id = "tab-2",
+                    .snapshot = topology,
+                }));
+        }
+        return ControlMethodResult::error(
+            "unknown_method", "Not used by this test.");
+    };
+    std::jthread server_thread([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            server.process_pending(dispatch);
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(1));
+        }
+    });
+
+    std::vector<SmokeTestHost*> hosts;
+    AppOptions opts = make_smoke_options();
+    opts.enable_control_server = false;
+    opts.enable_session_restore = false;
+    opts.enable_remote_topology = true;
+    opts.server_runtime_directory = temp.path;
+    opts.server_client_id = "new-tab-client";
+    opts.host_factory = [&hosts](HostKind)
+        -> std::unique_ptr<IHost> {
+        auto host = std::make_unique<SmokeTestHost>();
+        hosts.push_back(host.get());
+        return host;
+    };
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    const auto initial_deadline = std::chrono::steady_clock::now()
+        + std::chrono::seconds(3);
+    while (hosts.size() < 1
+        && std::chrono::steady_clock::now() < initial_deadline)
+    {
+        REQUIRE(app.run_smoke_test(std::chrono::milliseconds(50)));
+    }
+    REQUIRE(hosts.size() == 1);
+    const int first_tab_id
+        = app.space_controller().active_tab_controller().active_tab_id();
+
+    REQUIRE(g_last_fake_window != nullptr);
+    REQUIRE(app.dispatch_gui_action("command_palette"));
+    REQUIRE(static_cast<bool>(g_last_fake_window->on_text_input));
+    REQUIRE(static_cast<bool>(g_last_fake_window->on_key));
+    g_last_fake_window->on_text_input({ .text = "new_tab" });
+    g_last_fake_window->on_key({
+        .scancode = 40,
+        .keycode = SDLK_RETURN,
+        .mod = kModNone,
+        .pressed = true,
+    });
+    const auto created_deadline = std::chrono::steady_clock::now()
+        + std::chrono::seconds(3);
+    while ((hosts.size() < 2
+               || app.space_controller().active_tab_controller()
+                       .active_tab_id() == first_tab_id)
+        && std::chrono::steady_clock::now() < created_deadline)
+    {
+        REQUIRE(app.run_smoke_test(std::chrono::milliseconds(50)));
+    }
+    REQUIRE(create_commands == 1);
+    REQUIRE(hosts.size() == 2);
+    const auto& tabs = app.space_controller().active_tab_controller();
+    REQUIRE(tabs.count() == 2);
+    CHECK(tabs.active_tab_id() != first_tab_id);
+    REQUIRE(tabs.find_active_tab() != nullptr);
+#ifdef _WIN32
+    CHECK(tabs.find_active_tab()->name == "PowerShell");
+#else
+    CHECK(tabs.find_active_tab()->name == "Zsh");
+#endif
+    CHECK_FALSE(tabs.find_active_tab()->name_user_set);
+
+    REQUIRE(g_last_fake_window != nullptr);
+    REQUIRE(static_cast<bool>(g_last_fake_window->on_key));
+    g_last_fake_window->on_key({
+        .scancode = 4,
+        .keycode = 'a',
+        .mod = kModNone,
+        .pressed = true,
+    });
+    CHECK(hosts[0]->key_events.empty());
+    CHECK(hosts[1]->key_events.size() == 1);
+
+    app.shutdown();
+    server_thread.request_stop();
+    server_thread.join();
+    server.stop();
+}
+
 TEST_CASE("app smoke: Space lifecycle creates rooted hosts and switches in memory",
     "[app_smoke][spaces]")
 {
@@ -1353,9 +1523,15 @@ TEST_CASE("app smoke: reload_config propagates to hosts in inactive tabs",
 
     // Open a second tab via the new_tab keybinding (Ctrl+T). The new
     // tab becomes active, leaving tab 1's host inactive.
+    const int first_tab_id
+        = app.space_controller().active_tab_controller().active_tab_id();
     REQUIRE(created_window->on_key != nullptr);
     created_window->on_key(KeyEvent{ 0, SDLK_T, kModCtrl, true });
     REQUIRE(g_all_reload_hosts.size() == 2);
+    const auto& tabs = app.space_controller().active_tab_controller();
+    CHECK(tabs.active_tab_id() != first_tab_id);
+    REQUIRE(tabs.find_active_tab() != nullptr);
+    CHECK(tabs.find_active_tab()->name == "smoke-test");
 
     ReloadTrackingHost* host_inactive = g_all_reload_hosts[0];
     ReloadTrackingHost* host_active = g_all_reload_hosts[1];
