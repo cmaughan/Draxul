@@ -22,6 +22,11 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | SatView | `--plugin dev.draxul.satview` at launch or on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and plugin-owned ImGui controls. Launch JSON also accepts `satview_config_toml` for initial scene settings. Full narrative: [SatView product docs](../plugins/satview/docs/satview.md) |
 | Rezonality | `--plugin dev.draxul.rezonality` at launch or on pane/tab commands | Fault-tolerant Vulkan/Metal live graphics viewer ported from VkLive. Direct launch creates and focuses a server-topology plugin tab while preserving terminal access. It watches external edits, compiles complete GLSL candidates off the UI thread, renders named surfaces plus OBJ/glTF models with cameras, PBR/HDR materials, and the Cornell-box ray project through Vulkan ray shader groups or a native Metal kernel, retains the last valid GPU generation when a candidate fails, and publishes bounded agent-readable generation diagnostics. The NYX flight-deck launcher uses full-resolution scenegraphs without a final TV pass by default; `-Crt` selects preserved low-resolution `*-crt.scenegraph` variants. Its explicitly installed native Neovim package joins the live Draxul pane registry with compile records, merges every active pane's errors into inline diagnostics and a cross-file quickfix list, can focus or reload an exact contributing pane, and provides `:RezFiles` to open the deduplicated scenegraphs, shader entrypoints, and quoted includes from every current valid generation, including hidden panes whose compiled candidate is ready but not yet GPU-active. In a listed source buffer, `Ctrl+Enter` saves, flashes the visible text orange, and rebuilds every pane using that file without a chooser, keeping shared instances synchronized; `:help rezonality` documents the complete command and multi-pane behavior. All editor commands use the short `:Rez*` prefix, with the former `:Rezonality*` forms retained as compatibility aliases. |
 
+Interactive Kanban and Markdown launches join the shared Session. Their
+startup tab is selected, and the command palette can add shell, Neovim,
+plugin, and other available host tabs alongside it. A shell selected by name
+uses that shell on the server.
+
 MegaCity stores City and BioView renderer/camera preferences in separate
 plugin-owned config files, preserving them across pane reopen and plugin reload.
 PCBView rejects unsafe routing margins before integer conversion; hiding routed
@@ -919,7 +924,7 @@ and `draxul integration status` do not pass through the launch-option parser.
 | `--plugin <id>` | Launch the primary pane as a product plugin (e.g. `dev.draxul.scoreview`); cannot be combined with `--host`, and a plugin that fails to load fails startup instead of degrading to a placeholder pane |
 | `--plugin-config <json>` | Configuration JSON passed to the `--plugin` instance (ScoreView accepts `source`, `mode`, `background_playback`) |
 | `--command <cmd>` | Override host command path |
-| `--source <path>` | Markdown file for `--host markdown`; product plugins carry sources in `--plugin-config` JSON |
+| `--source <path>` | Markdown file for `--host markdown` or board folder for `--host kanban`; product plugins carry sources in `--plugin-config` JSON |
 | `--session <id>` | Select which saved shell session to restore |
 | `--new-session` | Start a fresh saved shell session; if `--session` is omitted Draxul generates a unique session id. If the requested session cannot be prepared (for example an explicit `--session` id that already exists) Draxul reports the error and exits rather than silently falling back to `default` |
 | `--session-name <name>` | Set the saved display name for the launched or restored shell session |

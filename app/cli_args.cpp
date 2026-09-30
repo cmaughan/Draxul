@@ -471,6 +471,9 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
 
 bool should_use_shared_server(const ParsedArgs& args)
 {
+    const bool shared_source_host = args.host_kind
+        && (*args.host_kind == HostKind::Markdown
+            || *args.host_kind == HostKind::Kanban);
     if (args.help || args.server || args.server_status
         || args.shutdown_server || args.force_stop_server
         || args.server_stop_dialog
@@ -478,7 +481,8 @@ bool should_use_shared_server(const ParsedArgs& args)
         || args.rename_session || args.delete_session
         || args.delete_all_sessions
         || !args.screenshot_path.empty()
-        || !args.host_source_path.empty())
+        || (!args.host_source_path.empty()
+            && !shared_source_host))
     {
         return false;
     }
@@ -494,8 +498,14 @@ bool should_use_shared_server(const ParsedArgs& args)
     {
         return true;
     }
-    return !args.host_kind
-        || *args.host_kind == HostKind::Plugin
+    if (!args.host_kind)
+        return true;
+    // Interactive native hosts need the shared topology too: a later tab or
+    // split may contain a server-owned shell. Keep explicit Neovim and demo
+    // launches local, where their CLI-only launch options still apply.
+    return *args.host_kind == HostKind::Plugin
+        || *args.host_kind == HostKind::Markdown
+        || *args.host_kind == HostKind::Kanban
         || is_server_owned_shell_host(*args.host_kind);
 }
 

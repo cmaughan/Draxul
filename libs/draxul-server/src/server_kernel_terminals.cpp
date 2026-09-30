@@ -197,6 +197,12 @@ ServerKernel::Impl::create_server_terminal(
         session_id, launch.space_id, launch.tab_id,
         launch.pane_id, terminal_id,
         launch.working_directory);
+    if (!launch.shell_kind.empty())
+    {
+        runtime_options.shell_kind = launch.shell_kind;
+        runtime_options.command.clear();
+        runtime_options.args.clear();
+    }
     if (!create_server_terminal_with_id(
             session_id, terminal_id, launch.pane_id,
             launch.name, error, std::move(runtime_options)))

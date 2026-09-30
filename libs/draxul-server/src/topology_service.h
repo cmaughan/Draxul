@@ -38,6 +38,7 @@ struct ServerTerminalTopologyLaunch
     std::string pane_id;
     std::string name;
     std::string working_directory;
+    std::string shell_kind;
 };
 
 struct TopologyServiceCallbacks

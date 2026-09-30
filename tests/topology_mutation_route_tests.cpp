@@ -220,6 +220,30 @@ TEST_CASE("server topology route preserves client-local launch descriptors",
     CHECK(commands[0].ratio == Catch::Approx(2.0f / 3.0f));
 }
 
+TEST_CASE("server topology route carries an explicitly chosen shell",
+    "[app][topology][mutation_route][shell]")
+{
+    std::vector<TopologyCommand> commands;
+    ServerTopologyMutationRoute route(server_deps(commands));
+    TopologyMutation new_tab
+        = targeted(TopologyMutationKind::CreateTab);
+    new_tab.host_kind = HostKind::Zsh;
+
+    REQUIRE(route.mutate(new_tab).accepted());
+    REQUIRE(commands.size() == 1);
+    CHECK(commands.front().pane_domain
+        == TopologyPaneDomain::ServerTerminal);
+    CHECK(commands.front().server_shell_kind == "zsh");
+
+    commands.clear();
+    TopologyMutation split
+        = targeted(TopologyMutationKind::SplitPane);
+    split.host_kind = HostKind::Bash;
+    REQUIRE(route.mutate(split).accepted());
+    REQUIRE(commands.size() == 1);
+    CHECK(commands.front().server_shell_kind == "bash");
+}
+
 TEST_CASE("server topology route requires plugin capability before enqueue",
     "[app][topology][mutation_route][plugin]")
 {

@@ -57,6 +57,7 @@ struct TopologyPane
     // The value is the durable topology pane id of the owning pane.
     std::string companion_owner_pane_id;
     std::string server_working_directory;
+    std::string server_shell_kind;
     std::optional<AgentIdentity> agent;
     std::optional<AgentSessionRef> agent_session;
     AgentRestorePolicy restore_policy
@@ -163,6 +164,7 @@ struct TopologyCommand
     std::string client_plugin_config_json;
     std::string companion_owner_pane_id;
     std::string server_working_directory;
+    std::string server_shell_kind;
 
     bool operator==(const TopologyCommand&) const = default;
 };

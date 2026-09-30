@@ -135,6 +135,7 @@ nlohmann::json pane_to_json(const TopologyPane& pane)
             pane.companion_owner_pane_id },
         { "server_working_directory",
             pane.server_working_directory },
+        { "server_shell_kind", pane.server_shell_kind },
     };
     if (pane.agent)
         result["agent"] = agent_to_json(pane);
@@ -157,6 +158,12 @@ bool read_pane(const nlohmann::json& value, TopologyPane& pane)
     if (value.contains("server_working_directory")
         && !read_string(value, "server_working_directory",
             pane.server_working_directory, true))
+    {
+        return false;
+    }
+    if (value.contains("server_shell_kind")
+        && !read_string(value, "server_shell_kind",
+            pane.server_shell_kind, true))
     {
         return false;
     }
@@ -571,6 +578,7 @@ nlohmann::json topology_command_to_json(
             command.companion_owner_pane_id },
         { "server_working_directory",
             command.server_working_directory },
+        { "server_shell_kind", command.server_shell_kind },
     };
 }
 
@@ -624,7 +632,9 @@ std::optional<TopologyCommand> topology_command_from_json(
             command.companion_owner_pane_id)
         || !read_command_string(
             "server_working_directory",
-            command.server_working_directory))
+            command.server_working_directory)
+        || !read_command_string(
+            "server_shell_kind", command.server_shell_kind))
     {
         error = "Invalid optional topology command text.";
         return std::nullopt;

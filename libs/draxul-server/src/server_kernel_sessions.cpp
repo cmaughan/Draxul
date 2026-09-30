@@ -495,6 +495,13 @@ bool ServerKernel::Impl::initialize_session(
                                 pane.server_working_directory.empty()
                                     ? space.root_directory
                                     : pane.server_working_directory);
+                        if (!pane.server_shell_kind.empty())
+                        {
+                            runtime_options->shell_kind
+                                = pane.server_shell_kind;
+                            runtime_options->command.clear();
+                            runtime_options->args.clear();
+                        }
                     }
                     bool created
                         = create_server_terminal_with_id(
@@ -511,21 +518,28 @@ bool ServerKernel::Impl::initialize_session(
                             + "' as a shell after its agent failed to start: "
                             + error);
                         error.clear();
-                        created
-                            = create_server_terminal_with_id(
+                        auto shell_options
+                            = server_terminal_runtime_options(
                                 stable_session_id,
+                                space.space_id,
+                                tab.tab_id,
+                                pane.pane_id,
                                 pane.terminal_id,
-                                pane.pane_id, pane.name,
-                                error,
-                                server_terminal_runtime_options(
-                                    stable_session_id,
-                                    space.space_id,
-                                    tab.tab_id,
-                                    pane.pane_id,
-                                    pane.terminal_id,
-                                    pane.server_working_directory.empty()
-                                        ? space.root_directory
-                                        : pane.server_working_directory));
+                                pane.server_working_directory.empty()
+                                    ? space.root_directory
+                                    : pane.server_working_directory);
+                        if (!pane.server_shell_kind.empty())
+                        {
+                            shell_options.shell_kind
+                                = pane.server_shell_kind;
+                            shell_options.command.clear();
+                            shell_options.args.clear();
+                        }
+                        created = create_server_terminal_with_id(
+                            stable_session_id,
+                            pane.terminal_id,
+                            pane.pane_id, pane.name,
+                            error, std::move(shell_options));
                     }
                     if (!created)
                     {

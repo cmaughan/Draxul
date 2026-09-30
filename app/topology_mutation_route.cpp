@@ -190,6 +190,11 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
             .client_plugin_id = mutation.plugin_id,
             .client_plugin_config_json
             = mutation.plugin_config_json,
+            .server_shell_kind
+            = server_terminal && mutation.host_kind
+                    && kind != HostKind::RemoteTerminal
+                ? std::string(to_string(kind))
+                : std::string{},
         };
         break;
     }
@@ -267,6 +272,14 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
             = !server_terminal
                     && mutation.companion_pane
                 ? *pane
+                : std::string{},
+            .server_shell_kind
+            = server_terminal
+                    && mutation.kind
+                        == TopologyMutationKind::SplitPane
+                    && mutation.host_kind
+                    && kind != HostKind::RemoteTerminal
+                ? std::string(to_string(kind))
                 : std::string{},
         };
         break;

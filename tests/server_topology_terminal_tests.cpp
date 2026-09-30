@@ -343,6 +343,51 @@ TEST_CASE("topology ratio storms retain only bounded command outcomes",
             * sizeof(std::string));
 }
 
+TEST_CASE("shared topology preserves the selected shell for a new tab",
+    "[server][topology][shell]")
+{
+    std::string allocated_shell;
+    TopologyService service("shell-choice", {
+        .create_server_terminal
+        = [&allocated_shell](const ServerTerminalTopologyLaunch& launch,
+              std::string&) -> std::optional<std::string> {
+            allocated_shell = launch.shell_kind;
+            return "terminal-zsh";
+        },
+    });
+    TopologyCommand command{
+        .client_id = "shell-choice-client",
+        .command_id = "create-zsh-tab",
+        .expected_revision = service.snapshot().revision,
+        .kind = TopologyCommandKind::CreateTab,
+        .space_id = service.snapshot().spaces.front().space_id,
+        .name = "Zsh",
+        .pane_domain = TopologyPaneDomain::ServerTerminal,
+        .server_shell_kind = "zsh",
+    };
+    REQUIRE(service.handle("topology.command",
+                topology_command_to_json(command))
+                .ok);
+    CHECK(allocated_shell == "zsh");
+    const TopologySnapshot snapshot = service.snapshot();
+    CHECK(snapshot.spaces.front().tabs.back().panes.front()
+              .server_shell_kind == "zsh");
+    std::string parse_error;
+    const auto restored = topology_snapshot_from_json(
+        topology_snapshot_to_json(snapshot), parse_error);
+    REQUIRE(restored);
+    CHECK(restored->spaces.front().tabs.back().panes.front()
+              .server_shell_kind == "zsh");
+
+    command.command_id = "invalid-shell-choice";
+    command.expected_revision = service.snapshot().revision;
+    command.server_shell_kind = "not-a-shell";
+    const auto rejected = service.handle("topology.command",
+        topology_command_to_json(command));
+    CHECK_FALSE(rejected.ok);
+    CHECK(rejected.error_code == "invalid_shell_kind");
+}
+
 TEST_CASE("topology layouts reject wrong field types without mutation",
     "[server][topology][layout][validation]")
 {

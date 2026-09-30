@@ -531,7 +531,7 @@ TEST_CASE("app smoke: failed remote projection retries and restores input routin
     server.stop();
 }
 
-TEST_CASE("app smoke: palette-created shared tab selects and names its host",
+TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
     "[app_smoke][topology][tabs]")
 {
     TempDir temp("draxul-app-remote-new-tab");
@@ -549,7 +549,7 @@ TEST_CASE("app smoke: palette-created shared tab selects and names its host",
             .name = "Work",
             .tabs = { {
                 .tab_id = "tab-1",
-                .name = "Neovim",
+                .name = "Kanban",
                 .name_user_set = false,
                 .root_node_id = "node-1",
                 .nodes = { {
@@ -560,7 +560,7 @@ TEST_CASE("app smoke: palette-created shared tab selects and names its host",
                 .panes = { {
                     .pane_id = "pane-1",
                     .domain = TopologyPaneDomain::ClientLocal,
-                    .client_host_kind = "nvim",
+                    .client_host_kind = "kanban",
                 } },
             } },
         } },
@@ -625,14 +625,16 @@ TEST_CASE("app smoke: palette-created shared tab selects and names its host",
     });
 
     std::vector<SmokeTestHost*> hosts;
+    std::vector<HostKind> launched_kinds;
     AppOptions opts = make_smoke_options();
     opts.enable_control_server = false;
     opts.enable_session_restore = false;
     opts.enable_remote_topology = true;
     opts.server_runtime_directory = temp.path;
     opts.server_client_id = "new-tab-client";
-    opts.host_factory = [&hosts](HostKind)
+    opts.host_factory = [&hosts, &launched_kinds](HostKind kind)
         -> std::unique_ptr<IHost> {
+        launched_kinds.push_back(kind);
         auto host = std::make_unique<SmokeTestHost>();
         hosts.push_back(host.get());
         return host;
@@ -648,6 +650,7 @@ TEST_CASE("app smoke: palette-created shared tab selects and names its host",
         REQUIRE(app.run_smoke_test(std::chrono::milliseconds(50)));
     }
     REQUIRE(hosts.size() == 1);
+    REQUIRE(launched_kinds == std::vector{ HostKind::Kanban });
     const int first_tab_id
         = app.space_controller().active_tab_controller().active_tab_id();
 
@@ -673,6 +676,7 @@ TEST_CASE("app smoke: palette-created shared tab selects and names its host",
     }
     REQUIRE(create_commands == 1);
     REQUIRE(hosts.size() == 2);
+    REQUIRE(launched_kinds.back() == HostKind::RemoteTerminal);
     const auto& tabs = app.space_controller().active_tab_controller();
     REQUIRE(tabs.count() == 2);
     CHECK(tabs.active_tab_id() != first_tab_id);

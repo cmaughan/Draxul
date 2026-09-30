@@ -302,6 +302,14 @@ TEST_CASE("cli: normal shell startup uses the shared server by default",
     REQUIRE(parse({ "--no-server" }).error);
     REQUIRE_FALSE(should_use_shared_server(
         parse({ "--host", "nvim" }).args));
+    REQUIRE(should_use_shared_server(
+        parse({ "--host", "kanban" }).args));
+    REQUIRE(should_use_shared_server(
+        parse({ "--host", "kanban", "--source", "kanban" }).args));
+    REQUIRE(should_use_shared_server(
+        parse({ "--host", "markdown", "--source", "README.md" }).args));
+    REQUIRE_FALSE(should_use_shared_server(
+        parse({ "--host", "kanban", "--screenshot", "board.bmp" }).args));
     REQUIRE(parse({ "--host", "satview" }).error);
     REQUIRE(parse({ "--host", "score" }).error);
     REQUIRE(should_use_shared_server(

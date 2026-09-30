@@ -74,6 +74,12 @@ bool valid_name(std::string_view value)
     return !value.empty() && value.size() <= kTopologyMaxTextBytes;
 }
 
+bool valid_shell_kind(std::string_view value)
+{
+    return value == "powershell" || value == "bash"
+        || value == "zsh" || value == "wsl";
+}
+
 bool valid_plugin_id(std::string_view value)
 {
     return !value.empty() && value.size() <= 128
@@ -957,6 +963,20 @@ bool TopologyService::apply(const TopologyCommand& command,
     {
         return reject("invalid_plugin", "Plugin pane id is required.");
     }
+    if (!command.server_shell_kind.empty()
+        && (command.pane_domain
+                != TopologyPaneDomain::ServerTerminal
+            || !valid_shell_kind(command.server_shell_kind)
+            || (command.kind
+                    != TopologyCommandKind::CreateSpace
+                && command.kind
+                    != TopologyCommandKind::CreateTab
+                && command.kind
+                    != TopologyCommandKind::SplitPane)))
+    {
+        return reject("invalid_shell_kind",
+            "A new server terminal requires a supported shell kind.");
+    }
 
     if (command.kind == TopologyCommandKind::CreateSpace)
     {
@@ -990,6 +1010,7 @@ bool TopologyService::apply(const TopologyCommand& command,
                         = command.server_working_directory.empty()
                             ? space.root_directory
                             : command.server_working_directory,
+                        .shell_kind = command.server_shell_kind,
                     },
                     allocation_error);
             if (!terminal_id)
@@ -1011,6 +1032,7 @@ bool TopologyService::apply(const TopologyCommand& command,
                 = command.server_working_directory.empty()
                 ? space.root_directory
                 : command.server_working_directory;
+            pane.server_shell_kind = command.server_shell_kind;
         }
         else if (!command.client_host_kind.empty())
         {
@@ -1085,6 +1107,7 @@ bool TopologyService::apply(const TopologyCommand& command,
                         = command.server_working_directory.empty()
                             ? space->root_directory
                             : command.server_working_directory,
+                        .shell_kind = command.server_shell_kind,
                     },
                     allocation_error);
             if (!terminal_id)
@@ -1106,6 +1129,7 @@ bool TopologyService::apply(const TopologyCommand& command,
                 = command.server_working_directory.empty()
                 ? space->root_directory
                 : command.server_working_directory;
+            pane.server_shell_kind = command.server_shell_kind;
         }
         else if (!command.client_host_kind.empty())
         {
@@ -1476,6 +1500,7 @@ bool TopologyService::apply(const TopologyCommand& command,
             = command.server_working_directory.empty()
                 ? space->root_directory
                 : command.server_working_directory,
+            .server_shell_kind = command.server_shell_kind,
         };
         if (pane.domain == TopologyPaneDomain::ServerTerminal)
         {
@@ -1499,6 +1524,7 @@ bool TopologyService::apply(const TopologyCommand& command,
                         .name = pane.name,
                         .working_directory
                         = pane.server_working_directory,
+                        .shell_kind = pane.server_shell_kind,
                     },
                     allocation_error);
             if (!terminal_id)
