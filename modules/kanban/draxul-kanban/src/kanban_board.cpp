@@ -57,6 +57,10 @@ CardKind card_kind_for_file(std::string_view file_name)
     {
         return CardKind::Refactor;
     }
+    if(ends_with(file_name, "-perf.md"))
+    {
+        return CardKind::Perf;
+    }
     if(ends_with(file_name, "-test.md"))
     {
         return CardKind::Test;
@@ -74,6 +78,8 @@ std::string icon_for_kind(CardKind kind)
         return "\xE2\x9C\xA8";
     case CardKind::Refactor:
         return "\xF0\x9F\x94\xA7";
+    case CardKind::Perf:
+        return "\xF0\x9F\x93\x88";
     case CardKind::Test:
         return "\xF0\x9F\xA7\xAA";
     case CardKind::Note:
@@ -104,8 +110,8 @@ std::string card_display_name(std::string_view file_name)
     if(ends_with(file_name, ".md"))
         file_name.remove_suffix(3);
 
-    static constexpr std::array<std::string_view, 4> kind_suffixes{
-        "-bug", "-feature", "-refactor", "-test",
+    static constexpr std::array<std::string_view, 5> kind_suffixes{
+        "-bug", "-feature", "-refactor", "-perf", "-test",
     };
     for(const auto suffix : kind_suffixes)
     {

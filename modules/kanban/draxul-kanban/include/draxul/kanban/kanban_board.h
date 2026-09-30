@@ -16,6 +16,7 @@ enum class CardKind
     Bug,
     Feature,
     Refactor,
+    Perf,
     Test,
 };
 

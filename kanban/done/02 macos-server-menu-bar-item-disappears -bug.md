@@ -1,5 +1,9 @@
 # Keep the macOS server menu bar item visible after UI exit
 
+**Recurred 2026-09-30:** The placement repair below was not a durable fix.
+Further investigation and acceptance are tracked in
+`kanban/pending/01 macos-server-status-item-recurrence -bug.md`.
+
 **Severity:** HIGH  
 **Source:** User report, 2026-09-28.
 

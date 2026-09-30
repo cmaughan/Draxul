@@ -75,14 +75,18 @@ TEST_CASE("kanban store reads card priorities without changing file identity", "
     write_file(root / "pending" / "01 urgent -bug.md", "# Urgent\n\n**Priority:** P1 — fix now\n");
     write_file(root / "pending" / "02 later -test.md", "# Later\nPriority: p2 / sequence 02\n");
     write_file(root / "pending" / "03 plain.md", "# Plain\n");
+    write_file(root / "pending" / "04 optimize -perf.md",
+        "# Optimize\n\n**Priority/evidence:** P1; static cost model\n");
 
     std::string error;
     const auto board = load_kanban_board(root, &error);
     REQUIRE(error.empty());
-    REQUIRE(board.columns[0].cards.size() == 3);
+    REQUIRE(board.columns[0].cards.size() == 4);
     CHECK(board.columns[0].cards[0].priority == 1);
     CHECK(board.columns[0].cards[1].priority == 2);
     CHECK_FALSE(board.columns[0].cards[2].priority.has_value());
+    CHECK(board.columns[0].cards[3].priority == 1);
+    CHECK(board.columns[0].cards[3].kind == CardKind::Perf);
     CHECK(board.columns[0].cards[0].file_name == "01 urgent -bug.md");
     CHECK(board.columns[0].cards[1].kind == CardKind::Test);
 }

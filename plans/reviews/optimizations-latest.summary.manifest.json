@@ -1,0 +1,244 @@
+{
+  "finished_at": "2026-09-30T13:42:58.030299+00:00",
+  "inputs": [
+    "/Users/cmaughan/dev/draxul/plans/reviews/runs/20260930T125241Z-optimizations-e46b350e/reports/anthropic.claude.claude-opus-5-5.md",
+    "/Users/cmaughan/dev/draxul/plans/reviews/runs/20260930T125241Z-optimizations-e46b350e/reports/openai.codex.gpt-6-sol.md"
+  ],
+  "kind": "summary",
+  "missing_reviewers": [],
+  "name": "optimizations",
+  "prompt": "/Users/cmaughan/dev/draxul/plans/reviews/runs/20260930T125241Z-optimizations-e46b350e/consensus-prompt.md",
+  "run_id": "20260930T132036Z-optimizations-summary-a6f2d344",
+  "schema_version": 1,
+  "started_at": "2026-09-30T13:20:36.880581+00:00",
+  "status": "complete",
+  "summarizer": {
+    "company": "openai",
+    "duration_seconds": 1340.765,
+    "effort": "high",
+    "error": "",
+    "fallback_reason": "",
+    "model": "gpt-6-sol",
+    "preflight": "passed",
+    "preflight_message": "live response verified",
+    "requested": "codex",
+    "sandbox_fallback": "",
+    "status": "passed",
+    "transport": "codex",
+    "version": "codex-cli 0.158.0"
+  },
+  "work_items": [
+    {
+      "path": "kanban/pending/32 ligature-dirty-run-sweep -perf.md",
+      "sha256": "4115d2a4869647e54835aa8b86b851a088a405db7afcaa96c7492dda3cac508e"
+    },
+    {
+      "path": "plugins/satview/kanban/pending/04 satview-inactive-propagation -perf.md",
+      "sha256": "69ef8d5b4ea446874803004bb8666bb1853d04de6f1745e399deb76314332b16"
+    },
+    {
+      "path": "plugins/rezonality/kanban/pending/03 rezonality-idle-project-watch -perf.md",
+      "sha256": "69eafe7e20fe9036b80da7524e6ed013a10c1c56f53903cbe7c304d12d13f190"
+    },
+    {
+      "path": "plugins/rezonality/kanban/pending/04 rezonality-resize-generation-reuse -perf.md",
+      "sha256": "b716bd7a2e99add50f41b291f3a780751c216725eda26f1a0d12a3b162a4357a"
+    },
+    {
+      "path": "kanban/pending/33 app-idle-deadline-wakes -perf.md",
+      "sha256": "b93325a8605e76c2ebf8ef845703cf12ec4bfb8296aa3c9b0db9bff243aa4d90"
+    },
+    {
+      "path": "kanban/pending/59 plugin-self-tick-pacing -perf.md",
+      "sha256": "bb7b5da33dfce93263ebddabb3499e17c00a58c1832cd085d8bcbc9757ccce8d"
+    },
+    {
+      "path": "kanban/pending/35 terminal-row-scroll-cost -perf.md",
+      "sha256": "37326005b2dbf877245df6872e5f9533b2d0637209a43b23f5cb0cc23e9f2321"
+    },
+    {
+      "path": "kanban/pending/34 interruptible-background-waits -perf.md",
+      "sha256": "9826dbe54a7ec13a8df7b871c72cfa421f756acb08905c496deb682642ba8a9b"
+    },
+    {
+      "path": "kanban/pending/36 bounded-font-cache-retention -perf.md",
+      "sha256": "41dc4edf5027af17f2581888b854add665b8ee2e0dd7363cd5a1eea345c80b13"
+    },
+    {
+      "path": "kanban/pending/37 terminal-frame-serialization -perf.md",
+      "sha256": "8380c0a0532144fc9b78a1747dcece4cafa30825a9be26524f433b481f0f31aa"
+    },
+    {
+      "path": "kanban/pending/38 remote-live-snapshot-reference -perf.md",
+      "sha256": "6ef8ea64c5aa099cf12003654a3f03b77b6c002e5a88d9c64716913509c65388"
+    },
+    {
+      "path": "kanban/pending/39 slot-aware-grid-uploads -perf.md",
+      "sha256": "26502ca805fe96e729d0c9015a0c7a9e08731330548a0d702021701e03296768"
+    },
+    {
+      "path": "kanban/pending/40 renderer-sizing-overlay-storage -perf.md",
+      "sha256": "1961431ff1e7f59262f422bff2ee57bf566237d5990cfb00f7c66ffee7b81e10"
+    },
+    {
+      "path": "kanban/pending/41 lazy-terminal-scrollback-storage -perf.md",
+      "sha256": "b95ba2286c185f65924f29c2507967c9e16549971a51d13249770b72496f4350"
+    },
+    {
+      "path": "kanban/pending/42 atlas-upload-on-grid-resize -perf.md",
+      "sha256": "b5594b5f4023bcf6f76f13c197292281de2c640ae1537a2776aa29ac884f1d12"
+    },
+    {
+      "path": "kanban/pending/43 coalesced-nvim-flush-preparation -perf.md",
+      "sha256": "dc3993173f9dd5f416824b250f82c386f37f73d342ee2e529779d1a784b9b003"
+    },
+    {
+      "path": "kanban/pending/44 incremental-nvim-packet-decoding -perf.md",
+      "sha256": "4573d9519684d95791ca3cc7826e2e9f7479892f9c1cc00cc0af486bc2cd2f0a"
+    },
+    {
+      "path": "kanban/pending/45 nvim-notification-move-and-wake -perf.md",
+      "sha256": "f741e0ccf1e441f0cf334e938be654287156e32a1bb02a06ac8b0f678368331f"
+    },
+    {
+      "path": "kanban/pending/46 shared-nvim-clipboard-refresh -perf.md",
+      "sha256": "5cb404d4a74bebe914e8d8b9dd4773c9ff4184fe206b11d58e22e8924e9938cd"
+    },
+    {
+      "path": "kanban/pending/47 hidden-nvim-frame-suppression -perf.md",
+      "sha256": "ea7ebb2fc1280fc715d04d474908f9e7e0ed9f4bc50c3531e6ba6037b537c6a3"
+    },
+    {
+      "path": "kanban/pending/48 palette-dirty-rebuild -perf.md",
+      "sha256": "99f878f5a19697cfc7b599bc31ca2660befebff6cec247fbde813eeb3e9d1e9d"
+    },
+    {
+      "path": "kanban/pending/49 bounded-toast-grid -perf.md",
+      "sha256": "e44dfb6bd7add1af4e3c1b43a77f1179b27c9335e23a4b57f22defb650ee5f16"
+    },
+    {
+      "path": "kanban/pending/50 vulkan-extent-only-resource-reuse -perf.md",
+      "sha256": "3424aabb5a5c1da559719195162d7dd5f11e3bdbe0b144d173b6103d6bd45da5"
+    },
+    {
+      "path": "kanban/pending/51 markdown-scrollbar-layout-copy -perf.md",
+      "sha256": "5ed227046120cd6c05c30a0c0b798d0d90ceccdd16c3edffffdb3c00ad79283a"
+    },
+    {
+      "path": "kanban/pending/52 rich-text-style-atlas-sharing -perf.md",
+      "sha256": "90826d0b494f5d31674f89de4cca30a5fba3382fc59892f3a579a580ba0eb1df"
+    },
+    {
+      "path": "kanban/pending/53 kanban-worker-board-reload -perf.md",
+      "sha256": "6c2a684627e899a23bd2530b48ff8cc57bb402c4270d22b62b80ca3b53fecdb9"
+    },
+    {
+      "path": "kanban/pending/54 kanban-metadata-index -perf.md",
+      "sha256": "08be83497568b15d961a93a38f3c46f9c755c2d339dc0feae26633052dc7f431"
+    },
+    {
+      "path": "kanban/pending/55 nanovg-frame-allocation-reuse -perf.md",
+      "sha256": "2918166f41f103a3d4ac4ed4ce5becb1252f91aa570eeb4514ecd5e6535f50a3"
+    },
+    {
+      "path": "kanban/pending/56 remote-scrollback-page-work -perf.md",
+      "sha256": "9f582b7f9a5a86894208ec5ed176098bd4c3823ddac0adc4e541cd6ed44a1f92"
+    },
+    {
+      "path": "kanban/pending/57 selection-same-cell-overlay-work -perf.md",
+      "sha256": "f15155a860e430e4883b06a1ad0adb686084435463bb8f8c49e0c7d174ddccc3"
+    },
+    {
+      "path": "kanban/pending/58 fair-terminal-pump-budget -perf.md",
+      "sha256": "38eef78d321b124bcd7c4592ed92937ef87293562a3156f90a1e885657512ddd"
+    },
+    {
+      "path": "plugins/satview/kanban/pending/05 satview-texture-startup -perf.md",
+      "sha256": "125df676e7fb03e14b52fe064ea532589891291974994ca81e407f3930ebc6c5"
+    },
+    {
+      "path": "plugins/satview/kanban/pending/06 satview-catalog-publication -perf.md",
+      "sha256": "f27f50baec7a5d882616b18229352b49b514dad445e43064b211d9636b97ac71"
+    },
+    {
+      "path": "plugins/satview/kanban/pending/07 satview-lunar-track-uploads -perf.md",
+      "sha256": "84755f96fe07e443214b0951fc735aefc56dbc31c63cfc6ba2bad8768f8c629e"
+    },
+    {
+      "path": "plugins/satview/kanban/pending/08 satview-resize-target-lifetime -perf.md",
+      "sha256": "dc23410a2b6410856c538107d2aa64388bac7b8d8e8a97eb9b6d3963d5fe9507"
+    },
+    {
+      "path": "plugins/rezonality/kanban/pending/05 rezonality-build-activation-move -perf.md",
+      "sha256": "06b1fa62bf3904adcc49c5810bcc45e705a905cb98e1e7fd3a3ed3286ccbe2bb"
+    },
+    {
+      "path": "plugins/rezonality/kanban/pending/06 rezonality-vulkan-staging-retirement -perf.md",
+      "sha256": "23ac89fa69ae4a6d5c0c79e049fc728ccec730e50634c46ce2a7ceb438063838"
+    },
+    {
+      "path": "plugins/rezonality/kanban/pending/07 rezonality-decoded-asset-reuse -perf.md",
+      "sha256": "6a948b79a14c8bc9211f22acd62153fefc8dfc61af552a734bb50087c8375b4d"
+    },
+    {
+      "path": "plugins/rezonality/kanban/pending/08 rezonality-editor-idle-refresh -perf.md",
+      "sha256": "95147c8f839eeab6d64f03f75710da215eeef87d84cde06a8159d105764fe87b"
+    },
+    {
+      "path": "plugins/megacity/kanban/pending/04 megacity-lcov-idle-redraw -perf.md",
+      "sha256": "18cb0f4c3a1baa0d9092f71eb94f3036648d240873c874fc9ef159ecfe29ee59"
+    },
+    {
+      "path": "plugins/megacity/kanban/pending/05 megacity-shadow-target-resize -perf.md",
+      "sha256": "f75508b1b7c489453c65c6b43c29972845442d470ba8e47f3d7d9484c86f0fff"
+    },
+    {
+      "path": "plugins/megacity/kanban/pending/06 megacity-camera-snapshot-reuse -perf.md",
+      "sha256": "26722321792f2664271c8cc9de97a1714da91e12896cb0a05a9a59518a099858"
+    },
+    {
+      "path": "plugins/megacity/kanban/pending/07 megacity-camera-frustum-culling -perf.md",
+      "sha256": "f59c92fd0ad41dd4fcb1fe73fb63383341ef69c6a6c494c257733557ce216990"
+    },
+    {
+      "path": "plugins/megacity/kanban/pending/08 megacity-debug-state-demand -perf.md",
+      "sha256": "dfc4242e538d1bd1d6eaa77e761ea1a456722cb08fba1251d6f32d2664c7de07"
+    },
+    {
+      "path": "plugins/megacity/kanban/pending/09 megacity-point-shadow-revision -perf.md",
+      "sha256": "81d5b71cd71008e8c7e3f44512d30bd47eccf1d2614a15b891186df9d1c433c7"
+    },
+    {
+      "path": "plugins/megacity/kanban/pending/10 megacity-metal-texture-upload -perf.md",
+      "sha256": "b014a83dda162519ce97c3bd82eb9db664a4962252328a9cce96648bad4c85e6"
+    },
+    {
+      "path": "plugins/scoreview/kanban/pending/02 scoreview-height-only-viewport -perf.md",
+      "sha256": "b4d52742c2982b9617b7cbd79d482c91b4649ef0d2f314bffd743f430fc9046b"
+    },
+    {
+      "path": "plugins/scoreview/kanban/pending/03 scoreview-offscreen-flow-culling -perf.md",
+      "sha256": "d32b6f51d2d32906878f936ab76e2caec933f7f7e71df72b1ad96c8dc0998892"
+    },
+    {
+      "path": "plugins/scoreview/kanban/pending/04 scoreview-progress-persistence -perf.md",
+      "sha256": "4d776cca6fb0f1bf8ccb48b7f8539c88ac128ea9a317a0ca35cbdf217b5d636e"
+    },
+    {
+      "path": "plugins/scoreview/kanban/pending/05 scoreview-engraver-completion-wake -perf.md",
+      "sha256": "86cc36228c9b87025de07d0e56e8bdbef0407cbfc6c211b6a14a60f1cfce9282"
+    },
+    {
+      "path": "plugins/scoreview/kanban/pending/06 scoreview-paged-layout-worker -perf.md",
+      "sha256": "04baef85173722a12ceae5e8f981f89fecafa453061ed54cf89566a5230a372e"
+    },
+    {
+      "path": "plugins/pcbview/kanban/pending/02 pcbview-cancellable-autoroute -perf.md",
+      "sha256": "b2d0890538423dd18bd0b8467d3444cd146c07eb0173731c19d02e5ab890fde5"
+    },
+    {
+      "path": "plugins/pcbview/kanban/pending/03 pcbview-frame-highlight-mask -perf.md",
+      "sha256": "dd4d66531e5db67ac5bd2ebc6f7f4daf5b8ad3393aa63907ece9975307763424"
+    }
+  ]
+}

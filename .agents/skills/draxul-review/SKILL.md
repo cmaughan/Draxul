@@ -1,6 +1,6 @@
 ---
 name: draxul-review
-description: Run independent Draxul repository reviews through multiple AI companies, write archived and latest Markdown reports, or synthesize selected reviews with a caller-supplied prompt. Use for multi-model code review, feature/bug/refactor review panels, consensus, comparison, or review summarization.
+description: Run independent Draxul repository reviews through multiple AI companies, write archived and latest Markdown reports, or synthesize selected reviews with a caller-supplied prompt. Use for multi-model code review, feature/bug/refactor/optimization review panels, consensus, comparison, or review summarization.
 ---
 
 # Draxul multi-AI review
@@ -24,7 +24,7 @@ py .agents/skills/draxul-review/scripts/review.py review --prompt-file <prompt> 
 
 Codex and Claude calls explicitly use **high reasoning effort**, including synthesis. Codex review/synthesis calls enable subagents with a maximum of four concurrent workers and explicitly set worker defaults to the selected model at high effort. Preflight disables delegation. Other optional transports retain their provider effort defaults.
 
-The feature, bug, and refactor prompts all require an architecture map, explicit read-only subsystem delegation (up to four workers, no nested delegation), substantive investigation of every major area, coordinator verification of accepted findings, and a final cross-component pass. Workers share the same packed source and review-only restrictions. If delegation is unavailable, review sequentially and disclose the limitation. Reports include an investigation coverage table and unreviewed areas, with no finding quota or arbitrary report-length cap. Unresolved leads remain separate from accepted findings and Kanban proposals. Consensus uses the same evidence standard against current source and the exact selected reports.
+The feature, bug, refactor, and optimization prompts all require an architecture map, explicit read-only subsystem delegation (up to four workers, no nested delegation), substantive investigation of every major area, coordinator verification of accepted findings, and a final cross-component pass. Workers share the same packed source and review-only restrictions. If delegation is unavailable, review sequentially and disclose the limitation. Reports include an investigation coverage table and unreviewed areas, with no finding quota or arbitrary report-length cap. Unresolved leads remain separate from accepted findings and Kanban proposals. Consensus uses the same evidence standard against current source and the exact selected reports.
 
 Reviews use **one Repomix file and one coordinating review run per provider**, with no source segments, batches, or coverage receipts. Install the `repomix` CLI on PATH before running a review. The runner first freezes one source snapshot shared by the panel, recursively including initialized Git submodules (including dirty and non-ignored untracked files), and fails if any submodule is missing. Git metadata, ignored files, `plans/reviews/` archives, and previous `repomix-output.*` files are excluded.
 

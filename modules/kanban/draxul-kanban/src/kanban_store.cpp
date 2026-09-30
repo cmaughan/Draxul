@@ -267,9 +267,12 @@ std::optional<int> read_card_priority(const std::filesystem::path& path)
             continue;
         value.remove_prefix(first);
         constexpr std::string_view bold_prefix = "**Priority:**";
+        constexpr std::string_view combined_prefix = "**Priority/evidence:**";
         constexpr std::string_view plain_prefix = "Priority:";
         if(value.starts_with(bold_prefix))
             value.remove_prefix(bold_prefix.size());
+        else if(value.starts_with(combined_prefix))
+            value.remove_prefix(combined_prefix.size());
         else if(value.starts_with(plain_prefix))
             value.remove_prefix(plain_prefix.size());
         else

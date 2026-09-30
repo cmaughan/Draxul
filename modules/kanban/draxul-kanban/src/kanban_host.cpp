@@ -32,6 +32,7 @@ enum HighlightId : uint16_t
     HlPriorityHigh = 13,
     HlPriorityMedium = 14,
     HlPriorityLow = 15,
+    HlPerf = 16,
 };
 
 HlAttr attr(Color fg, Color bg, bool bold = false)
@@ -55,6 +56,8 @@ uint16_t icon_highlight(CardKind kind)
         return HlFeature;
     case CardKind::Refactor:
         return HlRefactor;
+    case CardKind::Perf:
+        return HlPerf;
     case CardKind::Test:
         return HlFeature;
     case CardKind::Note:
@@ -455,6 +458,7 @@ void KanbanHost::configure_highlights()
     highlights().set(HlBug, attr(color_from_rgb(0xFF7A7A), bg, true));
     highlights().set(HlFeature, attr(color_from_rgb(0xF2D272), bg, true));
     highlights().set(HlRefactor, attr(color_from_rgb(0x7DD3A8), bg, true));
+    highlights().set(HlPerf, attr(color_from_rgb(0x7CB9F2), bg, true));
     highlights().set(HlMuted, attr(color_from_rgb(0x87909C), bg));
     highlights().set(HlStatus, attr(color_from_rgb(0xB8C0CC), color_from_rgb(0x1B222C)));
     highlights().set(HlPriorityUrgent, attr(color_from_rgb(0xFF6262), bg, true));
@@ -715,12 +719,12 @@ void KanbanHost::draw_card_row(const KanbanCardRowLayout& row)
     const std::string icon = icon_for_kind(card.kind);
     const int icon_cells = text_cell_width(icon);
     draw_text(row.x, row.y, icon, row.selected ? HlSelected : icon_highlight(card.kind), row.width);
-    int text_x = row.x + icon_cells + 1;
+    int text_x = row.x + icon_cells;
     if(card.priority)
     {
         const std::string priority_icon = icon_for_priority(*card.priority);
         draw_text(text_x, row.y, priority_icon, row.selected ? HlSelected : priority_highlight(*card.priority), row.width - (text_x - row.x));
-        text_x += text_cell_width(priority_icon) + 1;
+        text_x += text_cell_width(priority_icon);
     }
     const int text_width = row.width - (text_x - row.x);
     std::string label;
