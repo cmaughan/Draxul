@@ -312,11 +312,13 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 - When blessing render references, use `py do.py blessbasic`, `py do.py blesscmdline`, `py do.py blessunicode`, `py do.py blessnanovg`, or `py do.py blessall` from the repo root instead of calling `draxul.exe --render-test` manually.
 - If you change build wiring, keep both Windows and macOS paths valid in CI.
 - When a change touches a platform that is unavailable in the current environment,
-  use the local build/tests as the interactive handoff gate. Push or dispatch the
-  remote cross-platform CI, leave the platform-specific tracker checkbox pending,
-  and schedule a follow-up (normally about 30 minutes later) to inspect the result.
-  Do not keep the user-facing turn open solely waiting for remote CI unless the user
-  explicitly asked you to monitor it synchronously.
+  use the local build/tests as the interactive handoff gate and let the usual
+  cross-platform CI run. Add a platform-specific card checkbox only when there
+  is a concrete reason to expect the behavior may fail there and existing
+  automated tests will not catch it. Routine CI coverage is not a separate
+  Kanban gate; investigate failures when CI reports them. Do not keep the
+  user-facing turn open solely waiting for remote CI unless the user explicitly
+  asked you to monitor it synchronously.
 - After each completed implementation slice, give the user a brief validation cost
   summary. Break out configure/generate, compilation, focused tests, aggregate tests,
   smoke or render checks, and remote CI as applicable; for each, report the number of

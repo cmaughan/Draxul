@@ -11,7 +11,6 @@ shell hosts. Today it starts a local-only session, so the palette advertises
 - [x] Cover CLI routing and Kanban-to-shell creation through the command palette.
 - [x] Honor an explicitly selected shell kind when the server allocates the new tab.
 - [x] Run the core aggregate, same-cache startup smoke, and relevant render check.
-- [ ] Confirm hosted Windows validation before moving this card to done.
 
 **Notes**
 
@@ -39,4 +38,9 @@ tests (133 assertions across six cases). A real Release `--host kanban
 created a second tab in the shared Session; the isolated server shut down
 cleanly. The Release core aggregate passed 25/25 CTest entries in 33.82s,
 same-cache startup smoke passed in 0.49s, and the basic render scenario
-passed in 1.04s. Hosted Windows validation is pending.
+passed in 1.04s. Hosted Windows CI covers the affected app, protocol, and
+server test paths, so no separate manual gate is needed for this change.
+Launching an explicitly selected shell still requires that shell executable
+to be installed on the target machine; a missing optional executable is
+reported as a process-start failure. Any CI regression will be triaged when
+reported.

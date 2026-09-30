@@ -9,7 +9,6 @@ shared-session tab should begin with a useful name instead of `Tab`.
 - [x] Use the launched host or plugin name as the initial tab name; preserve explicit rename and OSC 7 directory naming.
 - [x] Cover local and shared-session creation, then run core aggregate and same-cache startup smoke.
 - [x] Update the feature inventory with the resulting behavior.
-- [ ] Confirm the palette-created shared-tab test on hosted Windows CI.
 
 **Notes**
 
@@ -37,5 +36,6 @@ The existing local new-tab keybinding test now checks selection and the
 created host's default name. The focused palette test passed in 0.50 seconds.
 After adding the palette path, the Release core aggregate passed 25/25 CTest
 entries in 32.62 seconds, same-cache Release startup smoke passed in 0.56
-seconds, and the basic render snapshot passed in 1.05 seconds. Hosted Windows
-validation remains pending; no platform-specific code was changed.
+seconds, and the basic render snapshot passed in 1.05 seconds. The hosted
+Windows build runs the app test suite as routine CI coverage; no distinct
+platform risk or manual gate remains for this card.
