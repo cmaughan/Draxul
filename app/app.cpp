@@ -32,6 +32,7 @@
 #include <draxul/plugin_manager.h>
 #include <draxul/pixel_scale.h>
 #include <draxul/remote_session_client.h>
+#include <draxul/personal_agent_client.h>
 #include <draxul/remote_session_coordinator.h>
 #include <draxul/remote_terminal_host.h>
 #include <draxul/render_test.h>
@@ -140,6 +141,8 @@ public:
     std::function<PaneManager*()> pane_manager_fn;
     std::function<int(int, int)> hit_test_space_fn;
     std::function<int(int, int)> hit_test_agent_fn;
+    std::function<int(int, int)> hit_test_personal_agent_fn;
+    std::function<void(int)> activate_personal_agent_fn;
     std::function<int(int, int)> hit_test_tab_fn;
     std::function<LeafId(int, int)> hit_test_pane_pill_fn;
     std::function<bool(int, int)> hit_test_app_chrome_fn;
@@ -176,6 +179,17 @@ public:
     int hit_test_agent(int phys_x, int phys_y) override
     {
         return hit_test_agent_fn ? hit_test_agent_fn(phys_x, phys_y) : 0;
+    }
+
+    int hit_test_personal_agent(int phys_x, int phys_y) override
+    {
+        return hit_test_personal_agent_fn ? hit_test_personal_agent_fn(phys_x, phys_y) : 0;
+    }
+
+    void activate_personal_agent(int index) override
+    {
+        if (activate_personal_agent_fn)
+            activate_personal_agent_fn(index);
     }
 
     int hit_test_tab(int phys_x, int phys_y) override
@@ -800,6 +814,7 @@ bool App::initialize_chrome_host()
     chrome_deps.text_service = &text_service_;
     chrome_deps.space_controller = &space_controller_;
     chrome_deps.agent_controller = &agent_controller_;
+    chrome_deps.personal_agents = [this] { return personal_agents(); };
     chrome_deps.system_resource_snapshot = options_.show_system_resources
         ? &system_resource_snapshot_
         : nullptr;
@@ -1851,6 +1866,47 @@ void App::wire_window_callbacks()
     router->hit_test_agent_fn = [this](int px, int py) {
         return chrome_host_ ? chrome_host_->hit_test_agent(px, py) : 0;
     };
+    router->hit_test_personal_agent_fn = [this](int px, int py) {
+        return chrome_host_ ? chrome_host_->hit_test_personal_agent(px, py) : 0;
+    };
+    router->activate_personal_agent_fn = [this](int index) {
+        const auto snapshot = personal_agents();
+        if (!snapshot || index < 1)
+            return;
+        const std::string identity = static_cast<size_t>(index) <= snapshot->agents.size()
+            ? snapshot->agents[index - 1].id : std::string{};
+        for (const auto& tab : active_tab_controller().tabs())
+        {
+            LeafId selected_leaf = kInvalidLeaf;
+            IHost* selected_host = nullptr;
+            tab->pane_manager.for_each_host([&](LeafId leaf, IHost& host) {
+                if (!selected_host && host.dispatch_action("personal.select/" + identity))
+                {
+                    selected_leaf = leaf;
+                    selected_host = &host;
+                }
+            });
+            if (selected_host)
+            {
+                activate_tab(tab->id);
+                tab->pane_manager.set_focused(selected_leaf);
+                input_dispatcher_.set_host(selected_host);
+                request_frame();
+                return;
+            }
+        }
+        const auto result = mutate_topology({
+            .kind = TopologyMutationKind::CreateTab,
+            .space_id = space_controller_.active_space_id(),
+            .name = "Personal Assistant",
+            .source_path = std::filesystem::u8path(identity),
+            .host_kind = HostKind::PersonalAssistant,
+            .pixel_width = window_->width_pixels(),
+            .pixel_height = diagnostics_host_->layout().terminal_height,
+        });
+        if (!result.error.empty())
+            push_toast(2, result.error);
+    };
     router->hit_test_app_chrome_fn = [this](int px, int py) {
         return hit_test_app_chrome(px, py);
     };
@@ -2501,7 +2557,14 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         // rail's visibility off the projection itself. The query is the
         // frame's cached one; per-pane process probes stay rate-limited
         // inside AgentController.
-        const bool have_agents = !agent_controller_.frame_agents(space_controller_).empty();
+        const auto personal_snapshot = personal_agents();
+        if (personal_snapshot != last_personal_snapshot_)
+        {
+            last_personal_snapshot_ = personal_snapshot;
+            request_frame();
+        }
+        const bool have_agents = !agent_controller_.frame_agents(space_controller_).empty()
+            || (personal_snapshot && !personal_snapshot->root.empty());
         if (have_agents != last_have_agents_)
         {
             last_have_agents_ = have_agents;
@@ -3087,7 +3150,9 @@ void App::refresh_app_shell_layout()
         : window_height;
     const Tab* active_tab = find_active_tab();
     const bool zoomed = active_tab && active_tab->pane_manager.is_zoomed();
-    const bool have_agents = !agent_controller_.frame_agents(space_controller_).empty();
+    const auto personal_snapshot = personal_agents();
+    const bool have_agents = !agent_controller_.frame_agents(space_controller_).empty()
+        || (personal_snapshot && !personal_snapshot->root.empty());
     // Keep the pump's transition check in step with whatever the layout just
     // decided, so an unrelated refresh cannot leave the two disagreeing.
     last_have_agents_ = have_agents;
@@ -3393,6 +3458,13 @@ bool App::initialize_remote_topology()
                options_.server_connection->capabilities,
                "session-stream-commands-v1")
             != options_.server_connection->capabilities.end();
+    if (options_.server_connection && !options_.host_factory
+        && std::ranges::find(options_.server_connection->capabilities, "personal-agents-v1")
+            != options_.server_connection->capabilities.end())
+    {
+        personal_agent_client_ = std::make_unique<PersonalAgentClient>(
+            server_control_channel().options(), [this] { wake_window(); });
+    }
     remote_session_client_
         = std::make_unique<RemoteSessionClient>(
             RemoteSessionClientOptions{
@@ -4752,6 +4824,19 @@ ServerControlChannel App::server_control_channel() const
     });
 }
 
+std::shared_ptr<const PersonalAgentSnapshot> App::personal_agents() const
+{
+    if (personal_agent_client_)
+        return personal_agent_client_->snapshot();
+    if (options_.server_connection)
+    {
+        static const auto unsupported = std::make_shared<const PersonalAgentSnapshot>(
+            PersonalAgentSnapshot{ .error = "Personal collections unavailable. Restart the server and client with this build." });
+        return unsupported;
+    }
+    return nullptr;
+}
+
 void App::register_ui_control_route()
 {
     if (!control_server_ || !options_.server_connection
@@ -5867,6 +5952,7 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
 void App::shutdown()
 {
     PERF_MEASURE();
+    personal_agent_client_.reset();
     // The coordinator's batch worker publishes through RemoteSessionClient,
     // so quiesce it before releasing that client.
     if (remote_session_coordinator_)

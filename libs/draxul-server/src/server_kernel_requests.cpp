@@ -1,6 +1,7 @@
 #include "server_kernel_impl.h"
 
 #include <draxul/server_protocol.h>
+#include <draxul/personal_agent_protocol.h>
 
 #include <algorithm>
 #include <unordered_set>
@@ -54,6 +55,7 @@ const std::vector<std::string>& server_capabilities()
         "controller-lease",
         "agent-control-v1",
         "agent-projection-v1",
+        "personal-agents-v1",
         std::string(kServerClientTokenCapability),
         "fake-remote-terminal",
         "graceful-shutdown",
@@ -334,6 +336,25 @@ ControlMethodResult ServerKernel::Impl::handle_request(
     }
     if (request.method == "server.status")
         return ControlMethodResult::success(server_status_to_json(status_snapshot()));
+    if (request.method == "personal.snapshot" || request.method == "personal.get")
+    {
+        if (request_client_id.empty())
+            return ControlMethodResult::error("invalid_client", "Personal collection reads require an authenticated client.");
+        auto projection = personal_agents_to_json(personal_agents.snapshot());
+        if (request.method == "personal.get")
+        {
+            const auto identity = request.params.find("agent_id");
+            if (identity == request.params.end() || !identity->is_string())
+                return ControlMethodResult::error("invalid_params", "Expected agent_id.");
+            auto& definitions = projection["agents"];
+            const auto found = std::ranges::find_if(definitions, [&](const auto& entry) { return entry["id"] == *identity; });
+            if (found == definitions.end())
+                return ControlMethodResult::error("agent_not_found", "Personal definition not found.");
+            const auto selected = *found;
+            definitions = nlohmann::json::array({ selected });
+        }
+        return ControlMethodResult::success(std::move(projection));
+    }
     if (request.method == "ui.register")
     {
         if (request_client_id.empty())

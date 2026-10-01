@@ -11,7 +11,7 @@ Use `scripts/review.py` for every provider call. Do not call reviewer CLIs direc
 
 1. Resolve the requested prompt file relative to the repository root. If the user supplied inline text, preserve it exactly in a temporary UTF-8 prompt file.
 2. Choose reviewers:
-   - No selection: use the two-model panel: OpenAI `gpt-6-sol` (GPT-6 Sol) and Anthropic `claude-opus-5-5` (Claude Opus 5.5), both at high effort.
+   - No selection: use the two-model panel: OpenAI `gpt-6.1-sol` (GPT-6.1 Sol) and Anthropic `claude-opus-5-5` (Claude Opus 5.5), both at high effort.
    - “All”: pass `--all` to include every healthy configured company.
    - Named reviewers: pass repeatable `--reviewer transport:model` values. Supported transports are `codex`, `claude`, `google`, `agy`, `gemini`, and `grok`.
 3. Run from the repository root:
@@ -36,7 +36,7 @@ Generate and inspect the packed input without invoking providers:
 py .agents/skills/draxul-review/scripts/review.py review --prompt-file <prompt> --plan-only
 ```
 
-The runner preflights providers after packing, runs their one-shot reviews concurrently, and owns all report writes. The default timeout is 90 minutes **per reviewer and synthesis**, with a separate preparation timeout of the same duration for Repomix. Each report is published as its reviewer finishes; a slow or failed peer cannot keep completed reports only in memory. After the panel finishes, successful reports are synthesized automatically by `codex:gpt-6-sol` at high effort. Partial panels produce explicitly partial consensus; no successful reports means no synthesis. Consensus failure preserves the reviews and returns a nonzero exit status. Persist real Codex, Claude, and Grok review sessions in their normal provider stores so TokenFu can retain tool-call and token telemetry; keep nonce-only preflight sessions ephemeral. Start fresh sessions and keep cross-session memory disabled.
+The runner preflights providers after packing, runs their one-shot reviews concurrently, and owns all report writes. The default timeout is 90 minutes **per reviewer and synthesis**, with a separate preparation timeout of the same duration for Repomix. Each report is published as its reviewer finishes; a slow or failed peer cannot keep completed reports only in memory. After the panel finishes, successful reports are synthesized automatically by `codex:gpt-6.1-sol` at high effort. Partial panels produce explicitly partial consensus; no successful reports means no synthesis. Consensus failure preserves the reviews and returns a nonzero exit status. Persist real Codex, Claude, and Grok review sessions in their normal provider stores so TokenFu can retain tool-call and token telemetry; keep nonce-only preflight sessions ephemeral. Start fresh sessions and keep cross-session memory disabled.
 
 ## Monitor through completion
 
@@ -64,7 +64,7 @@ For example: `**Summary:** Avoid repeatedly checking the same text during redraw
 - Use `--no-kanban` for a consensus report without creating cards; `--kanban` explicitly enables the default behavior.
 - Use `--no-consensus` for independent reports only. It skips both synthesis and card creation and cannot be combined with `--consensus-prompt`.
 - The default consensus prompt is `plans/prompts/consensus_<review-prompt-stem>.md` (for example `consensus_review_bugs.md`); a general reconciliation prompt is used when no matching saved prompt exists.
-- `--consensus-prompt <path>` overrides the saved prompt. `--summarizer transport:model` overrides GPT-6 Sol only when the user names a synthesizer.
+- `--consensus-prompt <path>` overrides the saved prompt. `--summarizer transport:model` overrides GPT-6.1 Sol only when the user names a synthesizer.
 - Consensus always uses the current immutable review run, not mutable latest-file globs. Its state and summary-run link are recorded in the review manifest, separately from reviewer completion status.
 - `--plan-only` generates the Repomix input without invoking reviewers or consensus.
 
@@ -78,7 +78,7 @@ py .agents/skills/draxul-review/scripts/review.py summarize --prompt-file <synth
 py .agents/skills/draxul-review/scripts/review.py summarize --prompt-file <synthesis-prompt> --glob <pattern>
 ```
 
-Standalone `summarize` also creates validated Kanban cards by default; use `--no-kanban` for a report only. Use `--summarizer transport:model` only when the user names a synthesizer; otherwise keep `codex:gpt-6-sol`. Pass `--name` when an explicit stable artifact name is needed.
+Standalone `summarize` also creates validated Kanban cards by default; use `--no-kanban` for a report only. Use `--summarizer transport:model` only when the user names a synthesizer; otherwise keep `codex:gpt-6.1-sol`. Pass `--name` when an explicit stable artifact name is needed.
 
 Summarize successful reports from partial runs and identify missing reviewers. When the synthesis prompt requests work items, require complete cards under exact `### kanban/pending/<filename>.md` headings for core/shared work or `### plugins/<product>/kanban/pending/<filename>.md` headings for work owned by an initialized product submodule. Each card needs a title heading and a `**Source:**` line. The trusted runner validates and atomically creates cards in their owning trackers after synthesis; providers remain read-only. A card with a complete `**Title:**` field is normalized to a title heading while the raw response remains archived. If proposed priorities collide, the runner assigns the lowest free priorities within each pending lane and rewrites intra-consensus paths before publishing. Return the summary path, its input list, and created work-item paths.
 
@@ -96,6 +96,8 @@ py .agents/skills/draxul-review/scripts/review.py materialize --summary-file <co
 
 ## Handle failures
 
+- Claude review/synthesis subprocesses set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0` so delegated workers can finish instead of hitting Claude print mode's ten-minute background wait ceiling. The runner's outer `--timeout` remains in force; user-wide environment settings are not changed. A background-task termination diagnostic is a failure even with exit code zero. Plain progress messages are not accepted as Markdown reports; inspect saved findings and coverage before treating a structurally valid report as substantive.
+- If the user authorizes retrying only a failed reviewer while a peer run is still active, launch a separately named single-reviewer run with `--no-consensus`. Preserve the original run. After both reports are available, use `summarize` with exact `--input` paths for the successful peer and replacement report; exclude the failed/progress-only report. Monitor both runs and the replacement consensus through completion, and identify any original automatic consensus as superseded rather than merging its invalid input into the replacement.
 - Treat a nonzero runner exit as a partial or failed run; inspect its printed run path and manifest.
 - Keep provider read-only/plan modes on normal calls. On native Windows, if Codex's read-only sandbox cannot create child processes with error 1312, the runner may retry without the broken OS sandbox only inside its disposable review workspace. It must preserve the original total timeout, retain the fixed review-only contract, omit source-checkout paths from review inputs, and record the fallback in the manifest.
 - For authentication or connectivity failures, invoke `$draxul-preflight` and present its remediation.

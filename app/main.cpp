@@ -21,6 +21,7 @@
 #include <draxul/config_document.h>
 #include <draxul/host_registry.h>
 #include <draxul/kanban/kanban_host.h>
+#include <draxul/personal_assistant_host.h>
 #include <draxul/log.h>
 #include <draxul/markdown/markdown_host.h>
 #include <draxul/nanovg_demo_host.h>
@@ -337,6 +338,7 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
         const auto client_executable = current_executable;
 #endif
         draxul::ServerKernel kernel({
+            .personal_agents_root = std::filesystem::u8path(config.personal_agents_root),
             .runtime_directory = runtime_dir,
             .client_executable = client_executable,
             .protocol_major = draxul::kServerProtocolMajor,
@@ -688,6 +690,7 @@ static int draxul_main(std::vector<std::string> args)
     draxul::register_nanovg_demo_host_provider(host_registry);
     draxul::markdown::register_markdown_host_provider(host_registry);
     draxul::kanban::register_kanban_host_provider(host_registry);
+    draxul::register_personal_assistant_host_provider(host_registry);
 
     if (const auto host_error = draxul::validate_host_provider_availability(parsed, host_registry))
     {

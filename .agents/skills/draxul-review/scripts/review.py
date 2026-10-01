@@ -109,7 +109,7 @@ class KanbanCard:
 
 
 ADAPTERS = {
-    "codex": Adapter("codex", "openai", "codex", "gpt-6-sol", "gpt"),
+    "codex": Adapter("codex", "openai", "codex", "gpt-6.1-sol", "gpt"),
     "claude": Adapter("claude", "anthropic", "claude", "claude-opus-5-5", "claude"),
     "agy": Adapter("agy", "google", "agy", "default", "gemini"),
     "gemini": Adapter("gemini", "google", "gemini", "default", "gemini"),
@@ -465,13 +465,15 @@ def validate_output(text: str, label: str) -> str:
             not markdown_structure or lowered.startswith(("error", "unable", "you are", "please"))
         ):
             raise ReviewError(f"{label} output looks like a provider failure ({pattern}).")
-    if not markdown_structure and re.search(r"(?i)\b(?:i(?:'|’)ll|next i(?:'|’)ll)\s+(?:read|inspect|check|review)\b", cleaned):
-        raise ReviewError(f"{label} returned progress text instead of a final Markdown report.")
+    if not markdown_structure:
+        raise ReviewError(f"{label} returned progress text or unstructured output instead of a final Markdown report.")
     return cleaned + "\n"
 
 
 def validate_runtime_diagnostics(text: str, label: str) -> None:
     lowered = clean_output(text).lower()
+    if re.search(r"background tasks still running after \d+(?:\.\d+)?s;\s*terminating", lowered):
+        raise ReviewError(f"{label} terminated unfinished background tasks instead of completing the review.")
     for pattern in RUNTIME_FAILURE_PATTERNS:
         if pattern in lowered:
             raise ReviewError(f"{label} encountered a provider runtime failure ({pattern}).")
@@ -709,9 +711,17 @@ def pack_repository(snapshot: pathlib.Path, files: Sequence[pathlib.Path],
     """Run Repomix once over the shared snapshot, retaining the exact review input."""
     output = current_run / REPOMIX_OUTPUT
     config = current_run / "repomix.config.json"
+    # Use forward-slash config paths. Repomix's stdin mode converts them back
+    # to Windows separators before glob matching, silently losing nested files.
+    # The explicit allowlist also excludes the synthetic REPO_STATE.md helper,
+    # whose raw Git diffs can contain previously excluded review archives.
+    paths = [path.as_posix() for path in files]
+    if not paths:
+        raise ReviewError("No source files were supplied to Repomix.")
     # An explicit config prevents a checkout's Repomix config from enabling
     # compression, splitting, commands, or a different output destination.
     atomic_write_json(config, {
+        "include": paths,
         "output": {
             "filePath": str(output), "style": "xml", "parsableStyle": True,
             "showLineNumbers": True, "compress": False,
@@ -723,17 +733,12 @@ def pack_repository(snapshot: pathlib.Path, files: Sequence[pathlib.Path],
                    "useDefaultPatterns": False, "customPatterns": []},
         "security": {"enableSecurityCheck": True},
     })
-    # REPO_STATE.md contains raw Git diffs, potentially including excluded old
-    # review reports. Pack only source files, not that synthetic snapshot helper.
-    paths = [path.as_posix() for path in files]
-    if any("\n" in path or "\r" in path for path in paths):
-        raise ReviewError("Repomix's file-list input cannot represent filenames containing newlines.")
-    command = [*executable_prefix("repomix"), "--config", str(config), "--stdin",
+    command = [*executable_prefix("repomix"), "--config", str(config),
                "--output", str(output), "--style", "xml", "--parsable-style",
                "--output-show-line-numbers", "--no-git-sort-by-changes"]
     print("repomix: packing the source snapshot into one review file", flush=True)
     try:
-        result = run_process(command, snapshot, input_text="\n".join(paths) + "\n", timeout=timeout)
+        result = run_process(command, snapshot, timeout=timeout)
     except (subprocess.TimeoutExpired, OSError, UnicodeError) as error:
         raise ReviewError(f"Repomix preparation failed: {error}") from error
     atomic_write(current_run / "logs" / "repomix.log",
@@ -822,7 +827,13 @@ def execute_agent(
                         f"- `{target_name}` — source `{source.name}` — sha256 `{digest}`"
                     )
                 atomic_write(inputs_dir / "index.md", "\n".join(index_lines) + "\n")
-            environment = None
+            # Claude print mode otherwise exits after waiting only ten minutes
+            # for delegated workers. The outer subprocess timeout still bounds
+            # the complete review; do not change the user's global environment.
+            environment = (
+                {"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "0"}
+                if reviewer.transport == "claude" else None
+            )
 
             def run_attempt(
                 output_file: pathlib.Path,

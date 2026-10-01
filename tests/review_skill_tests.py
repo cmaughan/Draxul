@@ -36,16 +36,16 @@ class ReviewerSelectionTests(unittest.TestCase):
         panel = review.requested_panel([], False)
         self.assertEqual([("codex", ""), ("claude", "")], panel)
         self.assertEqual(
-            ["gpt-6-sol", "claude-opus-5-5"],
+            ["gpt-6.1-sol", "claude-opus-5-5"],
             [review.ADAPTERS[transport].default_model for transport, _ in panel],
         )
         parser = review.build_parser()
         self.assertEqual(
-            "codex:gpt-6-sol",
+            "codex:gpt-6.1-sol",
             parser.parse_args(["review", "--prompt-file", "prompt.md"]).summarizer,
         )
         self.assertEqual(
-            "codex:gpt-6-sol",
+            "codex:gpt-6.1-sol",
             parser.parse_args(["summarize", "--prompt-file", "prompt.md", "--run", "run-id"]).summarizer,
         )
 
@@ -269,6 +269,23 @@ class SnapshotTests(unittest.TestCase):
             with self.assertRaisesRegex(review.ReviewError, "not initialized"):
                 review.snapshot_file_list(root)
 
+    @unittest.skipUnless(shutil.which("repomix"), "Repomix CLI is not installed")
+    def test_real_repomix_packs_nested_source_and_excludes_snapshot_helper(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            snapshot = pathlib.Path(temp) / "snapshot"
+            paths = [pathlib.Path("root.cpp"), pathlib.Path("libs/nested/source.cpp"),
+                     pathlib.Path("plugins/product/source with spaces.cpp")]
+            for path in paths:
+                target = snapshot / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("// nested review fixture\nint fixture = 1;\n", encoding="utf-8")
+            (snapshot / "REPO_STATE.md").write_text("private snapshot helper", encoding="utf-8")
+            packed = review.pack_repository(snapshot, paths, pathlib.Path(temp) / "run", 60)
+            text = packed.read_text(encoding="utf-8")
+            for path in paths:
+                self.assertIn(f'<file path="{path.as_posix()}">', text)
+            self.assertNotIn('<file path="REPO_STATE.md">', text)
+
     def test_repomix_runs_once_then_each_reviewer_gets_one_private_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp) / "repo"
@@ -289,7 +306,8 @@ class SnapshotTests(unittest.TestCase):
             def fake_run(command, cwd, **kwargs):
                 calls.append(command[0])
                 if command[0] == "repomix":
-                    paths = kwargs["input_text"].splitlines()
+                    config = json.loads(pathlib.Path(command[command.index("--config") + 1]).read_text())
+                    paths = config["include"]
                     self.assertIn("plugins/product/source.txt", paths)
                     self.assertNotIn("repomix-output.xml", paths)
                     self.assertNotIn("REPO_STATE.md", paths)
@@ -496,6 +514,38 @@ class SnapshotTests(unittest.TestCase):
             self.assertTrue(result.ok, result.error)
             self.assertEqual("original\n", (root / "source.txt").read_text(encoding="utf-8"))
             self.assertIn("disposable snapshot", result.output)
+
+    def test_claude_background_wait_and_completion_validation(self) -> None:
+        warning = "Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely."
+        progress = ("The four review agents are running: app/UI, client/server/terminal, rendering and plugins. "
+                    "Once they finish, I'll re-check their evidence and write up one report.")
+        final = "# Review\n\nNo verified bugs in the inspected source.\n\n## Coverage\n\n- App and plugin lifecycles inspected."
+        for transport, output, stderr, expected_ok in (
+            ("claude", progress, warning, False),
+            ("claude", progress, "", False),
+            ("claude", final, warning, False),
+            ("claude", final, "", True),
+            ("claude", "# Finding\n\nThe application can emit: " + warning, "", True),
+            ("codex", final, "", True),
+        ):
+            with self.subTest(transport=transport, output=output, stderr=stderr), tempfile.TemporaryDirectory() as temp:
+                root = pathlib.Path(temp) / "repo"
+                root.mkdir()
+                self.init_repo(root)
+                reviewer = review.Reviewer(transport, review.ADAPTERS[transport].company, "fake", transport)
+                with (
+                    mock.patch.object(review, "agent_command", return_value=(["fake-reviewer"], "review")),
+                    mock.patch.object(review, "run_process", return_value=subprocess.CompletedProcess(
+                        ["fake-reviewer"], 0, output, stderr)) as process,
+                ):
+                    result = review.execute_agent(reviewer, root, "review prompt", 123)
+                self.assertEqual(expected_ok, result.ok, result.error)
+                self.assertEqual(123, process.call_args.kwargs["timeout"])
+                expected_env = {"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "0"} if transport == "claude" else None
+                self.assertEqual(expected_env, process.call_args.kwargs["env_overrides"])
+                if not expected_ok:
+                    self.assertEqual("", result.output)
+                    self.assertTrue(result.error)
 
     def test_codex_reviewed_error_strings_do_not_fail_or_trigger_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

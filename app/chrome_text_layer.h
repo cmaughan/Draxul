@@ -34,6 +34,7 @@ private:
     std::unique_ptr<IGridHandle> agents_handle_;
     std::unique_ptr<IGridHandle> spaces_header_handle_;
     std::unique_ptr<IGridHandle> agents_header_handle_;
+    std::unique_ptr<IGridHandle> personal_agents_header_handle_;
     std::unordered_map<LeafId, std::unique_ptr<IGridHandle>> pane_handles_;
 };
 

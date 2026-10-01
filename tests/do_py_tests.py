@@ -928,15 +928,16 @@ class TestCommandTests(unittest.TestCase):
                 "draxul-tests-scoreview",
                 "draxul-tests-pcbview",
                 "draxul-tests-rezonality",
+                "draxul-tests-flashcards",
             ),
             targets,
         )
         self.assertEqual(
-            ["--label-regex", "^scope-(core|megacity|satview|scoreview|pcbview|rezonality)$"],
+            ["--label-regex", "^scope-(core|megacity|satview|scoreview|pcbview|rezonality|flashcards)$"],
             ctest_filter,
         )
         self.assertEqual(
-            "core + megacity, satview, scoreview, pcbview, rezonality", label
+            "core + megacity, satview, scoreview, pcbview, rezonality, flashcards", label
         )
 
     def test_all_scope_uses_complete_unit_aggregate(self) -> None:

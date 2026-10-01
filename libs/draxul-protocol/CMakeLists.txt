@@ -1,5 +1,6 @@
 add_library(draxul-protocol
     src/agent_protocol.cpp
+    src/personal_agent_protocol.cpp
     src/remote_terminal_protocol.cpp
     src/session_protocol.cpp
     src/server_protocol.cpp
@@ -15,6 +16,7 @@ target_compile_definitions(draxul-protocol PRIVATE
 
 target_link_libraries(draxul-protocol PUBLIC
     draxul-agent
+    draxul-personal-agent
     draxul-session-model
     draxul-terminal-core
     nlohmann_json::nlohmann_json

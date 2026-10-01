@@ -22,6 +22,7 @@ enum class HostKind
     NanoVGDemo,
     Markdown,
     Kanban,
+    PersonalAssistant,
     Plugin,
     Count,
 };
@@ -36,6 +37,7 @@ inline constexpr std::array kAllHostKinds = {
     HostKind::NanoVGDemo,
     HostKind::Markdown,
     HostKind::Kanban,
+    HostKind::PersonalAssistant,
     HostKind::Plugin,
 };
 static_assert(kAllHostKinds.size()
@@ -64,6 +66,8 @@ inline const char* to_string(HostKind kind)
         return "markdown";
     case HostKind::Kanban:
         return "kanban";
+    case HostKind::PersonalAssistant:
+        return "personal-assistant";
     case HostKind::Plugin:
         return "plugin";
     case HostKind::Count:
@@ -90,6 +94,7 @@ inline constexpr bool is_server_owned_shell_host(HostKind kind)
     case HostKind::Markdown:
     case HostKind::Kanban:
     case HostKind::Plugin:
+    case HostKind::PersonalAssistant:
         return false;
     case HostKind::Count:
         return false;

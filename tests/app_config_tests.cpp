@@ -18,6 +18,13 @@
 using namespace draxul;
 using namespace draxul::tests;
 
+TEST_CASE("personal collection root survives configuration round trip", "[config][personal]")
+{
+    const auto config = AppConfig::parse("[agents]\npersonal_root = 'C:/Personal Assistant'\n");
+    CHECK(config.personal_agents_root == "C:/Personal Assistant");
+    CHECK(AppConfig::parse(config.serialize()).personal_agents_root == config.personal_agents_root);
+}
+
 namespace
 {
 

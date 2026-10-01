@@ -11,7 +11,7 @@ Run the shared review runner from the repository root:
 py .agents/skills/draxul-review/scripts/review.py preflight
 ```
 
-By default, check the review panel: OpenAI `gpt-6-astra` and Anthropic `claude-fable-5-1` (Claude Fable 5.1). Pass `--all` to check all configured companies, including Google and xAI. For selected providers or models, pass one or more `--reviewer transport:model` arguments instead.
+By default, check the review panel: OpenAI `gpt-6.1-sol` (GPT-6.1 Sol) and Anthropic `claude-opus-5-5` (Claude Opus 5.5), both at high effort. Pass `--all` to check all configured companies, including Google and xAI. For selected providers or models, pass one or more `--reviewer transport:model` arguments instead.
 
 Report each transport’s executable/version, authentication or model-discovery result, live nonce result, and any Google Agy-to-Gemini fallback. Default and explicit preflights require every selected reviewer to pass; `--all` also requires at least three distinct AI companies.
 

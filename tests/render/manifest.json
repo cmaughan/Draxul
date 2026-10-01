@@ -2,6 +2,18 @@
   "version": 1,
   "scenarios": [
     {
+      "name": "personal-assistant",
+      "purpose": "Built-in read-only Personal Assistant host connection-state rendering",
+      "status": "developer",
+      "platforms": ["windows", "macos"],
+      "ctest": false,
+      "reference_required": false,
+      "renderall": false,
+      "blessall": false,
+      "compare_command": "",
+      "bless_command": ""
+    },
+    {
       "name": "basic-view",
       "purpose": "Core terminal grid, colors, and cursor rendering",
       "status": "regression",

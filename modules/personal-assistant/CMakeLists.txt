@@ -1,0 +1,5 @@
+add_library(draxul-personal-assistant-host src/personal_assistant_host.cpp)
+target_include_directories(draxul-personal-assistant-host PUBLIC include)
+target_link_libraries(draxul-personal-assistant-host PUBLIC draxul-grid-host draxul-personal-agent)
+target_link_libraries(draxul-personal-assistant-host PRIVATE SDL3::Headers)
+draxul_configure_internal_targets_in_directory("${CMAKE_CURRENT_SOURCE_DIR}")

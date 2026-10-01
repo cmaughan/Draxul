@@ -58,6 +58,9 @@ HostProviderMetadata default_metadata(HostKind kind)
     case HostKind::Kanban:
         metadata.display_name = "Kanban";
         break;
+    case HostKind::PersonalAssistant:
+        metadata.display_name = "Personal Assistant";
+        break;
     case HostKind::Plugin:
         metadata.display_name = "Plugin";
         metadata.palette_visible = false;

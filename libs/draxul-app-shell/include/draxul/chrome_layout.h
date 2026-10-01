@@ -22,6 +22,7 @@ enum class ChromeHitKind
 {
     Space,
     Agent,
+    PersonalAgent,
     Tab,
     PaneStatus,
 };
@@ -110,6 +111,7 @@ struct ChromeLayoutInput
     std::vector<ChromeTabInput> tabs;
     std::vector<ChromeSpaceInput> spaces;
     std::vector<ChromeAgentInput> agents;
+    std::vector<ChromeAgentInput> personal_agents;
     std::optional<SystemResourceSnapshot> resources;
     std::string weather_emoji;
     std::string weather_temperature;
@@ -202,6 +204,7 @@ struct ChromeLayoutOutput
     ChromeRect sidebar_spaces_rect{};
     ChromeRect sidebar_section_divider{};
     ChromeRect sidebar_agents_header{};
+    ChromeRect sidebar_personal_agents_header{};
     ChromeRect sidebar_agents_rect{};
     ChromeRect sidebar_divider{};
     std::vector<ChromeSpaceLayout> spaces;

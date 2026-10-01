@@ -4,6 +4,32 @@
 
 using namespace draxul;
 
+TEST_CASE("personal sidebar entries have distinct section and hit targets", "[chrome][personal]")
+{
+    ChromeLayoutInput input;
+    input.viewport_width = 800;
+    input.viewport_height = 600;
+    input.cell_width = 10;
+    input.cell_height = 20;
+    input.spaces = { { 0, "default", true } };
+    input.shell_layout = compute_app_shell_layout({
+        .window_width = 800, .window_height = 600, .terminal_height = 600,
+        .cell_width = 10, .cell_height = 20, .preferred_sidebar_columns = 24,
+        .space_count = 1, .show_sidebar = true,
+    });
+    input.agents.push_back({ .instance_id = "live", .display_name = "Live", .running = true });
+    input.personal_agents.push_back({ .instance_id = "news", .display_name = "News", .status_suffix = "[off]" });
+    const auto layout = compute_chrome_layout(input);
+    REQUIRE(layout.agents.size() == 2);
+    CHECK(layout.sidebar_personal_agents_header.h > 0);
+    CHECK(layout.agents[0].row < layout.agents[1].row - 1);
+    const auto& rect = layout.agents[1].rect;
+    CHECK(hit_test_chrome(layout, ChromeHitKind::PersonalAgent,
+              static_cast<int>(rect.x + 2), static_cast<int>(rect.y + 2)) == 1);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Agent,
+              static_cast<int>(rect.x + 2), static_cast<int>(rect.y + 2)) == 0);
+}
+
 namespace
 {
 void refresh_shell(ChromeLayoutInput& input, bool show_sidebar = false)

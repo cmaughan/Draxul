@@ -78,6 +78,7 @@ void ChromeTextLayer::shutdown()
     agents_handle_.reset();
     spaces_header_handle_.reset();
     agents_header_handle_.reset();
+    personal_agents_header_handle_.reset();
     pane_handles_.clear();
 }
 
@@ -100,6 +101,8 @@ void ChromeTextLayer::draw(IFrameContext& frame, const ChromeLayoutOutput& layou
         frame.draw_grid_handle(*spaces_header_handle_);
     if (layout.sidebar_width > 0 && agents_header_handle_)
         frame.draw_grid_handle(*agents_header_handle_);
+    if (layout.sidebar_width > 0 && personal_agents_header_handle_)
+        frame.draw_grid_handle(*personal_agents_header_handle_);
     for (const auto& pane : layout.panes)
     {
         const auto it = pane_handles_.find(pane.leaf);
@@ -164,6 +167,7 @@ void ChromeTextLayer::update_sidebar(const ChromeLayoutOutput& layout, const Chr
         agents_handle_.reset();
         spaces_header_handle_.reset();
         agents_header_handle_.reset();
+        personal_agents_header_handle_.reset();
         return;
     }
     if (!sidebar_handle_)
@@ -252,6 +256,8 @@ void ChromeTextLayer::update_sidebar(const ChromeLayoutOutput& layout, const Chr
         layout.sidebar_spaces_header, "SPACES", theme.tab_inactive_fg);
     update_section_header(agents_header_handle_, layout,
         layout.sidebar_agents_header, "AGENTS", theme.tab_inactive_fg);
+    update_section_header(personal_agents_header_handle_, layout,
+        layout.sidebar_personal_agents_header, "PERSONAL AGENTS", theme.tab_inactive_fg);
 }
 
 void ChromeTextLayer::update_section_header(std::unique_ptr<IGridHandle>& handle,

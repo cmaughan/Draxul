@@ -1,4 +1,5 @@
 #include "chrome_host.h"
+#include <draxul/personal_agent_store.h>
 
 #include "agent_controller.h"
 #include "pane_manager.h"
@@ -166,6 +167,23 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
         }
     }
 
+    if (shell_layout_.sidebar_visible && deps_.personal_agents)
+    {
+        if (const auto snapshot = deps_.personal_agents(); snapshot && !snapshot->root.empty())
+        {
+            for (const auto& definition : snapshot->agents)
+            {
+                input.personal_agents.push_back({
+                    .instance_id = definition.id,
+                    .display_name = definition.name,
+                    .status_suffix = definition.error.empty() && snapshot->error.empty() ? "[off]" : "[!]",
+                    .attention = !definition.error.empty() || !snapshot->error.empty(),
+                });
+            }
+            if (input.personal_agents.empty())
+                input.personal_agents.push_back({ .display_name = "Open collection", .status_suffix = "[off]" });
+        }
+    }
     const TabController* controller = active_tabs();
     const bool have_tabs = controller && !controller->empty();
     const bool have_resources = deps_.system_resource_snapshot
@@ -260,6 +278,11 @@ int ChromeHost::hit_test_agent(int px, int py) const
         return 0;
     return hit_test_chrome(
         compute_chrome_layout(build_layout_input()), ChromeHitKind::Agent, px, py);
+}
+
+int ChromeHost::hit_test_personal_agent(int px, int py) const
+{
+    return hit_test_chrome(compute_chrome_layout(build_layout_input()), ChromeHitKind::PersonalAgent, px, py);
 }
 
 LeafId ChromeHost::hit_test_pane_status_pill(int px, int py) const

@@ -84,7 +84,8 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
 
             for (const ChromeRect& header : {
                      layout.sidebar_spaces_header,
-                     layout.sidebar_agents_header })
+                     layout.sidebar_agents_header,
+                     layout.sidebar_personal_agents_header })
             {
                 if (header.w <= 0.0f || header.h <= 0.0f)
                     continue;

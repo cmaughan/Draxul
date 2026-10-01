@@ -176,6 +176,7 @@ AppConfig config_from_toml(const toml::table& document, std::string* validation_
         apply_gui_keybindings(config, *keybindings);
     if (const auto* agents = document["agents"].as_table())
     {
+        config.personal_agents_root = (*agents)["personal_root"].value<std::string>().value_or("");
         config.agents_resume_on_restore = toml_support::get_bool(
             *agents, "resume_on_restore")
                                               .value_or(false);
@@ -406,7 +407,7 @@ std::string AppConfig::serialize() const
     });
     document.insert_or_assign("keybindings", std::move(keybinding_table));
 
-    if (!agent_profiles.empty() || agents_resume_on_restore)
+    if (!agent_profiles.empty() || agents_resume_on_restore || !personal_agents_root.empty())
     {
         toml::table profiles;
         for (const AgentProfileConfig& profile : agent_profiles)
@@ -423,6 +424,7 @@ std::string AppConfig::serialize() const
             profiles.insert_or_assign(profile.id, std::move(value));
         }
         toml::table agents;
+        agents.insert_or_assign("personal_root", personal_agents_root);
         agents.insert_or_assign("resume_on_restore", agents_resume_on_restore);
         agents.insert_or_assign("profiles", std::move(profiles));
         document.insert_or_assign("agents", std::move(agents));

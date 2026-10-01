@@ -28,6 +28,7 @@ option(DRAXUL_ENABLE_MEGACITY "Build and bundle the MegaCity/BioView plugin" ON)
 option(DRAXUL_ENABLE_SATVIEW "Build and bundle the SatView plugin" ON)
 option(DRAXUL_ENABLE_PCBVIEW "Build and bundle the PCBView plugin" ON)
 option(DRAXUL_ENABLE_REZONALITY "Build and bundle the Rezonality live graphics plugin" ON)
+option(DRAXUL_ENABLE_FLASHCARDS "Build and bundle the Japanese flashcards plugin" ON)
 if(APPLE OR WIN32)
     set(DRAXUL_SCOREVIEW_DEFAULT ON)
 else()
@@ -57,6 +58,8 @@ set(DRAXUL_PCBVIEW_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/pcbview"
     CACHE PATH "Mounted PCBView plugin source directory")
 set(DRAXUL_REZONALITY_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/rezonality"
     CACHE PATH "Mounted Rezonality plugin source directory")
+set(DRAXUL_FLASHCARDS_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/flashcards"
+    CACHE PATH "Mounted Flashcards plugin source directory")
 
 include(cmake/InternalTargetPolicy.cmake)
 
@@ -130,6 +133,7 @@ add_subdirectory(libs/draxul-terminal-core)
 add_subdirectory(libs/draxul-nvim)
 add_subdirectory(libs/draxul-config)
 add_subdirectory(libs/draxul-agent)
+add_subdirectory(libs/draxul-personal-agent)
 add_subdirectory(libs/draxul-agent-integration)
 add_subdirectory(libs/draxul-session-model)
 add_subdirectory(libs/draxul-terminal-process)
@@ -144,13 +148,14 @@ add_subdirectory(libs/draxul-runtime-support)
 add_subdirectory(libs/draxul-render-test)
 add_subdirectory(libs/draxul-host)
 add_subdirectory(modules/kanban)
+add_subdirectory(modules/personal-assistant)
 
 set(DRAXUL_HAVE_MEGACITY OFF)
 set(DRAXUL_HAVE_SATVIEW OFF)
 set(DRAXUL_HAVE_SCOREVIEW OFF)
 set(DRAXUL_HAVE_PCBVIEW OFF)
 set(DRAXUL_HAVE_REZONALITY OFF)
-foreach(_product IN ITEMS MEGACITY SATVIEW SCOREVIEW PCBVIEW REZONALITY)
+foreach(_product IN ITEMS MEGACITY SATVIEW SCOREVIEW PCBVIEW REZONALITY FLASHCARDS)
     if(DRAXUL_ENABLE_${_product})
         if(EXISTS "${DRAXUL_${_product}_PLUGIN_DIR}/CMakeLists.txt")
             set(DRAXUL_HAVE_${_product} ON)
@@ -187,6 +192,9 @@ if(DRAXUL_HAVE_PCBVIEW)
 endif()
 if(DRAXUL_HAVE_REZONALITY)
     add_subdirectory("${DRAXUL_REZONALITY_PLUGIN_DIR}" plugins/rezonality)
+endif()
+if(DRAXUL_HAVE_FLASHCARDS)
+    add_subdirectory("${DRAXUL_FLASHCARDS_PLUGIN_DIR}" plugins/flashcards)
 endif()
 
 # This namespace is the explicit shared C++ surface for mounted product
@@ -277,6 +285,7 @@ target_link_libraries(draxul PRIVATE
     draxul-client
     draxul-markdown-host
     draxul-kanban-host
+    draxul-personal-assistant-host
     draxul-performance
     draxul-server
 )
@@ -529,6 +538,12 @@ if(BUILD_TESTING)
         # same test is registered on Metal; its execution remains a macOS gate.
         if(WIN32 OR APPLE)
             file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/render-test-exports)
+            add_test(NAME draxul-render-personal-assistant-smoke
+                COMMAND $<TARGET_FILE:draxul>
+                    --render-test ${CMAKE_SOURCE_DIR}/tests/render/personal-assistant.toml
+                    --export-render-test ${CMAKE_BINARY_DIR}/render-test-exports/personal-assistant.${DRAXUL_RENDER_PLATFORM}.bmp)
+            set_tests_properties(draxul-render-personal-assistant-smoke PROPERTIES
+                LABELS "render;personal" RESOURCE_LOCK draxul_gpu TIMEOUT 30)
             set(DRAXUL_RELOAD_RENDER_SCENARIO
                 ${CMAKE_SOURCE_DIR}/tests/render/spinning-triangle-reload.toml)
             set(DRAXUL_RELOAD_RENDER_EXPORT

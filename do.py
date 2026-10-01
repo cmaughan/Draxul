@@ -882,7 +882,7 @@ def cmd_build(root: pathlib.Path, args: list[str]) -> int:
     return rc
 
 
-_TEST_PRODUCT_SCOPES = ("megacity", "satview", "scoreview", "pcbview", "rezonality")
+_TEST_PRODUCT_SCOPES = ("megacity", "satview", "scoreview", "pcbview", "rezonality", "flashcards")
 
 
 def _parse_test_args(
@@ -949,6 +949,8 @@ def _parse_test_args(
             product_scopes.add("pcbview")
         elif arg == "--rezonality":
             product_scopes.add("rezonality")
+        elif arg == "--flashcards":
+            product_scopes.add("flashcards")
         elif arg == "--products":
             product_scopes.update(_TEST_PRODUCT_SCOPES)
         elif arg == "--all":
@@ -968,7 +970,7 @@ def _parse_test_args(
             "[--reconfigure] [--vs|--ninja] [--verbose] "
             "[--label <label>] "
             "[--target <catch-target> [--catch <filter>] [--repeat N] [--seed N]] "
-            "[--megacity|--satview|--scoreview|--pcbview|--rezonality|--products|--all]"
+            "[--megacity|--satview|--scoreview|--pcbview|--rezonality|--flashcards|--products|--all]"
         )
     if focused_target is not None:
         if not re.fullmatch(r"draxul-test-[A-Za-z0-9_-]+", focused_target):
@@ -2420,7 +2422,7 @@ Single-word shortcuts:
   test [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--verbose]
        [--label <label>]
        [--target <draxul-test-*> [--catch <filter>] [--repeat N] [--seed N]]
-       [--megacity|--satview|--scoreview|--pcbview|--rezonality|--products|--all]
+       [--megacity|--satview|--scoreview|--pcbview|--rezonality|--flashcards|--products|--all]
                Build and run core unit and integration tests in parallel (default: debug, ninja)
                --label runs only that CTest label and fails when it matches no tests;
                --target builds one Catch2 executable, preflights its filter, and

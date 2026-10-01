@@ -1,1 +1,1 @@
-The wait timer notification is just the last background pause finishing. The review is complete and the full report was delivered in my previous message; there is nothing further to add.
+The four review agents are running: app/UI, client/server/terminal, rendering with plugin infrastructure plus MegaCity and PCBView, and SatView/ScoreView/Rezonality. Once they finish, I'll re-check their evidence and write up one report.

@@ -1,4 +1,5 @@
 #pragma once
+#include "personal_agent_service.h"
 
 #include "fake_terminal_runtime.h"
 #include "remote_terminal_service.h"
@@ -201,6 +202,7 @@ public:
         std::chrono::steady_clock::time_point now);
 
     ServerKernelOptions options;
+    PersonalAgentService personal_agents;
     std::shared_ptr<ServerTerminalResourceBudget>
         terminal_resource_budget;
     AgentDefinitionRegistry agent_definitions;

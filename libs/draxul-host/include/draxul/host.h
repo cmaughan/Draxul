@@ -23,6 +23,7 @@ class IFrameContext;
 class TextService;
 struct AppConfig;
 class ConfigDocument;
+struct PersonalAgentSnapshot;
 
 struct HostLaunchOptions
 {
@@ -182,6 +183,7 @@ public:
 
     // Show a non-blocking toast notification. level: 0=info, 1=warn, 2=error.
     virtual void push_toast(int /*level*/, std::string_view /*message*/) {}
+    virtual std::shared_ptr<const PersonalAgentSnapshot> personal_agents() const { return {}; }
 };
 
 struct HostContext

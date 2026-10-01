@@ -26,6 +26,14 @@ ParseArgsResult parse(std::initializer_list<const char*> tokens)
 
 } // namespace
 
+TEST_CASE("cli: personal assistant uses the shared server", "[cli][personal]")
+{
+    const auto parsed = parse({ "--host", "personal-assistant" });
+    REQUIRE_FALSE(parsed.error.has_value());
+    CHECK(parsed.args.host_kind == HostKind::PersonalAssistant);
+    CHECK(should_use_shared_server(parsed.args));
+}
+
 TEST_CASE("cli: --screenshot-delay with non-numeric value reports an error", "[cli]")
 {
     auto r = parse({ "--screenshot-delay", "abc" });

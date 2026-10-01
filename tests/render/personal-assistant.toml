@@ -1,0 +1,9 @@
+name = "personal-assistant"
+host = "personal-assistant"
+width = 1100
+height = 720
+font_path = "${SCENARIO_DIR}/../../fonts/JetBrainsMonoNerdFont-Regular.ttf"
+font_size = 11
+timeout_ms = 8000
+settle_ms = 300
+commands = [""]

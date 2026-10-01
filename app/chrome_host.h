@@ -49,6 +49,7 @@ public:
         // ephemeral process-discovered occupants before rendering the rail.
         SpaceController* space_controller = nullptr;
         AgentController* agent_controller = nullptr;
+        std::function<std::shared_ptr<const PersonalAgentSnapshot>()> personal_agents;
         const SystemResourceSnapshot* system_resource_snapshot = nullptr;
         std::function<std::optional<std::pair<std::string, float>>()> chord_indicator = nullptr;
         // Weather callbacks — return emoji (for example "\u2600\uFE0F") and
@@ -126,6 +127,7 @@ public:
     int hit_test_tab(int px, int py) const;
     SpaceId hit_test_space(int px, int py) const;
     int hit_test_agent(int px, int py) const;
+    int hit_test_personal_agent(int px, int py) const;
 
     // ----- Inline Space/tab/pane rename (WI 128) -----------------------
     // A single edit session can target either a tab or a pane

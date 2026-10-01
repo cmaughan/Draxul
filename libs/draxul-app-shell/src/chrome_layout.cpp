@@ -407,18 +407,28 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                     static_cast<float>(out.sidebar_width), static_cast<float>(ch) } });
             out.spaces.push_back(std::move(space));
         }
-        for (size_t i = 0; i < input.agents.size(); ++i)
+        const size_t running_rows = input.personal_agents.empty() ? input.agents.size()
+            : std::min(input.agents.size(), static_cast<size_t>(std::max(0, out.sidebar_agent_rows / 2 - 1)));
+        auto agent_rows = input.agents;
+        agent_rows.resize(running_rows);
+        agent_rows.insert(agent_rows.end(), input.personal_agents.begin(), input.personal_agents.end());
+        if (!input.personal_agents.empty() && out.sidebar_agent_rows > static_cast<int>(running_rows) + 2)
+            out.sidebar_personal_agents_header = section_header(
+                static_cast<float>(shell.sidebar_agents.y + (static_cast<int>(running_rows) + 1) * ch));
+        for (size_t i = 0; i < agent_rows.size(); ++i)
         {
-            const int row = static_cast<int>(i) + 1;
+            const bool personal = i >= running_rows;
+            const int row = static_cast<int>(i) + (personal ? 2 : 1);
             const int row_y = shell.sidebar_agents.y + row * ch;
             if (row >= out.sidebar_agent_rows
                 || row_y + ch > shell.sidebar_agents.y + shell.sidebar_agents.h)
             {
                 break;
             }
-            const auto& source = input.agents[i];
-            const std::string prefix = std::to_string(i + 1) + ": ";
-            const int digits = static_cast<int>(std::to_string(i + 1).size());
+            const auto& source = agent_rows[i];
+            const int index = static_cast<int>(personal ? i - running_rows : i) + 1;
+            const std::string prefix = std::to_string(index) + ": ";
+            const int digits = static_cast<int>(std::to_string(index).size());
             const std::string suffix = source.status_suffix.empty()
                 ? (source.running ? "" : " [exited]")
                 : " " + source.status_suffix;
@@ -426,7 +436,7 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                 1, out.sidebar_cols - kTabPadCols * 2 - 1);
             ChromeAgentLayout agent;
             agent.instance_id = source.instance_id;
-            agent.agent_index = static_cast<int>(i) + 1;
+            agent.agent_index = index;
             agent.row = row;
             agent.running = source.running;
             agent.focused = source.focused;
@@ -451,7 +461,7 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                     input.theme, ChromePillRole::Agent,
                     agent.focused || agent.attention),
             });
-            out.hit_regions.push_back({ ChromeHitKind::Agent, agent.agent_index,
+            out.hit_regions.push_back({ personal ? ChromeHitKind::PersonalAgent : ChromeHitKind::Agent, agent.agent_index,
                 { static_cast<float>(shell.sidebar_agents.x),
                     static_cast<float>(row_y),
                     static_cast<float>(out.sidebar_width), static_cast<float>(ch) } });

@@ -40,6 +40,7 @@ struct ServerStartResult
 
 struct ServerKernelOptions
 {
+    std::filesystem::path personal_agents_root;
     std::filesystem::path runtime_directory;
     // Absolute CLI path matching this server build. Published in the secured
     // control metadata so tools can bootstrap without relying on PATH.

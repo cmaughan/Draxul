@@ -94,6 +94,7 @@ set(DRAXUL_KANBAN_CORE_TEST_SOURCES
     kanban_store_tests.cpp
 )
 set(DRAXUL_KANBAN_HOST_TEST_SOURCES kanban_host_tests.cpp)
+set(DRAXUL_PERSONAL_HOST_TEST_SOURCES personal_assistant_host_tests.cpp)
 set(DRAXUL_FILE_MONITOR_TEST_SOURCES file_monitor_tests.cpp)
 set(DRAXUL_NANOVG_PAINT_TEST_SOURCES nanovg_paint_tests.cpp)
 set(DRAXUL_PLUGIN_INTEGRATION_TEST_SOURCES plugin_manager_tests.cpp)
@@ -120,6 +121,7 @@ set(DRAXUL_PROTOCOL_TEST_SOURCES
 )
 
 set(DRAXUL_SERVER_TEST_SOURCES
+    personal_agent_tests.cpp
     agent_protocol_tests.cpp
     topology_projection_tests.cpp
     session_transport_load_tests.cpp
@@ -211,6 +213,7 @@ set(DRAXUL_CLASSIFIED_TEST_SOURCES
     ${DRAXUL_MARKDOWN_TEST_SOURCES}
     ${DRAXUL_KANBAN_CORE_TEST_SOURCES}
     ${DRAXUL_KANBAN_HOST_TEST_SOURCES}
+    ${DRAXUL_PERSONAL_HOST_TEST_SOURCES}
     ${DRAXUL_FILE_MONITOR_TEST_SOURCES}
     ${DRAXUL_NANOVG_PAINT_TEST_SOURCES}
     ${DRAXUL_PLUGIN_NANOVG_TEST_SOURCES}
@@ -956,6 +959,12 @@ add_test(NAME draxul-test-scope-integration
     COMMAND ${Python3_EXECUTABLE} -m unittest tests.test_scope_integration)
 set_tests_properties(draxul-test-scope-integration PROPERTIES
     LABELS "integration;cmake;python" TIMEOUT 120 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+draxul_add_test_target(draxul-test-personal-host "personal;host;integration" 1
+    ${DRAXUL_PERSONAL_HOST_TEST_SOURCES})
+target_link_libraries(draxul-test-personal-host PRIVATE
+    draxul-personal-assistant-host draxul-font draxul-imgui-core
+    draxul-renderer draxul-window SDL3::SDL3)
 
 draxul_register_test_scopes()
 

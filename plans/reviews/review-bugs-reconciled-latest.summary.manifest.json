@@ -1,0 +1,128 @@
+{
+  "finished_at": "2026-10-01T17:45:08.094983+00:00",
+  "inputs": [
+    "D:\\dev\\Draxul\\plans\\reviews\\runs\\20261001T161840Z-review-bugs-227f1d80\\reports\\openai.codex.gpt-6-1-sol.md",
+    "D:\\dev\\Draxul\\plans\\reviews\\runs\\20261001T165339Z-review-bugs-claude-retry-2c47d17e\\reports\\anthropic.claude.claude-opus-5-5.md"
+  ],
+  "kind": "summary",
+  "missing_reviewers": [],
+  "name": "review-bugs-reconciled",
+  "prompt": "D:\\dev\\Draxul\\plans\\prompts\\consensus_review_bugs.md",
+  "run_id": "20261001T172209Z-review-bugs-reconciled-summary-96acd19d",
+  "schema_version": 1,
+  "started_at": "2026-10-01T17:22:09.331138+00:00",
+  "status": "complete",
+  "summarizer": {
+    "company": "openai",
+    "duration_seconds": 1377.844,
+    "effort": "high",
+    "error": "",
+    "fallback_reason": "",
+    "model": "gpt-6.1-sol",
+    "preflight": "passed",
+    "preflight_message": "live response verified",
+    "requested": "codex",
+    "sandbox_fallback": "",
+    "status": "passed",
+    "transport": "codex",
+    "version": "codex-cli 0.159.2"
+  },
+  "work_items": [
+    {
+      "path": "kanban\\pending\\82 configured-glyph-atlas-dimensions -bug.md",
+      "sha256": "fdafd1b5e39acdf2363f8bae83cb03d00d5e8226fac9f10e739527d37869cc22"
+    },
+    {
+      "path": "kanban\\pending\\83 retired-server-checkpoint-ownership -bug.md",
+      "sha256": "628c956af9c77548023da0af5adfa159890da21c275a18db0ef16defaf729ff3"
+    },
+    {
+      "path": "kanban\\pending\\84 nondestructive-agent-hook-replacement -bug.md",
+      "sha256": "fee7a52cfe2f62655ac9dcb93c9a4e95cefb972c6ea8dbbf34516815727f6b18"
+    },
+    {
+      "path": "kanban\\pending\\85 plugin-texture-release-ownership -bug.md",
+      "sha256": "1df0fc31334a5a22dc7b757d1f338e24cad09e14965cac97cf8d98a39453446a"
+    },
+    {
+      "path": "kanban\\pending\\86 kanban-international-filename-conversion -bug.md",
+      "sha256": "984dd75e1c2d0f9726a269db85614a43b17805fb4b4b1ffa7eeea73752c67399"
+    },
+    {
+      "path": "kanban\\pending\\87 zoomed-pane-input-hit-testing -bug.md",
+      "sha256": "80c44544b4aa33f283a0900580c7639c7ecaa0c92070430f780b76a6d669b36c"
+    },
+    {
+      "path": "kanban\\pending\\88 nvim-wide-cell-protocol-decoding -bug.md",
+      "sha256": "47cbb3ca597238c4bb15c358d6150d801b7f0196d2268eaafe056c4ead484c4f"
+    },
+    {
+      "path": "kanban\\pending\\89 status-completion-during-command-retry -bug.md",
+      "sha256": "e2255fea4c47079a53c087ab0c74a1a8314e330e3eec3eb00ecd4a25b82de7e5"
+    },
+    {
+      "path": "kanban\\pending\\90 server-state-loop-wake-race -bug.md",
+      "sha256": "c98819369823d9cc8e1977d68bbe00e483c3055338a7564fa5f9855ad7bb1396"
+    },
+    {
+      "path": "kanban\\pending\\91 session-poll-pending-wake-handling -bug.md",
+      "sha256": "ac97e62c46ad9455b865817e619d0e642b8eb4b2debbd5089a980ce90a933d16"
+    },
+    {
+      "path": "kanban\\pending\\92 windows-control-listener-disconnect-reset -bug.md",
+      "sha256": "98bad16419f36b6f2a764a6bff14d31bed295fa6d5fd775a948797d61d658616"
+    },
+    {
+      "path": "kanban\\pending\\93 shortcut-chord-prefix-identity -bug.md",
+      "sha256": "635a42e57295b9a2db7ba0520df669b1ee121ca5760865e90c36d36f09dcb25e"
+    },
+    {
+      "path": "kanban\\pending\\94 windows-build-lock-liveness-errors -bug.md",
+      "sha256": "966aced1e50aeef7e3b83aed585e9e5b5c684e130d9c861bf232c95307f390c6"
+    },
+    {
+      "path": "plugins\\megacity\\kanban\\pending\\14 route-grid-generation-ownership -bug.md",
+      "sha256": "8ace61faf113171756f1600f0b92f01c1e5be961ba241c84ccd67bf3e0de3585"
+    },
+    {
+      "path": "plugins\\megacity\\kanban\\pending\\15 current-coverage-function-records -bug.md",
+      "sha256": "7fa53c19afd353775dd0f61b67009bb268b6b3b8525b989c8ed0adf58a748755"
+    },
+    {
+      "path": "plugins\\megacity\\kanban\\pending\\16 failed-source-scan-recovery -bug.md",
+      "sha256": "8c937d81d5eb7feccc2d25bab58081d6650d297845039a7b89870edecad76d64"
+    },
+    {
+      "path": "plugins\\satview\\kanban\\pending\\12 catalog-parser-nesting-limit -bug.md",
+      "sha256": "e0d42bf14ee113c751ccec3755bc8842e3dba6dc69b8b542112546767f4d642e"
+    },
+    {
+      "path": "plugins\\satview\\kanban\\pending\\13 catalog-identifier-domain-validation -bug.md",
+      "sha256": "f57b8e417cae2087f15f17cebeb8d7c6346069807b0cbb92322a17aa0e7296c2"
+    },
+    {
+      "path": "plugins\\satview\\kanban\\pending\\14 nonfinite-settings-validation -bug.md",
+      "sha256": "f67f9c774bfde7b192723e9346d5db0e0e9bf664d4fc42d7c6ab64596c6c7f90"
+    },
+    {
+      "path": "plugins\\scoreview\\kanban\\pending\\09 short-pane-layout-bounds -bug.md",
+      "sha256": "abbf728527323b7ffc78f112a352bd0ddb640ea405ccf9283a7771460d3d8ac8"
+    },
+    {
+      "path": "plugins\\scoreview\\kanban\\pending\\10 microphone-worker-module-lifetime -bug.md",
+      "sha256": "1f9ce17ca36adcfd9a7a7b576e9b5a9218ff020c60c8720b3e9a89b332287175"
+    },
+    {
+      "path": "plugins\\scoreview\\kanban\\pending\\11 imported-key-signature-overflow -bug.md",
+      "sha256": "ede0ae6da16f8a21e8e4f88edd41d6af38390cda4dd376743780d9ca47ce2fa0"
+    },
+    {
+      "path": "plugins\\scoreview\\kanban\\pending\\12 imported-fraction-range-validation -bug.md",
+      "sha256": "1531f140d02f74a87824f0978d721a204c9c15f2a1f50cb247f0eee7a7cde3ea"
+    },
+    {
+      "path": "plugins\\rezonality\\kanban\\pending\\13 international-project-path-serialization -bug.md",
+      "sha256": "840713592a52da71f108c7152d8d89bf949bb4f20d0b5062c157e57728f616d3"
+    }
+  ]
+}

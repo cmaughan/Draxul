@@ -118,6 +118,7 @@ struct AppConfig
     MarkdownConfig markdown; // [markdown] section -- markdown viewer layout/font options
     std::vector<AgentProfileConfig> agent_profiles; // [agents.profiles.<id>]
     bool agents_resume_on_restore = false; // [agents].resume_on_restore
+    std::string personal_agents_root;
 
     // Warnings collected during parse() — e.g. unknown top-level keys. Drained by App and
     // surfaced to the user via toast notifications.

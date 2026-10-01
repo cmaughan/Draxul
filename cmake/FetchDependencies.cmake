@@ -52,6 +52,9 @@ if(WIN32)
     set(ZLIB_FOUND TRUE)
     set(ZLIB_LIBRARIES ZLIB::ZLIB)
     set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}")
+    # libpng's header generator invokes the preprocessor outside a CMake
+    # target, so it also needs FindZLIB's plural include-directory variable.
+    set(ZLIB_INCLUDE_DIRS "${ZLIB_INCLUDE_DIR}")
 endif()
 FetchContent_Declare(
     libpng
@@ -63,7 +66,12 @@ set(PNG_TESTS OFF CACHE BOOL "" FORCE)
 set(PNG_TOOLS OFF CACHE BOOL "" FORCE)
 set(PNG_SHARED OFF CACHE BOOL "" FORCE)
 set(PNG_STATIC ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(libpng)
+# These libraries are embedded in Draxul, not installed as development SDKs.
+# Keep the upstream switch scoped so unrelated dependency installs are intact.
+block(PROPAGATE libpng_SOURCE_DIR libpng_BINARY_DIR)
+    set(SKIP_INSTALL_ALL ON)
+    FetchContent_MakeAvailable(libpng)
+endblock()
 
 # FreeType
 FetchContent_Declare(
@@ -78,7 +86,10 @@ set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
 set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
 # Disable system PNG discovery; wire in the fetched target below
 set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(freetype)
+block(PROPAGATE freetype_SOURCE_DIR freetype_BINARY_DIR)
+    set(SKIP_INSTALL_ALL ON)
+    FetchContent_MakeAvailable(freetype)
+endblock()
 # Use targets rather than raw library paths, including for multi-config builds.
 target_compile_definitions(freetype PRIVATE FT_CONFIG_OPTION_USE_PNG)
 target_link_libraries(freetype PRIVATE png_static)
@@ -99,7 +110,10 @@ set(HB_BUILD_SUBSET OFF CACHE BOOL "" FORCE)
 set(HB_HAVE_GOBJECT OFF CACHE BOOL "" FORCE)
 set(HB_HAVE_GLIB OFF CACHE BOOL "" FORCE)
 set(HB_HAVE_ICU OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(harfbuzz)
+block(PROPAGATE harfbuzz_SOURCE_DIR harfbuzz_BINARY_DIR)
+    set(SKIP_INSTALL_ALL ON)
+    FetchContent_MakeAvailable(harfbuzz)
+endblock()
 # Suppress warnings from HarfBuzz's macOS SDK headers (deprecated CoreText/QD types)
 target_compile_options(harfbuzz PRIVATE -w)
 

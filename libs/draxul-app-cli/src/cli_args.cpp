@@ -506,6 +506,7 @@ bool should_use_shared_server(const ParsedArgs& args)
     return *args.host_kind == HostKind::Plugin
         || *args.host_kind == HostKind::Markdown
         || *args.host_kind == HostKind::Kanban
+        || *args.host_kind == HostKind::PersonalAssistant
         || is_server_owned_shell_host(*args.host_kind);
 }
 

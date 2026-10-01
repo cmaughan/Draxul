@@ -490,6 +490,16 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
         }
     }
 
+    if (event.pressed && deps_.router)
+    {
+        const int index = deps_.router->hit_test_personal_agent(phys_x, phys_y);
+        if (index > 0)
+        {
+            deps_.router->activate_personal_agent(index);
+            return;
+        }
+    }
+
     // Agents sidebar click — resolve the derived row back to its pane owner.
     if (event.pressed && deps_.router)
     {

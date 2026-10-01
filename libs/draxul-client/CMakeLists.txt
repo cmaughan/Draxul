@@ -1,6 +1,7 @@
 add_library(draxul-client
     src/executable_layout.cpp
     src/agent_client.cpp
+    src/personal_agent_client.cpp
     src/client_recovery.cpp
     src/remote_terminal_client.cpp
     src/remote_session_client.cpp

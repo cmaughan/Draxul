@@ -96,16 +96,17 @@ Use the `--log-file` and `--log-level` CLI flags for debug logging. These are re
   [docs/module-map.md](docs/module-map.md#core-libraries).
 - `modules/markdown/` and `modules/kanban/`: product modules built by default.
 - `plugins/megacity/`, `plugins/satview/`, `plugins/scoreview/`,
-  `plugins/pcbview/`, `plugins/rezonality/`: **git
+  `plugins/pcbview/`, `plugins/rezonality/`, `plugins/flashcards/`: **git
   submodules** for the product plugin repositories
   ([draxul-megacity](https://github.com/cmaughan/draxul-megacity),
   [draxul-satview](https://github.com/cmaughan/draxul-satview),
   [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview),
   [draxul-pcbview](https://github.com/cmaughan/draxul-pcbview), and
-  [draxul-rezonality](https://github.com/cmaughan/draxul-rezonality)), gated by
+  [draxul-rezonality](https://github.com/cmaughan/draxul-rezonality), and
+  [draxul-flashcards](https://github.com/cmaughan/draxul-flashcards)), gated by
   `DRAXUL_ENABLE_MEGACITY` / `DRAXUL_ENABLE_SATVIEW` /
   `DRAXUL_ENABLE_SCOREVIEW` / `DRAXUL_ENABLE_PCBVIEW` /
-  `DRAXUL_ENABLE_REZONALITY`. Each product owns its
+  `DRAXUL_ENABLE_REZONALITY` / `DRAXUL_ENABLE_FLASHCARDS`. Each product owns its
   sources, dependencies, shaders, assets, tests, docs, plans, and kanban cards
   in its own repo.
 - `plugins/spinning-triangle/`: the in-repo reference plugin and ABI test
@@ -125,7 +126,7 @@ When working under `plugins/megacity/`, also read `plugins/megacity/product/AGEN
   `git submodule update --init`. An uninitialized product submodule is a
   supported state — configure skips it with a STATUS message (CI hard-fails
   instead via `DRAXUL_REQUIRE_ENABLED_PLUGINS`).
-- A change inside `plugins/megacity|satview|scoreview|pcbview|rezonality` is a commit in that
+- A change inside `plugins/megacity|satview|scoreview|pcbview|rezonality|flashcards` is a commit in that
   product's repository, pushed there, then adopted here with a deliberate
   submodule pointer-bump commit. Never commit a pointer bump as a drive-by in
   an unrelated change; `git submodule update` snaps an unwanted local pointer
@@ -259,7 +260,7 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
   `<build-tree>/.draxul-build-result.json` after an interrupted caller; a stale
   lock is reclaimed only after its recorded process is no longer running.
 - `do.py test` is core-scoped by default. Add `--megacity`, `--satview`,
-  `--scoreview`, `--pcbview`, or `--rezonality` only when that product or a seam it consumes changed. Use
+  `--scoreview`, `--pcbview`, `--rezonality`, or `--flashcards` only when that product or a seam it consumes changed. Use
   `--products` when shared plugin SDK/support/renderer changes can affect every
   product, and `--all` only for an explicitly requested complete unit/integration inventory.
 - CMake owns test build aggregates and CTest `scope-*` labels. Register a new
