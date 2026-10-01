@@ -1,5 +1,7 @@
 # Give App’s projection, mutation and command effects explicit owners
 
+**Summary:** Split the main application code into smaller parts with clear responsibilities so changes to panes, commands, and saved state are easier to test without interfering with one another.
+
 **Priority:** P1 — `app/app.cpp` is a shared collision point with coupled state and callbacks.  
 **Source:** `app/app.cpp`  
 **Proposed by:** Claude 3, 14. **Owner:** one app agent; separate command work only after ports land. **Depends on:** card 03 for clean launch ownership.  

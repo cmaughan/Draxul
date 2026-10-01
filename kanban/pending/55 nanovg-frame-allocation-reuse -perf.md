@@ -1,5 +1,7 @@
 # Reuse NanoVG native frame allocations
 
+**Summary:** Reuse graphics memory and drawing resources between vector frames so steady animation does not repeatedly create and discard the same kinds of objects.
+
 **Source:** `libs/draxul-nanovg/backend/src/nanovg_vk.cpp`  
 **Priority/evidence:** P2; static, medium-high confidence. **Reported by:** Claude. Vulkan lines 1442–1461, 1500–1539, and 1616–1633 allocate buffers/framebuffer/descriptor state on flush; Metal `nanovg_mtl.mm:795–816` creates two buffers for each nonempty flush. Chrome and ScoreView exercise these paths repeatedly.
 

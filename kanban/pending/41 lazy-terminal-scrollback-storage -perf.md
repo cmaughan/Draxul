@@ -1,5 +1,7 @@
 # Allocate scrollback rows as they become live
 
+**Summary:** Allocate space for terminal history as output arrives so empty panes do not immediately construct thousands of unused rows.
+
 **Source:** `libs/draxul-terminal-core/src/scrollback_buffer.cpp`  
 **Priority/evidence:** P2; static, high confidence. **Reported by:** Claude; Codex treated impact as an open lead. `resize()` at lines 49–116 constructs `capacity × columns` cells even when no row is live. Default capacity is 10,000 rows; server admission already reserves against capacity, so this is memory/startup work rather than a reason to relax its budget.
 

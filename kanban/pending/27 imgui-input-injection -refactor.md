@@ -1,5 +1,7 @@
 # Share primitive ImGui input injection
 
+**Summary:** Share the basic translation of keyboard and mouse events for panels and plugins so fixes to input handling apply consistently to both.
+
 **Priority:** P2 — diagnostics and plugin wrappers repeat event injection.  
 **Source:** `libs/draxul-imgui-core/src/sdl_imgui_input.cpp`  
 **Proposed by:** Codex 11. **Owner:** one ImGui input agent.  

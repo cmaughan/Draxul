@@ -1,5 +1,7 @@
 # Export explicit installed C++ plugin support targets
 
+**Summary:** Provide explicit build packages for the supported plugin helper libraries so plugins built separately do not have to reconstruct Draxul's internal library connections.
+
 **Priority:** P2 — standalone consumers reconstruct installed link edges.  
 **Source:** `sdk/CMakeLists.txt`  
 **Proposed by:** Claude 42; product evidence from Claude 48. **Owner:** one SDK agent, then ScoreView owner.  

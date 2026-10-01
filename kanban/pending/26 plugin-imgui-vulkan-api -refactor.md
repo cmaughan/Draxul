@@ -1,5 +1,7 @@
 # Give the plugin ImGui Vulkan fork an owned API
 
+**Summary:** Give plugins an explicit interface to their customised controls renderer so they no longer rely on a header describing a different implementation.
+
 **Priority:** P2 — products include an upstream header while linking a private fork.  
 **Source:** `plugins/support/imgui/CMakeLists.txt`  
 **Proposed by:** Claude 26, revised. **Owner:** one plugin support agent, then MegaCity/SatView owners.  

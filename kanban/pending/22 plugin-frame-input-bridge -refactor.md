@@ -1,5 +1,7 @@
 # Share plugin frame mapping and primitive input translation
 
+**Summary:** Share the conversion of frame information and basic input events so plugins receive consistent sizing and input data without maintaining duplicate conversion code.
+
 **Priority:** P1 — positional native contexts and copied adapter mapping drift by product.  
 **Source:** `libs/draxul-host/src/plugin_render_pass_vk.cpp`  
 **Proposed by:** Claude 17, with PCBView migration narrowed. **Owner:** one SDK/host seam agent, then product owners. **Depends on:** card 21.  

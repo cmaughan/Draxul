@@ -1,5 +1,7 @@
 # Let products own render scenarios and references
 
+**Summary:** Let each plugin keep its own visual test definitions and reference images so its tests can be maintained independently and disappear when the plugin is disabled.
+
 **Priority:** P2 — every product currently edits the root render manifest.  
 **Source:** `tests/render/manifest.json`  
 **Proposed by:** Claude 39. **Owner:** one core registration agent, then product owners. **Depends on:** card 02 scope metadata.  

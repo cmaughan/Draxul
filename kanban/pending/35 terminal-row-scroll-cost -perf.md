@@ -1,5 +1,7 @@
 # Reduce per-line terminal scroll copying
 
+**Summary:** Move terminal rows more efficiently when new output scrolls the screen so each new line does not require copying nearly every visible character.
+
 **Source:** `libs/draxul-terminal-core/src/terminal_core.cpp`  
 **Priority/evidence:** P1; static, high confidence. **Reported by:** Claude. `newline()` at lines 542–559 scrolls for each bottom-row LF; `libs/draxul-grid/src/grid.cpp:120–162,581–620` copies and dirty-marks the region cell by cell. A 200×50 region moves roughly 430 KB per output line before downstream rendering.
 

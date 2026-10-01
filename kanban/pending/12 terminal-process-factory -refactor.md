@@ -1,5 +1,7 @@
 # Hide native PTY types behind a process factory
 
+**Summary:** Hide operating-system details behind a common way to start terminals so the server can manage and test them without depending on Windows or Mac internals.
+
 **Priority:** P1 — server runtime publicly selects ConPTY/Unix implementations.  
 **Source:** `libs/draxul-terminal-process/include/draxul/conpty_process.h`  
 **Proposed by:** Claude 10, narrowed. **Owner:** one terminal-process/server-runtime agent.  

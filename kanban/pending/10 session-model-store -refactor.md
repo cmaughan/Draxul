@@ -1,5 +1,7 @@
 # Separate Session values from codec and storage
 
+**Summary:** Separate session information from the code that reads and writes it so components that only need that information do not also depend on file handling.
+
 **Priority:** P1 — protocol inherits TOML and durable-file implementation.  
 **Source:** `libs/draxul-session-model/src/session_state.cpp`  
 **Proposed by:** Claude 12. **Owner:** one session/core agent. **Precedes:** card 11.  

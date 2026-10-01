@@ -2,6 +2,12 @@ Read exactly the feature-focused review reports listed in `INPUT_REVIEWS/index.m
 
 Map the relevant architecture and compare the reports' actual coverage before reconciling findings. Use up to four read-only subagents for independent verification of coherent groups of findings when useful, with no nested delegation; use the same model and high effort for Codex/Claude. Wait for all workers, re-read their evidence before accepting it, and check cross-component implications. If delegation is unavailable, verify sequentially. Reconcile against current source, documentation and root/product tracker lanes. Distinguish confirmed findings, rejected claims, already-tracked work, and unresolved leads. State verification gaps and do not turn unresolved leads into tasks. Report every distinct accepted finding without a numeric quota or an arbitrary output cap.
 
+## Plain-English summaries
+
+Start every accepted finding or recommendation with `**Summary:**` and one short sentence explaining what will change and why it is needed, for someone who has not read the code. Use everyday language; avoid class names, file paths, acronyms, and unexplained technical terms. Describe the current problem and intended benefit without claiming unsupported results or measured speedups. Put technical evidence and implementation details below the summary.
+
+Every proposed, created, or revised Kanban card, including cards merged into existing work and cards in product submodules, must put this summary immediately below its title heading and before priority, source, or other metadata. Preserve existing evidence and checklist progress when revising a card.
+
 This is **feature planning only**. Do not pull findings from bug or refactor review files.
 
 1. Deduplicate overlapping feature proposals and credit the agents that raised each one.

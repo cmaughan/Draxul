@@ -1,5 +1,7 @@
 # Isolate server agent command policy
 
+**Summary:** Separate the rules for checking and retrying agent commands from the server's main dispatcher so those rules can be tested without launching real processes.
+
 **Priority:** P1 — validation and replay policy is entangled with kernel routing.  
 **Source:** `libs/draxul-server/src/server_kernel_requests.cpp`  
 **Proposed by:** Codex 9; Claude 8 narrowed. **Owner:** one server agent.  

@@ -1,5 +1,7 @@
 # Type shared server vocabulary and terminal requests
 
+**Summary:** Define server commands and their contents in one place so clients and the server cannot drift apart through separately written messages.
+
 **Priority:** P2 — repeated literals and request assembly increase wire drift risk.  
 **Source:** `libs/draxul-protocol/include/draxul/remote_terminal_protocol.h`  
 **Proposed by:** Claude 7, narrowed. **Owner:** one protocol agent. **Depends on:** card 02 for narrow tests.  

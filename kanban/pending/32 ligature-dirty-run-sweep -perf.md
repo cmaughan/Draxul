@@ -1,5 +1,7 @@
 # Sweep ligature dirty runs once
 
+**Summary:** Avoid repeatedly checking the same text during redraws, reducing unnecessary work when updating large terminal windows.
+
 **Source:** `libs/draxul-runtime-support/src/grid_rendering_pipeline.cpp`  
 **Priority/evidence:** P1; static cost model, high confidence. **Reported by:** Claude, Codex. Lines 64–116 expand every dirty cell through neighboring runs, append duplicates, then sort; lines 288–300 call this on a ligature-enabled flush. A homogeneous 300×80 full redraw emits 7.2 million coordinates for 24,000 cells; reused scratch capacity does not remove that work.
 

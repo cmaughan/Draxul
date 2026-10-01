@@ -1,5 +1,7 @@
 # Index Kanban metadata filenames during ordering
 
+**Summary:** Look up saved card positions directly so restoring a large Kanban lane does not repeatedly search every card.
+
 **Source:** `modules/kanban/draxul-kanban/src/kanban_store.cpp`  
 **Priority/evidence:** P2; static, high confidence. **Reported by:** Codex. Lines 228–252 search the complete card vector for each saved filename, approaching N² comparisons for a fully listed lane. The separate GUI-worker change moves this CPU work but does not remove it.
 

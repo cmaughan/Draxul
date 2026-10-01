@@ -1,5 +1,7 @@
 # Give product runtime tests contract-level fixtures
 
+**Summary:** Give plugin tests lightweight stand-ins for the services they actually use so ordinary behaviour tests do not need the full host and graphics system.
+
 **Priority:** P2 — product unit tests inherit core host/renderer fakes.  
 **Source:** `tests/support/fake_renderer.h`  
 **Proposed by:** Claude 44. **Owner:** one shared test-support agent, then product test owners.  

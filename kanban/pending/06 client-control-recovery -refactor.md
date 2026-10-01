@@ -1,5 +1,7 @@
 # Inject client control requests and recovery policy
 
+**Summary:** Share the rules for reconnecting to the server and make connection failures easier to simulate so recovery can be tested reliably.
+
 **Priority:** P1 — direct static requests force socket tests and duplicate handshake retry.  
 **Source:** `libs/draxul-client/src/server_control_channel.cpp`  
 **Proposed by:** Claude 11. **Owner:** one client agent. **Related:** card 05.  

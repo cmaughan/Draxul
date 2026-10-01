@@ -1,5 +1,7 @@
 # Use the glyph-atlas interface for overlay layout
 
+**Summary:** Let popup and notification layout tests use a simple substitute for font data so they can run reliably without loading real fonts.
+
 **Priority:** P2 — layout tests currently need real font initialization.  
 **Source:** `libs/draxul-gui/src/palette_renderer.cpp`  
 **Proposed by:** Codex 12. **Owner:** one GUI/text agent.  

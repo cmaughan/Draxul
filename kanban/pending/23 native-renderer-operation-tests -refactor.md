@@ -1,5 +1,7 @@
 # Test native renderer operations through behavior seams
 
+**Summary:** Test what the graphics code does instead of matching words in its source so harmless code changes do not break tests that protect real drawing behaviour.
+
 **Priority:** P1 — source-spelling assertions obstruct safe renderer changes.  
 **Source:** `tests/nanovg_vulkan_sync_tests.cpp`  
 **Proposed by:** Claude 19, 22 narrowed. **Owner:** one renderer agent, with platform review.  

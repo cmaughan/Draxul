@@ -1,5 +1,7 @@
 # Share staged atomic file replacement
 
+**Summary:** Share the code that safely replaces saved files so each caller can retain its security and recovery guarantees without maintaining a separate implementation.
+
 **Priority:** P2 — several callers repeat publication stages with different guarantees.  
 **Source:** `libs/draxul-host/src/plugin_storage.cpp`  
 **Proposed by:** Claude 13, narrowed. **Owner:** one storage/core agent. **Depends on:** card 10 for store migration.  

@@ -1,5 +1,7 @@
 # Draw the Markdown scrollbar without copying the document
 
+**Summary:** Draw the Markdown scrollbar separately from the document so scrolling a long file does not copy and sort all its offscreen content.
+
 **Source:** `modules/markdown/draxul-markdown/src/markdown_host.cpp`  
 **Priority/evidence:** P2; static, high confidence. **Reported by:** Claude, Codex. Lines 432–449 call `document_with_scrollbar()`; lines 555–587 copy the full layout and sort decorations before visible-row culling. Wheel or drag scrolling thus copies offscreen rows, text, and decorations.
 

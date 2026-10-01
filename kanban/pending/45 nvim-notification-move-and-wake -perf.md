@@ -1,5 +1,7 @@
 # Move decoded Neovim notifications and coalesce wakes
 
+**Summary:** Pass Neovim updates to the interface without duplicating their contents and combine wake requests so bursts of output cause less copying and background activity.
+
 **Source:** `libs/draxul-nvim/src/rpc.cpp`  
 **Priority/evidence:** P2; static, high confidence. **Reported by:** Claude. Lines 356–384 copy the decoded notification parameter tree into a queue and invoke the wake callback for each notification. Full-screen redraw strings and vectors are therefore deep-copied before GUI processing; burst wakes are not coalesced.
 

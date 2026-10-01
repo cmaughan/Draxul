@@ -1,5 +1,7 @@
 # Remove overlay-driven idle app polling
 
+**Summary:** Let the application sleep when panels have nothing to update so an idle window does less background work while still responding promptly to new output.
+
 **Source:** `app/app.cpp`  
 **Priority/evidence:** P1; static, high confidence. **Reported by:** Claude. `wait_timeout_ms()` at lines 3201–3250 caps waits at 50 ms when any visible host requests periodic wake. Event-driven chrome, palette, toast, and diagnostics hosts inherit or report that condition, so an otherwise idle window repeatedly executes `pump_once()`.
 

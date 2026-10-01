@@ -1,5 +1,7 @@
 # Share NanoVG CPU batch construction
 
+**Summary:** Prepare vector shapes in one shared place so Windows and Mac drawing code cannot drift apart through duplicate calculations.
+
 **Priority:** P1 — duplicated fill/stroke/triangle geometry risks backend drift.  
 **Source:** `libs/draxul-nanovg/backend/src/nanovg_vk.cpp`  
 **Proposed by:** Claude 20; Codex 4. **Owner:** one NanoVG agent across both backends.  

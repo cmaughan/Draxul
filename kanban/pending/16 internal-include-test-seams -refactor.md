@@ -1,5 +1,7 @@
 # Enforce private include and test boundaries
 
+**Summary:** Make access to each component's internal code explicit so tests can inspect what they need without accidentally exposing those details to the rest of the application.
+
 **Priority:** P2 — relative private-source includes and broad exported usage requirements hide coupling.  
 **Source:** `cmake/CheckDependencyBoundaries.cmake`  
 **Proposed by:** Claude 30, 32 narrowed. **Owner:** one core CMake/ownership agent. **Follows:** cards 02–04 where affected.  

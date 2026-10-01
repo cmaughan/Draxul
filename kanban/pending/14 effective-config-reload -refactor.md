@@ -1,5 +1,7 @@
 # Isolate checked config loading and reload differences
 
+**Summary:** Share settings-loading checks and separate the logic that detects changes so reloads are easier to test while preserving working settings when a reload fails.
+
 **Priority:** P2 — startup/reload duplicate loading while change classification lives inside App.  
 **Source:** `app/app.cpp`  
 **Proposed by:** Claude 29, narrowed. **Owner:** one app/config agent; serialize with card 04.  

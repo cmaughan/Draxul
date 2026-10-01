@@ -1,5 +1,7 @@
 # Move full Kanban board reload off the GUI thread
 
+**Summary:** Read Kanban boards in the background so refreshing thousands of cards does not interrupt typing or interaction in other panes.
+
 **Source:** `modules/kanban/draxul-kanban/src/kanban_host.cpp`  
 **Priority/evidence:** P2; static, high confidence. **Reported by:** Claude, Codex. Lines 265–281 and 466–484 reload after a debounced invalidation; `kanban_store.cpp:255–262,655–660,714–727` opens and scans every card across discovered boards. Debounce limits repeats but leaves a GUI-thread N-file operation.
 

@@ -1,5 +1,7 @@
 # Skip selection overlay rebuilds for unchanged cell endpoints
 
+**Summary:** Keep the existing selection highlight when the pointer stays within the same character so tiny mouse movements do not rebuild an unchanged selection.
+
 **Source:** `libs/draxul-host/src/selection_manager.cpp`  
 **Priority/evidence:** P2; static, medium-high confidence. **Reported by:** Claude. Lines 48–56 rebuild during every active drag; lines 262–324 can emit many selected overlay cells. Pixel motion within one terminal cell can repeat the same bounded but large work.
 

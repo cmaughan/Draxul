@@ -1,5 +1,7 @@
 # Rebuild the command palette only when its view changes
 
+**Summary:** Rebuild the command palette only when its contents or appearance change so unrelated terminal activity does not redraw the same list.
+
 **Source:** `app/command_palette_host.cpp`  
 **Priority/evidence:** P2; static, high confidence. **Reported by:** Claude. Lines 77–100 copy view state, render the palette grid, and update cells on every pump while open. Filtering is already cached, but unrelated input/output still rebuilds unchanged presentation.
 

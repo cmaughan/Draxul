@@ -1,5 +1,7 @@
 # Prepare one presentation for already queued Neovim redraws
 
+**Summary:** Combine drawing preparation for Neovim updates that are already waiting so the application does not prepare several intermediate screens before displaying only the last one.
+
 **Source:** `libs/draxul-host/src/nvim_host.cpp`  
 **Priority/evidence:** P2; static, high confidence. **Reported by:** Codex. `pump()` drains notifications at lines 194–201; each `flush` prepares cells and glyphs at 464–475, while App presents after pumping (`app.cpp:2490–2494,2536–2539`). A queued macro can prepare the same area repeatedly before one presentation.
 

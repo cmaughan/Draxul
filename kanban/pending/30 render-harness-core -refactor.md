@@ -1,5 +1,7 @@
 # Separate CPU render harness from capture driver and demo host
 
+**Summary:** Separate visual-test setup and image comparison from the live drawing system so those parts can be built and tested without starting graphics code.
+
 **Priority:** P2 — scenario/diff work inherits renderer, font, host and NanoVG links.  
 **Source:** `libs/draxul-render-test/CMakeLists.txt`  
 **Proposed by:** Claude 38. **Owner:** one render-harness agent. **Coordinates with:** card 13.  

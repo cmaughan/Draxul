@@ -1,5 +1,7 @@
 # Separate Kanban timing and selection policy from host effects
 
+**Summary:** Separate Kanban's timing and selection rules from drawing and file access so keyboard repeat, focus changes, and previews can be tested without unreliable waits.
+
 **Priority:** P2 — watcher, repeat, focus and preview timing share a render host.  
 **Source:** `modules/kanban/draxul-kanban/src/kanban_host.cpp`  
 **Proposed by:** Claude 40; Codex 8. **Owner:** one built-in Kanban agent.  

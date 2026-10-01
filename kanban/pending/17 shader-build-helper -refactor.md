@@ -1,5 +1,7 @@
 # Centralize shader compilation and payload declarations
 
+**Summary:** Share the build instructions for graphics programs across products so changes reliably rebuild and package the right files on Windows and Mac.
+
 **Priority:** P2 — repeated GLSL/Metal command loops drift across products.  
 **Source:** `cmake/CompileShaders_Metal.cmake`  
 **Proposed by:** Claude 37. **Owner:** one CMake agent, then product owners.  

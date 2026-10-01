@@ -1,5 +1,7 @@
 # Size toast geometry to the toast
 
+**Summary:** Limit notification drawing to the area occupied by the message so a small popup does not generate a full window of drawing work.
+
 **Source:** `app/toast_host.cpp`  
 **Priority/evidence:** P2; static, medium-high confidence. **Reported by:** Claude. Lines 121–149 use a full-window grid for a small toast, and its animation schedules roughly 33 ms redraws. Dirty upload improvements reduce bytes but do not remove full-window instances and background quads.
 

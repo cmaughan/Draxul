@@ -50,6 +50,16 @@ Report final successes/failures, consensus and report paths, and created/merged 
 
 ## Default consensus and Kanban options
 
+### Plain-English card summaries
+
+Every proposed, created, or revised card must put `**Summary:**` immediately below its title heading, before priority, source, or other metadata. Write one short sentence explaining what will change and why it is needed for someone who has not read the code. Use everyday language; avoid class names, file paths, acronyms, and unexplained technical terms. Describe the problem and intended benefit without unsupported claims or invented speedups. Keep technical evidence and implementation details below it.
+
+Apply this to all review types, root and product cards, and cards revised during consensus merging; preserve their evidence and checklist progress. The runner rejects missing, empty, or misplaced summaries before publishing cards. It checks structure, not whether the explanation is accurate or easy to understand; inspect those qualities when reviewing the result.
+
+For example: `**Summary:** Avoid repeatedly checking the same text during redraws, reducing unnecessary work when updating large terminal windows.`
+
+### Run options
+
 - `review` produces a consensus report and validated Kanban cards by default.
 - Use `--no-kanban` for a consensus report without creating cards; `--kanban` explicitly enables the default behavior.
 - Use `--no-consensus` for independent reports only. It skips both synthesis and card creation and cannot be combined with `--consensus-prompt`.

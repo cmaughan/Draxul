@@ -389,7 +389,9 @@ class SnapshotTests(unittest.TestCase):
                         return review.AgentResult(reviewer, True,
                             "# Consensus\n\nConfirmed bug.\n\n"
                             "### kanban/pending/00 confirmed -bug.md\n"
-                            "# Confirmed bug\n\n- [ ] Fix and verify.\n")
+                            "# Confirmed bug\n\n"
+                            "**Summary:** Repair the confirmed failure so the affected workflow works reliably.\n\n"
+                            "- [ ] Fix and verify.\n")
                     calls.append(reviewer.transport)
                     if reviewer.transport == "claude":
                         self.assertTrue(durable.wait(5), "Astra report was not published while Fable was running")
@@ -710,11 +712,15 @@ class ArtifactTests(unittest.TestCase):
 
 # First boundary
 
+**Summary:** Separate file handling so it can be tested without starting the application.
+
 - [ ] First task
 
 ### kanban/pending/13 second-boundary -refactor.md
 
 # Second boundary
+
+**Summary:** Share input validation so both callers apply the same rules.
 
 - [ ] Second task
 
@@ -734,6 +740,8 @@ class ArtifactTests(unittest.TestCase):
             summary = """### `kanban/pending/12 first-boundary -refactor.md`
 
 # First boundary
+
+**Summary:** Separate file handling so it can be tested without starting the application.
 
 - [ ] First task
 """
@@ -755,12 +763,13 @@ class ArtifactTests(unittest.TestCase):
 ### kanban/pending/00 first-boundary -bug.md
 
 **Title:** First boundary
+**Summary:** Separate file handling so it can be tested without starting the application.
 **Severity:** HIGH
 
 - [ ] First task
 """
             normalized = review.normalize_kanban_summary(root, summary)
-            self.assertIn("# First boundary\n**Severity:** HIGH", normalized)
+            self.assertIn("# First boundary\n**Summary:** Separate file handling", normalized)
             self.assertIn("**Title:** First boundary", summary)
             created = review.materialize_kanban_cards(root, normalized)
             self.assertEqual("# First boundary", (
@@ -770,6 +779,47 @@ class ArtifactTests(unittest.TestCase):
             invalid = summary.replace("**Title:** First boundary\n", "")
             with self.assertRaisesRegex(review.ReviewError, "lacks a title heading"):
                 review.normalize_kanban_summary(root, invalid)
+
+    def test_materialize_rejects_bad_summaries_before_publishing_any_cards(self) -> None:
+        for opening in (
+            "",
+            "**Summary:**\n\n",
+            "**Summary:**   \n\n",
+            "**Priority:** P1\n\n**Summary:** Explain the change and its purpose.\n\n",
+        ):
+            with self.subTest(opening=opening), tempfile.TemporaryDirectory() as temp:
+                root = pathlib.Path(temp)
+                product = root / "plugins" / "satview"
+                product.mkdir(parents=True)
+                (product / ".git").write_text("gitdir: fixture\n", encoding="utf-8")
+                summary = (
+                    "### kanban/pending/00 valid -bug.md\n\n"
+                    "# Valid card\n\n"
+                    "**Summary:** Retain queued input so reconnecting does not lose keystrokes.\n\n"
+                    "- [ ] Verify input recovery.\n\n"
+                    "### plugins/satview/kanban/pending/00 invalid -bug.md\n\n"
+                    f"# Invalid card\n\n{opening}"
+                    "- [ ] Verify cloud refresh.\n"
+                )
+                with self.assertRaisesRegex(review.ReviewError, "non-empty.*Summary.*immediately below"):
+                    review.materialize_kanban_cards(root, summary)
+                self.assertFalse(list(root.rglob("*.md")))
+
+    def test_materialize_preserves_opening_summary_and_card_details(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            content = (
+                "# Preserve input\n\n"
+                "**Summary:** Retain queued input so reconnecting does not lose keystrokes.\n\n"
+                "**Priority:** P1\n"
+                "**Source:** `libs/draxul-client/src/client.cpp`\n\n"
+                "- [x] Reproduce the failure.\n"
+                "- [ ] Verify input recovery.\n"
+            )
+            created = review.materialize_kanban_cards(
+                root, "### kanban/pending/00 preserve-input -bug.md\n\n" + content
+            )
+            self.assertEqual(content, (root / created[0]["path"]).read_text(encoding="utf-8"))
 
     def test_product_source_routes_card_into_initialized_submodule(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -781,6 +831,7 @@ class ArtifactTests(unittest.TestCase):
             summary = """### kanban/pending/00 cloud-refresh -bug.md
 
 **Title:** Refresh cloud texture safely
+**Summary:** Keep old cloud images alive until drawing finishes so refreshing them cannot use freed memory.
 **Source:** `plugins/satview/src/render/satview_render.mm:245`
 
 - [ ] Verify a refresh with a frame in flight.
@@ -807,11 +858,15 @@ class ArtifactTests(unittest.TestCase):
 
 # Core defect
 
+**Summary:** Repair terminal input handling so queued keystrokes arrive in order.
+
 - [ ] Fix core behavior.
 
 ### plugins/satview/kanban/pending/00 product-defect -bug.md
 
 # Product defect
+
+**Summary:** Keep old cloud images alive until drawing finishes so refreshing them cannot use freed memory.
 
 **Source:** `plugins/satview/src/runtime.cpp:10`
 
@@ -830,7 +885,7 @@ class ArtifactTests(unittest.TestCase):
             root = pathlib.Path(temp)
             (root / "plugins" / "satview").mkdir(parents=True)
             card = review.KanbanCard(
-                "00 defect -bug.md", "# Defect\n\n- [ ] Fix it.\n",
+                "00 defect -bug.md", "# Defect\n\n**Summary:** Keep images alive until drawing finishes to prevent crashes.\n\n- [ ] Fix it.\n",
                 "plugins/satview/kanban/pending",
             )
             with self.assertRaisesRegex(review.ReviewError, "not initialized"):
@@ -853,12 +908,16 @@ class ArtifactTests(unittest.TestCase):
 
 # First boundary
 
+**Summary:** Separate file handling so it can be tested without starting the application.
+
 - [ ] First task
 - [ ] Coordinate with `kanban/pending/02 collision -refactor.md`.
 
 ### `kanban/pending/02 collision -refactor.md`
 
 # Collision
+
+**Summary:** Share input validation so both callers apply the same rules.
 
 - [ ] Second task
 

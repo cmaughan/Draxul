@@ -1,5 +1,7 @@
 # Share NanoVG pass frame-driving sequence
 
+**Summary:** Share the sequence used to draw vector graphics in core views and plugins so clipping, positioning, and cleanup follow the same rules.
+
 **Priority:** P2 — core and plugin adapters repeat begin/scissor/translate/draw/end behavior.  
 **Source:** `plugins/support/nanovg/src/plugin_nanovg_pass_internal.h`  
 **Proposed by:** Claude 41, narrowed. **Owner:** one NanoVG adapter agent. **Related:** card 24.  

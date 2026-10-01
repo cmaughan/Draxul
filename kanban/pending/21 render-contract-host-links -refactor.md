@@ -1,5 +1,7 @@
 # Separate neutral render contracts from native contexts and retarget hosts
 
+**Summary:** Separate general drawing interfaces from graphics-specific implementations so components using only the interfaces do not inherit unnecessary graphics dependencies.
+
 **Priority:** P1 — neutral consumers inherit native GPU libraries and concrete renderer links.  
 **Source:** `libs/draxul-plugin-support/CMakeLists.txt`  
 **Proposed by:** Claude 15, 16. **Owner:** one render-contract/CMake agent.  

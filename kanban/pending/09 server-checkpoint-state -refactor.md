@@ -1,5 +1,7 @@
 # Own server checkpoint transitions in one collaborator
 
+**Summary:** Give one component responsibility for scheduling and tracking session saves so save failures and shutdown behaviour are easier to understand and test.
+
 **Priority:** P1 — write state and shutdown flush span multiple kernel files.  
 **Source:** `libs/draxul-server/src/server_kernel_sessions.cpp`  
 **Proposed by:** Claude 9. **Owner:** one server agent. **Related:** card 10.  

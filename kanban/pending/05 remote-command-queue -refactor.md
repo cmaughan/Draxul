@@ -1,5 +1,7 @@
 # Share remote terminal command queue policy
 
+**Summary:** Make both remote-terminal connections use the same rules for handling queued input so their behaviour stays consistent as the code changes.
+
 **Priority:** P1 — duplicated bounded-input rules can diverge across supported paths.  
 **Source:** `libs/draxul-client/src/remote_session_coordinator.cpp`  
 **Proposed by:** Codex 2; Claude 6, 31 narrowed. **Owner:** one client/terminal-host agent.  

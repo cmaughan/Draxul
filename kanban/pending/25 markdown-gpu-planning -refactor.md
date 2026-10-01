@@ -1,5 +1,7 @@
 # Extract common Markdown upload and batch planning
 
+**Summary:** Share the preparation of Markdown drawing data so Windows and Mac use the same common checks while keeping any intentional platform differences explicit.
+
 **Priority:** P1 — duplicated planning currently has unexplained backend differences.  
 **Source:** `modules/markdown/draxul-markdown/src/markdown_render_pass_vk.cpp`  
 **Proposed by:** Claude 21. **Owner:** one Markdown rendering agent. **Related:** card 21.  

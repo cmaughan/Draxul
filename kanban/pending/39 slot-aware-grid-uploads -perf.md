@@ -1,5 +1,7 @@
 # Upload only grid state missing from each frame slot
 
+**Summary:** Send only the terminal cells each drawing buffer is missing so small edits and cursor blinks do not repeatedly copy unchanged screens.
+
 **Source:** `libs/draxul-renderer/src/renderer_state.cpp`  
 **Priority/evidence:** P2; static, high confidence. **Reported by:** Claude, Codex. `copy_to()` at lines 360–368 sends every base cell; lines 62–77 zero a fixed overlay tail. Both Vulkan (`vk_renderer.cpp:203–224`) and Metal (`metal_renderer.mm:106–132`) copy this state on draw. Existing dirty-range methods are unused by the backends.
 

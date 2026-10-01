@@ -24,6 +24,15 @@ from collections.abc import Callable, Iterable, Sequence
 DEFAULT_REVIEW_TIMEOUT = 5400
 DEFAULT_PREFLIGHT_TIMEOUT = 60
 REPOMIX_OUTPUT = "repomix-output.xml"
+KANBAN_SUMMARY_INSTRUCTION = (
+    "Every proposed or revised card, including root/product cards and merged existing cards, "
+    "must start with a title heading followed immediately by a **Summary:** paragraph before "
+    "priority, source, or other metadata. Write one short plain-English sentence explaining "
+    "what will change and why it is needed for someone who has not read the code. "
+    "Avoid class names, file paths, acronyms, and unexplained technical terms; do not invent "
+    "benefits or measured speedups. Keep evidence and implementation details below the summary, "
+    "and preserve existing checklist progress when revising cards. "
+)
 FAILURE_PATTERNS = (
     "unable to complete",
     "not logged in",
@@ -759,6 +768,7 @@ def review_bootstrap(summary: bool = False) -> str:
             "`### plugins/<product>/kanban/pending/<filename>.md` for product-owned work; "
             "the trusted parent process will validate and create those files. "
             "Do not claim that you created them. "
+            + KANBAN_SUMMARY_INSTRUCTION
         )
     return (
         f"Read {task} and follow it exactly. {extra}"
@@ -1022,6 +1032,13 @@ def validate_kanban_card_content(cards: Sequence[KanbanCard]) -> None:
             raise ReviewError(f"Kanban work item lacks a title heading: {card.filename}")
         if not re.search(r"(?m)^- \[ \]\s+\S", card.content):
             raise ReviewError(f"Kanban work item lacks unchecked tasks: {card.filename}")
+        if not re.match(
+            r"\A# [^\r\n]+\r?\n(?:[ \t]*\r?\n)*\*\*Summary:\*\*[ \t]+\S[^\r\n]*(?:\r?\n|$)",
+            card.content,
+        ):
+            raise ReviewError(
+                f"Kanban work item needs a non-empty **Summary:** immediately below its title: {card.filename}"
+            )
         proposed_paths.add(card.path)
 
 
@@ -1296,6 +1313,7 @@ def command_review(args: argparse.Namespace) -> int:
                 "owned by an initialized product submodule. Give each card a title, scoped "
                 "unchecked tasks, acceptance criteria, and a Source line with a backtick-quoted "
                 "owning file path. The runner will validate and create them in the owning tracker.\n"
+                + KANBAN_SUMMARY_INSTRUCTION
             )
         else:
             consensus_text += (
@@ -1489,6 +1507,7 @@ def command_summarize(args: argparse.Namespace) -> int:
             "### plugins/<product>/kanban/pending/<filename>.md headings for work wholly "
             "owned by an initialized product submodule. Include a Source line with a "
             "backtick-quoted owning file path. The runner creates cards in the owning tracker.\n"
+            + KANBAN_SUMMARY_INSTRUCTION
             if kanban else
             "\n\nRun policy: consensus report only; do not include Kanban card sections. "
             "Task creation is disabled, overriding any earlier request to create cards.\n"

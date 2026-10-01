@@ -716,16 +716,16 @@ void KanbanHost::draw_card_row(const KanbanCardRowLayout& row)
     const uint16_t card_hl = row.selected ? HlSelected : HlCard;
     fill_row(row.y, row.x, row.width, card_hl);
 
-    const std::string icon = icon_for_kind(card.kind);
-    const int icon_cells = text_cell_width(icon);
-    draw_text(row.x, row.y, icon, row.selected ? HlSelected : icon_highlight(card.kind), row.width);
-    int text_x = row.x + icon_cells;
+    int text_x = row.x;
     if(card.priority)
     {
         const std::string priority_icon = icon_for_priority(*card.priority);
         draw_text(text_x, row.y, priority_icon, row.selected ? HlSelected : priority_highlight(*card.priority), row.width - (text_x - row.x));
         text_x += text_cell_width(priority_icon);
     }
+    const std::string icon = icon_for_kind(card.kind);
+    draw_text(text_x, row.y, icon, row.selected ? HlSelected : icon_highlight(card.kind), row.width - (text_x - row.x));
+    text_x += text_cell_width(icon);
     const int text_width = row.width - (text_x - row.x);
     std::string label;
     const auto number = card_sequence_number(card.file_name);

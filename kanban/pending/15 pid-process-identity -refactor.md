@@ -1,5 +1,7 @@
 # Centralize PID start identity
 
+**Summary:** Use one method to identify a running process by its start time so client and server checks agree even when the operating system reuses a process number.
+
 **Priority:** P2 — client and server duplicate OS token formatting.  
 **Source:** `libs/draxul-types/src/process_util.cpp`  
 **Proposed by:** Codex 10. **Owner:** one process/core agent.  

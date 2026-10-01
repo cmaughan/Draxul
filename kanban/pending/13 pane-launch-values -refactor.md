@@ -1,5 +1,7 @@
 # Narrow pane launch dependencies
 
+**Summary:** Give pane creation only the settings it needs so changes to unrelated application or graphics options do not spread into pane-management code.
+
 **Priority:** P2 — PaneManager and render tests inherit the whole graphics-heavy `AppOptions`.  
 **Source:** `app/pane_manager.h`  
 **Proposed by:** Claude 27. **Owner:** one app/pane agent. **Coordinates with:** cards 04 and 30.  

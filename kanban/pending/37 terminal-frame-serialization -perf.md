@@ -1,5 +1,7 @@
 # Remove repeated Session terminal JSON materialization
 
+**Summary:** Avoid repeatedly converting the same terminal update into and out of text when sending it to a window so delivery requires less copying and processing.
+
 **Source:** `libs/draxul-server/src/session_stream_service.cpp`  
 **Priority/evidence:** P2; static, high confidence. **Reported by:** Claude, Codex. `remote_terminal_service.cpp:383–415` builds, sizes, and retains an unused JSON tree; `session_stream_service.cpp:179–187,508–514` serializes a queued frame, reparses it, then dumps it again to assign `frame_serial`. Queue limits bound frames but not repeated full-payload work.
 
