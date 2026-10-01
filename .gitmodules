@@ -13,3 +13,6 @@
 [submodule "plugins/pcbview"]
 	path = plugins/pcbview
 	url = https://github.com/cmaughan/draxul-pcbview.git
+[submodule "plugins/flashcards"]
+	path = plugins/flashcards
+	url = https://github.com/cmaughan/draxul-flashcards.git
