@@ -107,10 +107,7 @@ bool TabController::close_tab(int tab_id)
 
     if (tab_id == active_tab_id_)
     {
-        const auto replacement = std::find_if(tabs_.begin(), tabs_.end(),
-            [tab_id](const auto& tab) { return tab->id != tab_id; });
-        if (replacement == tabs_.end())
-            return false;
+        const auto replacement = it + 1 != tabs_.end() ? it + 1 : it - 1;
 
         // Complete the focus transition while both managers remain alive.
         activate_tab((*replacement)->id);

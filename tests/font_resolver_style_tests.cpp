@@ -9,11 +9,98 @@
 #include "font_style.h"
 
 #include <filesystem>
+#include <cmath>
 #include <set>
 #include <string>
 #include <vector>
 
 using namespace draxul;
+
+TEST_CASE("Fluent Emoji renders Kanban icons in color across styles and sizes", "[font][fluent]")
+{
+    const float ppi = GENERATE(96.0f, 192.0f);
+    const float size = GENERATE(11.0f, 16.0f);
+    TextServiceConfig config;
+    config.font_path = draxul::tests::bundled_font_path().string();
+    config.enable_ligatures = GENERATE(true, false);
+    TextService service;
+    REQUIRE(service.initialize(config, size, ppi));
+    FontResolver resolver;
+    REQUIRE(resolver.initialize(config, size, ppi));
+    REQUIRE_FALSE(resolver.fallbacks().empty());
+    REQUIRE(std::filesystem::path(resolver.fallbacks().front().path).filename() == "FluentEmojiFlat.ttf");
+    REQUIRE(resolver.ensure_loaded(0));
+    FontSelector selector;
+    for (const std::string icon : { "🐛", "✨", "🔧", "📈", "🧪", "📄", "🚨", "🔥", "⚡", "🔹", "👍🏽", "👨‍💻" })
+    {
+        INFO(icon << " at " << size << "pt / " << ppi << "ppi");
+        for (const auto style : { FontStyle::Regular, FontStyle::Bold, FontStyle::Italic, FontStyle::BoldItalic })
+        {
+            const bool bold = style == FontStyle::Bold || style == FontStyle::BoldItalic;
+            const bool italic = style == FontStyle::Italic || style == FontStyle::BoldItalic;
+            REQUIRE(selector.select(icon, resolver, bold, italic).face == resolver.fallbacks().front().font.face());
+            REQUIRE(selector.select(icon, resolver, bold, italic).shaper->shape(icon).size() == 1);
+            const auto region = service.resolve_cluster(icon, bold, italic);
+            REQUIRE(region.bitmap_size.x > 0);
+            REQUIRE(region.bitmap_size.y > 0);
+            REQUIRE(region.is_color);
+            REQUIRE(region.bitmap_size.y <= service.metrics().cell_height);
+            REQUIRE(region.bitmap_size.x <= service.metrics().cell_width * 2);
+            REQUIRE(region.advance_px <= service.metrics().cell_width * 2);
+            const int x = static_cast<int>(std::lround(region.uv.x * service.atlas_width()));
+            const int y = static_cast<int>(std::lround(region.uv.y * service.atlas_height()));
+            bool colored_pixel = false;
+            for (int row = 0; row < region.bitmap_size.y; ++row)
+                for (int col = 0; col < region.bitmap_size.x; ++col)
+                {
+                    const auto* pixel = service.atlas_data() + ((y + row) * service.atlas_width() + x + col) * 4;
+                    colored_pixel |= pixel[3] > 0 && (pixel[0] != pixel[1] || pixel[1] != pixel[2]);
+                }
+            REQUIRE(colored_pixel);
+            REQUIRE(selector.select("A", resolver, bold, italic).face == resolver.style(style).font.face());
+            REQUIRE_FALSE(service.resolve_cluster("A", bold, italic).is_color);
+        }
+    }
+    // Zoom recreates faces and atlas entries at the new size.
+    REQUIRE(service.set_point_size(size + 2));
+    REQUIRE(service.resolve_cluster("🔥", true, false).is_color);
+    REQUIRE(service.resolve_cluster("🔥").bitmap_size.y <= service.metrics().cell_height);
+}
+
+TEST_CASE("an emoji font must compose the complete joined grapheme", "[font][fluent]")
+{
+    TextServiceConfig config;
+    config.font_path = draxul::tests::bundled_font_path().string();
+    config.enable_ligatures = false;
+    FontResolver resolver;
+    REQUIRE(resolver.initialize(config, 11, 192));
+    REQUIRE(resolver.ensure_loaded(0));
+    auto& fluent = resolver.fallbacks().front();
+    const std::string family = "👨‍👩‍👧‍👦";
+    REQUIRE_FALSE(detail::can_render_cluster(fluent.font.face(), fluent.shaper, family));
+#if defined(__APPLE__) || defined(_WIN32)
+    // The supported platforms supply a complete family glyph in their system
+    // emoji font, so this coverage gap must proceed down the fallback chain.
+    FontSelector selector;
+    const auto selected = selector.select(family, resolver, true, false);
+    REQUIRE(selected.face != fluent.font.face());
+    REQUIRE(selected.shaper->shape(family).size() == 1);
+    TextService service;
+    REQUIRE(service.initialize(config, 11, 192));
+    REQUIRE(service.resolve_cluster(family, true, false).is_color);
+#endif
+}
+
+TEST_CASE("explicit emoji fallback paths replace the bundled defaults", "[font][fluent]")
+{
+    TextServiceConfig config;
+    config.font_path = draxul::tests::bundled_font_path().string();
+    config.fallback_paths = { draxul::tests::bundled_font_path("CascadiaCode-Regular.ttf").string() };
+    FontResolver resolver;
+    REQUIRE(resolver.initialize(config, 11, 96));
+    REQUIRE(resolver.fallbacks().size() == 1);
+    REQUIRE(resolver.fallbacks().front().path == config.fallback_paths.front());
+}
 
 // Parity table tests for the indexed FontStyle model in FontResolver and
 // FontSelector: resolution, fallback precedence, missing-variant

@@ -252,6 +252,24 @@ TEST_CASE("closing an inactive tab preserves active identity and the last tab", 
     CHECK(AppTestAccess::active_id(app) == 1);
 }
 
+TEST_CASE("closing a tab selects its right neighbor or the last remaining tab",
+    "[app][tab]")
+{
+    App app;
+    for (const int id : { 10, 30, 20, 40 })
+        AppTestAccess::add_empty_tab(app, id);
+    AppTestAccess::activate(app, 30);
+
+    REQUIRE(AppTestAccess::close(app, 30));
+    CHECK(AppTestAccess::active_id(app) == 20);
+    AppTestAccess::activate(app, 40);
+    REQUIRE(AppTestAccess::close(app, 40));
+    CHECK(AppTestAccess::active_id(app) == 20);
+    REQUIRE(AppTestAccess::close(app, 10));
+    CHECK(AppTestAccess::active_id(app) == 20);
+    CHECK_FALSE(AppTestAccess::close(app, 20));
+}
+
 TEST_CASE("remote topology apply errors latch by exact message",
     "[app][topology][toast]")
 {

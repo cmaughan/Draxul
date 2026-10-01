@@ -10,6 +10,7 @@ add_library(draxul-font
     src/text_service.cpp
 )
 target_include_directories(draxul-font PUBLIC include)
+target_include_directories(draxul-font SYSTEM PRIVATE "${stb_SOURCE_DIR}")
 target_link_libraries(draxul-font
     PUBLIC draxul-types
     PRIVATE draxul-performance freetype harfbuzz

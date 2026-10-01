@@ -3964,7 +3964,7 @@ bool App::apply_remote_topology_tabs(
         {
             tabs.activate_tab(previously_active);
         }
-        else if (!remote_space.tabs.empty())
+        else if (!tabs.find_active_tab() && !remote_space.tabs.empty())
         {
             const auto first = topology_projection_.local_tab(
                 remote_space.tabs.front().tab_id);
@@ -3990,22 +3990,20 @@ bool App::apply_remote_topology_tabs(
 
     topology_projection_.prune_panes(live_pane_ids);
 
-    if (!options_.startup_remote_tab_id.empty())
+    if (first_error.empty() && !options_.startup_remote_tab_id.empty())
     {
         const auto startup_tab = topology_projection_.local_tab(
             options_.startup_remote_tab_id);
         if (startup_tab)
         {
-            if (space_controller_.activate_space(startup_tab->first))
+            if (Space* startup_space
+                = space_controller_.find_space(startup_tab->first);
+                startup_space
+                && startup_space->tab_controller.activate_tab(startup_tab->second)
+                && space_controller_.activate_space(startup_tab->first))
             {
-                if (Space* startup_space
-                    = space_controller_.find_space(startup_tab->first))
-                {
-                    startup_space->tab_controller.activate_tab(
-                        startup_tab->second);
-                }
+                options_.startup_remote_tab_id.clear();
             }
-            options_.startup_remote_tab_id.clear();
         }
     }
 

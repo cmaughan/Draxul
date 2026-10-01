@@ -21,6 +21,8 @@ namespace draxul
 namespace detail
 {
 
+inline bool cluster_prefers_color_font(std::string_view text);
+
 inline bool can_render_cluster(FT_Face face, TextShaper& shaper, const std::string& text)
 {
     if (!face)
@@ -28,6 +30,13 @@ inline bool can_render_cluster(FT_Face face, TextShaper& shaper, const std::stri
 
     auto shaped = shaper.shape(text);
     if (shaped.empty())
+        return false;
+
+    // Covering each codepoint is insufficient for an emoji joined with ZWJ.
+    // Prefer another font that can form the complete grapheme instead of
+    // squeezing several unrelated pictures into its two grid cells.
+    if (shaped.size() > 1 && text.find("\xE2\x80\x8D") != std::string::npos
+        && cluster_prefers_color_font(text))
         return false;
 
     bool has_glyph = false;
@@ -145,9 +154,11 @@ public:
     // degrading to the regular selection path.
     Selection select(const std::string& text, FontResolver& resolver, bool is_bold = false, bool is_italic = false)
     {
+        const bool prefers_color = detail::cluster_prefers_color_font(text);
+        // Emphasis must not replace a color emoji with a monochrome text glyph.
         for (FontStyle variant : font_style_fallback_chain(font_style_from_flags(is_bold, is_italic)))
         {
-            if (!resolver.has_style(variant))
+            if (prefers_color || !resolver.has_style(variant))
                 continue;
             auto sel = try_variant_selection(variant, text, resolver);
             if (sel.face)
@@ -166,7 +177,7 @@ public:
                 return { fallbacks[(size_t)idx].font.face(), &fallbacks[(size_t)idx].shaper };
         }
 
-        if (detail::cluster_prefers_color_font(text))
+        if (prefers_color)
         {
             if (auto sel = select_color_font(text, resolver))
                 return *sel;

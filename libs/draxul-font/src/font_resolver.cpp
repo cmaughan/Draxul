@@ -304,6 +304,14 @@ void FontResolver::load_fallback_fonts()
         ? detail::default_fallback_font_candidates()
         : config_->fallback_paths;
 
+    if (config_->fallback_paths.empty())
+    {
+        // Packaged fonts live together on both platforms. Explicit fallback
+        // lists remain authoritative for users who prefer another emoji set.
+        candidates.insert(candidates.begin(),
+            (std::filesystem::path(font_path()).parent_path() / "FluentEmojiFlat.ttf").string());
+    }
+
     fallbacks_.reserve(candidates.size());
     for (const auto& path : candidates)
     {

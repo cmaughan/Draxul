@@ -23,7 +23,8 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | Rezonality | `--plugin dev.draxul.rezonality` at launch or on pane/tab commands | Fault-tolerant Vulkan/Metal live graphics viewer ported from VkLive. Direct launch creates and focuses a server-topology plugin tab while preserving terminal access. It watches external edits, compiles complete GLSL candidates off the UI thread, renders named surfaces plus OBJ/glTF models with cameras, PBR/HDR materials, and the Cornell-box ray project through Vulkan ray shader groups or a native Metal kernel, retains the last valid GPU generation when a candidate fails, and publishes bounded agent-readable generation diagnostics. The NYX flight-deck launcher uses full-resolution scenegraphs without a final TV pass by default; `-Crt` selects preserved low-resolution `*-crt.scenegraph` variants. Its explicitly installed native Neovim package joins the live Draxul pane registry with compile records, merges every active pane's errors into inline diagnostics and a cross-file quickfix list, can focus or reload an exact contributing pane, and provides `:RezFiles` to open the deduplicated scenegraphs, shader entrypoints, and quoted includes from every current valid generation, including hidden panes whose compiled candidate is ready but not yet GPU-active. In a listed source buffer, `Ctrl+Enter` saves, flashes the visible text orange, and rebuilds every pane using that file without a chooser, keeping shared instances synchronized; `:help rezonality` documents the complete command and multi-pane behavior. All editor commands use the short `:Rez*` prefix, with the former `:Rezonality*` forms retained as compatibility aliases. |
 
 Interactive Kanban and Markdown launches join the shared Session. Their
-startup tab is selected, and the command palette can add shell, Neovim,
+startup tab is selected and highlighted once the shared topology is ready,
+including when the requested tab belongs to another Space. The command palette can add shell, Neovim,
 plugin, and other available host tabs alongside it. A shell selected by name
 uses that shell on the server.
 Requesting a Kanban board whose resolved path is already open selects its
@@ -521,7 +522,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **Synthesized box drawing**: Box Drawing (U+2500–257F) and Block Elements (U+2580–259F) are drawn procedurally at exact cell size instead of rasterized from the font, so adjacent cells tile seamlessly at any size/DPI (no anti-aliased gaps in TUI borders, progress bars, or logos)
 - **Emoji**: Color glyph rendering, variation selectors (VS-16), ZWJ sequences
 - **Wide characters**: CJK double-width, combining characters
-- **Bundled fonts**: JetBrains Mono Nerd Font (regular/bold/italic/bold-italic), Cascadia Code
+- **Bundled fonts**: JetBrains Mono Nerd Font (regular/bold/italic/bold-italic), Cascadia Code, and MIT-licensed Fluent Emoji Flat. The bundled text fonts prefer Fluent for color emoji on macOS and Windows, including bold/italic Kanban labels; explicit `fallback_paths` override this choice. Fixed-size color bitmaps are resized with alpha-aware filtering to the active text size and grid cell width. Joined emoji unsupported by Fluent continue to the system font that can compose the complete character.
 - **Rich text service**: Markdown viewing can resolve separate point sizes and bold/italic style keys through pooled `TextService` instances, enabling larger heading rows without forcing the terminal grid to adopt variable-sized cells.
 - **Per-display DPI**: moving the window between displays with different scale factors re-initialises font metrics (SDL display-scale-changed events), so text stays sharp on mixed-DPI setups
 
@@ -704,7 +705,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - Space, Agent, tab, and pane-status labels share one pill layout and palette model for capsule size, number accent width, text columns, foreground contrast, and active/inactive/editing colours. Each collection keeps a 30%-brightness version of its unchanged role colour across every pill; the selected/focused number segment uses the brighter role colour (Space blue, Agent mauve, tab red, pane green).
 - The top tab bar remains visible even with a single tab and shows right-aligned pills for live system usage and active chord prefixes
 - `new_tab` (`Ctrl+S, C`): Create and select a new tab. Its initial name comes from the launched host or plugin; shell directory updates can then replace that default name until the user explicitly renames it.
-- `close_tab` (`Ctrl+S, Shift+X`): Close the active tab (disabled when only one tab remains)
+- `close_tab` (`Ctrl+S, Shift+X`): Close the active tab and select its right-hand neighbor, or its left-hand neighbor when closing the last tab (disabled when only one tab remains). Closing an inactive tab preserves the current selection.
 - `next_tab` (`Ctrl+S, N`): Cycle to the next tab
 - `prev_tab` (`Ctrl+S, P`): Cycle to the previous tab
 - Tab switching preserves focus state per tab (focus lost/gained notifications)

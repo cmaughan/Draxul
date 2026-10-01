@@ -5,6 +5,11 @@
 #include FT_FREETYPE_H
 #include <algorithm>
 #include <climits>
+#include <cmath>
+
+#define STB_IMAGE_RESIZE_STATIC
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include <stb_image_resize2.h>
 #include <cstring>
 #include <sstream>
 #include <draxul/log.h>
@@ -459,14 +464,13 @@ Result<AtlasRegion, Error> GlyphCache::rasterize_cluster(const std::string& text
     int cluster_width = bbox_right - bbox_left;
     int cluster_height = bbox_top - bbox_bottom;
 
-    int atlas_x = 0;
-    int atlas_y = 0;
-    if (!reserve_region(cluster_width, cluster_height, atlas_x, atlas_y, "cluster"))
+    // Bound temporary storage just as atlas reservation bounds the final bitmap.
+    if (cluster_width > atlas_size_ || cluster_height > atlas_size_)
+    {
+        overflowed_ = true;
         return Result<AtlasRegion, Error>::err(
-            Error{ ErrorKind::AtlasOverflow,
-                "Glyph atlas capacity exhausted while reserving " + std::to_string(cluster_width) + "x"
-                    + std::to_string(cluster_height) + " pixels" });
-    used_pixels_ += (size_t)cluster_width * cluster_height;
+            Error{ ErrorKind::AtlasOverflow, "Glyph bitmap exceeds atlas dimensions" });
+    }
 
     std::vector<uint8_t> composite((size_t)cluster_width * cluster_height * ATLAS_PIXEL_SIZE, 0);
     bool cluster_is_color = false;
@@ -506,6 +510,49 @@ Result<AtlasRegion, Error> GlyphCache::rasterize_cluster(const std::string& text
         }
     }
 
+    // Bitmap-only color strikes may be much larger than the requested text
+    // size (Fluent supplies 128px artwork). Resample once while caching, with
+    // alpha-aware filtering, so both grid and rich-text consumers receive
+    // correctly sized atlas pixels, bearings, and advances.
+    float bitmap_scale = 1.0f;
+    if (cluster_is_color && FT_HAS_FIXED_SIZES(face) && face != face_
+        && face->size->metrics.y_ppem > 0)
+    {
+        bitmap_scale = static_cast<float>(face_->size->metrics.y_ppem)
+            / static_cast<float>(face->size->metrics.y_ppem);
+        if (cell_aligned_clusters_)
+        {
+            const int cell_width = static_cast<int>(face_->size->metrics.max_advance >> 6);
+            const int cells = std::max(1, display_cell_width(text));
+            bitmap_scale = std::min(bitmap_scale,
+                static_cast<float>(cell_width * cells) / static_cast<float>(cluster_width));
+        }
+    }
+    if (bitmap_scale != 1.0f)
+    {
+        const int scaled_width = std::max(1, static_cast<int>(std::lround(cluster_width * bitmap_scale)));
+        const int scaled_height = std::max(1, static_cast<int>(std::lround(cluster_height * bitmap_scale)));
+        std::vector<uint8_t> scaled(static_cast<size_t>(scaled_width) * scaled_height * ATLAS_PIXEL_SIZE);
+        if (!stbir_resize_uint8_srgb(composite.data(), cluster_width, cluster_height, 0,
+                scaled.data(), scaled_width, scaled_height, 0, STBIR_RGBA))
+            return Result<AtlasRegion, Error>::err(
+                Error{ ErrorKind::InvalidGlyphBitmap, "Unable to resize color glyph bitmap" });
+        composite = std::move(scaled);
+        cluster_width = scaled_width;
+        cluster_height = scaled_height;
+        bbox_left = static_cast<int>(std::lround(bbox_left * bitmap_scale));
+        bbox_top = static_cast<int>(std::lround(bbox_top * bitmap_scale));
+    }
+
+    int atlas_x = 0;
+    int atlas_y = 0;
+    if (!reserve_region(cluster_width, cluster_height, atlas_x, atlas_y, "cluster"))
+        return Result<AtlasRegion, Error>::err(
+            Error{ ErrorKind::AtlasOverflow,
+                "Glyph atlas capacity exhausted while reserving " + std::to_string(cluster_width) + "x"
+                    + std::to_string(cluster_height) + " pixels" });
+    used_pixels_ += (size_t)cluster_width * cluster_height;
+
     for (int row = 0; row < cluster_height; row++)
     {
         memcpy(atlas_.data() + (((size_t)(atlas_y + row) * atlas_size_) + atlas_x) * ATLAS_PIXEL_SIZE,
@@ -523,7 +570,7 @@ Result<AtlasRegion, Error> GlyphCache::rasterize_cluster(const std::string& text
     };
     region.bitmap_bearing = { bbox_left, bbox_top };
     region.bitmap_size = { cluster_width, cluster_height };
-    region.advance_px = natural_advance_px;
+    region.advance_px = static_cast<int>(std::lround(natural_advance_px * bitmap_scale));
     region.is_color = cluster_is_color;
 
     expand_dirty_rect(dirty_rect_, dirty_, atlas_x, atlas_y, cluster_width, cluster_height);

@@ -370,6 +370,10 @@ foreach(_font
     JetBrainsMonoNerdFont-Italic.ttf
     JetBrainsMonoNerdFont-BoldItalic.ttf
     CascadiaCode-Regular.ttf
+    FluentEmojiFlat.ttf
+    FluentEmoji-LICENSE.txt
+    FluentEmoji-Artwork-LICENSE.txt
+    FluentEmoji-README.md
 )
     if(EXISTS ${CMAKE_SOURCE_DIR}/fonts/${_font})
         add_custom_command(TARGET draxul POST_BUILD

@@ -739,6 +739,131 @@ TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
     server.stop();
 }
 
+TEST_CASE("app smoke: requested startup tab stays highlighted and close selects its neighbor",
+    "[app_smoke][topology][tabs]")
+{
+    const std::string host_kind = GENERATE("kanban", "markdown", "nvim");
+    const bool other_space = GENERATE(false, true);
+    CAPTURE(host_kind, other_space);
+    TempDir temp("draxul-app-tab-selection");
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &start_error));
+
+    const auto make_tab = [&](int index) {
+        const std::string suffix = std::to_string(index);
+        return TopologyTab{
+            .tab_id = "tab-" + suffix,
+            .name = "View " + suffix,
+            .root_node_id = "node-" + suffix,
+            .nodes = { {
+                .node_id = "node-" + suffix,
+                .is_leaf = true,
+                .pane_id = "pane-" + suffix,
+            } },
+            .panes = { {
+                .pane_id = "pane-" + suffix,
+                .domain = TopologyPaneDomain::ClientLocal,
+                .client_host_kind = index == 2 ? host_kind : "nvim",
+            } },
+        };
+    };
+    TopologySnapshot topology{
+        .revision = 1,
+        .session_id = "default",
+        .spaces = { {
+            .space_id = "space-1",
+            .name = "First",
+            .tabs = { make_tab(0) },
+        } },
+    };
+    if (other_space)
+        topology.spaces.push_back({ .space_id = "space-2", .name = "Second" });
+    auto& target_tabs = topology.spaces.back().tabs;
+    for (int index = 1; index <= 4; ++index)
+        target_tabs.push_back(make_tab(index));
+
+    const auto dispatch = [&](const ControlRequest& request) {
+        if (request.method == "topology.snapshot")
+            return ControlMethodResult::success(topology_snapshot_to_json(topology));
+        if (request.method == "topology.poll")
+            return ControlMethodResult::success({
+                { "changed", false }, { "revision", topology.revision } });
+        if (request.method == "topology.command")
+        {
+            std::string error;
+            auto command = topology_command_from_json(request.params, error);
+            if (!command || command->kind != TopologyCommandKind::CloseTab)
+                return ControlMethodResult::error("invalid_command", error);
+            std::erase_if(target_tabs, [&](const TopologyTab& tab) {
+                return tab.tab_id == command->tab_id;
+            });
+            ++topology.revision;
+            return ControlMethodResult::success(topology_command_result_to_json({
+                .applied = true, .snapshot = topology }));
+        }
+        return ControlMethodResult::error("unknown_method", "Not used by this test.");
+    };
+    std::jthread server_thread([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            server.process_pending(dispatch);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    AppOptions opts = make_smoke_options();
+    opts.enable_control_server = false;
+    opts.enable_session_restore = false;
+    opts.enable_remote_topology = true;
+    opts.server_runtime_directory = temp.path;
+    opts.server_client_id = "tab-selection-client";
+    opts.startup_remote_tab_id = "tab-2";
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+
+    const auto expect_selected = [&](std::string_view name) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            app.run_smoke_test(std::chrono::milliseconds(50));
+            const Tab* tab = app.space_controller().active_tab_controller().find_active_tab();
+            if (tab && tab->name == name)
+                break;
+        }
+        const auto& tabs = app.space_controller().active_tab_controller();
+        REQUIRE(tabs.find_active_tab() != nullptr);
+        REQUIRE(tabs.find_active_tab()->name == name);
+        const auto chrome = app.chrome_layout_snapshot();
+        REQUIRE(chrome);
+        CHECK(std::count_if(chrome->tabs.begin(), chrome->tabs.end(),
+                  [](const ChromeTabLayout& tab) { return tab.active; }) == 1);
+        for (const auto& tab : chrome->tabs)
+            CHECK(tab.active == (tab.tab_id == tabs.active_tab_id()));
+        auto* host = dynamic_cast<SmokeTestHost*>(tabs.find_active_tab()->pane_manager.focused_host());
+        REQUIRE(host != nullptr);
+        const size_t previous_keys = host->key_events.size();
+        g_last_fake_window->on_key({
+            .scancode = 4, .keycode = 'a', .mod = kModNone, .pressed = true });
+        CHECK(host->key_events.size() == previous_keys + 1);
+    };
+
+    expect_selected("View 2");
+    CHECK(app.space_controller().find_active_space()->name == (other_space ? "Second" : "First"));
+    REQUIRE(app.dispatch_gui_action("close_tab"));
+    expect_selected("View 3");
+    REQUIRE(app.dispatch_gui_action("close_tab"));
+    expect_selected("View 4");
+    REQUIRE(app.dispatch_gui_action("close_tab"));
+    expect_selected("View 1");
+
+    app.shutdown();
+    server_thread.request_stop();
+    server_thread.join();
+    server.stop();
+}
+
 TEST_CASE("app smoke: Space lifecycle creates rooted hosts and switches in memory",
     "[app_smoke][spaces]")
 {
