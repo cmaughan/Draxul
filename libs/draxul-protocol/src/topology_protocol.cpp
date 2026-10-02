@@ -560,6 +560,7 @@ nlohmann::json topology_command_to_json(
         { "pane_id", command.pane_id },
         { "target_pane_id", command.target_pane_id },
         { "node_id", command.node_id },
+        { "reuse_existing_tab", command.reuse_existing_tab },
         { "name", command.name },
         { "root_directory", command.root_directory },
         { "direction", to_string(command.direction) },
@@ -658,6 +659,13 @@ std::optional<TopologyCommand> topology_command_from_json(
         return std::nullopt;
     }
     command.place_before = value["place_before"].get<bool>();
+    if (!value.contains("reuse_existing_tab")
+        || !value["reuse_existing_tab"].is_boolean())
+    {
+        error = "Invalid topology command tab reuse policy.";
+        return std::nullopt;
+    }
+    command.reuse_existing_tab = value["reuse_existing_tab"].get<bool>();
     const auto parsed_kind = parse_topology_command_kind(kind);
     if (!parsed_kind)
     {

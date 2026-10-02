@@ -24,6 +24,7 @@ struct PluginManifest
     std::filesystem::path library_path;
     std::string package_generation;
     bool user_installed = false;
+    bool reuse_existing_tab = false;
     std::string error;
 };
 

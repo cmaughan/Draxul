@@ -531,9 +531,10 @@ TEST_CASE("app smoke: failed remote projection retries and restores input routin
     server.stop();
 }
 
-TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
+TEST_CASE("app smoke: native app palette creates a shell and reuses the existing app tab",
     "[app_smoke][topology][tabs]")
 {
+    const std::string app_kind = GENERATE("kanban", "personal-assistant");
     TempDir temp("draxul-app-remote-new-tab");
     ControlServer server;
     std::string start_error;
@@ -560,7 +561,7 @@ TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
                 .panes = { {
                     .pane_id = "pane-1",
                     .domain = TopologyPaneDomain::ClientLocal,
-                    .client_host_kind = "kanban",
+                    .client_host_kind = app_kind,
                 } },
             } },
         } },
@@ -589,7 +590,7 @@ TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
                     "invalid_command", parse_error);
             }
             ++create_commands;
-            if (command->client_host_kind == "kanban")
+            if (command->client_host_kind == app_kind)
             {
                 kanban_request_has_working_directory
                     = !command->client_working_directory.empty();
@@ -662,7 +663,7 @@ TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
         app.run_smoke_test(std::chrono::milliseconds(50));
     }
     REQUIRE(hosts.size() == 1);
-    REQUIRE(launched_kinds == std::vector{ HostKind::Kanban });
+    REQUIRE(launched_kinds == std::vector{ app_kind == "kanban" ? HostKind::Kanban : HostKind::PersonalAssistant });
     const int first_tab_id
         = app.space_controller().active_tab_controller().active_tab_id();
 
@@ -711,9 +712,9 @@ TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
     CHECK(hosts[0]->key_events.empty());
     CHECK(hosts[1]->key_events.size() == 1);
 
-    // The server can reuse a Kanban tab, including one behind the active tab.
+    // The server can reuse an app tab, including one behind the active tab.
     REQUIRE(app.dispatch_gui_action("command_palette"));
-    g_last_fake_window->on_text_input({ .text = "new_tab kanban" });
+    g_last_fake_window->on_text_input({ .text = "new_tab " + app_kind });
     g_last_fake_window->on_key({
         .scancode = 40,
         .keycode = SDLK_RETURN,
@@ -728,7 +729,8 @@ TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
         app.run_smoke_test(std::chrono::milliseconds(50));
     }
     CHECK(create_commands == 2);
-    CHECK(kanban_request_has_working_directory);
+    if (app_kind == "kanban")
+        CHECK(kanban_request_has_working_directory);
     CHECK(tabs.active_tab_id() == first_tab_id);
     CHECK(tabs.count() == 2);
     CHECK(hosts.size() == 2);
@@ -742,7 +744,7 @@ TEST_CASE("app smoke: Kanban palette creates and selects a shared shell tab",
 TEST_CASE("app smoke: requested startup tab stays highlighted and close selects its neighbor",
     "[app_smoke][topology][tabs]")
 {
-    const std::string host_kind = GENERATE("kanban", "markdown", "nvim");
+    const std::string host_kind = GENERATE("kanban", "markdown", "nvim", "personal-assistant");
     const bool other_space = GENERATE(false, true);
     CAPTURE(host_kind, other_space);
     TempDir temp("draxul-app-tab-selection");

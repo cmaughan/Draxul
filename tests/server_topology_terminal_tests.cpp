@@ -454,6 +454,62 @@ TEST_CASE("shared topology reuses a Kanban tab for the same resolved board",
     CHECK(cross_space.snapshot.spaces.back().tabs.size() == 1);
 }
 
+TEST_CASE("shared app launches reuse Personal Assistant and opted-in plugins across Spaces",
+    "[server][topology][tabs]")
+{
+    TopologyService service("app-tab-reuse", {});
+    int next_command = 0;
+    const auto execute = [&](TopologyCommand request) {
+        request.client_id = "launcher";
+        request.command_id = "launch-" + std::to_string(++next_command);
+        request.expected_revision = service.snapshot().revision;
+        const auto response = service.handle("topology.command", topology_command_to_json(request));
+        INFO(response.error_message);
+        REQUIRE(response.ok);
+        std::string error;
+        const auto result = topology_command_result_from_json(response.value, error);
+        INFO(error);
+        REQUIRE(result);
+        return *result;
+    };
+    TopologyCommand launch{
+        .kind = TopologyCommandKind::CreateTab,
+        .space_id = service.snapshot().spaces.front().space_id,
+        .name = "Personal Assistant",
+        .client_host_kind = "personal-assistant",
+    };
+    const auto personal = execute(launch);
+    REQUIRE(personal.snapshot.spaces.front().tabs.size() == 2);
+    const auto other_space = execute({ .kind = TopologyCommandKind::CreateSpace, .name = "Other" });
+    launch.space_id = other_space.created_id;
+    launch.client_source_path = "news";
+    const auto reused_personal = execute(launch);
+    CHECK(reused_personal.created_id == personal.created_id);
+    CHECK(reused_personal.snapshot.spaces.back().tabs.size() == 1);
+
+    launch.client_host_kind = "plugin";
+    launch.client_source_path.clear();
+    launch.client_plugin_id = "dev.test.reusable";
+    launch.client_plugin_config_json = R"({"deck":"a","mode":1})";
+    launch.reuse_existing_tab = true;
+    const auto plugin = execute(launch);
+    launch.space_id = service.snapshot().spaces.front().space_id;
+    launch.client_plugin_config_json = R"({"mode":1,"deck":"a"})";
+    const auto reused_plugin = execute(launch);
+    CHECK(reused_plugin.created_id == plugin.created_id);
+    CHECK(reused_plugin.snapshot.spaces.front().tabs.size() == 2);
+    CHECK(reused_plugin.snapshot.spaces.back().tabs.size() == 2);
+
+    launch.client_plugin_config_json = R"({"deck":"b"})";
+    CHECK(execute(launch).created_id != plugin.created_id);
+    launch.client_plugin_id = "dev.test.other";
+    CHECK(execute(launch).created_id != plugin.created_id);
+    launch.client_plugin_id = "dev.test.reusable";
+    launch.client_plugin_config_json = R"({"deck":"a","mode":1})";
+    launch.reuse_existing_tab = false;
+    CHECK(execute(launch).created_id != plugin.created_id);
+}
+
 TEST_CASE("topology layouts reject wrong field types without mutation",
     "[server][topology][layout][validation]")
 {

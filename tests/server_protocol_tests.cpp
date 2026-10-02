@@ -791,7 +791,7 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
              "space_id", "tab_id", "destination_space_id",
              "destination_tab_id", "pane_id", "target_pane_id",
              "node_id", "name", "root_directory", "direction", "ratio",
-             "place_before", "move_delta", "pane_domain", "terminal_id",
+             "place_before", "reuse_existing_tab", "move_delta", "pane_domain", "terminal_id",
              "client_host_kind", "client_working_directory",
              "client_source_path", "client_plugin_id",
              "client_plugin_config_json", "companion_owner_pane_id",
@@ -819,6 +819,14 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
     malformed_optional["pane_domain"] = "somewhere";
     CHECK_FALSE(topology_command_from_json(
         malformed_optional, error));
+
+    malformed_optional = minimal_command;
+    malformed_optional["reuse_existing_tab"] = "yes";
+    CHECK_FALSE(topology_command_from_json(malformed_optional, error));
+    malformed_optional["reuse_existing_tab"] = true;
+    const auto reuse_command = topology_command_from_json(malformed_optional, error);
+    REQUIRE(reuse_command);
+    CHECK(reuse_command->reuse_existing_tab);
 
     auto oversized_move = topology_command_to_json(reorder);
     oversized_move["move_delta"]

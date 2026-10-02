@@ -54,6 +54,9 @@ int main(int argc, char* argv[])
     draxul::register_nanovg_demo_host_provider(registry);
     draxul::markdown::register_markdown_host_provider(registry);
     draxul::kanban::register_kanban_host_provider(registry);
+    // App smoke tests supply their own host factory but need the native
+    // collection host's CLI/palette metadata too.
+    registry.register_metadata(draxul::HostKind::PersonalAssistant);
 #endif
 
     return Catch::Session().run(argc, argv);

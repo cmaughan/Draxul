@@ -166,6 +166,10 @@ struct TopologyCommand
     std::string server_working_directory;
     std::string server_shell_kind;
 
+    // CreateTab may focus a matching client-local app in any Space. Splits
+    // and plugins that do not opt in retain independent-instance behavior.
+    bool reuse_existing_tab = false;
+
     bool operator==(const TopologyCommand&) const = default;
 };
 
