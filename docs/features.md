@@ -8,7 +8,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 
 | Host | Flag | Description |
 |------|------|-------------|
-| Neovim | `--host nvim` | Embeds `nvim --embed` via msgpack-RPC over stdin/stdout pipes |
+| Neovim | `--host nvim` | Embeds `nvim --embed` via msgpack-RPC over stdin/stdout pipes; closed POSIX input pipes report write failure without terminating the client or changing its signal policy |
 | Flashcards | `--plugin dev.draxul.flashcards` | Optional native product for translation-free Japanese recognition and production, with separate persistent schedules. Kana-only or picture-only fronts turn into picture/kana backs with cached pronunciation and explicit Again/Remembered grades. Embeds a validated vocabulary snapshot on every enabled build; works offline. Product details and source selection: [Flashcards README](../plugins/flashcards/README.md). |
 | Markdown | `--host markdown --source <file.md>` | Native Draxul markdown viewer host using the FreeType/HarfBuzz font pipeline, MD4C parsing, variable-height document rows, configurable body text size/margins, restrained styled headings, section indentation, front matter/code/list/table decorations, mouse wheel/PageUp/PageDown/Home/End plus Vim-style `j/k`, `Ctrl+F/B`, `gg`, `G` scrolling, and a draggable proportional scrollbar |
 | Kanban | `--host kanban [--source <folder>]` | Native grid-backed kanban viewer for a `kanban/` folder. By default it combines the current repository board with every initialized recursive Git submodule board, prefixes cards with their source, and uses `b` to cycle all/root/sub-board filters. Subfolders become columns, Markdown files become cards, each board's `.draxul-kanban.toml` stores its own ordering, Vim-style `h/j/k/l`, `Ctrl+F/B`, `gg`, and `G` move selection within the current column, shifted up/down arrows reorder cards inside their owning board, `<`/`>` move files between that board's column folders, capital `D` deletes the selected card only from `done` or `ice-box`, `z` zooms to the selected column full-width (`z` again restores all columns), `p` pins a bottom-two-thirds Markdown preview of the selected card that follows the selection (`p` again removes it), and Enter opens the selected card's Markdown file in a background Neovim host (reusing an existing Neovim pane or spawning a split) without moving focus off the board |
@@ -54,6 +54,10 @@ the client-owned hosts they can create.
 Host names, aliases, platform support, test-only status, and split/new-tab visibility come from the registered provider metadata. Optional hosts that are not built are therefore absent from the command palette and rejected explicitly by `--host`; the hidden `nanovg-demo` provider remains directly launchable by the render harness.
 
 ### Native GPU pane plugins
+
+Product diagnostic textures retain their pane's ImGui owner through resize and
+teardown. Closing a pane preserves another pane's current context and removes
+descriptors before the owning backend shuts down.
 
 Draxul can host trusted, client-local native plugins in a pane or an entire tab.
 Plugins are discovered at startup from `%APPDATA%/draxul/plugins` and
@@ -337,7 +341,11 @@ filename drift and dynamic-loader or ABI failures are caught on both platforms.
   `<server-runtime-dir>/sessions/`. It restores every usable Space before processing
   client requests, checkpoints changed topology every 30 seconds without a UI, and
   checkpoints again on graceful shutdown. Writes flush a temporary file before an
-  atomic replace and run off the kernel request loop. A corrupt checkpoint is archived
+  atomic replace. Workers serialize and write private staged files off the kernel
+  request loop; the state thread checks ownership and publishes finished stages.
+  Retired servers and writers
+  that exceed the shutdown budget cannot overwrite a successor's saved Session.
+  A corrupt checkpoint is archived
   as `.corrupt-<timestamp>` before saving resumes; partial restores remain writable.
   Restore/checkpoint warnings are shown once in an attaching UI as well as by
   `--server-status`.
@@ -623,7 +631,9 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
   native conversation ID to the owning server pane. Bare
   `draxul integration status` inspects both integrations without modifying configuration.
   The installer library operates on explicit paths and preserves unrelated provider
-  configuration; the CLI alone resolves `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and the
+  configuration. Failed replacement preserves the original and retains a staged
+  replacement with its recovery path in the error; the CLI alone resolves
+  `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and the
   user home and presents typed status as text or JSON.
 - `focus_agent`, `restart_agent`, and `clear_agent_identity` are also available in the command palette. Runtime generations and process exit codes are kept in memory, so restarting an agent cannot make an earlier process look current and failed/exited agents remain visible and inspectable in the rail.
 - Server terminal runtimes expose bounded bottom-of-screen and process evidence
@@ -837,7 +847,7 @@ reload errors also show a toast and leave the active settings unchanged.
 
 | Key | Default | Range | Notes |
 |-----|---------|-------|-------|
-| `atlas_size` | 2048 | 512--4096 | Must be power of 2 |
+| `atlas_size` | 2048 | 1024--8192 | Must be power of 2; shared by font cache and renderer. Changing it requires restart; reload rejects that change while retaining the active settings. |
 
 ### Scrolling
 
