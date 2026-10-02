@@ -3,7 +3,7 @@
 **Summary:** MegaCity can become unavailable when its isolated Windows config/cache
 root has a long path, and the placeholder reports only an unknown staging error.
 
-**Priority:** 95
+**Priority:** 96
 **Severity:** HIGH
 **Source:** Native validation of `kanban/pending/85 plugin-texture-release-ownership -bug.md`.
 
@@ -28,3 +28,6 @@ for reproduction. Existing artifacts are under the directory recorded by
 `build-ninja-debug/critical-validation-directory.txt`, in `texture-owners/`:
 `megacity-diagnostics.bmp` (failure), `megacity-diagnostics-short.bmp` (success),
 corresponding logs, and `megacity-short-results.json`.
+
+Renumbered from95 while integrating upstream because the incoming app-tab reuse
+card already owns95 in this pending lane. The investigation scope is unchanged.

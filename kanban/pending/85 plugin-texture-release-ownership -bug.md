@@ -74,7 +74,7 @@
   through its exact runtime after confirming zero attached clients.
 - A longer isolated cache root made MegaCity staging fail with an unavailable
   placeholder; shortening the root restored rendering. Follow-up belongs to
-  `kanban/pending/95 plugin-generation-long-path-staging -bug.md`.
+  `kanban/pending/96 plugin-generation-long-path-staging -bug.md`.
 
 - Shared core/product aggregate completed: 79/84 CTest entries passed in 372.89s,
   including both MegaCity shards and SatView's lifecycle/context shard. The separate
