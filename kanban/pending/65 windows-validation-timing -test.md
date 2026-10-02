@@ -19,6 +19,13 @@ Observed in the 68-entry core/Rezonality aggregate:
 
 These observations do not establish a common root cause. Split this card if investigation finds unrelated fixes.
 
+2026-10-02: the stale periodic-checkpoint acceptance was corrected as part of
+`kanban/done/83 retired-server-checkpoint-ownership -bug.md`. An earlier successful
+checkpoint can contain the initial layout; the test now waits until the requested
+rename is present in the durable snapshot. Both server CTest shards passed in the
+final core/product aggregate. This resolves that test-synchronization observation;
+remote initial-state and default-profile smoke timeouts remain open.
+
 During the later review-runner update on 2026-10-01, `py do.py smoke debug --skip-build` timed out again at 30 seconds (owned PID 52052 terminated by the wrapper). No application code changed in that turn. The tooling tests passed; the recurring startup problem remains open here.
 
 During Flashcards validation later that day, two standard same-cache Debug smoke

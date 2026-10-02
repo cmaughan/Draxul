@@ -10,7 +10,7 @@
 
 - [x] **Investigate:** Trace parent signal handling and child inheritance, including the test runner’s existing suppression.
 - [x] **Fix:** Suppress the signal for parent writes while preserving default child handling; coordinate cancellable writes with B14.
-- [ ] **Acceptance:** An isolated client with default initial signal handling survives a closed-pipe write and reports failure.
+- [x] **Acceptance:** An isolated client with default initial signal handling survives a closed-pipe write and reports failure.
 - [ ] **Validation:** Run core aggregate tests and same-cache smoke; verify the macOS production path.
 
 ## Implementation notes (2026-10-02)
@@ -43,3 +43,13 @@
 - Harness and executable: `/tmp/draxul-sigpipe-validation-20261002/` in that WSL
   distribution. This exercises the real Linux production POSIX path; native macOS
   runtime validation remains outstanding.
+
+- Final Windows core/product aggregate exercised both Neovim transport shards
+  successfully (79/84 CTest entries overall in 372.89s; failures recorded separately
+  in the atlas and checkpoint cards). Same-cache Debug smoke passed with an isolated
+  APPDATA profile, and final Release Neovim startup exited 0. Windows evidence does
+  not substitute for the explicit macOS production-path gate, which remains open.
+- Validation used the existing Ninja Debug cache. The final incremental aggregate
+  build took 22.75s; a preceding full validation took 309.66s for 77 CTest entries and
+  26.13s for five passing core snapshots. The aggregate was repeated after correcting
+  two test failures in other slices; snapshots were not repeated. No remote CI was run.
