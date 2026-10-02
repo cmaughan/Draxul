@@ -13,6 +13,8 @@
 #include <io.h>
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <signal.h>
 #endif
 
 using namespace draxul;
@@ -178,6 +180,20 @@ int main()
 #endif
 
     const std::string current_mode = mode();
+#ifndef _WIN32
+    if (current_mode == "dump_sigpipe_and_exit")
+    {
+        struct sigaction action{};
+        sigset_t mask;
+        if (sigaction(SIGPIPE, nullptr, &action) != 0
+            || sigprocmask(SIG_SETMASK, nullptr, &mask) != 0)
+            return 10;
+        write_marker_file(std::getenv("DRAXUL_RPC_FAKE_READY_FILE"),
+            action.sa_handler == SIG_DFL && sigismember(&mask, SIGPIPE) == 0
+                ? "default unblocked" : "incorrect inherited policy");
+        return 0;
+    }
+#endif
 #ifdef _WIN32
     if (current_mode == "dump_launch_and_exit")
     {

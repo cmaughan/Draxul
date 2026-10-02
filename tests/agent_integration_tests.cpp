@@ -8,6 +8,13 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <vector>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
 
 using namespace draxul;
 using namespace draxul::tests;
@@ -36,6 +43,18 @@ AgentIntegrationResult apply(AgentIntegrationProvider provider,
         .action = action,
         .paths = paths,
     });
+}
+
+std::vector<std::filesystem::path> staged_files(const std::filesystem::path& destination)
+{
+    std::vector<std::filesystem::path> files;
+    const auto prefix = destination.filename().string() + ".draxul-";
+    for (const auto& entry : std::filesystem::directory_iterator(destination.parent_path()))
+    {
+        if (entry.path().filename().string().starts_with(prefix))
+            files.push_back(entry.path());
+    }
+    return files;
 }
 
 } // namespace
@@ -308,3 +327,103 @@ TEST_CASE("uninstall removes only owned hooks and filesystem failures are typed 
         == "Claude config directory was not found. Install Claude first.");
     CHECK(missing_result.status.state == AgentIntegrationState::Unavailable);
 }
+
+TEST_CASE("failed hook publication preserves the destination and every recovery copy",
+    "[agent-integration][filesystem]")
+{
+    TempDir temp("draxul-hook-publication-failure");
+    const auto paths = agent_integration_paths(AgentIntegrationProvider::Codex, temp.path);
+    // An empty directory must never be deleted to make way for a hook file.
+    std::filesystem::create_directory(paths.hook);
+    const auto first = apply(AgentIntegrationProvider::Codex, AgentIntegrationAction::Install, paths);
+    REQUIRE_FALSE(first.success);
+    CHECK(std::filesystem::is_directory(paths.hook));
+    auto stages = staged_files(paths.hook);
+    REQUIRE(stages.size() == 1);
+    const auto recovery = stages.front();
+    const auto contents = read_text(recovery);
+    CHECK(contents.find("DRAXUL_INTEGRATION_ID=codex") != std::string::npos);
+    CHECK(first.error.find(recovery.string()) != std::string::npos);
+    CHECK(first.error.find("Unable to replace") != std::string::npos);
+
+    const auto second = apply(AgentIntegrationProvider::Codex, AgentIntegrationAction::Install, paths);
+    REQUIRE_FALSE(second.success);
+    CHECK(std::filesystem::is_directory(paths.hook));
+    CHECK(staged_files(paths.hook).size() == 2);
+    CHECK(read_text(recovery) == contents);
+}
+
+#ifdef _WIN32
+TEST_CASE("Windows sharing failures preserve existing hook and settings bytes",
+    "[agent-integration][filesystem][windows]")
+{
+    TempDir temp("draxul-hook-sharing-failure");
+    const auto paths = agent_integration_paths(AgentIntegrationProvider::Codex, temp.path);
+    REQUIRE(apply(AgentIntegrationProvider::Codex, AgentIntegrationAction::Install, paths).success);
+    auto target = paths.registration;
+    SECTION("hook script") { target = paths.hook; }
+    SECTION("hook registration") { target = paths.registration; }
+    SECTION("feature configuration") { target = paths.features; }
+    const auto original = read_text(target);
+    const HANDLE lock = CreateFileW(target.c_str(), GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    REQUIRE(lock != INVALID_HANDLE_VALUE);
+    const auto failed = apply(AgentIntegrationProvider::Codex, AgentIntegrationAction::Install, paths);
+    // Release before assertions so a failed assertion cannot leak the handle.
+    CloseHandle(lock);
+    REQUIRE_FALSE(failed.success);
+    CHECK(read_text(target) == original);
+    const auto stages = staged_files(target);
+    REQUIRE(stages.size() == 1);
+    CHECK(read_text(stages.front()) == original);
+    CHECK(failed.error.find(stages.front().string()) != std::string::npos);
+    CHECK(failed.error.find("Unable to replace") != std::string::npos);
+    REQUIRE(apply(AgentIntegrationProvider::Codex, AgentIntegrationAction::Install, paths).success);
+    CHECK(read_text(target) == original);
+    CHECK(std::filesystem::exists(stages.front()));
+}
+
+TEST_CASE("Windows failed uninstall retains user settings and the installed hook",
+    "[agent-integration][filesystem][windows]")
+{
+    TempDir temp("draxul-hook-uninstall-sharing-failure");
+    const auto paths = agent_integration_paths(AgentIntegrationProvider::Claude, temp.path);
+    write_text(paths.registration, "{\"permissions\": {\"allow\": [\"Read\"]}}\n");
+    REQUIRE(apply(AgentIntegrationProvider::Claude, AgentIntegrationAction::Install, paths).success);
+    const auto original = read_text(paths.registration);
+    const auto original_hook = read_text(paths.hook);
+    const HANDLE lock = CreateFileW(paths.registration.c_str(), GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    REQUIRE(lock != INVALID_HANDLE_VALUE);
+    const auto failed = apply(AgentIntegrationProvider::Claude, AgentIntegrationAction::Uninstall, paths);
+    CloseHandle(lock);
+    REQUIRE_FALSE(failed.success);
+    CHECK(read_text(paths.registration) == original);
+    CHECK(read_text(paths.hook) == original_hook);
+    const auto stages = staged_files(paths.registration);
+    REQUIRE(stages.size() == 1);
+    const auto recovery = nlohmann::json::parse(read_text(stages.front()));
+    CHECK(recovery["permissions"]["allow"][0] == "Read");
+    CHECK(recovery["hooks"]["SessionStart"].empty());
+    CHECK(failed.error.find(stages.front().string()) != std::string::npos);
+    REQUIRE(apply(AgentIntegrationProvider::Claude, AgentIntegrationAction::Uninstall, paths).success);
+    CHECK_FALSE(std::filesystem::exists(paths.hook));
+}
+#else
+TEST_CASE("POSIX hook publication preserves private settings permissions",
+    "[agent-integration][filesystem][posix]")
+{
+    TempDir temp("draxul-hook-private-settings");
+    const auto paths = agent_integration_paths(AgentIntegrationProvider::Codex, temp.path);
+    write_text(paths.registration, "{\"unrelated\": true}\n");
+    write_text(paths.features, "model = \"keep-me\"\n");
+    const auto private_mode = std::filesystem::perms::owner_read | std::filesystem::perms::owner_write;
+    std::filesystem::permissions(paths.registration, private_mode);
+    std::filesystem::permissions(paths.features, private_mode);
+    REQUIRE(apply(AgentIntegrationProvider::Codex, AgentIntegrationAction::Install, paths).success);
+    CHECK(std::filesystem::status(paths.registration).permissions() == private_mode);
+    CHECK(std::filesystem::status(paths.features).permissions() == private_mode);
+    CHECK(nlohmann::json::parse(read_text(paths.registration))["unrelated"] == true);
+    CHECK(read_text(paths.features).find("keep-me") != std::string::npos);
+}
+#endif

@@ -80,6 +80,46 @@ std::filesystem::path cjk_font_path()
 
 } // namespace
 
+TEST_CASE("configured glyph atlas dimensions survive font resets and normalize UVs", "[font][atlas]")
+{
+    const int atlas_size = GENERATE(1024, 4096, 8192);
+    TextService service;
+    TextServiceConfig config;
+    config.font_path = ligature_font_path().string();
+    config.atlas_size = atlas_size;
+    REQUIRE(service.initialize(config, 11, 96.0f));
+    REQUIRE(service.atlas_width() == atlas_size);
+    REQUIRE(service.atlas_height() == atlas_size);
+
+    for (const float point_size : { 11.0f, 15.0f })
+    {
+        REQUIRE(service.set_point_size(point_size));
+        const auto region = service.resolve_cluster("A");
+        REQUIRE(region.bitmap_size.x > 0);
+        REQUIRE(region.bitmap_size.y > 0);
+        REQUIRE((region.uv.z - region.uv.x) * atlas_size == Catch::Approx(region.bitmap_size.x));
+        REQUIRE((region.uv.w - region.uv.y) * atlas_size == Catch::Approx(region.bitmap_size.y));
+        REQUIRE(service.atlas_width() == atlas_size);
+        REQUIRE(service.atlas_height() == atlas_size);
+        const auto dirty = service.atlas_dirty_rect();
+        REQUIRE(dirty.pos.x + dirty.size.x <= atlas_size);
+        REQUIRE(dirty.pos.y + dirty.size.y <= atlas_size);
+        if (point_size == 15.0f)
+        {
+            REQUIRE(dirty.pos == glm::ivec2(0));
+            REQUIRE(dirty.size == glm::ivec2(atlas_size));
+        }
+    }
+}
+
+TEST_CASE("text service rejects unsupported glyph atlas dimensions", "[font][atlas]")
+{
+    TextServiceConfig config;
+    config.atlas_size = GENERATE(-1, 0, 512, 1500, 16384, std::numeric_limits<int>::max());
+    TextService service;
+    REQUIRE_FALSE(service.initialize(config, 11, 96.0f));
+}
+
 TEST_CASE("bundled nerd font shapes and rasterizes current lazy icon", "[font]")
 {
     auto font_path = draxul::tests::project_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";

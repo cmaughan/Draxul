@@ -1235,10 +1235,12 @@ void ImGui_ImplVulkan_SetMinImageCount(uint32_t min_image_count)
 VkDescriptorSet ImGui_ImplVulkan_AddTexture(VkSampler sampler, VkImageView image_view, VkImageLayout image_layout)
 {
     ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
+    if (!bd)
+        return VK_NULL_HANDLE;
     ImGui_ImplVulkan_InitInfo* v = &bd->VulkanInitInfo;
 
     // Create Descriptor Set:
-    VkDescriptorSet descriptor_set;
+    VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
     {
         VkDescriptorSetAllocateInfo alloc_info = {};
         alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -1247,6 +1249,8 @@ VkDescriptorSet ImGui_ImplVulkan_AddTexture(VkSampler sampler, VkImageView image
         alloc_info.pSetLayouts = &bd->DescriptorSetLayout;
         VkResult err = vkAllocateDescriptorSets(v->Device, &alloc_info, &descriptor_set);
         check_vk_result(err);
+        if (err != VK_SUCCESS)
+            return VK_NULL_HANDLE;
     }
 
     // Update the Descriptor Set:
@@ -1269,6 +1273,8 @@ VkDescriptorSet ImGui_ImplVulkan_AddTexture(VkSampler sampler, VkImageView image
 void ImGui_ImplVulkan_RemoveTexture(VkDescriptorSet descriptor_set)
 {
     ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
+    if (!bd || descriptor_set == VK_NULL_HANDLE)
+        return;
     ImGui_ImplVulkan_InitInfo* v = &bd->VulkanInitInfo;
     vkFreeDescriptorSets(v->Device, v->DescriptorPool, 1, &descriptor_set);
 }

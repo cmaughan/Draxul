@@ -19,6 +19,8 @@ constexpr size_t kAtlasPixelSize = 4;
 bool VkAtlas::initialize(VkContext& ctx, int atlas_size)
 {
     PERF_MEASURE();
+    if (atlas_size <= 0)
+        return false;
     atlas_size_ = atlas_size;
     VkDevice device = ctx.device();
 
@@ -217,8 +219,12 @@ bool VkAtlas::record_uploads(VkContext& ctx, VkCommandBuffer cmd, uint32_t frame
         return true;
 
     size_t total_bytes = 0;
-    for (const auto& upload : uploads)
-        total_bytes += upload.pixels.size();
+    if (frame_index >= MAX_FRAMES_IN_FLIGHT
+        || !validate_pending_atlas_uploads(uploads, atlas_size_, atlas_size_, total_bytes))
+    {
+        DRAXUL_LOG_ERROR(LogCategory::Renderer, "Rejected invalid queued Vulkan atlas uploads");
+        return false;
+    }
     if (total_bytes == 0)
         return true;
 

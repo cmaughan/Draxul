@@ -24,6 +24,9 @@ struct TextService::Impl
 
     bool initialize(float point_size, float ppi)
     {
+        if (config.atlas_size < 1024 || config.atlas_size > 8192
+            || (config.atlas_size & (config.atlas_size - 1)) != 0)
+            return false;
         if (!resolver.initialize(config, point_size, ppi))
             return false;
 
@@ -32,7 +35,7 @@ struct TextService::Impl
         ligature_analyser.reset_cache();
         ligature_analyser.set_cache_limit(config.font_choice_cache_limit);
 
-        if (!atlas_manager.initialize(resolver.primary().face(), static_cast<int>(resolver.primary().point_size())))
+        if (!atlas_manager.initialize(resolver.primary().face(), static_cast<int>(resolver.primary().point_size()), config.atlas_size))
             return false;
         atlas_manager.cache().set_cell_aligned_clusters(config.cell_aligned_clusters);
 

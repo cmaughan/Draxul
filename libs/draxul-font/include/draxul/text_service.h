@@ -21,6 +21,7 @@ struct TextServiceConfig
     std::string bold_italic_font_path;
     std::vector<std::string> fallback_paths;
     size_t font_choice_cache_limit = DEFAULT_FONT_CHOICE_CACHE_LIMIT;
+    int atlas_size = kAtlasSize;
     bool enable_ligatures = true;
     // Pin each codepoint of a multi-cell cluster to grid cell boundaries
     // (cell pitch) instead of the font's natural advances. Required for the

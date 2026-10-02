@@ -241,6 +241,18 @@ public:
     {
         struct CheckpointTask
         {
+            ~CheckpointTask()
+            {
+                if (staged_path.empty())
+                    return;
+                std::error_code ignored;
+                std::filesystem::remove(staged_path, ignored);
+                auto temporary = staged_path;
+                temporary += ".tmp";
+                std::filesystem::remove(temporary, ignored);
+            }
+
+            std::filesystem::path staged_path;
             std::mutex mutex;
             std::condition_variable ready;
             bool finished = false;

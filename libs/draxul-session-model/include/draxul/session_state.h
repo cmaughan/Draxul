@@ -26,6 +26,11 @@ bool save_session_state(
     const SessionSnapshot& state, std::string* error = nullptr);
 bool save_session_state_to_path(const SessionSnapshot& state,
     const std::filesystem::path& path, std::string* error = nullptr);
+
+// Publish an already durable, same-directory staged checkpoint without deleting
+// the previous destination on failure. Callers own publication authorization.
+bool publish_staged_session_state(const std::filesystem::path& staged,
+    const std::filesystem::path& destination, std::string* error = nullptr);
 std::optional<SessionSnapshot> load_session_state_from_path(
     const std::filesystem::path& path, std::string* error = nullptr);
 bool delete_session_state(

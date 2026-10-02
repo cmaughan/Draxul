@@ -8,6 +8,17 @@
 namespace draxul::plugin_support
 {
 
+ScopedImGuiContext::ScopedImGuiContext(ImGuiContext* context)
+    : previous_(ImGui::GetCurrentContext())
+{
+    ImGui::SetCurrentContext(context);
+}
+
+ScopedImGuiContext::~ScopedImGuiContext()
+{
+    ImGui::SetCurrentContext(previous_);
+}
+
 PluginImGuiContext::~PluginImGuiContext()
 {
     destroy();
@@ -94,12 +105,15 @@ void PluginImGuiContext::destroy()
         host_ = nullptr;
         return;
     }
+    ImGuiContext* previous = ImGui::GetCurrentContext();
     ImGui::SetCurrentContext(context_);
     if (!ini_path_.empty())
         ImGui::SaveIniSettingsToDisk(ini_path_.c_str());
     if (host_ != nullptr)
         host_->shutdown_imgui_backend();
     ImGui::DestroyContext(context_);
+    // Never restore the context we just destroyed.
+    ImGui::SetCurrentContext(previous == context_ ? nullptr : previous);
     context_ = nullptr;
     host_ = nullptr;
     ini_path_.clear();

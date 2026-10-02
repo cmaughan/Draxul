@@ -113,7 +113,7 @@ public:
         glm::ivec2 size = {};
     };
 
-    bool initialize(FT_Face face, int pixel_size, int atlas_size = 2048);
+    bool initialize(FT_Face face, int pixel_size, int atlas_size = kAtlasSize);
     void reset(FT_Face face, int pixel_size);
 
     // Generation counter — incremented on every reset/initialize.  Callers
@@ -214,7 +214,7 @@ private:
 
     FT_Face face_ = nullptr;
     int pixel_size_ = 0;
-    int atlas_size_ = 2048;
+    int atlas_size_ = kAtlasSize;
     uint32_t face_generation_ = 0;
 
     std::vector<uint8_t> atlas_;

@@ -936,6 +936,11 @@ bool ServerKernel::Impl::initialize_services(std::string& error)
 bool ServerKernel::Impl::checkpoint_session(
     std::string_view session_id, std::string& error)
 {
+    if (!published_identity_matches())
+    {
+        error = "The server no longer owns checkpoint publication.";
+        return false;
+    }
     const auto found = sessions.find(std::string(session_id));
     if (found == sessions.end())
     {
@@ -987,10 +992,12 @@ bool ServerKernel::Impl::checkpoint_session(
     auto task
         = std::make_shared<ServerSession::CheckpointTask>();
     task->revision = revision;
+    task->staged_path = server_session.persistence_path;
+    task->staged_path += ".checkpoint-" + random_epoch();
     server_session.checkpoint_task = task;
     server_session.checkpoint_state = "writing";
     server_session.checkpoint_error.clear();
-    const auto destination = server_session.persistence_path;
+    const auto destination = task->staged_path;
     auto save = options.checkpoint_save;
     std::thread([task, captured = std::move(*captured),
                     destination, save = std::move(save)]() mutable {
@@ -1040,6 +1047,19 @@ void ServerKernel::Impl::collect_checkpoint_results()
         std::lock_guard guard(task->mutex);
         if (!task->finished)
             continue;
+        if (task->success)
+        {
+            if (!published_identity_matches())
+            {
+                task->success = false;
+                task->error = "The server no longer owns checkpoint publication.";
+            }
+            else
+            {
+                task->success = publish_staged_session_state(
+                    task->staged_path, session->persistence_path, &task->error);
+            }
+        }
         if (task->success)
         {
             session->checkpoint_state = "ok";

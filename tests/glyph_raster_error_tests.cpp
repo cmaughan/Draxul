@@ -196,12 +196,14 @@ TEST_CASE("glyph atlas manager resets only for capacity and rate-limits exhauste
     {
         FontSelector selector;
         GlyphAtlasManager manager;
-        REQUIRE(manager.initialize(resolver.primary().face(), 13));
+        REQUIRE(manager.initialize(resolver.primary().face(), 13, 1024));
         manager.cache().set_raster_operations_for_testing({ .reserve_region = &fail_reserve });
 
         CHECK(manager.resolve_cluster("A", selector, resolver).bitmap_size.x == 0);
         CHECK(manager.reset_count() == 1);
         CHECK(manager.consume_atlas_reset());
+        CHECK(manager.cache().atlas_width() == 1024);
+        CHECK(manager.cache().atlas_height() == 1024);
     }
 
     resolver.shutdown();

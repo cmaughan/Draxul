@@ -216,7 +216,11 @@ bool ServerKernel::Impl::published_identity_matches() const
         && metadata["server_process_start_token"].is_string()
         && metadata["server_process_start_token"]
                .get_ref<const std::string&>()
-        == process_start_identity;
+        == process_start_identity
+        && metadata.contains("server_epoch")
+        && metadata["server_epoch"].is_string()
+        && metadata["server_epoch"].get_ref<const std::string&>()
+            == epoch_value;
 }
 
 void ServerKernel::Impl::publish_failure_marker(std::string_view reason)
@@ -649,6 +653,18 @@ int ServerKernel::Impl::run_until_stopped()
                     || loop_wake->terminal_output_pending.load();
             });
     }
+    // Retirement is not graceful shutdown: neither queued mutations nor final
+    // checkpoints may be accepted after a successor claims the endpoint. Check
+    // again here even when request_stop won the race with the eviction timer.
+    if (!published_identity_matches())
+    {
+        control.abandon_endpoint();
+        for (auto& [session_id, session] : sessions)
+            session->checkpoint_task.reset();
+        reset_services();
+        stop();
+        return fatal_listener_failure ? 1 : 0;
+    }
     control.process_pending(
         [this](const ControlRequest& request) {
             return handle_request(request);
@@ -704,6 +720,9 @@ int ServerKernel::Impl::run_until_stopped()
             DRAXUL_LOG_WARN(LogCategory::App,
                 "Draxul server Session '%s' checkpoint exceeded the shutdown budget; the previous completed checkpoint remains authoritative",
                 session_id.c_str());
+            // Drop publication rights now. The detached worker owns only its
+            // private staging file and removes it when its task is released.
+            session->checkpoint_task.reset();
         }
     }
     reset_services();

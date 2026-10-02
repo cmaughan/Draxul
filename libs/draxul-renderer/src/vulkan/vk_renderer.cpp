@@ -827,13 +827,15 @@ bool VkRenderer::recreate_frame_resources()
 void VkRenderer::set_atlas_texture(const uint8_t* data, int w, int h)
 {
     PERF_MEASURE();
-    queue_full_atlas_upload(pending_atlas_uploads_, data, w, h);
+    if (!queue_full_atlas_upload(pending_atlas_uploads_, data, w, h, atlas_size_, atlas_size_))
+        DRAXUL_LOG_WARN(LogCategory::Renderer, "Rejected invalid full atlas upload (%dx%d, atlas=%d)", w, h, atlas_size_);
 }
 
 void VkRenderer::update_atlas_region(int x, int y, int w, int h, const uint8_t* data)
 {
     PERF_MEASURE();
-    queue_atlas_region_upload(pending_atlas_uploads_, x, y, w, h, data);
+    if (!queue_atlas_region_upload(pending_atlas_uploads_, x, y, w, h, data, atlas_size_, atlas_size_))
+        DRAXUL_LOG_WARN(LogCategory::Renderer, "Rejected invalid atlas region (%d,%d %dx%d, atlas=%d)", x, y, w, h, atlas_size_);
 }
 
 void VkRenderer::resize(int pixel_w, int pixel_h)

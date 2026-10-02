@@ -17,14 +17,14 @@ namespace draxul
 class GlyphAtlasManager
 {
 public:
-    bool initialize(FT_Face primary_face, int point_size)
+    bool initialize(FT_Face primary_face, int point_size, int atlas_size = kAtlasSize)
     {
         atlas_reset_pending_ = false;
         atlas_reset_count_ = 0;
         warned_error_kinds_.fill(false);
         runtime_warnings_.clear();
         expected_primary_face_ = primary_face;
-        return glyph_cache_.initialize(primary_face, point_size);
+        return glyph_cache_.initialize(primary_face, point_size, atlas_size);
     }
 
     void reset_atlas(FT_Face primary_face, int point_size)

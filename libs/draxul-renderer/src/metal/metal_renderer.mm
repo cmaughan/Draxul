@@ -253,6 +253,8 @@ bool MetalRenderer::ensure_depth_texture()
 bool MetalRenderer::initialize(IWindow& window)
 {
     PERF_MEASURE();
+    if (atlas_size_ <= 0)
+        return false;
     current_frame_ = 0;
 
     // Get Metal device
@@ -483,14 +485,16 @@ void MetalRenderer::set_atlas_texture(const uint8_t* data, int w, int h)
 {
     PERF_MEASURE();
     thread_checker_.assert_main_thread("MetalRenderer::set_atlas_texture");
-    queue_full_atlas_upload(pending_atlas_uploads_, data, w, h);
+    if (!queue_full_atlas_upload(pending_atlas_uploads_, data, w, h, atlas_size_, atlas_size_))
+        DRAXUL_LOG_WARN(LogCategory::Renderer, "Rejected invalid full atlas upload (%dx%d, atlas=%d)", w, h, atlas_size_);
 }
 
 void MetalRenderer::update_atlas_region(int x, int y, int w, int h, const uint8_t* data)
 {
     PERF_MEASURE();
     thread_checker_.assert_main_thread("MetalRenderer::update_atlas_region");
-    queue_atlas_region_upload(pending_atlas_uploads_, x, y, w, h, data);
+    if (!queue_atlas_region_upload(pending_atlas_uploads_, x, y, w, h, data, atlas_size_, atlas_size_))
+        DRAXUL_LOG_WARN(LogCategory::Renderer, "Rejected invalid atlas region (%d,%d %dx%d, atlas=%d)", x, y, w, h, atlas_size_);
 }
 
 void MetalRenderer::resize(int pixel_w, int pixel_h)
@@ -1045,7 +1049,14 @@ void MetalRenderer::flush_pending_atlas_uploads(void* cmd_buf_opaque)
 
     id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)cmd_buf_opaque;
 
-    const size_t total_bytes = pending_atlas_upload_size_bytes(pending_atlas_uploads_);
+    size_t total_bytes = 0;
+    if (!atlas_texture_ || !validate_pending_atlas_uploads(pending_atlas_uploads_,
+            static_cast<int>([atlas_texture_.get() width]), static_cast<int>([atlas_texture_.get() height]), total_bytes))
+    {
+        DRAXUL_LOG_ERROR(LogCategory::Renderer, "Rejected invalid queued Metal atlas uploads");
+        pending_atlas_uploads_.clear();
+        return;
+    }
     if (total_bytes == 0)
     {
         pending_atlas_uploads_.clear();

@@ -655,6 +655,7 @@ TextServiceConfig App::make_text_service_config(const AppConfig& config) const
     text_config.bold_italic_font_path = config.bold_italic_font_path;
     text_config.fallback_paths = config.fallback_paths;
     text_config.enable_ligatures = config.enable_ligatures;
+    text_config.atlas_size = config.atlas_size;
     return text_config;
 }
 
@@ -728,6 +729,13 @@ Result<void, Error> App::reload_config()
     apply_overrides(reloaded_config, options_.config_overrides);
 
     const AppConfig previous_config = config_;
+    // The GPU atlas belongs to the renderer's lifetime. Reject the complete
+    // reload before changing fonts or config so its dimensions stay in sync.
+    if (reloaded_config.atlas_size != previous_config.atlas_size)
+    {
+        return Result<void, Error>::err(Error::config_apply(
+            "Changing atlas_size requires restarting Draxul; previous config remains active."));
+    }
     const bool text_config_needs_reload = text_service_config_changed(previous_config, reloaded_config);
     const bool scroll_config_changed = previous_config.smooth_scroll != reloaded_config.smooth_scroll
         || previous_config.scroll_speed != reloaded_config.scroll_speed;

@@ -9,6 +9,20 @@ struct ImGuiContext;
 namespace draxul::plugin_support
 {
 
+// Select an owner's context for resource operations and restore the caller's
+// context afterwards. The selected and saved contexts must outlive the scope.
+class ScopedImGuiContext
+{
+public:
+    explicit ScopedImGuiContext(ImGuiContext* context);
+    ~ScopedImGuiContext();
+    ScopedImGuiContext(const ScopedImGuiContext&) = delete;
+    ScopedImGuiContext& operator=(const ScopedImGuiContext&) = delete;
+
+private:
+    ImGuiContext* previous_;
+};
+
 // RAII owner of a product plugin's private ImGui context. Products create one
 // per runtime, attach the GPU backend their adapter hands them, and drive the
 // shared frame-begin; destroy() (or destruction) saves optional ini state,

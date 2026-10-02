@@ -1,6 +1,9 @@
 #include <draxul/agent_integration.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cerrno>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -9,8 +12,21 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <string_view>
+#include <system_error>
 #include <toml++/toml.hpp>
 #include <vector>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <fcntl.h>
+#include <io.h>
+#include <sys/stat.h>
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace draxul
 {
@@ -176,32 +192,91 @@ struct DocumentUpdate
 bool write_atomic(const std::filesystem::path& path,
     std::string_view contents, std::string& error)
 {
-    const auto temporary = path.string() + ".draxul.tmp";
+    // Exclusive, distinct staging files also keep a later retry from destroying
+    // the recovery copy left by an earlier failed publication.
+    static std::atomic<uint64_t> sequence = 0;
+#ifdef _WIN32
+    const auto process_id = GetCurrentProcessId();
+#else
+    const auto process_id = ::getpid();
+#endif
+    std::filesystem::path temporary;
+    int descriptor = -1;
+    for (int attempt = 0; attempt < 32; ++attempt)
     {
-        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-        if (!output || !(output << contents) || !output.flush())
-        {
-            error = "Unable to write " + path.filename().string() + ".";
-            std::error_code ignored;
-            std::filesystem::remove(temporary, ignored);
-            return false;
-        }
+        temporary = path;
+        temporary += ".draxul-" + std::to_string(process_id) + "-"
+            + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())
+            + "-" + std::to_string(sequence++) + ".tmp";
+#ifdef _WIN32
+        descriptor = _wopen(temporary.c_str(),
+            _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IREAD | _S_IWRITE);
+#else
+        descriptor = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
+#endif
+        if (descriptor >= 0 || errno != EEXIST)
+            break;
     }
-    std::error_code ec;
-    std::filesystem::rename(temporary, path, ec);
-    if (ec)
+    if (descriptor < 0)
     {
-        std::filesystem::remove(path, ec);
-        ec.clear();
-        std::filesystem::rename(temporary, path, ec);
+        error = "Unable to write " + path.filename().string() + ".";
+        return false;
     }
-    if (ec)
+#ifdef _WIN32
+    FILE* output = _fdopen(descriptor, "wb");
+#else
+    FILE* output = ::fdopen(descriptor, "wb");
+#endif
+    bool written = false;
+    if (output)
     {
-        error = "Unable to replace " + path.filename().string() + ".";
+        written = std::fwrite(contents.data(), 1, contents.size(), output) == contents.size();
+        if (std::fclose(output) != 0)
+            written = false;
+    }
+    else
+    {
+#ifdef _WIN32
+        _close(descriptor);
+#else
+        ::close(descriptor);
+#endif
+    }
+    if (!written)
+    {
+        error = "Unable to write " + path.filename().string() + ".";
         std::error_code ignored;
         std::filesystem::remove(temporary, ignored);
         return false;
     }
+    const auto publication_failed = [&](const std::error_code& ec) {
+        error = "Unable to replace " + path.filename().string() + ": "
+            + ec.message() + ". Staged contents retained at " + temporary.string() + ".";
+        return false;
+    };
+    std::error_code ec;
+#ifdef _WIN32
+    // Windows rename does not replace existing files. This native operation
+    // replaces in place without the destructive remove-destination fallback.
+    if (!MoveFileExW(temporary.c_str(), path.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        return publication_failed({ static_cast<int>(GetLastError()), std::system_category() });
+#else
+    const auto existing = std::filesystem::status(path, ec);
+    if (ec && ec != std::errc::no_such_file_or_directory)
+        return publication_failed(ec);
+    if (!ec && std::filesystem::is_regular_file(existing))
+    {
+        std::filesystem::permissions(temporary, existing.permissions(),
+            std::filesystem::perm_options::replace, ec);
+        if (ec)
+            return publication_failed(ec);
+    }
+    ec.clear();
+    std::filesystem::rename(temporary, path, ec);
+    if (ec)
+        return publication_failed(ec);
+#endif
     return true;
 }
 

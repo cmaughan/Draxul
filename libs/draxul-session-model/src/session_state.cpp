@@ -1318,6 +1318,13 @@ bool save_session_state_to_path(const SessionSnapshot& state,
         && write_durable_session_state_file(*encoded, path, error);
 }
 
+bool publish_staged_session_state(const std::filesystem::path& staged,
+    const std::filesystem::path& destination, std::string* error)
+{
+    return replace_session_state_file(staged, destination, error)
+        && flush_session_state_directory(destination, error);
+}
+
 bool save_session_state(const SessionSnapshot& state, std::string* error)
 {
     const std::string normalized_id = state.session_id.empty() ? "default" : state.session_id;

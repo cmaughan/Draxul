@@ -160,6 +160,14 @@ public:
 class ReloadTrackingHost final : public SmokeTestHost
 {
 public:
+    bool initialize(const HostContext& context, IHostCallbacks& callbacks) override
+    {
+        text_service = context.text_service;
+        return SmokeTestHost::initialize(context, callbacks);
+    }
+
+    TextService* text_service = nullptr;
+
     void on_config_reloaded(const HostReloadConfig& config) override
     {
         ++reload_count_;
@@ -1154,6 +1162,69 @@ TEST_CASE("app smoke: host death during pump_once does not crash the app", "[app
     const bool smoke_ok = app.run_smoke_test(std::chrono::milliseconds(200));
     REQUIRE(smoke_ok);
 
+    app.shutdown();
+}
+
+TEST_CASE("app smoke: configured atlas matches renderer and rejects size-changing reloads", "[app_smoke][config][atlas]")
+{
+    const int atlas_size = GENERATE(1024, 4096);
+    TempDir temp("draxul-atlas-config");
+    HomeDirRedirect redir(temp.path);
+    std::filesystem::create_directories(redir.config_path.parent_path());
+    const auto write_config = [&](int size, float font_size) {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        out << "atlas_size = " << size << "\nfont_size = " << font_size
+            << "\n[keybindings]\nreload_config = \"Ctrl+Alt+R\"\n";
+    };
+    write_config(atlas_size, 11.0f);
+
+    FakeWindow* window = nullptr;
+    ReloadTrackingHost* host = nullptr;
+    int renderer_atlas_size = 0;
+    AppOptions opts = make_smoke_options();
+    opts.load_user_config = true;
+    opts.window_factory = [&window]() {
+        auto fake = std::make_unique<FakeWindow>();
+        window = fake.get();
+        return fake;
+    };
+    opts.renderer_create_fn = [&renderer_atlas_size](int size, RendererOptions options) {
+        renderer_atlas_size = size;
+        return make_fake_renderer(size, options);
+    };
+    opts.host_factory = [&host](HostKind) -> std::unique_ptr<IHost> {
+        auto fake = std::make_unique<ReloadTrackingHost>();
+        host = fake.get();
+        return fake;
+    };
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    REQUIRE(host != nullptr);
+    REQUIRE(host->text_service != nullptr);
+    REQUIRE(renderer_atlas_size == atlas_size);
+    REQUIRE(host->text_service->atlas_width() == renderer_atlas_size);
+    REQUIRE(host->text_service->atlas_height() == renderer_atlas_size);
+    const float original_point_size = host->text_service->point_size();
+    host->reset_tracking();
+
+    write_config(atlas_size == 1024 ? 4096 : 1024, 15.0f);
+    REQUIRE(window->on_key != nullptr);
+    window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
+    CHECK(host->reload_count() == 0);
+    CHECK(host->font_metrics_changed_count() == 0);
+    CHECK(host->text_service->point_size() == original_point_size);
+    CHECK(host->text_service->atlas_width() == renderer_atlas_size);
+
+    // A later reload with the active dimension still applies font changes.
+    write_config(atlas_size, 15.0f);
+    window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
+    REQUIRE(host->reload_count() == 1);
+    CHECK(host->text_service->point_size() == Catch::Approx(15.0f));
+    CHECK(host->text_service->atlas_width() == renderer_atlas_size);
+    CHECK(host->text_service->atlas_height() == renderer_atlas_size);
+    REQUIRE(host->text_service->resolve_cluster("A").bitmap_size.x > 0);
+    REQUIRE(app.run_smoke_test(std::chrono::milliseconds(20)));
     app.shutdown();
 }
 

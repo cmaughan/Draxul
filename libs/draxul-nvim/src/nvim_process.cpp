@@ -23,6 +23,7 @@
 #include <chrono>
 #include <cstring>
 #include <fcntl.h>
+#include <pthread.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -330,6 +331,64 @@ bool NvimProcess::is_running() const
 
 #else // POSIX (macOS, Linux)
 
+namespace
+{
+
+// Blocking SIGPIPE only on the writing thread avoids changing the application's
+// signal handlers. Consume a signal produced by our failed write before restoring
+// the mask, but preserve any signal that was pending before the operation.
+class ScopedPipeSignalBlock
+{
+public:
+    ScopedPipeSignalBlock()
+    {
+        sigemptyset(&pipe_signal_);
+        sigaddset(&pipe_signal_, SIGPIPE);
+        active_ = pthread_sigmask(SIG_BLOCK, &pipe_signal_, &previous_mask_) == 0;
+        if (active_)
+        {
+            sigset_t pending;
+            if (sigpending(&pending) == 0)
+                was_pending_ = sigismember(&pending, SIGPIPE) == 1;
+            else
+            {
+                pthread_sigmask(SIG_SETMASK, &previous_mask_, nullptr);
+                active_ = false;
+            }
+        }
+    }
+
+    ~ScopedPipeSignalBlock()
+    {
+        if (active_)
+            pthread_sigmask(SIG_SETMASK, &previous_mask_, nullptr);
+    }
+
+    bool active() const { return active_; }
+
+    void consume_write_failure() const
+    {
+        if (was_pending_)
+            return;
+        sigset_t pending;
+        if (sigpending(&pending) == 0 && sigismember(&pending, SIGPIPE) == 1)
+        {
+            // SIGPIPE from write is thread-directed and already pending, so
+            // sigwait cannot block here. Unlike sigtimedwait, it is on macOS.
+            int signal_number = 0;
+            sigwait(&pipe_signal_, &signal_number);
+        }
+    }
+
+private:
+    sigset_t pipe_signal_{};
+    sigset_t previous_mask_{};
+    bool active_ = false;
+    bool was_pending_ = false;
+};
+
+} // namespace
+
 Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::vector<std::string>& extra_args, const std::string& working_dir)
 {
     PERF_MEASURE();
@@ -459,6 +518,10 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
         // Restore SIGPIPE to default so child processes terminate correctly
         // on broken pipes. The parent GUI may have set SIG_IGN.
         signal(SIGPIPE, SIG_DFL);
+        sigset_t pipe_signal;
+        sigemptyset(&pipe_signal);
+        sigaddset(&pipe_signal, SIGPIPE);
+        sigprocmask(SIG_UNBLOCK, &pipe_signal, nullptr);
 
         if (!working_dir.empty() && chdir(working_dir.c_str()) != 0)
         {
@@ -560,6 +623,9 @@ bool NvimProcess::write(const uint8_t* data, size_t len) const
     int fd = impl_->child_stdin_write_.load(std::memory_order_acquire);
     if (fd < 0)
         return false;
+    ScopedPipeSignalBlock signal_block;
+    if (!signal_block.active())
+        return false;
     size_t total_written = 0;
     while (total_written < len)
     {
@@ -568,6 +634,8 @@ bool NvimProcess::write(const uint8_t* data, size_t len) const
         {
             if (errno == EINTR)
                 continue;
+            if (errno == EPIPE)
+                signal_block.consume_write_failure();
             return false;
         }
         if (n == 0)

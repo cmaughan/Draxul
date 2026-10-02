@@ -907,8 +907,16 @@ TEST_CASE("server periodically checkpoints topology without a UI",
         REQUIRE(status.ok);
         if (status.status->checkpoint_state == "ok")
         {
-            checkpoint_status = status.status;
-            break;
+            // A periodic worker may have captured the initial topology before
+            // the rename. Its successful publication is not the acceptance
+            // condition: wait for the requested revision to become durable.
+            auto current = load_session_state_from_path(
+                server_session_state_path(temp.path), &error);
+            if (current && current->spaces.front().name == "Periodically Saved")
+            {
+                checkpoint_status = status.status;
+                break;
+            }
         }
         std::this_thread::sleep_for(
             std::chrono::milliseconds(10));
@@ -1085,7 +1093,7 @@ TEST_CASE("server shutdown bounds a stalled checkpoint and the detached task rem
             std::chrono::seconds(2),
             [&] { return gate->finished; }));
     }
-    CHECK(std::filesystem::exists(
+    CHECK_FALSE(std::filesystem::exists(
         server_session_state_path(temp.path)));
 }
 
@@ -1115,13 +1123,21 @@ TEST_CASE("server reports checkpoint failure and preserves the last good file",
         .runtime_directory = temp.path,
         .session_checkpoint_interval = std::chrono::milliseconds(20),
         .epoch_override = "failure-test",
+        .checkpoint_save = [](const SessionSnapshot& snapshot,
+                               const std::filesystem::path& staged,
+                               std::string* error) {
+            auto blocked = staged;
+            blocked += ".tmp";
+            std::filesystem::create_directory(blocked);
+            const bool saved = save_session_state_to_path(snapshot, staged, error);
+            std::error_code ignored;
+            std::filesystem::remove(blocked, ignored);
+            return saved;
+        },
     });
     REQUIRE(server.start().disposition
         == ServerStartDisposition::Started);
     ServerRunGuard run_guard(server);
-    std::filesystem::path blocked = checkpoint;
-    blocked += ".tmp";
-    REQUIRE(std::filesystem::create_directory(blocked));
 
     TopologyClient client({
         .runtime_directory = temp.path,
@@ -1163,6 +1179,129 @@ TEST_CASE("server reports checkpoint failure and preserves the last good file",
         std::istreambuf_iterator<char>()
     };
     REQUIRE(preserved == original);
+}
+
+TEST_CASE("retired server cannot publish an in-flight checkpoint over its successor",
+    "[server][topology][persistence][concurrency]")
+{
+    TempDir temp("draxul-server-retired-checkpoint");
+    struct Gate
+    {
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool started = false;
+        bool release = false;
+        size_t calls = 0;
+        std::filesystem::path staged;
+        bool wrote = false;
+    };
+    auto gate = std::make_shared<Gate>();
+    struct ReleaseGate
+    {
+        std::shared_ptr<Gate> gate;
+        ~ReleaseGate()
+        {
+            {
+                std::lock_guard lock(gate->mutex);
+                gate->release = true;
+            }
+            gate->changed.notify_all();
+        }
+    };
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .session_checkpoint_interval = std::chrono::milliseconds(5),
+        .idle_wait_interval = std::chrono::milliseconds(5),
+        .eviction_check_interval = std::chrono::milliseconds(10),
+        .epoch_override = "retired-checkpoint-owner",
+        .checkpoint_save = [gate](const SessionSnapshot& snapshot,
+                               const std::filesystem::path& staged,
+                               std::string* error) {
+            {
+                std::unique_lock lock(gate->mutex);
+                ++gate->calls;
+                gate->staged = staged;
+                gate->started = true;
+                gate->changed.notify_all();
+                gate->changed.wait(lock, [&] { return gate->release; });
+            }
+            const bool saved = save_session_state_to_path(snapshot, staged, error);
+            {
+                std::lock_guard lock(gate->mutex);
+                gate->wrote = true;
+            }
+            gate->changed.notify_all();
+            return saved;
+        },
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+    ReleaseGate release_on_exit{ gate };
+    {
+        std::unique_lock lock(gate->mutex);
+        REQUIRE(gate->changed.wait_for(lock, std::chrono::seconds(2),
+            [&] { return gate->started; }));
+    }
+    TopologyClient client({
+        .runtime_directory = temp.path,
+        .client_id = "retired-checkpoint-client",
+    });
+    std::string error;
+    REQUIRE(client.refresh(error));
+    auto successor = capture_session_topology(client.snapshot(), error);
+    REQUIRE(successor);
+    successor->spaces.front().name = "Successor's durable layout";
+
+    // The same process can host distinct kernels: epoch is part of ownership,
+    // even when PID and process-start identity still match.
+    const auto metadata_path = server_metadata_path(temp.path);
+    nlohmann::json successor_metadata;
+    {
+        std::ifstream input(metadata_path);
+        successor_metadata = nlohmann::json::parse(input);
+    }
+    successor_metadata["server_epoch"] = "successor-checkpoint-owner";
+    {
+        std::ofstream output(metadata_path, std::ios::trunc);
+        output << successor_metadata.dump();
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (server.running() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    REQUIRE_FALSE(server.running());
+    run_guard.join();
+    const auto checkpoint = server_session_state_path(temp.path);
+    REQUIRE(save_session_state_to_path(*successor, checkpoint, &error));
+    {
+        std::lock_guard lock(gate->mutex);
+        gate->release = true;
+    }
+    gate->changed.notify_all();
+    // Cleanup of the private staging file proves the detached old writer has
+    // returned, rather than checking the successor before the stale write runs.
+    const auto cleanup_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    bool cleaned = false;
+    while (std::chrono::steady_clock::now() < cleanup_deadline)
+    {
+        auto current = load_session_state_from_path(checkpoint, &error);
+        REQUIRE(current);
+        CHECK(current->spaces.front().name == "Successor's durable layout");
+        bool wrote = false;
+        {
+            std::lock_guard lock(gate->mutex);
+            wrote = gate->wrote;
+        }
+        if (wrote && !std::filesystem::exists(gate->staged))
+        {
+            cleaned = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    REQUIRE(cleaned);
+    CHECK(gate->calls == 1);
+    std::ifstream metadata_input(metadata_path);
+    CHECK(nlohmann::json::parse(metadata_input) == successor_metadata);
 }
 
 TEST_CASE("asynchronous checkpoint failure preserves the last durable topology without rolling back a pane move",

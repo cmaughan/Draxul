@@ -25,10 +25,114 @@
 #endif
 #include <windows.h>
 // clang-format on
+#else
+#include <cerrno>
+#include <pthread.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #endif
 
 using namespace draxul;
 using namespace draxul::tests;
+
+#ifndef _WIN32
+TEST_CASE("POSIX closed editor pipes survive default signal policy and preserve caller state",
+    "[nvim][posix][sigpipe]")
+{
+    TempDir temp("draxul-nvim-sigpipe");
+    const auto ready = temp.path / "ready";
+    ScopedEnvVar mode("DRAXUL_RPC_FAKE_MODE", "close_stdin_until_release");
+    ScopedEnvVar ready_env("DRAXUL_RPC_FAKE_READY_FILE", ready.string().c_str());
+    // Catch's runner ignores SIGPIPE. An isolated process with default policy
+    // makes a regression fail as a signaled child instead of killing the suite.
+    const bool pending_before_write = GENERATE(false, true);
+    const pid_t isolated = fork();
+    REQUIRE(isolated >= 0);
+    if (isolated == 0)
+    {
+        alarm(8);
+        signal(SIGPIPE, SIG_DFL);
+        sigset_t pipe_signal;
+        sigemptyset(&pipe_signal);
+        sigaddset(&pipe_signal, SIGPIPE);
+        if (pthread_sigmask(SIG_UNBLOCK, &pipe_signal, nullptr) != 0)
+            _exit(1);
+        NvimProcess process;
+        if (!process.spawn(DRAXUL_RPC_FAKE_PATH))
+            _exit(2);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (!std::filesystem::exists(ready) && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (!std::filesystem::exists(ready))
+            _exit(3);
+        if (pending_before_write)
+        {
+            if (pthread_sigmask(SIG_BLOCK, &pipe_signal, nullptr) != 0)
+                _exit(4);
+            raise(SIGPIPE);
+        }
+        const uint8_t byte = 0;
+        const bool wrote = process.write(&byte, 1);
+        // A second write must also be safe; suppression cannot be one-shot.
+        const bool wrote_again = process.write(&byte, 1);
+        sigset_t mask;
+        sigset_t pending;
+        struct sigaction action{};
+        const bool policy_read = pthread_sigmask(SIG_SETMASK, nullptr, &mask) == 0
+            && sigpending(&pending) == 0 && sigaction(SIGPIPE, nullptr, &action) == 0;
+        const bool preserved = policy_read && action.sa_handler == SIG_DFL
+            && (sigismember(&mask, SIGPIPE) == 1) == pending_before_write
+            && (sigismember(&pending, SIGPIPE) == 1) == pending_before_write;
+        process.shutdown();
+        _exit(!wrote && !wrote_again && preserved ? 0 : 5);
+    }
+    int status = 0;
+    pid_t waited;
+    do { waited = waitpid(isolated, &status, 0); } while (waited < 0 && errno == EINTR);
+    REQUIRE(waited == isolated);
+    INFO("isolated exit status=" << status);
+    REQUIRE(WIFEXITED(status));
+    CHECK(WEXITSTATUS(status) == 0);
+}
+
+TEST_CASE("POSIX editor children receive default unblocked SIGPIPE",
+    "[nvim][posix][sigpipe]")
+{
+    TempDir temp("draxul-nvim-child-sigpipe");
+    const auto ready = temp.path / "ready";
+    ScopedEnvVar mode("DRAXUL_RPC_FAKE_MODE", "dump_sigpipe_and_exit");
+    ScopedEnvVar ready_env("DRAXUL_RPC_FAKE_READY_FILE", ready.string().c_str());
+    const pid_t isolated = fork();
+    REQUIRE(isolated >= 0);
+    if (isolated == 0)
+    {
+        alarm(8);
+        signal(SIGPIPE, SIG_IGN);
+        sigset_t pipe_signal;
+        sigemptyset(&pipe_signal);
+        sigaddset(&pipe_signal, SIGPIPE);
+        if (pthread_sigmask(SIG_BLOCK, &pipe_signal, nullptr) != 0)
+            _exit(1);
+        NvimProcess process;
+        if (!process.spawn(DRAXUL_RPC_FAKE_PATH))
+            _exit(2);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (!std::filesystem::exists(ready) && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        const bool correct = std::filesystem::exists(ready)
+            && read_file(ready) == "default unblocked";
+        process.shutdown();
+        _exit(correct ? 0 : 3);
+    }
+    int status = 0;
+    pid_t waited;
+    do { waited = waitpid(isolated, &status, 0); } while (waited < 0 && errno == EINTR);
+    REQUIRE(waited == isolated);
+    REQUIRE(WIFEXITED(status));
+    CHECK(WEXITSTATUS(status) == 0);
+}
+#endif
 
 namespace
 {

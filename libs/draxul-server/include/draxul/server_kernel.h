@@ -86,6 +86,8 @@ struct ServerKernelOptions
     std::chrono::milliseconds checkpoint_shutdown_budget{
         std::chrono::seconds(2)
     };
+    // Writes a durable private staging file. Only the server state thread may
+    // publish that file to the Session checkpoint while it owns the endpoint.
     std::function<bool(const SessionSnapshot&,
         const std::filesystem::path&, std::string*)>
         checkpoint_save;
