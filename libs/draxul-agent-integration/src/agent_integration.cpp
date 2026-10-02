@@ -485,6 +485,13 @@ bool read_optional_document(const std::filesystem::path& path,
         contents.clear();
         return true;
     }
+    // POSIX ifstream can open a directory and throw while iterating its bytes.
+    // Keep inspection of failed publication destinations a typed read failure.
+    if (!std::filesystem::is_regular_file(path, ec) || ec)
+    {
+        error = "Unable to read " + path.filename().string() + ".";
+        return false;
+    }
     std::ifstream input(path, std::ios::binary);
     if (!input)
     {
