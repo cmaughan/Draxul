@@ -24,7 +24,9 @@ does not change a running server's collection. Before deliberately restarting a
 server, inspect its terminals and stop/checkpoint valuable work normally.
 
 Start the newly built executable with `--host personal-assistant`, or use the
-command palette's Personal Assistant new-tab/split entry. Without configuration,
+command palette's Personal Assistant new-tab/split entry. Repeated tab launches
+focus the existing Personal Assistant tab, including across Spaces in the same
+Session. Explicit splits remain separate. Without configuration,
 the host displays setup guidance. A standalone client without a shared-server
 connection displays a waiting state rather than reading Dropbox independently.
 

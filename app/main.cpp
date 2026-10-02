@@ -231,7 +231,7 @@ std::optional<std::string> create_client_launch_tab(
     draxul::HostKind host_kind, std::string_view plugin_id,
     std::string_view plugin_config_json,
     const std::filesystem::path& source_path,
-    std::string_view display_name, std::string& error)
+    std::string_view display_name, bool reuse_existing_tab, std::string& error)
 {
     draxul::TopologyClient client({
         .runtime_directory = runtime_directory,
@@ -266,6 +266,7 @@ std::optional<std::string> create_client_launch_tab(
                 ? "{}"
                 : std::string(plugin_config_json),
     };
+    command.reuse_existing_tab = reuse_existing_tab;
     draxul::TopologyCommandResult result;
     for (int attempt = 0; attempt < 2; ++attempt)
     {
@@ -844,7 +845,7 @@ static int draxul_main(std::vector<std::string> args)
                 *parsed.host_kind, parsed.plugin_id,
                 parsed.plugin_config_json,
                 parsed.host_source_path, display_name,
-                launch_error);
+                manifest && manifest->reuse_existing_tab, launch_error);
             if (!created)
             {
                 return report_server_startup_failure(

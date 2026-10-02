@@ -2120,3 +2120,31 @@ TEST_CASE("PluginHost rejects an incompatible candidate before quiescing",
     CHECK(host.status_text() == "ready");
     host.shutdown();
 }
+
+TEST_CASE("plugin discovery validates opt-in tab reuse", "[plugin][tabs]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    install_plugin(bundled, "reusable", "dev.test.reusable", {}, "fixture.dylib");
+    const auto manifest = bundled / "reusable/generations/build-1/plugin.toml";
+    std::ifstream input(manifest);
+    const std::string original{ std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>{} };
+    input.close();
+    auto manager = draxul::PluginManager::discover(bundled, temp.root / "user");
+    REQUIRE(manager->find("dev.test.reusable"));
+    CHECK_FALSE(manager->find("dev.test.reusable")->reuse_existing_tab);
+    {
+        std::ofstream output(manifest);
+        output << "reuse_existing_tab = true\n" << original;
+    }
+    manager = draxul::PluginManager::discover(bundled, temp.root / "user");
+    REQUIRE(manager->find("dev.test.reusable"));
+    CHECK(manager->find("dev.test.reusable")->reuse_existing_tab);
+    {
+        std::ofstream output(manifest);
+        output << "reuse_existing_tab = 'yes'\n" << original;
+    }
+    manager = draxul::PluginManager::discover(bundled, temp.root / "user");
+    REQUIRE(manager->find("dev.test.reusable"));
+    CHECK(manager->find("dev.test.reusable")->error.find("must be a boolean") != std::string::npos);
+}

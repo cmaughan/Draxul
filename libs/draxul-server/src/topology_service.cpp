@@ -72,6 +72,43 @@ std::string existing_kanban_tab_id(const TopologySnapshot& snapshot,
     return {};
 }
 
+std::string existing_app_tab_id(const TopologySnapshot& snapshot,
+    const TopologyCommand& command)
+{
+    if (command.pane_domain != TopologyPaneDomain::ClientLocal)
+        return {};
+    if (command.client_host_kind == "kanban")
+        return existing_kanban_tab_id(snapshot, command);
+    if (command.client_host_kind != "personal-assistant"
+        && !command.reuse_existing_tab)
+        return {};
+
+    for (const auto& space : snapshot.spaces)
+        for (const auto& tab : space.tabs)
+            for (const auto& pane : tab.panes)
+            {
+                if (pane.domain != TopologyPaneDomain::ClientLocal
+                    || pane.client_host_kind != command.client_host_kind
+                    || !pane.companion_owner_pane_id.empty())
+                    continue;
+                if (command.client_host_kind == "plugin")
+                {
+                    if (pane.client_plugin_id != command.client_plugin_id)
+                        continue;
+                    const auto requested = nlohmann::json::parse(
+                        command.client_plugin_config_json.empty() ? "{}" : command.client_plugin_config_json,
+                        nullptr, false);
+                    const auto existing = nlohmann::json::parse(
+                        pane.client_plugin_config_json.empty() ? "{}" : pane.client_plugin_config_json,
+                        nullptr, false);
+                    if (requested.is_discarded() || existing != requested)
+                        continue;
+                }
+                return tab.tab_id;
+            }
+    return {};
+}
+
 TopologyNode* find_leaf_for_pane(
     TopologyTab& tab, std::string_view pane_id)
 {
@@ -1141,9 +1178,9 @@ bool TopologyService::apply(const TopologyCommand& command,
     if (command.kind == TopologyCommandKind::CreateTab)
     {
         // The command result activates its created_id in the requesting UI.
-        // Returning an existing Kanban tab keeps repeated board requests in
+        // Returning an existing app tab keeps repeated launch requests in
         // one shared tab, even when that tab lives in another Space.
-        created_id = existing_kanban_tab_id(snapshot_, command);
+        created_id = existing_app_tab_id(snapshot_, command);
         if (!created_id.empty())
             return true;
         if (space->tabs.size() >= kTopologyMaxTabsPerSpace)

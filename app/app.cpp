@@ -1883,7 +1883,8 @@ void App::wire_window_callbacks()
             return;
         const std::string identity = static_cast<size_t>(index) <= snapshot->agents.size()
             ? snapshot->agents[index - 1].id : std::string{};
-        for (const auto& tab : active_tab_controller().tabs())
+        for (const auto& personal_space : space_controller_.spaces())
+        for (const auto& tab : personal_space->tab_controller.tabs())
         {
             LeafId selected_leaf = kInvalidLeaf;
             IHost* selected_host = nullptr;
@@ -1896,6 +1897,7 @@ void App::wire_window_callbacks()
             });
             if (selected_host)
             {
+                activate_space(personal_space->id);
                 activate_tab(tab->id);
                 tab->pane_manager.set_focused(selected_leaf);
                 input_dispatcher_.set_host(selected_host);
@@ -4177,6 +4179,13 @@ bool App::execute_remote_topology_command(
         error = "Shared topology is not connected.";
         return false;
     }
+    if (command.kind == TopologyCommandKind::CreateTab
+        && !command.client_plugin_id.empty())
+    {
+        const auto plugins = PluginManager::discover_default();
+        if (const auto* plugin = plugins->find(command.client_plugin_id))
+            command.reuse_existing_tab = plugin->reuse_existing_tab;
+    }
     return topology_projection_.enqueue_command(
         *remote_session_client_, std::move(command),
         options_.server_client_id, error);
@@ -4206,6 +4215,17 @@ void App::apply_remote_command_activation(
         {
             activate_space(mapped->first);
             activate_tab(mapped->second);
+            if (command.client_host_kind == "personal-assistant"
+                && !command.client_source_path.empty())
+            {
+                active_pane_manager().for_each_host([&](LeafId leaf, IHost& host) {
+                    if (host.dispatch_action("personal.select/" + command.client_source_path))
+                    {
+                        active_pane_manager().set_focused(leaf);
+                        input_dispatcher_.set_host(&host);
+                    }
+                });
+            }
             if (IHost* host = active_pane_manager().focused_host())
             {
                 host->set_imgui_font(text_service_.primary_font_path(),

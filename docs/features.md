@@ -31,6 +31,17 @@ plugin, and other available host tabs alongside it. A shell selected by name
 uses that shell on the server.
 Requesting a Kanban board whose resolved path is already open selects its
 existing tab, even when it is in another Space, instead of creating a duplicate.
+Personal Assistant also reuses its existing tab within the Session; selecting a
+Personal Agents rail entry searches every Space and focuses that definition.
+Plugins can opt into the same behavior with `reuse_existing_tab = true` in
+`plugin.toml` (Flashcards does). `--plugin` launches and command-palette tab launches reuse a
+matching plugin ID and JSON configuration; differing configurations and plugins
+without the opt-in still get independent tabs. Explicit splits remain separate.
+
+`--host <name>` selects a built-in provider (`kanban`, `personal-assistant`,
+`zsh`, etc.). `--plugin <id>` selects a packaged native plugin, such as
+`--plugin dev.draxul.flashcards`; the two flags are mutually exclusive.
+
 
 MegaCity stores City and BioView renderer/camera preferences in separate
 plugin-owned config files, preserving them across pane reopen and plugin reload.

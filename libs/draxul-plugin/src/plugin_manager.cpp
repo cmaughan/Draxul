@@ -122,6 +122,14 @@ PluginManifest parse_manifest(const std::filesystem::path& path, bool user_insta
             result.id = id.value_or(path.parent_path().filename().string());
             return result;
         }
+        if (document.contains("reuse_existing_tab")
+            && !document["reuse_existing_tab"].is_boolean())
+        {
+            result.id = *id;
+            result.error = "Plugin reuse_existing_tab must be a boolean";
+            return result;
+        }
+        result.reuse_existing_tab = document["reuse_existing_tab"].value_or(false);
         result.id = *id;
         result.name = *name;
         result.version = *version;
