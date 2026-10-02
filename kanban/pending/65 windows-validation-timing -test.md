@@ -37,3 +37,17 @@ checks; that concurrency is evidence to investigate, not an established cause.
 The existing user server was left running. This card continues to own host smoke
 investigation; the product's validation record is
 `plugins/flashcards/docs/validation.md`.
+
+## Upstream integration validation (2026-10-02)
+
+The published checkpoint merged upstream Personal Assistant/plugin tab reuse with
+the five critical fixes and Flashcards native cues. The existing Ninja Debug cache
+regenerated and built239 steps in165.88s (separate configure/compile times were not
+measured). `py do.py test debug --flashcards` passed56/60 CTest entries in151.42s.
+The emoji, remote initial-state and scope-selection failures remain unchanged.
+The native Flashcards cue lifecycle passed in128.77s; the ordinary Flashcards
+render failed its cached-pronunciation reveal/replay assertion in22.22s and remains
+within the product cue/audio follow-up. No source fix is inferred from this sync.
+Same-cache Debug smoke passed with a short isolated profile in8.99s including owned
+server cleanup. The user server was left running. No Release or remote-CI result
+is claimed for this Git integration turn.
