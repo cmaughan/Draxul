@@ -51,3 +51,22 @@ within the product cue/audio follow-up. No source fix is inferred from this sync
 Same-cache Debug smoke passed with a short isolated profile in 8.99s including owned
 server cleanup. The user server was left running. No Release or remote-CI result
 is claimed for this Git integration turn.
+
+## Flashcards human-audio validation, 2026-10-02
+
+`py do.py test debug --flashcards` passed 58/61 entries; all five product groups
+passed. The existing remote-terminal initial-state deadline, emoji and scope
+selection failures remained. After a final product-only adjustment, 5/5 product
+groups passed again. Standard same-cache Debug smoke timed out at 30 s (owned
+PID 53680 stopped; outer 36.84 s); isolated Flashcards startup passed in 2.89 s.
+Release built successfully; first isolated startup returned 1 without a retained
+app diagnostic, then a fresh same-executable launch with logging passed in 2.95 s.
+The cause of that first Release result is unknown. Existing user instances were
+left running; no user state was changed. Costs and logs remain in the product
+`docs/validation.md` and ignored build tree. These new audio edits are uncommitted.
+
+During the subsequent printed-word visual slice, all five product groups passed
+again (194.53 s); the standard same-cache Debug smoke passed in 27.79 s outer time.
+Final isolated Release plugin startup also passed (13.34 s build, 15.48 s outer).
+This passing run does not establish a cause or resolution for the earlier timing
+failures. No broader core repeat was needed for the product-only visual change.
