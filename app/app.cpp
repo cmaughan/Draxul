@@ -2825,12 +2825,28 @@ bool App::dispatch_to_nvim_host(std::string_view action, bool keep_focus)
         return true;
     }
 
-    // No existing NvimHost — create a vertical split with one.
+    const SpaceId space_id = space_controller_.active_space_id();
+    const int tab_id = active_tab_id();
+    for (auto& [command_id, pending] : pending_nvim_dispatches_)
+    {
+        if (pending.space_id == space_id && pending.tab_id == tab_id)
+        {
+            pending.actions.emplace_back(action);
+            pending.keep_focus = keep_focus;
+            return true;
+        }
+    }
+
+    // A shared split returns before its host exists. Correlate the action with
+    // that command and deliver it only after the resulting topology is applied.
+    const std::string command_id = options_.server_client_id + "-nvim-"
+        + std::to_string(next_nvim_dispatch_id_++);
     TopologyMutationResult split = mutate_topology({
         .kind = TopologyMutationKind::SplitPane,
-        .space_id = space_controller_.active_space_id(),
-        .tab_id = active_tab_id(),
+        .space_id = space_id,
+        .tab_id = tab_id,
         .pane_id = origin_leaf,
+        .command_id = command_id,
         .direction = TopologySplitDirection::Vertical,
         .host_kind = HostKind::Nvim,
     });
@@ -2838,6 +2854,16 @@ bool App::dispatch_to_nvim_host(std::string_view action, bool keep_focus)
     {
         push_toast(2, split.error.empty() ? "Failed to spawn nvim host." : split.error);
         return false;
+    }
+    if (!split.applied_locally())
+    {
+        pending_nvim_dispatches_.emplace(command_id, PendingNvimDispatch{
+            .space_id = space_id,
+            .tab_id = tab_id,
+            .actions = { std::string(action) },
+            .keep_focus = keep_focus,
+        });
+        return true;
     }
     const LeafId new_leaf = split.pane_id != kInvalidLeaf
         ? split.pane_id
@@ -3579,6 +3605,7 @@ void App::consume_remote_session_state()
     {
         accept_next_remote_topology_revision_ = true;
         topology_projection_.clear_command_activations();
+        pending_nvim_dispatches_.clear();
         markdown_preview_split_pending_ = false;
         markdown_preview_close_after_create_ = false;
         pending_markdown_preview_path_.clear();
@@ -3648,6 +3675,7 @@ void App::consume_remote_session_state()
     {
         if (!completion.ok || !completion.snapshot)
         {
+            pending_nvim_dispatches_.erase(completion.command.command_id);
             if (completion.command.kind
                     == TopologyCommandKind::SplitPane
                 && !completion.command
@@ -4195,6 +4223,43 @@ void App::apply_remote_command_activation(
     const TopologyCommand& command,
     std::string_view created_id)
 {
+    const auto pending_nvim = pending_nvim_dispatches_.find(command.command_id);
+    if (pending_nvim != pending_nvim_dispatches_.end())
+    {
+        PendingNvimDispatch pending = std::move(pending_nvim->second);
+        pending_nvim_dispatches_.erase(pending_nvim);
+        const auto tab = topology_projection_.local_tab(command.tab_id);
+        const auto leaf = topology_projection_.local_pane(created_id);
+        Space* space = tab ? space_controller_.find_space(tab->first) : nullptr;
+        IHost* host = nullptr;
+        if (space && leaf)
+        {
+            for (auto& candidate : space->tab_controller.tabs())
+            {
+                if (candidate->id == tab->second)
+                    host = candidate->pane_manager.host_for(*leaf);
+            }
+        }
+        if (!host || !host->is_nvim_host())
+        {
+            push_toast(2, "Could not open the requested file in the new Neovim pane.");
+            return;
+        }
+        for (const std::string& action : pending.actions)
+        {
+            if (!host->dispatch_action(action))
+                push_toast(2, "Neovim could not handle the requested action.");
+        }
+        if (!pending.keep_focus)
+        {
+            activate_space(tab->first);
+            activate_tab(tab->second);
+            active_pane_manager().set_focused(*leaf);
+            input_dispatcher_.set_host(host);
+        }
+        request_frame();
+        return;
+    }
     if (created_id.empty())
         return;
 
@@ -5980,6 +6045,7 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
 void App::shutdown()
 {
     PERF_MEASURE();
+    pending_nvim_dispatches_.clear();
     personal_agent_client_.reset();
     // The coordinator's batch worker publishes through RemoteSessionClient,
     // so quiesce it before releasing that client.

@@ -21,12 +21,17 @@
 #include "support/temp_dir.h"
 
 #include <SDL3/SDL.h>
+#include <atomic>
 #include <catch2/catch_all.hpp>
 #include <draxul/app_config.h>
+#include <draxul/control_plane.h>
 #include <draxul/host.h>
+#include <draxul/server_protocol.h>
+#include <draxul/topology_protocol.h>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "app.h"
@@ -77,6 +82,7 @@ private:
 // ---------------------------------------------------------------------------
 struct DispatchHostRegistry
 {
+    bool fail_next_nvim_initialize = false;
     std::vector<DispatchTrackingHost*> nvim_hosts;
     std::vector<DispatchTrackingHost*> markdown_hosts;
     std::vector<DispatchTrackingHost*> terminal_hosts;
@@ -87,6 +93,13 @@ struct DispatchHostRegistry
         {
             auto host = std::make_unique<DispatchTrackingHost>(
                 /*is_nvim=*/true, /*is_markdown=*/false, "nvim");
+            if (fail_next_nvim_initialize)
+            {
+                fail_next_nvim_initialize = false;
+                host->fail_initialize = true;
+                host->init_error_message = "Transient Neovim initialization failure.";
+                return host;
+            }
             nvim_hosts.push_back(host.get());
             return host;
         }
@@ -321,4 +334,172 @@ TEST_CASE("app dispatch: no-nvim tab spawns a new NvimHost on dispatch",
     REQUIRE(term->dispatched_actions().empty());
 
     app.shutdown();
+}
+
+TEST_CASE("app dispatch: shared Neovim split retains actions until its host exists",
+    "[app_dispatch][topology][regression]")
+{
+    enum class Scenario
+    {
+        FirstOpen,
+        RepeatedOpen,
+        RejectedOpen,
+        ProjectionRetry,
+        FocusNvim,
+    };
+    const Scenario scenario = GENERATE(Scenario::FirstOpen, Scenario::RepeatedOpen,
+        Scenario::RejectedOpen, Scenario::ProjectionRetry, Scenario::FocusNvim);
+    CAPTURE(scenario);
+    TempDir temp("draxul-app-dispatch-shared");
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &start_error));
+
+    TopologySnapshot topology{
+        .revision = 1,
+        .session_id = "default",
+        .spaces = { {
+            .space_id = "space-1",
+            .name = "Work",
+            .tabs = { {
+                .tab_id = "tab-1",
+                .name = "Kanban",
+                .root_node_id = "node-1",
+                .nodes = { {
+                    .node_id = "node-1",
+                    .is_leaf = true,
+                    .pane_id = "pane-1",
+                } },
+                .panes = { {
+                    .pane_id = "pane-1",
+                    .domain = TopologyPaneDomain::ClientLocal,
+                    .client_host_kind = "kanban",
+                } },
+            } },
+        } },
+    };
+    std::atomic<bool> serve_requests = true;
+    std::atomic<bool> paused = false;
+    std::atomic<bool> reject_next_split = scenario == Scenario::RejectedOpen;
+    std::atomic<int> split_commands = 0;
+    std::atomic<bool> rejected = false;
+    std::jthread server_thread([&](std::stop_token stop) {
+        const auto dispatch = [&](const ControlRequest& request) {
+            if (request.method == "topology.snapshot")
+                return ControlMethodResult::success(topology_snapshot_to_json(topology));
+            if (request.method == "topology.poll")
+                return ControlMethodResult::success({
+                    { "changed", false }, { "revision", topology.revision } });
+            if (request.method != "topology.command")
+                return ControlMethodResult::error("unknown_method", "Not used by this test.");
+            std::string error;
+            const auto command = topology_command_from_json(request.params, error);
+            if (!command || command->kind != TopologyCommandKind::SplitPane
+                || command->client_host_kind != "nvim" || command->pane_id != "pane-1")
+                return ControlMethodResult::error("invalid_command", error);
+            ++split_commands;
+            if (reject_next_split.exchange(false))
+            {
+                rejected = true;
+                return ControlMethodResult::error("split_rejected", "Synthetic split rejection.");
+            }
+            auto& tab = topology.spaces.front().tabs.front();
+            tab.root_node_id = "split-1";
+            tab.nodes.push_back({
+                .node_id = "node-2", .is_leaf = true, .pane_id = "pane-2" });
+            tab.nodes.push_back({
+                .node_id = "split-1", .is_leaf = false,
+                .direction = TopologySplitDirection::Vertical,
+                .first_node_id = "node-1", .second_node_id = "node-2",
+            });
+            tab.panes.push_back({
+                .pane_id = "pane-2", .domain = TopologyPaneDomain::ClientLocal,
+                .client_host_kind = "nvim",
+            });
+            ++topology.revision;
+            return ControlMethodResult::success(topology_command_result_to_json({
+                .applied = true, .created_id = "pane-2", .snapshot = topology }));
+        };
+        while (!stop.stop_requested())
+        {
+            paused = !serve_requests.load();
+            if (!paused)
+                server.process_pending(dispatch);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    DispatchHostRegistry registry;
+    registry.fail_next_nvim_initialize = scenario == Scenario::ProjectionRetry;
+    FakeWindow* window = nullptr;
+    AppOptions opts = make_app_options(registry, HostKind::Kanban);
+    opts.enable_control_server = false;
+    opts.enable_session_restore = false;
+    opts.enable_remote_topology = true;
+    opts.server_runtime_directory = temp.path;
+    opts.server_client_id = "dispatch-client";
+    opts.window_factory = [&] {
+        auto created = std::make_unique<FakeWindow>();
+        window = created.get();
+        return created;
+    };
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    const auto pump_until = [&](auto condition) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (!condition() && std::chrono::steady_clock::now() < deadline)
+            REQUIRE(app.run_smoke_test(std::chrono::milliseconds(20)));
+        REQUIRE(condition());
+    };
+    pump_until([&] { return registry.terminal_hosts.size() == 1; });
+    DispatchTrackingHost* board = registry.terminal_hosts.front();
+    REQUIRE(board->callbacks() != nullptr);
+    board->clear_dispatched_actions();
+    serve_requests = false;
+    pump_until([&] { return paused.load(); });
+
+    const bool keep_focus = scenario != Scenario::FocusNvim;
+    const std::string first_action = "open_file:" + (temp.path / "first card.md").string();
+    const std::string second_action = "open_file:" + (temp.path / "second card.md").string();
+    REQUIRE(board->callbacks()->dispatch_to_nvim_host(first_action, keep_focus));
+    REQUIRE(registry.nvim_hosts.empty());
+    CHECK(board->dispatched_actions().empty());
+    if (scenario == Scenario::RepeatedOpen)
+        REQUIRE(board->callbacks()->dispatch_to_nvim_host(second_action, keep_focus));
+    serve_requests = true;
+    if (scenario == Scenario::RejectedOpen)
+    {
+        pump_until([&] { return rejected.load(); });
+        // Give the UI a chance to consume the rejection before retrying.
+        REQUIRE(app.run_smoke_test(std::chrono::milliseconds(100)));
+        REQUIRE(registry.nvim_hosts.empty());
+        REQUIRE(board->callbacks()->dispatch_to_nvim_host(second_action, keep_focus));
+    }
+    pump_until([&] {
+        return !registry.nvim_hosts.empty()
+            && !registry.nvim_hosts.front()->dispatched_actions().empty();
+    });
+    REQUIRE(registry.nvim_hosts.size() == 1);
+    auto* nvim = registry.nvim_hosts.front();
+    const std::vector<std::string> expected = scenario == Scenario::RepeatedOpen
+        ? std::vector<std::string>{ first_action, second_action }
+        : std::vector<std::string>{ scenario == Scenario::RejectedOpen ? second_action : first_action };
+    CHECK(nvim->dispatched_actions() == expected);
+    CHECK(board->dispatched_actions().empty());
+    CHECK(split_commands == (scenario == Scenario::RejectedOpen ? 2 : 1));
+    REQUIRE(window->on_key != nullptr);
+    window->on_key({ .scancode = 4, .keycode = 'a', .mod = kModNone, .pressed = true });
+    CHECK(board->key_events.size() == (keep_focus ? 1 : 0));
+    CHECK(nvim->key_events.size() == (keep_focus ? 0 : 1));
+
+    // Subsequent opens reuse the projected host without another split.
+    REQUIRE(board->callbacks()->dispatch_to_nvim_host(second_action, keep_focus));
+    CHECK(nvim->dispatched_actions().back() == second_action);
+    CHECK(registry.nvim_hosts.size() == 1);
+    CHECK(split_commands == (scenario == Scenario::RejectedOpen ? 2 : 1));
+    app.shutdown();
+    server_thread.request_stop();
+    server_thread.join();
+    server.stop();
 }

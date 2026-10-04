@@ -399,6 +399,7 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
         break;
     }
     }
+    command.command_id = mutation.command_id;
     return enqueue(std::move(command));
 }
 

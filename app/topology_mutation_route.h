@@ -45,6 +45,8 @@ struct TopologyMutation
     LeafId pane_id = kInvalidLeaf;
     LeafId target_pane_id = kInvalidLeaf;
     DividerId divider_id = kInvalidDivider;
+    // Optional caller correlation for actions waiting on asynchronous creation.
+    std::string command_id;
     std::string name;
     std::filesystem::path root_directory;
     std::filesystem::path working_directory;

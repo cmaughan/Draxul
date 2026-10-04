@@ -371,6 +371,15 @@ private:
         std::chrono::steady_clock::time_point commit_after;
     };
     std::optional<PendingTopologyRatio> pending_topology_ratio_;
+    struct PendingNvimDispatch
+    {
+        SpaceId space_id = kInvalidSpaceId;
+        int tab_id = -1;
+        std::vector<std::string> actions;
+        bool keep_focus = false;
+    };
+    std::unordered_map<std::string, PendingNvimDispatch> pending_nvim_dispatches_;
+    uint64_t next_nvim_dispatch_id_ = 1;
     bool markdown_preview_split_pending_ = false;
     bool markdown_preview_close_after_create_ = false;
     std::string pending_markdown_preview_path_;
