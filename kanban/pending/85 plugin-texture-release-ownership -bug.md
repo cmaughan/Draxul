@@ -91,3 +91,16 @@
   built 10 incremental steps in 22.75s; native checks reused that executable without
   another build. No remote CI was run. Keep this card pending for live GPU resize
   and individual-pane closure.
+
+## macOS re-check (2026-10-05)
+
+- The core-side fix is present in the current tree: `ScopedImGuiContext` and
+  `PluginImGuiContext::destroy()` select the owner context, shut the backend down, and
+  never restore a destroyed context (`plugins/support/imgui/src/plugin_imgui_context.cpp`).
+- Metal teardown re-inspected: `MetalGpuImGuiHost` has no descriptor pool; texture IDs
+  are retained `MTLTexture` objects, and backend shutdown only runs while
+  `initialized_`, after which the host destructor's repeat call is a no-op. No Metal gap.
+- The remaining acceptance (two rendered MegaCity/SatView panes, live resize and
+  individual pane close through the correct Vulkan descriptor pool) needs Windows/Vulkan
+  plus the product submodules, which are not initialized in this macOS worktree. Card
+  stays pending for that Windows gate; no code change was made.
