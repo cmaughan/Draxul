@@ -521,7 +521,15 @@ void TerminalCore::clear_cell(int col, int row)
 void TerminalCore::scroll_rows(
     int top, int bottom, int rows)
 {
-    if (!alt_screen_.in_alt_screen() && rows != 0)
+    // Clamp once to the region so marks and cells move by the same amount and
+    // an extreme CSI count (parsed up to INT_MAX) cannot overflow mark.row.
+    const bool valid_region = top >= 0 && top < bottom && bottom <= grid_rows();
+    if (valid_region)
+    {
+        const int region_rows = bottom - top;
+        rows = std::clamp(rows, -region_rows, region_rows);
+    }
+    if (valid_region && !alt_screen_.in_alt_screen() && rows != 0)
     {
         std::erase_if(shell_marks_,
             [top, bottom, rows](ShellMark& mark) {

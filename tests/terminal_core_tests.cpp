@@ -304,6 +304,45 @@ TEST_CASE("terminal core shifts and prunes shell marks with live rows",
     CHECK(marks[0].row == 2);
 }
 
+TEST_CASE("terminal core clamps extreme scroll counts before moving shell marks",
+    "[terminal-core][metadata][scroll]")
+{
+    // CSI parameters saturate at INT_MAX; a row-one mark moved down by that
+    // count used to overflow before the region clamp was applied.
+    const std::string max_count = "2147483647";
+    for (const char* final_char : { "T", "L" })
+    {
+        INFO("final=" << final_char);
+        CoreHarness harness(8, 4);
+        harness.core.feed("\x1B[1;1H\x1B]133;A\x07X");
+        harness.core.feed("\x1B[1;1H\x1B[" + max_count + final_char);
+        CHECK(harness.core.semantic_snapshot()
+                  .metadata.shell_marks.empty());
+        CHECK(harness.grid.get_cell(0, 0).text == std::string(" "));
+    }
+
+    CoreHarness up(8, 4);
+    up.core.feed("\x1B[4;1H\x1B]133;A\x07\x1B[99999999999999S");
+    CHECK(up.core.semantic_snapshot().metadata.shell_marks.empty());
+
+    // Marks outside a restricted region keep their rows under extreme counts.
+    CoreHarness region(8, 4);
+    region.core.feed(
+        "\x1B[1;1H\x1B]133;A\x07"
+        "\x1B[3;1H\x1B]133;C\x07"
+        "\x1B[4;1H\x1B]133;B\x07"
+        "\x1B[2;3r");
+    region.core.feed("\x1B[" + max_count + "T");
+    region.core.feed("\x1B[" + max_count + "S");
+    const auto marks = region.core.semantic_snapshot()
+                           .metadata.shell_marks;
+    REQUIRE(marks.size() == 2);
+    CHECK(marks[0].kind == TerminalShellMarkKind::PromptStart);
+    CHECK(marks[0].row == 0);
+    CHECK(marks[1].kind == TerminalShellMarkKind::CommandStart);
+    CHECK(marks[1].row == 3);
+}
+
 TEST_CASE("terminal core prunes shell marks erased from the display",
     "[terminal-core][metadata][erase]")
 {
