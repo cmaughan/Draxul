@@ -34,13 +34,13 @@ namespace draxul
 namespace
 {
 
-constexpr uint32_t kCodexIntegrationVersion = 2;
-constexpr uint32_t kClaudeIntegrationVersion = 2;
+constexpr uint32_t kCodexIntegrationVersion = 3;
+constexpr uint32_t kClaudeIntegrationVersion = 3;
 #ifdef _WIN32
 constexpr std::string_view kHookFileName = "draxul-agent-session.ps1";
 constexpr std::string_view kCodexHook = R"HOOK(# managed by Draxul; reinstalling updates this file.
 # DRAXUL_INTEGRATION_ID=codex
-# DRAXUL_INTEGRATION_VERSION=2
+# DRAXUL_INTEGRATION_VERSION=3
 param([string]$Action = "")
 if ($Action -ne "session" -or $env:DRAXUL_ENV -ne "1") { exit 0 }
 if ([string]::IsNullOrWhiteSpace($env:DRAXUL_PANE_ID) -or
@@ -54,7 +54,7 @@ $sequence = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 try {
   $reportArgs = @("pane", "report-agent-session", $env:DRAXUL_PANE_ID,
     "--agent-instance", $env:DRAXUL_AGENT_INSTANCE_ID, "--source", "draxul:codex",
-    "--agent", "codex", "--integration-version", "2", "--sequence", "$sequence",
+    "--agent", "codex", "--integration-version", "3", "--sequence", "$sequence",
     "--session-ref", $sessionRef, "--session", $env:DRAXUL_SESSION_ID)
   if (-not [string]::IsNullOrWhiteSpace($env:DRAXUL_SERVER_EPOCH) -and
       -not [string]::IsNullOrWhiteSpace($env:DRAXUL_RUNTIME_GENERATION) -and
@@ -63,12 +63,14 @@ try {
       "--runtime-generation", $env:DRAXUL_RUNTIME_GENERATION,
       "--server-runtime-dir", $env:DRAXUL_SERVER_RUNTIME_DIR)
   }
-  & draxul @reportArgs 2>$null | Out-Null
+  # Panes carry the exact executable; bare draxul needs it on PATH.
+  $draxul = if ([string]::IsNullOrWhiteSpace($env:DRAXUL_EXECUTABLE)) { "draxul" } else { $env:DRAXUL_EXECUTABLE }
+  & $draxul @reportArgs 2>$null | Out-Null
 } catch {}
 )HOOK";
 constexpr std::string_view kClaudeHook = R"HOOK(# managed by Draxul; reinstalling updates this file.
 # DRAXUL_INTEGRATION_ID=claude
-# DRAXUL_INTEGRATION_VERSION=2
+# DRAXUL_INTEGRATION_VERSION=3
 param([string]$Action = "")
 if ($Action -ne "session" -or $env:DRAXUL_ENV -ne "1") { exit 0 }
 if ([string]::IsNullOrWhiteSpace($env:DRAXUL_PANE_ID) -or
@@ -85,7 +87,7 @@ $sequence = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 try {
   $reportArgs = @("pane", "report-agent-session", $env:DRAXUL_PANE_ID,
     "--agent-instance", $env:DRAXUL_AGENT_INSTANCE_ID, "--source", "draxul:claude",
-    "--agent", "claude", "--integration-version", "2", "--sequence", "$sequence",
+    "--agent", "claude", "--integration-version", "3", "--sequence", "$sequence",
     "--session-ref", $sessionRef, "--ref-kind", "id",
     "--session", $env:DRAXUL_SESSION_ID)
   if (-not [string]::IsNullOrWhiteSpace($env:DRAXUL_SERVER_EPOCH) -and
@@ -95,7 +97,9 @@ try {
       "--runtime-generation", $env:DRAXUL_RUNTIME_GENERATION,
       "--server-runtime-dir", $env:DRAXUL_SERVER_RUNTIME_DIR)
   }
-  & draxul @reportArgs 2>$null | Out-Null
+  # Panes carry the exact executable; bare draxul needs it on PATH.
+  $draxul = if ([string]::IsNullOrWhiteSpace($env:DRAXUL_EXECUTABLE)) { "draxul" } else { $env:DRAXUL_EXECUTABLE }
+  & $draxul @reportArgs 2>$null | Out-Null
 } catch {}
 )HOOK";
 #else
@@ -103,7 +107,7 @@ constexpr std::string_view kHookFileName = "draxul-agent-session.sh";
 constexpr std::string_view kCodexHook = R"HOOK(#!/bin/sh
 # managed by Draxul; reinstalling updates this file.
 # DRAXUL_INTEGRATION_ID=codex
-# DRAXUL_INTEGRATION_VERSION=2
+# DRAXUL_INTEGRATION_VERSION=3
 [ "${1:-}" = "session" ] || exit 0
 [ "${DRAXUL_ENV:-}" = "1" ] || exit 0
 [ -n "${DRAXUL_PANE_ID:-}" ] || exit 0
@@ -125,9 +129,11 @@ if payload.get("hook_event_name") not in (None, "SessionStart"):
 session_ref = payload.get("session_id")
 if not isinstance(session_ref, str) or not session_ref:
     raise SystemExit(0)
-command = ["draxul", "pane", "report-agent-session", sys.argv[1],
+# Panes carry the exact executable; bare draxul needs it on PATH.
+command = [os.environ.get("DRAXUL_EXECUTABLE") or "draxul",
+    "pane", "report-agent-session", sys.argv[1],
     "--agent-instance", sys.argv[2], "--source", "draxul:codex",
-    "--agent", "codex", "--integration-version", "2",
+    "--agent", "codex", "--integration-version", "3",
     "--sequence", str(time.time_ns()), "--session-ref", session_ref,
     "--session", sys.argv[3]]
 if all(os.environ.get(name) for name in (
@@ -143,7 +149,7 @@ PY
 constexpr std::string_view kClaudeHook = R"HOOK(#!/bin/sh
 # managed by Draxul; reinstalling updates this file.
 # DRAXUL_INTEGRATION_ID=claude
-# DRAXUL_INTEGRATION_VERSION=2
+# DRAXUL_INTEGRATION_VERSION=3
 [ "${1:-}" = "session" ] || exit 0
 [ "${DRAXUL_ENV:-}" = "1" ] || exit 0
 [ -n "${DRAXUL_PANE_ID:-}" ] || exit 0
@@ -165,9 +171,11 @@ if payload.get("agent_id") or payload.get("hook_event_name") not in (None, "Sess
 session_ref = payload.get("session_id")
 if not isinstance(session_ref, str) or not session_ref:
     raise SystemExit(0)
-command = ["draxul", "pane", "report-agent-session", sys.argv[1],
+# Panes carry the exact executable; bare draxul needs it on PATH.
+command = [os.environ.get("DRAXUL_EXECUTABLE") or "draxul",
+    "pane", "report-agent-session", sys.argv[1],
     "--agent-instance", sys.argv[2], "--source", "draxul:claude",
-    "--agent", "claude", "--integration-version", "2",
+    "--agent", "claude", "--integration-version", "3",
     "--sequence", str(time.time_ns()), "--session-ref", session_ref,
     "--ref-kind", "id", "--session", sys.argv[3]]
 if all(os.environ.get(name) for name in (

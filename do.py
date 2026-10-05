@@ -1866,6 +1866,50 @@ def render_shortcut_exe(
     )
 
 
+_INTEGRATION_PROVIDERS = ("codex", "claude")
+
+
+def cmd_integrate(root: pathlib.Path, args: list[str]) -> int:
+    """Install (or inspect/remove) every Draxul agent integration.
+
+    The selected build's own CLI performs the change, so installed hooks match
+    the templates that build ships. Status is printed afterwards either way.
+    """
+    action = "install"
+    skip_build = False
+    build_args: list[str] = []
+    for arg in args:
+        if arg in ("--status", "--remove"):
+            if action != "install":
+                print("ERROR: choose only one of --status and --remove", file=sys.stderr)
+                return 2
+            action = "status" if arg == "--status" else "uninstall"
+        elif arg == "--skip-build":
+            skip_build = True
+        else:
+            build_args.append(arg)
+    mode, force_reconfigure, build_system, use_console, extra = _parse_build_args(build_args)
+    if extra or use_console:
+        print(f"ERROR: invalid integrate arguments: {shlex.join(args)}", file=sys.stderr)
+        return 2
+    # Inspecting needs no fresh build; use whatever the selected tree has.
+    rc, exe, _ = build_shortcut_exe(
+        root, mode, force_reconfigure, build_system, skip_build or action == "status"
+    )
+    if rc != 0 or exe is None:
+        return rc or 1
+
+    overall = 0
+    if action != "status":
+        for provider in _INTEGRATION_PROVIDERS:
+            print(f"> draxul integration {action} {provider}", flush=True)
+            result = subprocess.run([str(exe), "integration", action, provider], check=False)
+            overall = overall or result.returncode
+    print("> draxul integration status", flush=True)
+    status = subprocess.run([str(exe), "integration", "status"], check=False)
+    return overall or status.returncode
+
+
 def cmd_smoke(root: pathlib.Path, args: list[str]) -> int:
     skip_build = False
     build_args: list[str] = []
@@ -2434,6 +2478,9 @@ Single-word shortcuts:
   deploy [release] [--reconfigure] [--vs|--ninja]
                Build Release and package deploy/YYYY_MM_DD/mac|win plus a zip archive
   clean        Remove repository build directories
+  integrate [debug|release] [--status|--remove] [--skip-build] [--vs|--ninja]
+               Install every agent integration (Codex and Claude session hooks)
+               with the selected build, then print their status
   smoke [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--skip-build]
                Run the app smoke test (default: debug, ninja on Windows)
   validate [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja]
@@ -2567,6 +2614,9 @@ def main() -> int:
 
     if command == "smoke":
         return cmd_smoke(root, args[1:])
+
+    if command == "integrate":
+        return cmd_integrate(root, args[1:])
 
     if command == "validate":
         return cmd_validate(root, args[1:])

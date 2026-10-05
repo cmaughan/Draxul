@@ -49,6 +49,12 @@ pill and spin it according to that agent's activity.
 
 ## Follow-ups
 
+- [x] `do integrate` installs every agent integration (see
+      kanban/pending/69 agent-hook-executable-path -bug.md for the hook fix).
+- [ ] Session hooks report only for managed launches; agents started by typing
+      `claude`/`codex` in a shell pane get no native session id and rely on
+      working-directory attribution.
+
 - [ ] Claude sub-agent transcripts (`<session>/subagents/*.jsonl`) are not yet
       counted toward the owning agent.
 - [ ] Machine-wide discovery can reuse `AgentUsageMonitor` with the same requests.

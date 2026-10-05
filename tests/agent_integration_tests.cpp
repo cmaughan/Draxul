@@ -77,12 +77,14 @@ TEST_CASE("Codex explicit-path installation is idempotent and preserves configur
         AgentIntegrationAction::Install, paths);
     REQUIRE(second.success);
     CHECK(second.status.state == AgentIntegrationState::Current);
-    CHECK(second.status.expected_version == 2);
+    CHECK(second.status.expected_version == 3);
     CHECK(second.status.path == paths.hook);
 
     const auto hook = read_text(paths.hook);
     CHECK(hook.find("DRAXUL_INTEGRATION_ID=codex") != std::string::npos);
-    CHECK(hook.find("DRAXUL_INTEGRATION_VERSION=2") != std::string::npos);
+    CHECK(hook.find("DRAXUL_INTEGRATION_VERSION=3") != std::string::npos);
+    // The hook must not depend on draxul being on PATH.
+    CHECK(hook.find("DRAXUL_EXECUTABLE") != std::string::npos);
     CHECK(hook.find("draxul:codex") != std::string::npos);
     CHECK(hook.find("DRAXUL_SERVER_EPOCH") != std::string::npos);
     CHECK(hook.find("runtime-generation") != std::string::npos);
@@ -294,7 +296,7 @@ TEST_CASE("integration reports malformed documents and hook versions through typ
         == AgentIntegrationState::Outdated);
     CHECK(inspect_agent_integration(AgentIntegrationProvider::Claude, claude)
               .expected_version
-        == 2);
+        == 3);
 }
 
 TEST_CASE("uninstall removes only owned hooks and filesystem failures are typed results",

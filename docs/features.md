@@ -639,8 +639,14 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
   the initial controller lease; another client may explicitly take control.
   Codex and Claude can install opt-in, versioned `SessionStart` hooks with
   `draxul integration install codex|claude`; each hook reports the official
-  native conversation ID to the owning server pane. Bare
+  native conversation ID to the owning server pane. Hooks invoke the pane's
+  `DRAXUL_EXECUTABLE` (falling back to `draxul` on PATH), so they work without
+  Draxul on the command search path; integration version 3 reports older hooks as
+  outdated. Hooks report only for managed launches (`draxul agent start`), which
+  carry `DRAXUL_AGENT_INSTANCE_ID`. Bare
   `draxul integration status` inspects both integrations without modifying configuration.
+  `do integrate [debug|release] [--status|--remove] [--skip-build]` installs (or
+  removes) every integration with the selected build's CLI and prints status.
   The installer library operates on explicit paths and preserves unrelated provider
   configuration. Failed replacement preserves the original and retains a staged
   replacement with its recovery path in the error; the CLI alone resolves
