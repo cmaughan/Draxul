@@ -2917,7 +2917,7 @@ bool App::show_markdown_preview(std::string_view path)
                 .space_id = space_controller_.active_space_id(),
                 .tab_id = active_tab_id(),
                 .pane_id = hm.markdown_preview_leaf(),
-                .source_path = std::filesystem::path(path),
+                .source_path = path_from_utf8(path),
                 .host_kind = HostKind::Markdown,
             });
         }
@@ -2928,7 +2928,7 @@ bool App::show_markdown_preview(std::string_view path)
                 .space_id = space_controller_.active_space_id(),
                 .tab_id = active_tab_id(),
                 .pane_id = owner,
-                .source_path = std::filesystem::path(path),
+                .source_path = path_from_utf8(path),
                 .direction = TopologySplitDirection::Horizontal,
                 .host_kind = HostKind::Markdown,
                 .companion_pane = true,

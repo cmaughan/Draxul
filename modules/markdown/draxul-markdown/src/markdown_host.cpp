@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <draxul/app_config_types.h>
 #include <draxul/base_renderer.h>
+#include <draxul/filesystem_path_text.h>
 #include <draxul/host_registry.h>
 #include <draxul/markdown/markdown_parser.h>
 #include <SDL3/SDL.h>
@@ -61,11 +62,11 @@ float markdown_margin_columns_from_context(const HostContext& context)
 
 std::filesystem::path resolve_source_path(const HostLaunchOptions& launch_options)
 {
-    std::filesystem::path path = launch_options.source_path;
+    std::filesystem::path path = path_from_utf8(launch_options.source_path);
     if (path.empty())
         return {};
     if (path.is_relative() && !launch_options.working_dir.empty())
-        path = std::filesystem::path(launch_options.working_dir) / path;
+        path = path_from_utf8(launch_options.working_dir) / path;
     std::error_code ec;
     auto canonical = std::filesystem::weakly_canonical(path, ec);
     return ec ? path : canonical;
@@ -77,7 +78,7 @@ std::string read_file_to_string(const std::filesystem::path& path, std::string* 
     if (!file)
     {
         if (error != nullptr)
-            *error = "Failed to open markdown file: " + path.string();
+            *error = "Failed to open markdown file: " + path_to_utf8(path);
         return {};
     }
 
@@ -132,7 +133,7 @@ bool MarkdownHost::initialize(const HostContext& context, IHostCallbacks& callba
 
     if (callbacks_)
     {
-        callbacks_->set_window_title(source_path_.filename().string());
+        callbacks_->set_window_title(path_to_utf8(source_path_.filename()));
         callbacks_->request_frame();
     }
     return true;
@@ -282,7 +283,7 @@ bool MarkdownHost::dispatch_action(std::string_view action)
         return load_source(launch);
     }
     if (action == "reload")
-        return load_source(HostLaunchOptions{ .kind = HostKind::Markdown, .source_path = source_path_.string() });
+        return load_source(HostLaunchOptions{ .kind = HostKind::Markdown, .source_path = path_to_utf8(source_path_) });
     if (action == "font_increase")
         return change_font_size(base_point_size_ + 0.5f);
     if (action == "font_decrease")
@@ -364,12 +365,12 @@ bool MarkdownHost::load_source(const HostLaunchOptions& launch_options)
     source_path_ = path;
     document_ = std::move(parsed.document);
     init_error_.clear();
-    status_ = "markdown | " + source_path_.filename().string();
+    status_ = "markdown | " + path_to_utf8(source_path_.filename());
     scroll_.home();
     navigation_.reset();
     scrollbar_dragging_ = false;
     if (callbacks_)
-        callbacks_->set_window_title(source_path_.filename().string());
+        callbacks_->set_window_title(path_to_utf8(source_path_.filename()));
     mark_layout_dirty();
     return true;
 }

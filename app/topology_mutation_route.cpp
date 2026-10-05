@@ -1,5 +1,6 @@
 #include "topology_mutation_route.h"
 
+#include <draxul/filesystem_path_text.h>
 #include <draxul/host_kind.h>
 
 #include <algorithm>
@@ -136,7 +137,7 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
             .kind = TopologyCommandKind::CreateSpace,
             .name = mutation.name,
             .root_directory
-            = mutation.root_directory.string(),
+            = path_to_utf8(mutation.root_directory),
             .pane_domain
             = TopologyPaneDomain::ServerTerminal,
         };
@@ -183,10 +184,10 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
             .client_working_directory
             = server_terminal
                 ? std::string{}
-                : mutation.working_directory.string(),
+                : path_to_utf8(mutation.working_directory),
             .client_source_path = server_terminal
                 ? std::string{}
-                : mutation.source_path.string(),
+                : path_to_utf8(mutation.source_path),
             .client_plugin_id = mutation.plugin_id,
             .client_plugin_config_json
             = mutation.plugin_config_json,
@@ -261,10 +262,10 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
             .client_working_directory
             = server_terminal
                 ? std::string{}
-                : mutation.working_directory.string(),
+                : path_to_utf8(mutation.working_directory),
             .client_source_path = server_terminal
                 ? std::string{}
-                : mutation.source_path.string(),
+                : path_to_utf8(mutation.source_path),
             .client_plugin_id = mutation.plugin_id,
             .client_plugin_config_json
             = mutation.plugin_config_json,
@@ -300,9 +301,9 @@ TopologyMutationResult ServerTopologyMutationRoute::mutate(
                 ? std::string(to_string(*mutation.host_kind))
                 : std::string{},
             .client_working_directory
-            = mutation.working_directory.string(),
+            = path_to_utf8(mutation.working_directory),
             .client_source_path
-            = mutation.source_path.string(),
+            = path_to_utf8(mutation.source_path),
             .client_plugin_id = mutation.plugin_id,
             .client_plugin_config_json
             = mutation.plugin_config_json,

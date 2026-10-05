@@ -1,5 +1,7 @@
 #include <draxul/cli_args.h>
 
+#include <draxul/filesystem_path_text.h>
+
 #include <draxul/host_registry.h>
 #include <exception>
 #include <string>
@@ -65,7 +67,7 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         else if (args[i] == "--server-runtime-dir" && i + 1 < args.size())
         {
             ++i;
-            parsed.server_runtime_dir = args[i];
+            parsed.server_runtime_dir = path_from_utf8(args[i]);
             if (parsed.server_runtime_dir.empty())
             {
                 result.error = "error: --server-runtime-dir requires a non-empty path";
@@ -113,7 +115,7 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         }
         else if (args[i] == "--server-working-dir" && i + 1 < args.size())
         {
-            parsed.server_working_dir = args[++i];
+            parsed.server_working_dir = path_from_utf8(args[++i]);
             if (parsed.server_working_dir.empty())
             {
                 result.error
@@ -161,12 +163,12 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         else if (args[i] == "--render-test" && i + 1 < args.size())
         {
             ++i;
-            parsed.render_test_path = args[i];
+            parsed.render_test_path = path_from_utf8(args[i]);
         }
         else if (args[i] == "--export-render-test" && i + 1 < args.size())
         {
             ++i;
-            parsed.export_render_test_path = args[i];
+            parsed.export_render_test_path = path_from_utf8(args[i]);
         }
 #endif
         else if (args[i] == "--host" && i + 1 < args.size())
@@ -217,7 +219,7 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         else if (args[i] == "--source" && i + 1 < args.size())
         {
             ++i;
-            parsed.host_source_path = args[i];
+            parsed.host_source_path = path_from_utf8(args[i]);
         }
         else if (args[i] == "--session" && i + 1 < args.size())
         {
@@ -263,7 +265,7 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         else if (args[i] == "--screenshot" && i + 1 < args.size())
         {
             ++i;
-            parsed.screenshot_path = args[i];
+            parsed.screenshot_path = path_from_utf8(args[i]);
         }
         else if (args[i] == "--gui-action" && i + 1 < args.size())
         {

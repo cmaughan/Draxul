@@ -8,7 +8,7 @@
 
 **Evidence and trigger:** Lines 578, 616, and 658 use throwing narrow filename conversions. On Windows, scanning an emoji or Asian card name outside the active code page can escape board loading.
 
-**Related:** `kanban/pending/75 windows-markdown-source-paths -bug.md` owns the related Markdown path boundary.
+**Related:** `kanban/done/75 windows-markdown-source-paths -bug.md` owns the related Markdown path boundary.
 
 - [x] **Investigate:** Trace repository, lane, card, title, preview, and error-text conversions while preserving native paths.
   Narrow `path::string()` was used for source (repository/submodule) names, lane names, card
@@ -37,4 +37,4 @@
   Markdown preview and the app topology route still decode/encode those UTF-8 paths with
   narrow conversions (`markdown_host.cpp` `open_file:`, `App::show_markdown_preview`,
   `topology_mutation_route.cpp` `working_directory.string()`), tracked by
-  `kanban/pending/75 windows-markdown-source-paths -bug.md`.
+  `kanban/done/75 windows-markdown-source-paths -bug.md`.

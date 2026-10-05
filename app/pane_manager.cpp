@@ -3,6 +3,7 @@
 #include <draxul/app_config.h>
 #include <draxul/app_options.h>
 #include <draxul/base_renderer.h>
+#include <draxul/filesystem_path_text.h>
 #include <draxul/grid_host_base.h>
 #include <draxul/host_kind.h>
 #include <draxul/host_registry.h>
@@ -1336,9 +1337,9 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
                 ? deps_.options->session_id
                 : deps_.options->control_id);
         upsert_environment("DRAXUL_SERVER_RUNTIME_DIR",
-            deps_.options->server_runtime_directory.string());
+            path_to_utf8(deps_.options->server_runtime_directory));
         upsert_environment("DRAXUL_EXECUTABLE",
-            deps_.options->executable_path.string());
+            path_to_utf8(deps_.options->executable_path));
     }
 
     std::unique_ptr<IHost> new_host;

@@ -6,6 +6,7 @@
 
 #include <draxul/cli_args.h>
 #include <draxul/cli_help.h>
+#include <draxul/filesystem_path_text.h>
 
 #include <string>
 #include <vector>
@@ -464,4 +465,34 @@ TEST_CASE("cli: --plugin rejects missing ids and conflicting flags",
             .error.has_value());
     REQUIRE(parse({ "--server", "--plugin", "dev.draxul.scoreview" })
             .error.has_value());
+}
+
+TEST_CASE("cli: path arguments preserve non-English UTF-8 names", "[cli][unicode]")
+{
+    // Windows receives argv as UTF-8 (CommandLineToArgvW + WideCharToMultiByte),
+    // so every path option must decode it as UTF-8 rather than the active code
+    // page, and re-encode it the same way for launch options.
+    const std::string relative = "notes/\xC3\x9C" "bersicht \xE6\x97\xA5\xE6\x9C\xAC \xF0\x9F\x93\x9D.md";
+#ifdef _WIN32
+    const std::string absolute = "C:/Users/\xD0\x90\xD0\xBD\xD1\x8F/\xE6\x96\x87\xE6\xA1\xA3.md";
+#else
+    const std::string absolute = "/tmp/\xD0\x90\xD0\xBD\xD1\x8F/\xE6\x96\x87\xE6\xA1\xA3.md";
+#endif
+    const std::string directory = "/srv/\xC3\xA9t\xC3\xA9";
+
+    for (const std::string& source : { relative, absolute })
+    {
+        auto r = parse({ "--source", source.c_str(), "--screenshot", source.c_str() });
+        REQUIRE_FALSE(r.error.has_value());
+        CHECK(r.args.host_source_path == path_from_utf8(source));
+        CHECK(path_to_utf8(r.args.host_source_path) == source);
+        CHECK(path_to_utf8(r.args.screenshot_path) == source);
+        CHECK(r.args.host_source_path.is_absolute() == (source == absolute));
+    }
+
+    auto server = parse({ "--server-working-dir", directory.c_str(),
+        "--server-runtime-dir", directory.c_str() });
+    REQUIRE_FALSE(server.error.has_value());
+    CHECK(path_to_utf8(server.args.server_working_dir) == directory);
+    CHECK(path_to_utf8(server.args.server_runtime_dir) == directory);
 }

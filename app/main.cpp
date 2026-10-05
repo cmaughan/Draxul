@@ -3,6 +3,7 @@
 #include <draxul/cli_dispatch.h>
 #include <draxul/launch_policy.h>
 #include <draxul/executable_layout.h>
+#include <draxul/filesystem_path_text.h>
 #include <draxul/cli_help.h>
 #include <draxul/control_cli.h>
 #include "server_status_surface.h"
@@ -257,8 +258,8 @@ std::optional<std::string> create_client_launch_tab(
         .pane_domain = draxul::TopologyPaneDomain::ClientLocal,
         .client_host_kind = std::string(draxul::to_string(host_kind)),
         .client_working_directory
-        = std::filesystem::current_path().string(),
-        .client_source_path = source_path.string(),
+        = draxul::path_to_utf8(std::filesystem::current_path()),
+        .client_source_path = draxul::path_to_utf8(source_path),
         .client_plugin_id = std::string(plugin_id),
         .client_plugin_config_json = plugin_id.empty()
             ? std::string{}
@@ -348,7 +349,7 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
             .terminal_shell_kind = parsed.server_shell_kind,
             .terminal_command = parsed.server_command,
             .terminal_working_directory
-            = parsed.server_working_dir.string(),
+            = draxul::path_to_utf8(parsed.server_working_dir),
             .terminal_scrollback_lines
             = parsed.server_scrollback_lines,
             .agent_definitions
@@ -909,7 +910,7 @@ static int draxul_main(std::vector<std::string> args)
     if (!parsed.host_command.empty())
         options.host_command = parsed.host_command;
     if (!parsed.host_source_path.empty())
-        options.host_source_path = parsed.host_source_path.string();
+        options.host_source_path = draxul::path_to_utf8(parsed.host_source_path);
     if (!parsed.pty_capture_file.empty())
         options.pty_capture_file = parsed.pty_capture_file;
     if (parsed.continuous_refresh)
@@ -1070,7 +1071,7 @@ static int draxul_main(std::vector<std::string> args)
             if (!draxul::write_bmp_rgba(parsed.screenshot_path, *frame))
             {
                 DRAXUL_LOG_ERROR(draxul::LogCategory::App, "Failed to write screenshot to %s",
-                    parsed.screenshot_path.string().c_str());
+                    draxul::path_to_utf8(parsed.screenshot_path).c_str());
                 status = 1;
             }
         }

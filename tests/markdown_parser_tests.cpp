@@ -4,6 +4,7 @@
 #include "support/test_host_callbacks.h"
 
 #include <draxul/app_config.h>
+#include <draxul/filesystem_path_text.h>
 #include <draxul/host_kind.h>
 #include <draxul/markdown/markdown_host.h>
 #include <draxul/markdown/markdown_parser.h>
@@ -11,8 +12,10 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <ranges>
 #include <string>
+#include <tuple>
 
 using namespace draxul;
 using namespace draxul::tests;
@@ -259,6 +262,73 @@ TEST_CASE("markdown host opens another source from dispatch action", "[markdown]
     REQUIRE(host.dispatch_action("open_file:" + second.string()));
     CHECK(host.status_text() == "markdown | second.md");
     CHECK(callbacks.last_window_title == "second.md");
+}
+
+TEST_CASE("markdown host opens non-English source paths from UTF-8 launch text",
+    "[markdown][host][unicode]")
+{
+    const std::string font = draxul::tests::bundled_font_path().string();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    // Launch options, topology, and open_file: actions carry UTF-8 text. The
+    // directory and files are created through native paths, so on Windows the
+    // names on disk are real Unicode names outside the active code page.
+    TempDir temp("draxul-markdown-unicode-source");
+    const std::string folder_name = "\xC3\xA9t\xC3\xA9 \xE6\x97\xA5\xE6\x9C\xAC";
+    const std::string first_name = "\xC3\x9C" "bersicht \xF0\x9F\x93\x9D.md";
+    const std::string second_name = "\xD0\xB7\xD0\xB0\xD0\xBC\xD0\xB5\xD1\x82\xD0\xBA\xD0\xB8.md";
+    const auto folder = temp.path / path_from_utf8(folder_name);
+    std::filesystem::create_directories(folder);
+    {
+        std::ofstream out(folder / path_from_utf8(first_name), std::ios::trunc);
+        out << "# First\n";
+    }
+    {
+        std::ofstream out(folder / path_from_utf8(second_name), std::ios::trunc);
+        out << "# Second\n";
+    }
+
+    AppConfig config;
+    config.font_path = font;
+
+    const auto open_with = [&](std::string source_path, std::string working_dir) {
+        auto host = std::make_unique<MarkdownHost>();
+        HostContext ctx;
+        ctx.config = &config;
+        ctx.launch_options.kind = HostKind::Markdown;
+        ctx.launch_options.source_path = std::move(source_path);
+        ctx.launch_options.working_dir = std::move(working_dir);
+        ctx.initial_viewport.pixel_size = { 800, 600 };
+        ctx.display_ppi = 96.0f;
+        auto callbacks = std::make_unique<TestHostCallbacks>();
+        const bool ok = host->initialize(ctx, *callbacks);
+        return std::tuple{ ok, std::move(host), std::move(callbacks) };
+    };
+
+    SECTION("absolute source path")
+    {
+        auto [ok, host, callbacks] = open_with(
+            path_to_utf8(folder / path_from_utf8(first_name)), {});
+        REQUIRE(ok);
+        CHECK(host->status_text() == "markdown | " + first_name);
+        CHECK(callbacks->last_window_title == first_name);
+
+        REQUIRE(host->dispatch_action(
+            "open_file:" + path_to_utf8(folder / path_from_utf8(second_name))));
+        CHECK(host->status_text() == "markdown | " + second_name);
+        REQUIRE(host->dispatch_action("reload"));
+        CHECK(host->status_text() == "markdown | " + second_name);
+    }
+
+    SECTION("relative source path resolved against a non-English working directory")
+    {
+        auto [ok, host, callbacks] = open_with(
+            folder_name + "/" + first_name, path_to_utf8(temp.path));
+        REQUIRE(ok);
+        CHECK(host->status_text() == "markdown | " + first_name);
+        CHECK(callbacks->last_window_title == first_name);
+    }
 }
 
 TEST_CASE("missing companion preview source does not disconnect its Kanban tab",
