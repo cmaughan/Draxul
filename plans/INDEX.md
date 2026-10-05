@@ -25,6 +25,7 @@ is (design docs, research, and review output — **not** work items; those live 
 
 | Plan | Status | Notes |
 |------|--------|-------|
+| [agent-mailbox-design.md](agent-mailbox-design.md) | active | Planned 2026-10-05: Space-scoped, server-owned, persistent agent/user mailbox with server-attributed senders, provider hook doorbells, Claude idle wake, opt-in Codex idle nudge and a Mail pane; four slices, implementation not started. |
 | [personal-assistant.md](personal-assistant.md) | active | Proposed 2026-10-01: built-in Personal Assistant host, folder-backed definitions, server-owned runs, provider/model choice and staged single-executor cross-machine coordination; implementation not started. |
 | [server-client-terminal-runtime.md](server-client-terminal-runtime.md) | active | Comprehensive vertical-slice plan for one server-owned terminal/agent runtime, reconnectable GPU clients, deterministic two-client reflection, optional tray/menu-bar status, and a future SSH bridge. |
 | [dynamic-plugin-satview-scoreview-migration.md](dynamic-plugin-satview-scoreview-migration.md) | active | Architecture and staged migration plan for moving SatView and ScoreView from statically registered `IHost` implementations to dynamic GPU/Canvas plugins. |
