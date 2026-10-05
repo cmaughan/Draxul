@@ -286,6 +286,85 @@ TEST_CASE("restored child topology preserves current pane identities",
         == R"({"paused":true})");
 }
 
+TEST_CASE("server Session capture keeps identifier allocators bounded",
+    "[server][topology][session][restore]")
+{
+    constexpr int kLastId = kSessionIdentifierLimit - 1;
+    SessionSnapshot saved{
+        .session_id = "default",
+        .session_name = "Boundary",
+        .active_space_id = kLastId,
+        .next_space_id = kSessionIdentifierLimit,
+    };
+    SpaceSnapshot space{
+        .id = kLastId,
+        .name = "Edge",
+        .active_tab_id = kLastId,
+        .next_tab_id = kSessionIdentifierLimit,
+    };
+    TabSnapshot tab{ .id = kLastId, .name = "Tab" };
+    tab.pane_layout.tree.root = std::make_unique<SessionSplitNode>(
+        SessionSplitNode{ .is_leaf = true, .leaf_id = kLastId });
+    tab.pane_layout.tree.focused_id = kLastId;
+    tab.pane_layout.tree.next_leaf_id = kSessionIdentifierLimit;
+    tab.pane_layout.panes.push_back({
+        .leaf_id = kLastId,
+        .launch = {
+            .kind = HostKind::Plugin,
+            .client_host_kind = "plugin",
+            .client_plugin_id = "dev.draxul.spinning-triangle",
+        },
+        .pane_name = "Pane",
+        .pane_id = "pane-edge",
+    });
+    space.tabs.push_back(std::move(tab));
+    saved.spaces.push_back(std::move(space));
+
+    std::string error;
+    const auto restored = restore_session_topology(saved, error);
+    INFO(error);
+    REQUIRE(restored);
+    const auto captured = capture_session_topology(restored->topology, error);
+    INFO(error);
+    REQUIRE(captured);
+    CHECK(captured->next_space_id == kSessionIdentifierLimit);
+    REQUIRE(captured->spaces.size() == 1);
+    CHECK(captured->spaces[0].id == kLastId);
+    CHECK(captured->spaces[0].next_tab_id == kSessionIdentifierLimit);
+    REQUIRE(captured->spaces[0].tabs.size() == 1);
+    CHECK(captured->spaces[0].tabs[0].id == kLastId);
+    CHECK(captured->spaces[0].tabs[0].pane_layout.tree.next_leaf_id
+        == kSessionIdentifierLimit);
+
+    // A live topology serial at the limit is rejected before capture derives
+    // the follow-on allocator value from it.
+    const std::string at_limit = std::to_string(kSessionIdentifierLimit);
+    for (const char* field : { "space", "tab", "leaf" })
+    {
+        INFO("field=" << field);
+        auto topology = restored->topology;
+        TopologyTab& live_tab = topology.spaces[0].tabs[0];
+        if (std::string_view(field) == "space")
+            topology.spaces[0].space_id = "space-" + at_limit;
+        else if (std::string_view(field) == "tab")
+            live_tab.tab_id = "tab-0-" + at_limit;
+        else
+        {
+            REQUIRE(live_tab.nodes.size() == 1);
+            live_tab.nodes[0].node_id = "node-" + at_limit;
+            live_tab.root_node_id = live_tab.nodes[0].node_id;
+        }
+        error.clear();
+        CHECK_FALSE(capture_session_topology(topology, error));
+        CHECK(error.find("outside the supported range") != std::string::npos);
+    }
+
+    // A saved identifier at the limit is rejected before restore.
+    saved.spaces[0].id = kSessionIdentifierLimit;
+    saved.active_space_id = kSessionIdentifierLimit;
+    CHECK_FALSE(restore_session_topology(saved, error));
+}
+
 TEST_CASE("topology ratio storms retain only bounded command outcomes",
     "[server][topology][resource-bounds]")
 {

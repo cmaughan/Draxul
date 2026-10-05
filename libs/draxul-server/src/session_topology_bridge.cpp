@@ -214,12 +214,23 @@ std::optional<SessionSnapshot> capture_session_topology(
             .name = source_space.name,
             .root_directory = source_space.root_directory,
         };
+        // Checked before deriving next_space_id/next_tab_id (id + 1).
+        if (!valid_session_identifier(space.id))
+        {
+            error = "Topology Space identifier is outside the supported range.";
+            return std::nullopt;
+        }
         for (const auto& source_tab : source_space.tabs)
         {
             auto tab = capture_tab(
                 source_tab, fallback_tab++, error);
             if (!tab)
                 return std::nullopt;
+            if (!valid_session_identifier(tab->id))
+            {
+                error = "Topology tab identifier is outside the supported range.";
+                return std::nullopt;
+            }
             space.next_tab_id = std::max(
                 space.next_tab_id, tab->id + 1);
             space.tabs.push_back(std::move(*tab));

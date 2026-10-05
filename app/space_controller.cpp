@@ -78,9 +78,15 @@ SpaceId SpaceController::create_space(std::string name, std::filesystem::path ro
 {
     if (name.empty())
         return kInvalidSpaceId;
+    const auto allocated = allocate_session_identifier(next_space_id_);
+    if (!allocated)
+    {
+        DRAXUL_LOG_ERROR(LogCategory::App, "Cannot create Space: Space identifiers are exhausted");
+        return kInvalidSpaceId;
+    }
 
     auto space = std::make_unique<Space>();
-    space->id = next_space_id_++;
+    space->id = *allocated;
     space->name = std::move(name);
     space->root_directory = std::move(root_directory);
     space->tab_controller.set_focus_enabled(false);
@@ -207,7 +213,7 @@ bool SpaceController::restore_spaces(IHostCallbacks& callbacks, int pixel_w, int
     SpaceId max_space_id = kInvalidSpaceId;
     for (const SpaceSnapshot& snapshot : snapshots)
     {
-        if (snapshot.id < kDefaultSpaceId || !restored_ids.insert(snapshot.id).second)
+        if (!valid_session_identifier(snapshot.id) || !restored_ids.insert(snapshot.id).second)
         {
             last_restore_error_ = "Saved session contains a duplicate or invalid Space id.";
             return false;
@@ -283,7 +289,9 @@ bool SpaceController::restore_spaces(IHostCallbacks& callbacks, int pixel_w, int
     shutdown_all();
     spaces_ = std::move(candidate_spaces);
     active_space_id_ = kInvalidSpaceId;
-    next_space_id_ = std::max(restored_next_space_id, max_space_id + 1);
+    // Identifiers are below kSessionIdentifierLimit, so max_space_id + 1 is
+    // representable; an over-limit counter is clamped to "exhausted".
+    next_space_id_ = std::clamp(restored_next_space_id, max_space_id + 1, kSessionIdentifierLimit);
     if (!activate_space(active_id))
     {
         shutdown_all();

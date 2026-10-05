@@ -41,6 +41,12 @@ std::unique_ptr<SessionSplitNode> convert_node(const TopologyTab& tab,
             return {};
         }
         result->leaf_id = options.allocate_leaf(*source, *pane);
+        if (!valid_session_identifier(result->leaf_id))
+        {
+            // maximum_leaf + 1 becomes the tree's next_leaf_id.
+            error = "Topology pane identifier is outside the supported range.";
+            return {};
+        }
         out.leaf_by_pane[source->pane_id] = result->leaf_id;
         out.maximum_leaf = std::max(out.maximum_leaf, result->leaf_id);
         return result;

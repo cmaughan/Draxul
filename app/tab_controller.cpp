@@ -12,6 +12,8 @@ namespace draxul
 namespace
 {
 
+constexpr const char* kTabIdentifiersExhausted = "Tab identifiers are exhausted.";
+
 void set_default_tab_name(Tab& tab)
 {
     if (IHost* host = tab.pane_manager.host())
@@ -25,7 +27,13 @@ void set_default_tab_name(Tab& tab)
 bool TabController::create_initial_tab(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     PaneManager::Deps pane_manager_deps)
 {
-    auto tab = std::make_unique<Tab>(next_tab_id_++, std::move(pane_manager_deps));
+    const auto tab_id = allocate_session_identifier(next_tab_id_);
+    if (!tab_id)
+    {
+        last_error_ = kTabIdentifiersExhausted;
+        return false;
+    }
+    auto tab = std::make_unique<Tab>(*tab_id, std::move(pane_manager_deps));
     if (!tab->pane_manager.create(callbacks, pixel_w, pixel_h))
     {
         last_error_ = tab->pane_manager.error();
@@ -44,7 +52,13 @@ bool TabController::create_initial_tab(IHostCallbacks& callbacks, int pixel_w, i
 int TabController::add_tab(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     PaneManager::Deps pane_manager_deps, std::optional<HostKind> host_kind)
 {
-    auto tab = std::make_unique<Tab>(next_tab_id_++, std::move(pane_manager_deps));
+    const auto tab_id = allocate_session_identifier(next_tab_id_);
+    if (!tab_id)
+    {
+        last_error_ = kTabIdentifiersExhausted;
+        return -1;
+    }
+    auto tab = std::make_unique<Tab>(*tab_id, std::move(pane_manager_deps));
     const HostKind kind = host_kind.value_or(PaneManager::platform_default_split_host_kind());
     if (!tab->pane_manager.create(callbacks, pixel_w, pixel_h, kind))
     {
@@ -65,7 +79,13 @@ int TabController::add_tab(IHostCallbacks& callbacks, int pixel_w,
     int pixel_h, PaneManager::Deps pane_manager_deps,
     HostLaunchOptions launch)
 {
-    auto tab = std::make_unique<Tab>(next_tab_id_++,
+    const auto tab_id = allocate_session_identifier(next_tab_id_);
+    if (!tab_id)
+    {
+        last_error_ = kTabIdentifiersExhausted;
+        return -1;
+    }
+    auto tab = std::make_unique<Tab>(*tab_id,
         std::move(pane_manager_deps));
     if (!tab->pane_manager.create(callbacks, pixel_w, pixel_h,
             std::move(launch)))
@@ -86,8 +106,14 @@ int TabController::add_tab(IHostCallbacks& callbacks, int pixel_w,
 int TabController::add_projected_tab(
     PaneManager::Deps pane_manager_deps)
 {
+    const auto tab_id = allocate_session_identifier(next_tab_id_);
+    if (!tab_id)
+    {
+        last_error_ = kTabIdentifiersExhausted;
+        return -1;
+    }
     auto tab = std::make_unique<Tab>(
-        next_tab_id_++, std::move(pane_manager_deps));
+        *tab_id, std::move(pane_manager_deps));
     tab->name = "tab";
     const int id = tab->id;
     tabs_.push_back(std::move(tab));
@@ -349,7 +375,7 @@ bool TabController::restore_tabs(IHostCallbacks& callbacks, int pixel_w, int pix
     int max_tab_id = -1;
     for (const TabSnapshot& snapshot : snapshots)
     {
-        if (snapshot.id < 0 || !restored_ids.insert(snapshot.id).second)
+        if (!valid_session_identifier(snapshot.id) || !restored_ids.insert(snapshot.id).second)
         {
             last_error_ = "Saved session contains a duplicate or invalid tab id.";
             return false;
@@ -417,7 +443,9 @@ bool TabController::restore_tabs(IHostCallbacks& callbacks, int pixel_w, int pix
     }
     shutdown_all();
     tabs_ = std::move(candidate_tabs);
-    next_tab_id_ = std::max(restored_next_tab_id, max_tab_id + 1);
+    // Identifiers are below kSessionIdentifierLimit, so max_tab_id + 1 is
+    // representable; an over-limit counter is clamped to "exhausted".
+    next_tab_id_ = std::clamp(restored_next_tab_id, max_tab_id + 1, kSessionIdentifierLimit);
     last_error_.clear();
     return activate_tab(restored_active_tab_id);
 }

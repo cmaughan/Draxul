@@ -42,6 +42,25 @@ constexpr size_t kMaxTreeDepth = 64;
 constexpr size_t kMaxShortTextBytes = 512;
 constexpr size_t kMaxCommandTextBytes = 8192;
 constexpr size_t kMaxStringListEntries = 256;
+constexpr const char* kOutOfRangeIdentifierError
+    = "Session state contains an out-of-range identifier or counter.";
+
+// TOML integers are 64-bit. Narrowing an out-of-range value would wrap into an
+// unrelated identifier, so flag it and let the caller reject the document.
+std::optional<int> get_int32(
+    const toml::table& table, std::string_view key, bool& out_of_range)
+{
+    const auto value = toml_support::get_int(table, key);
+    if (!value)
+        return std::nullopt;
+    if (*value < (std::numeric_limits<int>::min)()
+        || *value > (std::numeric_limits<int>::max)())
+    {
+        out_of_range = true;
+        return std::nullopt;
+    }
+    return static_cast<int>(*value);
+}
 
 bool valid_plugin_id(std::string_view value)
 {
@@ -175,7 +194,14 @@ std::unique_ptr<SessionSplitNode> parse_tree_node(
     auto node = std::make_unique<SessionSplitNode>();
     if (*type == "leaf")
     {
-        const auto leaf_id = toml_support::get_int(table, "leaf_id");
+        bool out_of_range = false;
+        const auto leaf_id = get_int32(table, "leaf_id", out_of_range);
+        if (out_of_range)
+        {
+            if (error)
+                *error = kOutOfRangeIdentifierError;
+            return nullptr;
+        }
         if (!leaf_id)
         {
             if (error)
@@ -183,7 +209,7 @@ std::unique_ptr<SessionSplitNode> parse_tree_node(
             return nullptr;
         }
         node->is_leaf = true;
-        node->leaf_id = static_cast<LeafId>(*leaf_id);
+        node->leaf_id = *leaf_id;
         return node;
     }
 
@@ -309,12 +335,19 @@ std::optional<SessionPaneLayoutSnapshot> parse_pane_layout(
     const toml::table& table, std::string* error)
 {
     SessionPaneLayoutSnapshot state;
-    const auto focused_leaf = toml_support::get_int(table, "focused_leaf");
-    const auto next_leaf_id = toml_support::get_int(table, "next_leaf_id");
+    bool out_of_range = false;
+    const auto focused_leaf = get_int32(table, "focused_leaf", out_of_range);
+    const auto next_leaf_id = get_int32(table, "next_leaf_id", out_of_range);
     const auto zoomed = toml_support::get_bool(table, "zoomed");
-    const auto zoomed_leaf = toml_support::get_int(table, "zoomed_leaf");
+    const auto zoomed_leaf = get_int32(table, "zoomed_leaf", out_of_range);
     const toml::table* layout = table["layout"].as_table();
     const toml::array* panes = table["panes"].as_array();
+    if (out_of_range)
+    {
+        if (error)
+            *error = kOutOfRangeIdentifierError;
+        return std::nullopt;
+    }
     if (!focused_leaf || !next_leaf_id || !zoomed || !zoomed_leaf || !layout || !panes)
     {
         if (error)
@@ -322,15 +355,15 @@ std::optional<SessionPaneLayoutSnapshot> parse_pane_layout(
         return std::nullopt;
     }
 
-    state.tree.focused_id = static_cast<LeafId>(*focused_leaf);
-    state.tree.next_leaf_id = static_cast<LeafId>(*next_leaf_id);
+    state.tree.focused_id = *focused_leaf;
+    state.tree.next_leaf_id = *next_leaf_id;
     size_t tree_node_count = 0;
     state.tree.root = parse_tree_node(*layout, error, 0, tree_node_count);
     if (!state.tree.root)
         return std::nullopt;
 
     state.zoomed = *zoomed;
-    state.zoomed_leaf = static_cast<LeafId>(*zoomed_leaf);
+    state.zoomed_leaf = *zoomed_leaf;
 
     if (panes->size() > kMaxPanesPerTab)
     {
@@ -349,8 +382,15 @@ std::optional<SessionPaneLayoutSnapshot> parse_pane_layout(
             return std::nullopt;
         }
 
-        const auto leaf_id = toml_support::get_int(*pane_table, "leaf_id");
+        bool pane_out_of_range = false;
+        const auto leaf_id = get_int32(*pane_table, "leaf_id", pane_out_of_range);
         const auto kind_text = toml_support::get_string(*pane_table, "kind");
+        if (pane_out_of_range)
+        {
+            if (error)
+                *error = kOutOfRangeIdentifierError;
+            return std::nullopt;
+        }
         if (!leaf_id || !kind_text)
         {
             if (error)
@@ -367,7 +407,7 @@ std::optional<SessionPaneLayoutSnapshot> parse_pane_layout(
         }
 
         SessionPaneSnapshot pane;
-        pane.leaf_id = static_cast<LeafId>(*leaf_id);
+        pane.leaf_id = *leaf_id;
         pane.launch.kind = *kind;
         pane.launch.command = toml_support::get_string(*pane_table, "command").value_or("");
         pane.launch.args = toml_support::get_string_array(*pane_table, "args").value_or(
@@ -495,9 +535,16 @@ toml::table serialize_tab(const TabSnapshot& tab)
 std::optional<TabSnapshot> parse_tab(
     const toml::table& table, std::string_view pane_layout_key, std::string* error)
 {
-    const auto id = toml_support::get_int(table, "id");
+    bool out_of_range = false;
+    const auto id = get_int32(table, "id", out_of_range);
     const auto name_user_set = toml_support::get_bool(table, "name_user_set");
     const toml::table* pane_layout = table[pane_layout_key].as_table();
+    if (out_of_range)
+    {
+        if (error)
+            *error = kOutOfRangeIdentifierError;
+        return std::nullopt;
+    }
     if (!id || !name_user_set || !pane_layout)
     {
         if (error)
@@ -506,7 +553,7 @@ std::optional<TabSnapshot> parse_tab(
     }
 
     TabSnapshot tab;
-    tab.id = static_cast<int>(*id);
+    tab.id = *id;
     tab.name = toml_support::get_string(table, "name").value_or("");
     tab.name_user_set = *name_user_set;
     auto parsed_pane_layout = parse_pane_layout(*pane_layout, error);
@@ -530,7 +577,7 @@ bool collect_tree_leaf_ids(const SessionSplitNode& node,
 
     if (node.is_leaf)
     {
-        if (node.leaf_id == kInvalidLeaf)
+        if (!valid_session_identifier(node.leaf_id))
         {
             if (error)
                 *error = "Session state contains an invalid pane id.";
@@ -596,10 +643,16 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
     {
         if (!validate_text_limit(tab.name, kMaxShortTextBytes, "tab name", error))
             return false;
-        if (tab.id < 0)
+        if (!valid_session_identifier(tab.id))
         {
             if (error)
                 *error = "Session state contains an invalid tab id.";
+            return false;
+        }
+        if (!valid_session_counter(tab.pane_layout.tree.next_leaf_id))
+        {
+            if (error)
+                *error = kOutOfRangeIdentifierError;
             return false;
         }
         if (!tab_ids.insert(tab.id).second)
@@ -728,7 +781,8 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
                     return false;
                 }
             }
-            if (pane.leaf_id == kInvalidLeaf || !pane_leaf_ids.insert(pane.leaf_id).second)
+            if (!valid_session_identifier(pane.leaf_id)
+                || !pane_leaf_ids.insert(pane.leaf_id).second)
             {
                 if (error)
                     *error = "Session state contains a duplicate or invalid pane entry.";
@@ -780,6 +834,13 @@ bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* e
         return false;
     }
 
+    if (!valid_session_counter(state.next_space_id))
+    {
+        if (error)
+            *error = kOutOfRangeIdentifierError;
+        return false;
+    }
+
     std::unordered_set<SpaceId> space_ids;
     std::unordered_set<std::string> stable_pane_ids;
     std::unordered_set<std::string> agent_instance_ids;
@@ -794,10 +855,16 @@ bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* e
                 *error = "Session state root directory exceeds the text limit.";
             return false;
         }
-        if (space.id == kInvalidSpaceId || !space_ids.insert(space.id).second)
+        if (!valid_session_identifier(space.id) || !space_ids.insert(space.id).second)
         {
             if (error)
                 *error = "Session state contains a duplicate or invalid Space id.";
+            return false;
+        }
+        if (!valid_session_counter(space.next_tab_id))
+        {
+            if (error)
+                *error = kOutOfRangeIdentifierError;
             return false;
         }
         if (!validate_tab_snapshots(space.tabs, error))
@@ -849,10 +916,17 @@ std::optional<SessionSnapshot> decode_current_document(
     state.session_id = toml_support::get_string(document, "session_id").value_or("default");
     state.session_name = toml_support::get_string(document, "session_name").value_or(
         state.session_id);
-    state.active_space_id = static_cast<SpaceId>(
-        toml_support::get_int(document, "active_space_id").value_or(kInvalidSpaceId));
-    state.next_space_id = static_cast<SpaceId>(
-        toml_support::get_int(document, "next_space_id").value_or(kDefaultSpaceId));
+    bool out_of_range = false;
+    state.active_space_id = get_int32(document, "active_space_id", out_of_range)
+                                .value_or(kInvalidSpaceId);
+    state.next_space_id = get_int32(document, "next_space_id", out_of_range)
+                              .value_or(kDefaultSpaceId);
+    if (out_of_range)
+    {
+        if (error)
+            *error = kOutOfRangeIdentifierError;
+        return std::nullopt;
+    }
 
     const toml::array* spaces = document["spaces"].as_array();
     if (!spaces)
@@ -878,8 +952,16 @@ std::optional<SessionSnapshot> decode_current_document(
             return std::nullopt;
         }
 
-        const auto id = toml_support::get_int(*space_table, "id");
+        const auto id = get_int32(*space_table, "id", out_of_range);
         const toml::array* tabs = (*space_table)["tabs"].as_array();
+        const auto active_tab_id = get_int32(*space_table, "active_tab_id", out_of_range);
+        const auto next_tab_id = get_int32(*space_table, "next_tab_id", out_of_range);
+        if (out_of_range)
+        {
+            if (error)
+                *error = kOutOfRangeIdentifierError;
+            return std::nullopt;
+        }
         if (!id || !tabs)
         {
             if (error)
@@ -894,14 +976,12 @@ std::optional<SessionSnapshot> decode_current_document(
         }
 
         SpaceSnapshot space;
-        space.id = static_cast<SpaceId>(*id);
+        space.id = *id;
         space.name = toml_support::get_string(*space_table, "name").value_or("default");
         space.root_directory = toml_support::get_string(
             *space_table, "root_directory").value_or("");
-        space.active_tab_id = static_cast<int>(
-            toml_support::get_int(*space_table, "active_tab_id").value_or(-1));
-        space.next_tab_id = static_cast<int>(
-            toml_support::get_int(*space_table, "next_tab_id").value_or(0));
+        space.active_tab_id = active_tab_id.value_or(-1);
+        space.next_tab_id = next_tab_id.value_or(0);
 
         for (const toml::node& tab_node : *tabs)
         {

@@ -4,6 +4,7 @@
 #include <draxul/host_kind.h>
 
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -20,6 +21,31 @@ inline constexpr DividerId kInvalidDivider = -1;
 using SpaceId = int;
 inline constexpr SpaceId kInvalidSpaceId = -1;
 inline constexpr SpaceId kDefaultSpaceId = 0;
+
+// Space, tab, and pane-leaf identifiers are non-negative and strictly below
+// this limit, so the follow-on allocator value (id + 1) is always
+// representable. An allocator counter may equal the limit, which means its
+// identifier space is exhausted and the next allocation must fail.
+inline constexpr int kSessionIdentifierLimit = (std::numeric_limits<int>::max)();
+
+constexpr bool valid_session_identifier(int id) noexcept
+{
+    return id >= 0 && id < kSessionIdentifierLimit;
+}
+
+constexpr bool valid_session_counter(int next) noexcept
+{
+    return next >= 0 && next <= kSessionIdentifierLimit;
+}
+
+// Returns the counter's current value and advances it, or nullopt when the
+// counter is exhausted or invalid. Never overflows.
+constexpr std::optional<int> allocate_session_identifier(int& next) noexcept
+{
+    if (!valid_session_identifier(next))
+        return std::nullopt;
+    return next++;
+}
 
 enum class SplitDirection
 {

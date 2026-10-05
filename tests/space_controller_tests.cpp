@@ -274,6 +274,80 @@ TEST_CASE("space controller transactionally restores every Space and stable coun
     controller.shutdown_all();
 }
 
+TEST_CASE("space controller restores boundary identifiers and reports allocator exhaustion",
+    "[space_controller][space][session][restore]")
+{
+    constexpr int kLastId = kSessionIdentifierLimit - 1;
+    SpaceHostHarness harness;
+    SpaceController controller;
+    REQUIRE(harness.create_initial_tab(*controller.find_space(kDefaultSpaceId)));
+
+    // Saved identifiers at the limit are rejected before any id + 1 is derived.
+    {
+        SpaceSnapshot at_limit;
+        at_limit.id = kSessionIdentifierLimit;
+        at_limit.name = "at-limit";
+        at_limit.tabs.push_back(make_tab_snapshot(1, "tab"));
+        std::vector<SpaceSnapshot> snapshots;
+        snapshots.push_back(std::move(at_limit));
+        CHECK_FALSE(controller.restore_spaces(harness.callbacks, 800, 600,
+            snapshots, kSessionIdentifierLimit, kSessionIdentifierLimit,
+            [&harness](const Space*) { return harness.make_deps(); }));
+        CHECK(controller.count() == 1);
+        CHECK(controller.active_space_id() == kDefaultSpaceId);
+
+        SpaceSnapshot tab_at_limit;
+        tab_at_limit.id = 3;
+        tab_at_limit.name = "tab-at-limit";
+        tab_at_limit.tabs.push_back(make_tab_snapshot(kSessionIdentifierLimit, "tab"));
+        snapshots.clear();
+        snapshots.push_back(std::move(tab_at_limit));
+        CHECK_FALSE(controller.restore_spaces(harness.callbacks, 800, 600,
+            snapshots, 3, 4,
+            [&harness](const Space*) { return harness.make_deps(); }));
+        CHECK(controller.active_space_id() == kDefaultSpaceId);
+    }
+
+    SpaceSnapshot edge;
+    edge.id = kLastId;
+    edge.name = "edge";
+    edge.active_tab_id = kLastId;
+    edge.next_tab_id = kSessionIdentifierLimit;
+    edge.tabs.push_back(make_tab_snapshot(kLastId, "edge-tab"));
+    std::vector<SpaceSnapshot> snapshots;
+    snapshots.push_back(std::move(edge));
+
+    // A stale Space counter is raised past the restored ids, reaching the limit.
+    REQUIRE(controller.restore_spaces(harness.callbacks, 800, 600,
+        snapshots, kLastId, -7,
+        [&harness](const Space*) { return harness.make_deps(); }));
+    REQUIRE(controller.count() == 1);
+    CHECK(controller.active_space_id() == kLastId);
+    CHECK(controller.next_space_id() == kSessionIdentifierLimit);
+    TabController& tabs = controller.find_space(kLastId)->tab_controller;
+    CHECK(tabs.active_tab_id() == kLastId);
+    CHECK(tabs.next_tab_id() == kSessionIdentifierLimit);
+
+    // Creation fails cleanly instead of overflowing the allocators.
+    CHECK(controller.create_space("overflow") == kInvalidSpaceId);
+    CHECK(controller.count() == 1);
+    CHECK(controller.next_space_id() == kSessionIdentifierLimit);
+    CHECK(tabs.add_tab(harness.callbacks, 800, 600, harness.make_deps()) == -1);
+    CHECK(tabs.last_error() == "Tab identifiers are exhausted.");
+    CHECK(tabs.add_projected_tab(harness.make_deps()) == -1);
+    CHECK(tabs.next_tab_id() == kSessionIdentifierLimit);
+    CHECK(tabs.active_tab_id() == kLastId);
+
+    // The captured snapshot keeps the exhausted counters it was restored with.
+    const auto captured = controller.snapshot_spaces();
+    REQUIRE(captured);
+    REQUIRE(captured->size() == 1);
+    CHECK((*captured)[0].id == kLastId);
+    CHECK((*captured)[0].next_tab_id == kSessionIdentifierLimit);
+
+    controller.shutdown_all();
+}
+
 TEST_CASE("space controller preserves live Spaces when no restore candidate is usable",
     "[space_controller][space][session][restore]")
 {

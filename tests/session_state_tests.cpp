@@ -8,6 +8,7 @@
 
 #include <cctype>
 #include <fstream>
+#include <functional>
 #include <iterator>
 
 using namespace draxul;
@@ -383,6 +384,101 @@ TEST_CASE("session state: stable pane identities are unique across the Session",
     std::string error;
     CHECK_FALSE(validate_session_snapshot(state, &error));
     CHECK(error == "Session state contains a duplicate stable pane id.");
+}
+
+TEST_CASE("session state: identifiers and counters leave allocator headroom",
+    "[session_state][resource-bounds]")
+{
+    constexpr int kLastId = kSessionIdentifierLimit - 1;
+    const auto boundary_state = [] {
+        SessionSnapshot state = make_single_pane_session_snapshot();
+        state.active_space_id = kLastId;
+        state.next_space_id = kSessionIdentifierLimit;
+        SpaceSnapshot& space = state.spaces[0];
+        space.id = kLastId;
+        space.active_tab_id = kLastId;
+        space.next_tab_id = kSessionIdentifierLimit;
+        TabSnapshot& tab = space.tabs[0];
+        tab.id = kLastId;
+        tab.pane_layout.tree.root->leaf_id = kLastId;
+        tab.pane_layout.tree.focused_id = kLastId;
+        tab.pane_layout.tree.next_leaf_id = kSessionIdentifierLimit;
+        tab.pane_layout.panes[0].leaf_id = kLastId;
+        return state;
+    };
+
+    // The largest identifiers with exhausted counters still round-trip.
+    std::string error;
+    const auto encoded = encode_session_state(boundary_state(), &error);
+    INFO(error);
+    REQUIRE(encoded);
+    const auto decoded = decode_session_state(*encoded, &error);
+    INFO(error);
+    REQUIRE(decoded);
+    CHECK(decoded->next_space_id == kSessionIdentifierLimit);
+    CHECK(decoded->spaces[0].id == kLastId);
+    CHECK(decoded->spaces[0].next_tab_id == kSessionIdentifierLimit);
+    CHECK(decoded->spaces[0].tabs[0].id == kLastId);
+    CHECK(decoded->spaces[0].tabs[0].pane_layout.tree.next_leaf_id
+        == kSessionIdentifierLimit);
+
+    // The SplitTree restored from that layout reports exhaustion instead of
+    // overflowing its leaf allocator.
+    SplitTree tree;
+    REQUIRE(tree.restore(decoded->spaces[0].tabs[0].pane_layout.tree, 800, 600));
+    CHECK(tree.split_leaf(kLastId, SplitDirection::Vertical) == kInvalidLeaf);
+    CHECK(tree.leaf_count() == 1);
+
+    // Identifiers at the limit or below zero leave no valid follow-on value.
+    const std::vector<std::pair<const char*, std::function<void(SessionSnapshot&)>>> invalid{
+        { "space id", [](SessionSnapshot& s) { s.spaces[0].id = kSessionIdentifierLimit; } },
+        { "negative space id", [](SessionSnapshot& s) { s.spaces[0].id = -2; } },
+        { "tab id", [](SessionSnapshot& s) { s.spaces[0].tabs[0].id = kSessionIdentifierLimit; } },
+        { "leaf id", [](SessionSnapshot& s) {
+             auto& layout = s.spaces[0].tabs[0].pane_layout;
+             layout.tree.root->leaf_id = kSessionIdentifierLimit;
+             layout.panes[0].leaf_id = kSessionIdentifierLimit;
+         } },
+        { "negative leaf id", [](SessionSnapshot& s) {
+             auto& layout = s.spaces[0].tabs[0].pane_layout;
+             layout.tree.root->leaf_id = -5;
+             layout.panes[0].leaf_id = -5;
+         } },
+        { "next Space", [](SessionSnapshot& s) { s.next_space_id = -1; } },
+        { "next tab", [](SessionSnapshot& s) { s.spaces[0].next_tab_id = -1; } },
+        { "next leaf", [](SessionSnapshot& s) {
+             s.spaces[0].tabs[0].pane_layout.tree.next_leaf_id = -1;
+         } },
+    };
+    for (const auto& [name, mutate] : invalid)
+    {
+        INFO(name);
+        SessionSnapshot state = boundary_state();
+        mutate(state);
+        CHECK_FALSE(validate_session_snapshot(state, &error));
+        CHECK_FALSE(error.empty());
+    }
+
+    // TOML integers wider than int must not wrap into a different, valid id.
+    // 4294967298 used to truncate to 2.
+    for (const char* key : { "next_space_id = ", "next_tab_id = ", "next_leaf_id = ",
+             "leaf_id = ", "\nid = " })
+    {
+        INFO(key);
+        auto document = encode_session_state(make_single_pane_session_snapshot(), &error);
+        REQUIRE(document);
+        // Skip suffix matches such as the "leaf_id = " inside "next_leaf_id = ".
+        auto at = document->find(key);
+        while (at != std::string::npos && at > 0 && (*document)[at - 1] == '_')
+            at = document->find(key, at + 1);
+        REQUIRE(at != std::string::npos);
+        const auto value_start = at + std::string_view(key).size();
+        const auto value_end = document->find_first_of(",} \r\n", value_start);
+        REQUIRE(value_end != std::string::npos);
+        document->replace(value_start, value_end - value_start, "4294967298");
+        CHECK_FALSE(decode_session_state(*document, &error));
+        CHECK(error == "Session state contains an out-of-range identifier or counter.");
+    }
 }
 
 TEST_CASE("session state: current snapshots reject duplicate Space identities",

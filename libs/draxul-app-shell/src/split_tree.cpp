@@ -95,8 +95,10 @@ LeafId SplitTree::split_leaf(LeafId id, SplitDirection dir)
     if (!target)
         return kInvalidLeaf;
 
-    const LeafId new_id = next_id_;
-    ++next_id_;
+    const auto allocated = allocate_session_identifier(next_id_);
+    if (!allocated)
+        return kInvalidLeaf;
+    const LeafId new_id = *allocated;
     const LeafId existing_id = target->leaf().id;
 
     auto first_child = std::make_unique<Node>();
@@ -403,7 +405,9 @@ bool SplitTree::restore(
         return false;
 
     root_ = std::move(restored_root);
-    next_id_ = std::max(snapshot.next_leaf_id, max_leaf_id + 1);
+    // restore_node admits only identifiers below kSessionIdentifierLimit, so
+    // max_leaf_id + 1 is representable; an over-limit counter means exhausted.
+    next_id_ = std::clamp(snapshot.next_leaf_id, max_leaf_id + 1, kSessionIdentifierLimit);
     focused_id_ = snapshot.focused_id;
     if (!find_leaf_node(focused_id_))
         focused_id_ = first_leaf(root_.get());
@@ -683,7 +687,7 @@ std::unique_ptr<SplitTree::Node> SplitTree::restore_node(
     auto node = std::make_unique<Node>();
     if (snapshot_node.is_leaf)
     {
-        if (snapshot_node.leaf_id == kInvalidLeaf)
+        if (!valid_session_identifier(snapshot_node.leaf_id))
             return nullptr;
         node->data = Node::LeafData{ snapshot_node.leaf_id, {} };
         max_leaf_id = std::max(max_leaf_id, snapshot_node.leaf_id);
