@@ -350,7 +350,7 @@ The following are complete proposed cards for the trusted parent process.
 - [ ] **Acceptance:** Missing or inaccessible temporary storage leaves the client running and produces a useful print error.
 - [ ] **Validation:** Verify normal printing remains functional; run core aggregate tests and same-cache smoke.
 
-### kanban/pending/61 metal-grid-allocation-failure -bug.md
+### kanban/done/61 metal-grid-allocation-failure -bug.md
 
 # Skip grids whose larger drawing allocation failed
 

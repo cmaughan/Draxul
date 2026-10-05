@@ -3,6 +3,7 @@
 #include <draxul/vulkan/vk_render_context.h>
 
 #include "shared/grid_contract.h"
+#include "shared/grid_slot_upload.h"
 #include "shared/pane_scissor.h"
 
 #include <algorithm>
@@ -211,7 +212,15 @@ public:
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to resize Vulkan grid buffer to %zu bytes", required_size);
             return false;
         }
-        if (resize_result == BufferResizeResult::Resized && !update_descriptor_sets_for_frame(slot))
+        // A replaced buffer invalidates this slot's descriptors. Track that
+        // explicitly so a failed descriptor update is retried next frame instead
+        // of drawing through descriptors that still name the destroyed buffer.
+        if (resize_result == BufferResizeResult::Resized)
+            descriptors_current_[slot] = false;
+        if (!descriptors_current_[slot] && !update_descriptor_sets_for_frame(slot))
+            return false;
+        if (!descriptors_current_[slot]
+            || !grid_slot_upload::storage_covers_state(buffer.size(), state_))
             return false;
 
         auto* mapped = static_cast<std::byte*>(buffer.mapped());
@@ -234,6 +243,7 @@ public:
     {
         bg_desc_sets_.fill(VK_NULL_HANDLE);
         fg_desc_sets_.fill(VK_NULL_HANDLE);
+        descriptors_current_.fill(false);
     }
 
     void retire_gpu_resources()
@@ -244,6 +254,7 @@ public:
             bg_desc_sets_[i] = VK_NULL_HANDLE;
             fg_desc_sets_[i] = VK_NULL_HANDLE;
         }
+        descriptors_current_.fill(false);
     }
 
     void release_gpu_resources_immediately()
@@ -251,6 +262,7 @@ public:
         release_descriptor_sets();
         bg_desc_sets_.fill(VK_NULL_HANDLE);
         fg_desc_sets_.fill(VK_NULL_HANDLE);
+        descriptors_current_.fill(false);
         if (renderer_.ctx_.allocator() != VK_NULL_HANDLE)
         {
             for (auto& buffer : buffers_)
@@ -301,6 +313,7 @@ private:
 
     void release_descriptor_sets()
     {
+        descriptors_current_.fill(false);
         if (renderer_.ctx_.device() == VK_NULL_HANDLE || renderer_.desc_pool_ == VK_NULL_HANDLE)
             return;
 
@@ -369,6 +382,7 @@ private:
         writes[2].pImageInfo = &img_info;
 
         vkUpdateDescriptorSets(renderer_.ctx_.device(), 3, writes, 0, nullptr);
+        descriptors_current_[frame_index] = true;
         return true;
     }
 
@@ -377,6 +391,8 @@ private:
     std::array<VkGridBuffer, VkRenderer::MAX_FRAMES_IN_FLIGHT> buffers_;
     std::array<VkDescriptorSet, VkRenderer::MAX_FRAMES_IN_FLIGHT> bg_desc_sets_{};
     std::array<VkDescriptorSet, VkRenderer::MAX_FRAMES_IN_FLIGHT> fg_desc_sets_{};
+    // True once a slot's descriptor sets name that slot's current grid buffer.
+    std::array<bool, VkRenderer::MAX_FRAMES_IN_FLIGHT> descriptors_current_{};
 };
 
 class VkRenderer::FrameContext final : public IFrameContext

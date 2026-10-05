@@ -1,11 +1,16 @@
 
 #include <draxul/renderer_state.h>
 
+#include "shared/grid_slot_upload.h"
 #include "shared/pane_scissor.h"
 #include "support/fake_renderer.h"
 #include "support/fake_window.h"
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -420,4 +425,129 @@ TEST_CASE("pane scissor treats a non-positive pane size as empty", "[renderer][s
     const auto negative = pane_scissor::clamp(10, 10, -50, -50, 800, 600);
     CHECK(negative.width == 0);
     CHECK(negative.height == 0);
+}
+
+namespace
+{
+
+// Frame-slot storage with injectable growth and mapping failures. Mirrors the
+// Metal (newBufferWithLength / contents) and Vulkan (ensure_size / mapped)
+// contracts: a failed growth keeps the previous, smaller allocation.
+struct FakeGridSlotStorage
+{
+    std::vector<std::byte> bytes;
+    bool fail_grow = false;
+    bool fail_map = false;
+
+    size_t capacity() const
+    {
+        return bytes.size();
+    }
+
+    bool grow(size_t required)
+    {
+        if (fail_grow)
+            return false;
+        bytes.assign(required, std::byte{ 0xCD });
+        return true;
+    }
+
+    std::byte* map()
+    {
+        return fail_map ? nullptr : bytes.data();
+    }
+};
+
+constexpr uint32_t kTestFramesInFlight = 2;
+
+struct GridFrameDriver
+{
+    RendererState state;
+    std::array<FakeGridSlotStorage, kTestFramesInFlight> slots;
+    uint32_t frame = 0;
+    int draws = 0;
+
+    // One backend frame: upload the slot, and only "draw" when the upload says
+    // the slot holds the complete current state. Every recorded draw is
+    // checked against the slot's real capacity and contents.
+    bool render_frame()
+    {
+        auto& slot = slots[frame % kTestFramesInFlight];
+        ++frame;
+        if (!grid_slot_upload::upload(state, slot))
+            return false;
+
+        const int instances = std::max(state.bg_instances(), state.fg_instances());
+        REQUIRE(static_cast<size_t>(instances) * sizeof(GpuCell) <= slot.capacity());
+        std::vector<std::byte> expected(state.buffer_size_bytes());
+        state.copy_to(expected.data());
+        REQUIRE(std::memcmp(slot.bytes.data(), expected.data(), expected.size()) == 0);
+        ++draws;
+        return true;
+    }
+};
+
+} // namespace
+
+TEST_CASE("grid slot uploads skip the draw when resize growth fails and recover later", "[renderer][grid-slot]")
+{
+    GridFrameDriver driver;
+    driver.state.set_grid_size(20, 5, 1);
+    REQUIRE(driver.render_frame());
+    REQUIRE(driver.render_frame());
+    const size_t small_capacity = driver.slots[0].capacity();
+
+    // Grow far enough that the instance count exceeds the old allocation.
+    driver.state.set_grid_size(400, 120, 1);
+    CellUpdate update = make_cell_update(399, 119, 0.4f, 0.8f);
+    driver.state.update_cells({ &update, 1 });
+    driver.slots[0].fail_grow = true;
+
+    INFO("the resized grid addresses more instances than the retained slot holds");
+    REQUIRE(static_cast<size_t>(driver.state.bg_instances()) * sizeof(GpuCell) > small_capacity);
+    REQUIRE_FALSE(grid_slot_upload::storage_covers_state(small_capacity, driver.state));
+
+    INFO("failed growth suppresses the draw and keeps the smaller slot");
+    CHECK_FALSE(driver.render_frame());
+    CHECK(driver.slots[0].capacity() == small_capacity);
+    CHECK(driver.state.has_dirty_cells());
+
+    INFO("the other in-flight slot grows independently and draws");
+    CHECK(driver.render_frame());
+
+    INFO("once allocation succeeds the failed slot recovers with current state");
+    driver.slots[0].fail_grow = false;
+    CHECK(driver.render_frame());
+    CHECK(driver.slots[0].capacity() >= driver.state.buffer_size_bytes());
+    CHECK(driver.draws == 4);
+}
+
+TEST_CASE("grid slot uploads never draw stale storage after a mapping failure", "[renderer][grid-slot]")
+{
+    GridFrameDriver driver;
+    driver.state.set_grid_size(30, 10, 1);
+    REQUIRE(driver.render_frame());
+    REQUIRE(driver.render_frame());
+
+    // Same capacity, new contents: a mapping failure would leave the previous
+    // frame's cells in the slot.
+    CellUpdate update = make_cell_update(3, 4, 0.25f, 0.75f);
+    driver.state.update_cells({ &update, 1 });
+    driver.slots[0].fail_map = true;
+    CHECK_FALSE(driver.render_frame());
+    CHECK(driver.state.has_dirty_cells());
+
+    // A resize whose growth succeeds but whose new buffer cannot be mapped
+    // must not draw the uninitialised allocation either.
+    driver.state.set_grid_size(300, 90, 1);
+    driver.slots[1].fail_map = true;
+    CHECK_FALSE(driver.render_frame());
+    CHECK(driver.slots[1].capacity() >= driver.state.buffer_size_bytes());
+
+    driver.slots[0].fail_map = false;
+    driver.slots[1].fail_map = false;
+    CHECK(driver.render_frame());
+    CHECK(driver.render_frame());
+    CHECK_FALSE(driver.state.has_dirty_cells());
+    CHECK(driver.draws == 4);
 }

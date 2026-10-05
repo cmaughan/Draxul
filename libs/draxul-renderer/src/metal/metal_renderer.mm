@@ -13,6 +13,7 @@
 #include <imgui.h>
 
 #include "shared/grid_contract.h"
+#include "shared/grid_slot_upload.h"
 #include "shared/pane_scissor.h"
 
 #import <CoreGraphics/CoreGraphics.h>
@@ -103,33 +104,17 @@ public:
         descriptor_ = desc;
     }
 
-    void upload_state(uint32_t frame_index)
+    // Returns true only when this frame's slot holds the complete current
+    // state in storage large enough for every drawn instance. On a failed
+    // growth or mapping the previous (smaller or stale) buffer is kept, the
+    // state stays dirty, and the caller must skip the draw (kanban 61).
+    bool upload_state(uint32_t frame_index)
     {
-        const size_t required_size = state_.buffer_size_bytes();
-        if (required_size == 0)
-            return;
+        if (!renderer_)
+            return false;
 
-        const uint32_t slot = frame_index % MetalRenderer::MAX_FRAMES_IN_FLIGHT;
-        if (buffer_sizes_[slot] < required_size)
-        {
-            id<MTLBuffer> buf = [renderer_->device_.get() newBufferWithLength:required_size
-                                                                      options:MTLResourceStorageModeShared];
-            if (!buf)
-            {
-                DRAXUL_LOG_ERROR(LogCategory::Renderer,
-                    "MetalGridHandle::upload_state: buffer alloc failed (%zu bytes)", required_size);
-                return;
-            }
-            buffers_[slot].reset(buf);
-            buffer_sizes_[slot] = required_size;
-        }
-
-        auto* mapped = static_cast<std::byte*>([buffers_[slot].get() contents]);
-        if (!mapped)
-            return;
-
-        state_.copy_to(mapped);
-        state_.clear_dirty();
+        SlotStorage storage{ *this, frame_index % MetalRenderer::MAX_FRAMES_IN_FLIGHT };
+        return grid_slot_upload::upload(state_, storage);
     }
 
     id<MTLBuffer> current_buffer(uint32_t frame_index) const
@@ -146,6 +131,45 @@ private:
     int padding_ = 4;
     std::array<ObjCRef<id<MTLBuffer>>, MetalRenderer::MAX_FRAMES_IN_FLIGHT> buffers_;
     std::array<size_t, MetalRenderer::MAX_FRAMES_IN_FLIGHT> buffer_sizes_{};
+
+    id<MTLDevice> device() const
+    {
+        return renderer_->device_.get();
+    }
+
+    // grid_slot_upload::upload storage adapter for one frame slot.
+    struct SlotStorage
+    {
+        MetalGridHandle& handle;
+        uint32_t slot;
+
+        size_t capacity() const
+        {
+            return handle.buffers_[slot] ? handle.buffer_sizes_[slot] : 0;
+        }
+
+        bool grow(size_t required_size)
+        {
+            id<MTLBuffer> buf = [handle.device() newBufferWithLength:required_size
+                                                             options:MTLResourceStorageModeShared];
+            if (!buf)
+            {
+                DRAXUL_LOG_ERROR(LogCategory::Renderer,
+                    "MetalGridHandle::upload_state: buffer alloc failed (%zu bytes); skipping grid draw",
+                    required_size);
+                return false;
+            }
+            handle.buffers_[slot].reset(buf);
+            handle.buffer_sizes_[slot] = required_size;
+            return true;
+        }
+
+        std::byte* map()
+        {
+            id<MTLBuffer> buf = handle.buffers_[slot].get();
+            return buf ? static_cast<std::byte*>([buf contents]) : nullptr;
+        }
+    };
 };
 
 class MetalRenderer::FrameContext final : public IFrameContext
@@ -883,7 +907,10 @@ bool MetalRenderer::draw_grid_handle_now(IGridHandle& handle)
     if (!metal_handle || !frame_active_)
         return false;
 
-    metal_handle->upload_state(current_frame_);
+    // Never draw a slot whose upload failed: the resized state's instance
+    // counts would address a smaller or stale buffer (kanban 61).
+    if (!metal_handle->upload_state(current_frame_))
+        return false;
 
     if (!ensure_main_render_encoder(false))
         return false;
