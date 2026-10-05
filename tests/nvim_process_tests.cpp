@@ -66,24 +66,34 @@ TEST_CASE("POSIX closed editor pipes survive default signal policy and preserve 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         if (!std::filesystem::exists(ready))
             _exit(3);
-        if (pending_before_write)
-        {
-            if (pthread_sigmask(SIG_BLOCK, &pipe_signal, nullptr) != 0)
-                _exit(4);
-            raise(SIGPIPE);
-        }
-        const uint8_t byte = 0;
-        const bool wrote = process.write(&byte, 1);
-        // A second write must also be safe; suppression cannot be one-shot.
-        const bool wrote_again = process.write(&byte, 1);
-        sigset_t mask;
-        sigset_t pending;
-        struct sigaction action{};
-        const bool policy_read = pthread_sigmask(SIG_SETMASK, nullptr, &mask) == 0
-            && sigpending(&pending) == 0 && sigaction(SIGPIPE, nullptr, &action) == 0;
-        const bool preserved = policy_read && action.sa_handler == SIG_DFL
-            && (sigismember(&mask, SIGPIPE) == 1) == pending_before_write
-            && (sigismember(&pending, SIGPIPE) == 1) == pending_before_write;
+        // Write from a worker while this thread keeps default, unblocked
+        // SIGPIPE: a process-directed signal (macOS) would be delivered here.
+        bool wrote = true;
+        bool wrote_again = true;
+        bool preserved = false;
+        std::thread writer([&] {
+            if (pending_before_write)
+            {
+                if (pthread_sigmask(SIG_BLOCK, &pipe_signal, nullptr) != 0)
+                    return;
+                raise(SIGPIPE);
+            }
+            const uint8_t byte = 0;
+            wrote = process.write(&byte, 1);
+            // A second write must also be safe; suppression cannot be one-shot.
+            wrote_again = process.write(&byte, 1);
+            sigset_t mask;
+            sigset_t pending;
+            struct sigaction action{};
+            const bool policy_read = pthread_sigmask(SIG_SETMASK, nullptr, &mask) == 0
+                && sigpending(&pending) == 0 && sigaction(SIGPIPE, nullptr, &action) == 0;
+            preserved = policy_read && action.sa_handler == SIG_DFL
+                && (sigismember(&mask, SIGPIPE) == 1) == pending_before_write
+                && (sigismember(&pending, SIGPIPE) == 1) == pending_before_write;
+        });
+        writer.join();
+        // Give any misdirected signal time to reach this unblocked thread.
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
         process.shutdown();
         _exit(!wrote && !wrote_again && preserved ? 0 : 5);
     }

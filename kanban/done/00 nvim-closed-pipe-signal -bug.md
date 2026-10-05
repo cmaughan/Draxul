@@ -11,7 +11,7 @@
 - [x] **Investigate:** Trace parent signal handling and child inheritance, including the test runner’s existing suppression.
 - [x] **Fix:** Suppress the signal for parent writes while preserving default child handling; coordinate cancellable writes with B14.
 - [x] **Acceptance:** An isolated client with default initial signal handling survives a closed-pipe write and reports failure.
-- [ ] **Validation:** Run core aggregate tests and same-cache smoke; verify the macOS production path.
+- [x] **Validation:** Run core aggregate tests and same-cache smoke; verify the macOS production path.
 
 ## Implementation notes (2026-10-02)
 
@@ -53,3 +53,42 @@
   build took 22.75s; a preceding full validation took 309.66s for 77 CTest entries and
   26.13s for five passing core snapshots. The aggregate was repeated after correcting
   two test failures in other slices; snapshots were not repeated. No remote CI was run.
+
+## macOS production-path finding and fix (2026-10-05)
+
+- Native macOS probe (standalone, AppleClang): with SIGPIPE blocked only on a
+  worker thread that writes to a closed pipe while the main thread keeps default,
+  unblocked SIGPIPE, the process was killed (exit 141). XNU raises a pipe-write
+  SIGPIPE on the *process*, so the thread-scoped mask is insufficient there; the
+  earlier single-threaded isolated test could not observe this. Setting
+  `fcntl(fd, F_SETNOSIGPIPE, 1)` on the write end made the same probe survive with
+  `EPIPE` and nothing pending.
+- `NvimProcess::spawn` now marks only the parent's stdin write end with
+  `F_SETNOSIGPIPE` (guarded by `#ifdef F_SETNOSIGPIPE`, failing spawn cleanly if
+  the call fails). The child closes that end and still gets default SIGPIPE on its
+  own pipes. The thread-scoped mask remains the Linux mechanism, where the signal
+  is thread-directed.
+- The isolated regression now writes from a worker thread while the main thread
+  keeps default, unblocked SIGPIPE, so a process-directed signal would kill the
+  isolated child and fail the test.
+- Windows: `WriteFile` on a closed anonymous pipe returns `FALSE`
+  (`ERROR_NO_DATA`/`ERROR_BROKEN_PIPE`); there is no signal, and the existing
+  loop already reports failure. No Windows change.
+
+## Validation (2026-10-05, macOS arm64, Debug make cache `build/`)
+
+- Core aggregate `python3 do.py test debug`: 55/56 CTest entries pass. The one
+  failure is `draxul-do-py-tests`, which reads
+  `plugins/megacity/product/AGENTS.md`; that submodule is not initialized in this
+  worktree, so the failure is environmental. On two earlier aggregate runs under
+  heavy machine load (load average 15 to 25 from concurrent builds),
+  `app dispatch: shared Neovim split retains actions until its host exists` failed
+  its 20 ms `run_smoke_test` pump deadline. That test passed 3/3 shard runs and 8/8
+  direct runs both with and without this change, and passed in the final aggregate.
+  `server_service_protocol_tests.cpp:567` (`backpressure_elapsed`) failed once
+  under load and passed 3/3 when repeated.
+- Same-cache smoke `python3 do.py smoke --skip-build`: passed.
+- Focused `[sigpipe]` (draxul-test-nvim-transport): 2/2 pass. With the
+  `F_SETNOSIGPIPE` block temporarily disabled, both generator cases fail because
+  the isolated child is killed by SIGPIPE (`status=13`). This confirms the new
+  multi-threaded regression catches the macOS production defect.

@@ -337,6 +337,8 @@ namespace
 // Blocking SIGPIPE only on the writing thread avoids changing the application's
 // signal handlers. Consume a signal produced by our failed write before restoring
 // the mask, but preserve any signal that was pending before the operation.
+// Linux directs a pipe-write SIGPIPE at the writing thread, so this is sufficient
+// there; macOS directs it at the process and relies on F_SETNOSIGPIPE in spawn().
 class ScopedPipeSignalBlock
 {
 public:
@@ -437,6 +439,26 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
         return Result<void, Error>::err(Error::io(
             std::string("Failed to configure exec-status pipe: ") + strerror(e)));
     }
+
+#ifdef F_SETNOSIGPIPE
+    // XNU raises SIGPIPE for a failed pipe write on the process, not the
+    // writing thread, so the thread mask in write() cannot stop another thread
+    // with default policy from taking the fatal signal. Mark only the parent's
+    // write end; the child closes it and keeps default handling on its own pipes.
+    if (fcntl(stdin_pipe[1], F_SETNOSIGPIPE, 1) != 0)
+    {
+        const int e = errno;
+        DRAXUL_LOG_ERROR(LogCategory::Nvim, "Failed to suppress SIGPIPE on stdin pipe: %s", strerror(e));
+        close(stdin_pipe[0]);
+        close(stdin_pipe[1]);
+        close(stdout_pipe[0]);
+        close(stdout_pipe[1]);
+        close(exec_status_pipe[0]);
+        close(exec_status_pipe[1]);
+        return Result<void, Error>::err(Error::io(
+            std::string("Failed to suppress SIGPIPE on stdin pipe: ") + strerror(e)));
+    }
+#endif
 
     std::vector<std::string> argv_storage;
     argv_storage.reserve(extra_args.size() + 2);
