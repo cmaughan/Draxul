@@ -37,6 +37,8 @@ struct RenderTestScenario
     float display_ppi = 0.0f;
     bool debug_overlay = false;
     bool enable_ligatures = true;
+    // Glyph atlas dimension override; 0 keeps the application default.
+    int atlas_size = 0;
 
     std::filesystem::path reference_image_path() const;
     std::filesystem::path actual_image_path() const;

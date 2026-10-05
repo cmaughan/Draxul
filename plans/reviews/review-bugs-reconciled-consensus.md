@@ -440,7 +440,7 @@ These actual pending cards cover all 34 Codex findings. They are not reproduced 
 | B29 | `plugins/satview/kanban/pending/10 cache-final-close-validation -bug.md` |
 | B30 | `plugins/megacity/kanban/pending/13 mesh-partial-allocation-cleanup -bug.md` |
 | B31 | `kanban/pending/79 vulkan-acquired-frame-recovery -bug.md` |
-| B32 | `kanban/pending/61 metal-grid-allocation-failure -bug.md` |
+| B32 | `kanban/done/61 metal-grid-allocation-failure -bug.md` |
 | B33 | `kanban/pending/80 metal-atlas-upload-retry -bug.md` |
 | B34 | `kanban/pending/81 agent-replacement-pane-limit -bug.md` |
 
@@ -478,7 +478,7 @@ Static verification establishes the cited branches and admissible interleavings,
 
 These are complete proposed contents for the trusted parent to create. No card files were created.
 
-### kanban/pending/82 configured-glyph-atlas-dimensions -bug.md
+### kanban/done/82 configured-glyph-atlas-dimensions -bug.md
 
 # Keep configured font-image dimensions consistent
 **Summary:** Use matching font-image dimensions so changing the size setting cannot break text or write outside drawing storage.

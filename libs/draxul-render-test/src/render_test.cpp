@@ -254,6 +254,8 @@ AppOptions RenderTestScenario::make_app_options() const
     options.config_overrides.window_height = height;
     options.config_overrides.font_size = font_size;
     options.config_overrides.enable_ligatures = enable_ligatures;
+    if (atlas_size > 0)
+        options.config_overrides.atlas_size = atlas_size;
     if (display_ppi > 0.0f)
         options.override_display_ppi = display_ppi;
     if (!font_path.empty())
@@ -310,6 +312,19 @@ std::optional<RenderTestScenario> load_render_test_scenario(const std::filesyste
         scenario.debug_overlay = *debug_overlay;
     if (auto enable_ligatures = toml_support::get_bool(*document, "enable_ligatures"); enable_ligatures.has_value())
         scenario.enable_ligatures = *enable_ligatures;
+    if (auto atlas_size = toml_support::get_int(*document, "atlas_size"); atlas_size.has_value())
+    {
+        // Overrides bypass config-schema validation, so accept only the
+        // power-of-two sizes the config file itself allows.
+        const auto value = *atlas_size;
+        if (value < 1024 || value > 8192 || (value & (value - 1)) != 0)
+        {
+            if (error_message)
+                *error_message = "atlas_size must be 1024, 2048, 4096, or 8192";
+            return std::nullopt;
+        }
+        scenario.atlas_size = static_cast<int>(value);
+    }
     if (auto font_path = toml_support::get_string(*document, "font_path"))
         scenario.font_path = std::filesystem::path(expand_placeholders(*font_path, scenario_dir));
     if (auto fallback_paths = toml_support::get_string_array(*document, "fallback_paths"))

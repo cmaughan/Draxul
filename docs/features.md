@@ -974,7 +974,7 @@ and `draxul integration status` do not pass through the launch-option parser.
 | `--pty-capture-file <path>` | Capture raw terminal drain chunks to a replayable PTY log for terminal debugging |
 | `--console` | (Windows) Allocate debug console window |
 | `--smoke-test` | Non-interactive startup test, exits after 3s |
-| `--render-test <file>` | Run render test scenario (requires DRAXUL_ENABLE_RENDER_TESTS) |
+| `--render-test <file>` | Run render test scenario (requires DRAXUL_ENABLE_RENDER_TESTS); scenarios may set `atlas_size` (1024/2048/4096/8192) to render with a non-default glyph atlas |
 | `--bless-render-test` | Update reference image from test output |
 | `--show-render-test-window` | Show window during render test |
 | `--export-render-test <file>` | Export captured frame to BMP |

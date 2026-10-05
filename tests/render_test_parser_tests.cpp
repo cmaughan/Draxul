@@ -63,6 +63,38 @@ TEST_CASE("render test parser: multiline commands array parses", "[render]")
     std::filesystem::remove_all(dir, ec);
 }
 
+TEST_CASE("render test parser: atlas_size reaches the app config overrides", "[render]")
+{
+    const auto dir = std::filesystem::temp_directory_path() / "draxul-render-test-parser-atlas";
+    const auto path = dir / "atlas.toml";
+    write_text_file(path, "name = \"atlas\"\natlas_size = 4096\ncommands = [\"set number\"]\n");
+
+    std::string err;
+    auto scenario = draxul::load_render_test_scenario(path, &err);
+    REQUIRE(scenario.has_value());
+    CHECK(scenario->atlas_size == 4096);
+    const auto options = scenario->make_app_options();
+    REQUIRE(options.config_overrides.atlas_size.has_value());
+    CHECK(*options.config_overrides.atlas_size == 4096);
+
+    write_text_file(path, "name = \"default\"\ncommands = [\"set number\"]\n");
+    scenario = draxul::load_render_test_scenario(path, &err);
+    REQUIRE(scenario.has_value());
+    CHECK_FALSE(scenario->make_app_options().config_overrides.atlas_size.has_value());
+
+    for (const char* invalid : { "1000", "512", "16384" })
+    {
+        INFO("atlas_size = " << invalid);
+        write_text_file(path, std::string("name = \"bad\"\natlas_size = ") + invalid + "\ncommands = [\"set number\"]\n");
+        err.clear();
+        CHECK_FALSE(draxul::load_render_test_scenario(path, &err).has_value());
+        CHECK(err.find("atlas_size") != std::string::npos);
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
 TEST_CASE("render test parser: missing commands field returns error", "[render]")
 {
     const auto dir = std::filesystem::temp_directory_path() / "draxul-render-test-parser-nocmd";

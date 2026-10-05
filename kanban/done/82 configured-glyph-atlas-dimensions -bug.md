@@ -12,7 +12,7 @@
 - [x] **Fix:** Propagate one supported dimension through font/cache and renderer setup; handle reload consistently.
 - [x] **Fix:** Reject upload rectangles outside native texture bounds before recording.
 - [x] **Acceptance:** Supported non-default sizes render correct text on Vulkan without oversized copies; invalid uploads fail safely.
-- [ ] **Acceptance:** Confirm native Metal rendering at supported non-default sizes on macOS.
+- [x] **Acceptance:** Confirm native Metal rendering at supported non-default sizes on macOS.
 - [x] **Validation:** Run core aggregate tests, affected text-render checks, and same-cache smoke; check Vulkan validation and inspect Metal bounds handling.
 
 ## Implementation notes
@@ -80,3 +80,20 @@
   in 26.13s; the second aggregate was necessary after correcting two regression
   tests in other slices. The five core snapshots were not redundantly repeated.
   No remote CI was run. This card stays pending for the explicit native Metal gate.
+
+## Native Metal evidence (2026-10-05, macOS, Apple M5)
+
+- Render scenarios gained an optional `atlas_size` key (validated to 1024/2048/4096/8192
+  and passed through `AppConfigOverrides::atlas_size`; covered by
+  `tests/render_test_parser_tests.cpp`), so the native harness can exercise the
+  configured-dimension path without a user config file.
+- Ran scratch copies of `tests/render/basic-view.toml` with `atlas_size` = 1024, 2048,
+  4096, and 8192 against the blessed `basic-view.macos.bmp` using the Debug Metal app
+  (`--render-test ... --show-render-test-window`). All four exited 0 and passed
+  (changed pixels vs reference: 0.055%, 0.063%, 0.081%, 1.36%; threshold 2.1%), with
+  no rejected atlas-upload log lines.
+- Pixel diff of each run against the 2048 run: every differing pixel lies inside the
+  top-right live CPU/RAM status pill (y < 40, x >= 836; the 8192 run caught a
+  CPU 100% red pill on a busy machine). The Neovim grid text is byte-identical at all
+  four atlas sizes, so normalized glyph UVs sample correctly on Metal.
+- Same-cache `basic` snapshot (default 2048) also passed: 0.0636% changed.
