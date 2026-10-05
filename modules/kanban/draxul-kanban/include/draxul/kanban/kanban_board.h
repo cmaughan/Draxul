@@ -20,6 +20,11 @@ enum class CardKind
     Test,
 };
 
+// Displayed names (card file names, lane names, source names) are UTF-8 text;
+// filesystem locations stay native std::filesystem::path values. Convert
+// between them only with kanban_path_utf8()/kanban_path_from_utf8():
+// path::string() and path(std::string) use the active ANSI code page on
+// Windows and throw or mangle names outside it.
 struct KanbanCard
 {
     std::string file_name;
@@ -57,6 +62,9 @@ struct KanbanSelection
     int column = 0;
     int card = 0;
 };
+
+std::string kanban_path_utf8(const std::filesystem::path& path);
+std::filesystem::path kanban_path_from_utf8(std::string_view utf8);
 
 CardKind card_kind_for_file(std::string_view file_name);
 std::string icon_for_kind(CardKind kind);

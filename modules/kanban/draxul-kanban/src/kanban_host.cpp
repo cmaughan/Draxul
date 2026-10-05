@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <exception>
 #include <utility>
 
 namespace draxul::kanban
@@ -225,7 +226,7 @@ bool KanbanHost::initialize_host()
     running_ = true;
     set_content_ready(false);
     suppress_cursor_until(std::chrono::steady_clock::now() + std::chrono::hours(24));
-    callbacks().set_window_title(root_.filename().empty() ? "Kanban" : root_.filename().string());
+    callbacks().set_window_title(root_.filename().empty() ? "Kanban" : kanban_path_utf8(root_.filename()));
     callbacks().request_frame();
     return true;
 }
@@ -477,8 +478,20 @@ bool KanbanHost::reload_board(bool rearm_monitor, bool update_preview)
         previous_card = *selected;
     }
 
+    // Launch options carry UTF-8 text; decode it explicitly rather than
+    // through the Windows ANSI code page. A conversion or filesystem failure
+    // is a load error that keeps the current board, never an escape.
     std::string error;
-    const auto root = resolve_kanban_root(launch_options().source_path, launch_options().working_dir, &error);
+    std::filesystem::path root;
+    try
+    {
+        root = resolve_kanban_root(kanban_path_from_utf8(launch_options().source_path),
+            kanban_path_from_utf8(launch_options().working_dir), &error);
+    }
+    catch (const std::exception& ex)
+    {
+        error = std::string("failed to resolve kanban root: ") + ex.what();
+    }
     if (!error.empty())
     {
         init_error_ = error;
@@ -1005,8 +1018,8 @@ void KanbanHost::move_card(int column_delta, int row_delta)
             return;
 
         selected_path = visible_card->source_root
-            / workspace_board_.columns[static_cast<size_t>(target_column)].name
-            / visible_card->file_name;
+            / kanban_path_from_utf8(workspace_board_.columns[static_cast<size_t>(target_column)].name)
+            / kanban_path_from_utf8(visible_card->file_name);
         if (!move_card_to_column(
                 workspace_board_, *workspace_selection, target_column, &error))
         {
@@ -1121,8 +1134,8 @@ void KanbanHost::open_selected_card()
     // otherwise spawns a split; mirrors the megacity "jump to file" flow.
     // keep_focus keeps the user on the board — the card opens in the background
     // Neovim pane instead of stealing focus.
-    if (!callbacks().dispatch_to_nvim_host("open_file:" + card->path.string(), /*keep_focus=*/true))
-        notify_error("Failed to open card in Neovim: " + card->path.string());
+    if (!callbacks().dispatch_to_nvim_host("open_file:" + kanban_path_utf8(card->path), /*keep_focus=*/true))
+        notify_error("Failed to open card in Neovim: " + kanban_path_utf8(card->path));
 }
 
 void KanbanHost::toggle_column_zoom()
@@ -1235,7 +1248,7 @@ void KanbanHost::refresh_card_preview()
     if (!card)
         return;
 
-    callbacks().show_markdown_preview(card->path.string());
+    callbacks().show_markdown_preview(kanban_path_utf8(card->path));
 }
 
 std::optional<int> KanbanHost::active_zoom_column() const

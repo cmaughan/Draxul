@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cctype>
+#include <exception>
 #include <fstream>
 #include <optional>
 #include <set>
@@ -145,15 +146,18 @@ OrderedNames parse_string_array(std::string_view value)
 std::optional<KanbanMetadata> read_metadata(const std::filesystem::path& root, std::string* error)
 {
     const auto path = root / std::string(kKanbanMetadataFileName);
-    if (!std::filesystem::exists(path))
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec))
     {
+        if (ec)
+            set_error(error, "failed to inspect kanban metadata: " + ec.message());
         return std::nullopt;
     }
 
     std::ifstream file(path);
     if (!file)
     {
-        set_error(error, "failed to open kanban metadata: " + path.string());
+        set_error(error, "failed to open kanban metadata: " + kanban_path_utf8(path));
         return std::nullopt;
     }
 
@@ -378,14 +382,14 @@ void discover_submodule_boards(
         return;
     if (ec)
     {
-        warnings.push_back("failed to inspect " + modules_path.string() + ": " + ec.message());
+        warnings.push_back("failed to inspect " + kanban_path_utf8(modules_path) + ": " + ec.message());
         return;
     }
 
     std::ifstream modules(modules_path);
     if (!modules)
     {
-        warnings.push_back("failed to open " + modules_path.string());
+        warnings.push_back("failed to open " + kanban_path_utf8(modules_path));
         return;
     }
 
@@ -400,11 +404,12 @@ void discover_submodule_boards(
             continue;
         }
 
-        const auto configured_path = std::filesystem::path(
+        // Git records submodule paths as UTF-8.
+        const auto configured_path = kanban_path_from_utf8(
             unquote_path(stripped.substr(equals + 1)));
         if (configured_path.empty() || configured_path.is_absolute())
         {
-            warnings.push_back("ignored invalid submodule path in " + modules_path.string());
+            warnings.push_back("ignored invalid submodule path in " + kanban_path_utf8(modules_path));
             continue;
         }
 
@@ -413,7 +418,7 @@ void discover_submodule_boards(
         if (!path_is_within(workspace_root, submodule_root))
         {
             warnings.push_back("ignored submodule path outside workspace: "
-                + submodule_root.string());
+                + kanban_path_utf8(submodule_root));
             continue;
         }
 
@@ -421,7 +426,7 @@ void discover_submodule_boards(
         if (ec)
         {
             warnings.push_back("failed to inspect submodule "
-                + submodule_root.string() + ": " + ec.message());
+                + kanban_path_utf8(submodule_root) + ": " + ec.message());
             ec.clear();
             continue;
         }
@@ -430,7 +435,7 @@ void discover_submodule_boards(
             if (ec)
             {
                 warnings.push_back("failed to inspect submodule "
-                    + submodule_root.string() + ": " + ec.message());
+                    + kanban_path_utf8(submodule_root) + ": " + ec.message());
                 ec.clear();
             }
             continue;
@@ -441,20 +446,20 @@ void discover_submodule_boards(
         if (ec)
         {
             warnings.push_back("failed to inspect submodule board "
-                + board_root.string() + ": " + ec.message());
+                + kanban_path_utf8(board_root) + ": " + ec.message());
             ec.clear();
         }
         else if (board_exists && std::filesystem::is_directory(board_root, ec) && !ec)
         {
             sources.push_back(KanbanSource{
-                .name = submodule_root.filename().string(),
+                .name = kanban_path_utf8(submodule_root.filename()),
                 .root = normalized_path(board_root),
             });
         }
         else if (ec)
         {
             warnings.push_back("failed to inspect submodule board "
-                + board_root.string() + ": " + ec.message());
+                + kanban_path_utf8(board_root) + ": " + ec.message());
             ec.clear();
         }
 
@@ -487,7 +492,8 @@ std::string unique_source_name(
         return preferred;
     }
 
-    auto relative = repository_root.lexically_relative(workspace_root).generic_string();
+    auto relative = kanban_path_utf8(
+        repository_root.lexically_relative(workspace_root).generic_u8string());
     if (relative.empty() || relative == ".")
         relative = preferred;
     return relative;
@@ -567,7 +573,7 @@ std::filesystem::path resolve_kanban_root(
     return ec ? root : canonical;
 }
 
-KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* error)
+static KanbanBoard scan_kanban_board(const std::filesystem::path& root, std::string* error)
 {
     clear_error(error);
 
@@ -575,14 +581,14 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
     board.root = root;
     const auto repository_root = root.parent_path();
     board.sources.push_back(KanbanSource{
-        .name = repository_root.filename().string(),
+        .name = kanban_path_utf8(repository_root.filename()),
         .root = root,
     });
 
     std::error_code ec;
     if (!std::filesystem::exists(root, ec) || !std::filesystem::is_directory(root, ec))
     {
-        set_error(error, "kanban root is not a directory: " + root.string());
+        set_error(error, "kanban root is not a directory: " + kanban_path_utf8(root));
         return board;
     }
 
@@ -613,7 +619,7 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
         {
             continue;
         }
-        const auto name = entry.path().filename().string();
+        const auto name = kanban_path_utf8(entry.path().filename());
         if (name.starts_with('.'))
         {
             continue;
@@ -626,7 +632,7 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
     {
         KanbanColumn column;
         column.name = name;
-        column.directory = root / name;
+        column.directory = root / kanban_path_from_utf8(name);
 
         auto column_it = active_directory_operations().open(
             column.directory, ec);
@@ -655,7 +661,7 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
             {
                 continue;
             }
-            const auto file_name = entry.path().filename().string();
+            const auto file_name = kanban_path_utf8(entry.path().filename());
             column.cards.push_back(KanbanCard{
                 .file_name = file_name,
                 .path = entry.path(),
@@ -689,7 +695,7 @@ KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* er
     return board;
 }
 
-KanbanBoard load_kanban_workspace(
+static KanbanBoard scan_kanban_workspace(
     const std::filesystem::path& root,
     std::string* error)
 {
@@ -701,7 +707,7 @@ KanbanBoard load_kanban_workspace(
     const auto repository_root = normalized_path(root.parent_path());
     std::vector<KanbanSource> discovered{
         KanbanSource{
-            .name = repository_root.filename().string(),
+            .name = kanban_path_utf8(repository_root.filename()),
             .root = normalized_path(root),
         },
     };
@@ -749,7 +755,7 @@ KanbanBoard load_kanban_workspace(
             {
                 workspace.columns.push_back(KanbanColumn{
                     .name = local_column.name,
-                    .directory = workspace.root / local_column.name,
+                    .directory = workspace.root / kanban_path_from_utf8(local_column.name),
                 });
                 destination = &workspace.columns.back();
             }
@@ -767,6 +773,40 @@ KanbanBoard load_kanban_workspace(
     arrange_standard_columns(workspace.columns);
 
     return workspace;
+}
+
+// Board boundary: a filesystem or name-conversion exception while scanning
+// becomes a load error so callers keep their previous board and stay alive.
+KanbanBoard load_kanban_board(const std::filesystem::path& root, std::string* error)
+{
+    try
+    {
+        return scan_kanban_board(root, error);
+    }
+    catch (const std::exception& ex)
+    {
+        set_error(error, std::string("failed to load kanban board: ") + ex.what());
+        KanbanBoard board;
+        board.root = root;
+        return board;
+    }
+}
+
+KanbanBoard load_kanban_workspace(
+    const std::filesystem::path& root,
+    std::string* error)
+{
+    try
+    {
+        return scan_kanban_workspace(root, error);
+    }
+    catch (const std::exception& ex)
+    {
+        set_error(error, std::string("failed to load kanban workspace: ") + ex.what());
+        KanbanBoard workspace;
+        workspace.root = root;
+        return workspace;
+    }
 }
 
 bool save_kanban_order(const KanbanBoard& board, std::string* error)
@@ -802,7 +842,7 @@ bool save_kanban_order(const KanbanBoard& board, std::string* error)
     std::ofstream file(temp_path, std::ios::binary | std::ios::trunc);
     if (!file)
     {
-        set_error(error, "failed to write kanban metadata: " + temp_path.string());
+        set_error(error, "failed to write kanban metadata: " + kanban_path_utf8(temp_path));
         return false;
     }
 
@@ -831,7 +871,7 @@ bool save_kanban_order(const KanbanBoard& board, std::string* error)
     file.close();
     if (!file)
     {
-        set_error(error, "failed to flush kanban metadata: " + temp_path.string());
+        set_error(error, "failed to flush kanban metadata: " + kanban_path_utf8(temp_path));
         std::filesystem::remove(temp_path, ec);
         return false;
     }
@@ -904,7 +944,7 @@ bool save_kanban_order_for_source(
     std::error_code ec;
     for (const auto& column : board.columns)
     {
-        const auto directory = source.root / column.name;
+        const auto directory = source.root / kanban_path_from_utf8(column.name);
         KanbanColumn local_column{
             .name = column.name,
             .directory = directory,
@@ -1008,13 +1048,13 @@ bool move_card_to_column(
     const auto owner_root = moving.source_root.empty()
         ? board.root
         : moving.source_root;
-    const auto destination_directory = owner_root / destination_column.name;
-    const auto destination_path = destination_directory / moving.file_name;
+    const auto destination_directory = owner_root / kanban_path_from_utf8(destination_column.name);
+    const auto destination_path = destination_directory / kanban_path_from_utf8(moving.file_name);
 
     std::error_code ec;
     if (std::filesystem::exists(destination_path, ec))
     {
-        set_error(error, "destination kanban card already exists: " + destination_path.string());
+        set_error(error, "destination kanban card already exists: " + kanban_path_utf8(destination_path));
         return false;
     }
 
@@ -1083,7 +1123,7 @@ bool delete_card(
     }
     if (!removed)
     {
-        set_error(error, "kanban card does not exist: " + path.string());
+        set_error(error, "kanban card does not exist: " + kanban_path_utf8(path));
         return false;
     }
 

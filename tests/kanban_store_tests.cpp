@@ -20,6 +20,11 @@ void write_file(const std::filesystem::path& path, std::string_view text = "")
     file << text;
 }
 
+std::string utf8(std::u8string_view text)
+{
+    return std::string(reinterpret_cast<const char*>(text.data()), text.size());
+}
+
 } // namespace
 
 TEST_CASE("kanban store resolves empty source to working directory kanban root", "[kanban][store]")
@@ -141,6 +146,78 @@ TEST_CASE("kanban store reports root and column iterator failures",
             draxul::tests::KanbanScanFailurePoint::Advancement,
             "failed to scan kanban column");
     }
+    SECTION("column scan exception is contained at the board boundary")
+    {
+        verify_failure(column,
+            draxul::tests::KanbanScanFailurePoint::Exception,
+            "failed to load kanban board");
+    }
+}
+
+TEST_CASE("kanban workspace preserves international repository, lane, and card names",
+    "[kanban][store][workspace][unicode]")
+{
+    // Cyrillic, CJK, and emoji together fit no single Windows ANSI code page,
+    // so any narrow path::string() conversion in the scan would throw there.
+    const std::string repository = utf8(u8"репо");
+    const std::string product = utf8(u8"製品");
+    const std::string lane = utf8(u8"完了");
+    const std::string first = utf8(u8"1 猫-\U0001F680 -feature.md");
+    const std::string second = utf8(u8"2 печать -bug.md");
+    const std::string product_card = utf8(u8"犬-\U0001F415 -test.md");
+
+    draxul::tests::TempDir temp("draxul-kanban-intl");
+    const auto repo_root = temp.path / kanban_path_from_utf8(repository);
+    const auto root = repo_root / "kanban";
+    std::filesystem::create_directories(root / "pending");
+    std::filesystem::create_directories(root / kanban_path_from_utf8(lane));
+    write_file(root / "pending" / kanban_path_from_utf8(first), "first");
+    write_file(root / "pending" / kanban_path_from_utf8(second), "second");
+    const auto product_lane = repo_root / "plugins" / kanban_path_from_utf8(product)
+        / "kanban" / "pending";
+    std::filesystem::create_directories(product_lane);
+    write_file(product_lane / kanban_path_from_utf8(product_card), "product");
+    write_file(repo_root / ".gitmodules",
+        "[submodule \"product\"]\n  path = plugins/" + product + "\n");
+
+    std::string error;
+    auto workspace = load_kanban_workspace(root, &error);
+    REQUIRE(error.empty());
+    CHECK(workspace.warnings.empty());
+    REQUIRE(workspace.sources.size() == 2);
+    CHECK(workspace.sources[0].name == repository);
+    CHECK(workspace.sources[1].name == product);
+    REQUIRE(workspace.columns.size() == 2);
+    CHECK(workspace.columns[0].name == "pending");
+    CHECK(workspace.columns[1].name == lane);
+    REQUIRE(workspace.columns[0].cards.size() == 3);
+    CHECK(workspace.columns[0].cards[0].file_name == first);
+    CHECK(workspace.columns[0].cards[0].kind == CardKind::Feature);
+    CHECK(workspace.columns[0].cards[0].source_name == repository);
+    CHECK(workspace.columns[0].cards[1].file_name == second);
+    CHECK(workspace.columns[0].cards[2].file_name == product_card);
+    CHECK(workspace.columns[0].cards[2].source_name == product);
+    CHECK(std::filesystem::exists(workspace.columns[0].cards[0].path));
+
+    // Ordering metadata round-trips the UTF-8 names.
+    auto local = load_kanban_board(root, &error);
+    REQUIRE(error.empty());
+    REQUIRE(reorder_card(local, KanbanSelection{ .column = 0, .card = 1 }, -1, &error));
+    REQUIRE(save_kanban_order(local, &error));
+    const auto reordered = load_kanban_board(root, &error);
+    REQUIRE(error.empty());
+    REQUIRE(reordered.columns[0].cards.size() == 2);
+    CHECK(reordered.columns[0].cards[0].file_name == second);
+    CHECK(reordered.columns[0].cards[1].file_name == first);
+
+    // A move builds the destination from UTF-8 lane and card names.
+    REQUIRE(move_card_to_column(workspace, KanbanSelection{ .column = 0, .card = 0 }, 1, &error));
+    const auto moved = root / kanban_path_from_utf8(lane) / kanban_path_from_utf8(first);
+    CHECK(std::filesystem::exists(moved));
+    CHECK_FALSE(std::filesystem::exists(root / "pending" / kanban_path_from_utf8(first)));
+    REQUIRE(workspace.columns[1].cards.size() == 1);
+    CHECK(std::filesystem::equivalent(workspace.columns[1].cards[0].path, moved));
+    CHECK(kanban_path_utf8(workspace.columns[1].cards[0].path.filename()) == first);
 }
 
 TEST_CASE("kanban store merges metadata order with discovered entries", "[kanban][store]")

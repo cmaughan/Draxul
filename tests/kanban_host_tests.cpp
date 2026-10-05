@@ -301,6 +301,11 @@ TEST_CASE("kanban host preserves its board when a reload scan fails",
         verify_reload_failure(column,
             draxul::tests::KanbanScanFailurePoint::Advancement);
     }
+    SECTION("column scan exception")
+    {
+        verify_reload_failure(column,
+            draxul::tests::KanbanScanFailurePoint::Exception);
+    }
 
     REQUIRE(fixture.host.dispatch_action("reload"));
     CHECK(fixture.host.init_error().empty());
@@ -323,6 +328,73 @@ TEST_CASE("kanban host opens selected card in a Neovim host", "[kanban][host]")
 
     // Enter surfaces the card in Neovim but must NOT steal focus from the board.
     REQUIRE(fixture.callbacks.nvim_keep_focus);
+}
+
+TEST_CASE("kanban host displays, opens, moves, and reloads international names",
+    "[kanban][host][unicode]")
+{
+    const auto utf8 = [](std::u8string_view text) {
+        return std::string(reinterpret_cast<const char*>(text.data()), text.size());
+    };
+    // Cyrillic + CJK + emoji fit no single Windows ANSI code page.
+    const std::string repository = utf8(u8"репо-リポ");
+    const std::string lane = utf8(u8"完了");
+    const std::string card_name = utf8(u8"7 猫-\U0001F680 -feature.md");
+
+    draxul::tests::TempDir temp("draxul-kanban-host-intl");
+    const auto board_root = temp.path / kanban_path_from_utf8(repository) / "kanban";
+    std::filesystem::create_directories(board_root / "pending");
+    std::filesystem::create_directories(board_root / kanban_path_from_utf8(lane));
+    const auto card_path = board_root / "pending" / kanban_path_from_utf8(card_name);
+    std::ofstream(card_path) << "# International card\n";
+
+    draxul::tests::FakeWindow window;
+    draxul::tests::FakeTermRenderer renderer;
+    TextService text_service;
+    draxul::tests::init_text_service(text_service);
+    KanbanCallbacks callbacks;
+    KanbanHost host;
+    HostLaunchOptions launch;
+    launch.kind = HostKind::Kanban;
+    launch.source_path = kanban_path_utf8(board_root); // launch options carry UTF-8
+    HostViewport viewport;
+    viewport.grid_size = { 80, 12 };
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .launch_options = launch,
+        .initial_viewport = viewport,
+    };
+    REQUIRE(host.initialize(context, callbacks));
+    host.pump();
+
+    CHECK(host.init_error().empty());
+    CHECK(host.status_text().find("[" + repository + "] " + card_name) != std::string::npos);
+
+    // Neovim receives the card path as UTF-8 that names the real file.
+    host.on_key(key_event(SDLK_RETURN));
+    constexpr std::string_view prefix = "open_file:";
+    REQUIRE(callbacks.nvim_action.starts_with(prefix));
+    CHECK(std::filesystem::equivalent(
+        kanban_path_from_utf8(std::string_view(callbacks.nvim_action).substr(prefix.size())),
+        card_path));
+
+    // '>' moves into the international lane and the selection follows.
+    host.on_key(key_event(SDLK_PERIOD, kModShift));
+    const auto moved = board_root / kanban_path_from_utf8(lane) / kanban_path_from_utf8(card_name);
+    REQUIRE(std::filesystem::exists(moved));
+    CHECK_FALSE(std::filesystem::exists(card_path));
+    CHECK(host.status_text().find(card_name) != std::string::npos);
+
+    REQUIRE(host.dispatch_action("reload"));
+    CHECK(host.init_error().empty());
+    CHECK(host.status_text().find("[" + repository + "] " + card_name) != std::string::npos);
+
+    // The Markdown preview request carries the moved card as UTF-8.
+    host.on_key(key_event(SDLK_P));
+    REQUIRE(callbacks.show_preview_calls > 0);
+    CHECK(std::filesystem::equivalent(kanban_path_from_utf8(callbacks.preview_path), moved));
 }
 
 TEST_CASE("kanban host reports toast when Neovim open fails", "[kanban][host]")

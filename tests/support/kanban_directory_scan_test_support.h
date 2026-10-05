@@ -14,6 +14,9 @@ enum class KanbanScanFailurePoint
 {
     Construction,
     Advancement,
+    // Advancement throws, standing in for a std::filesystem exception such
+    // as a Windows narrow-name conversion failure escaping the scan.
+    Exception,
 };
 
 class FailingKanbanDirectoryCursor final
@@ -22,10 +25,12 @@ class FailingKanbanDirectoryCursor final
 public:
     explicit FailingKanbanDirectoryCursor(
         std::unique_ptr<kanban::KanbanDirectoryCursor> inner,
-        std::error_code failure, int& injected_failures)
+        std::error_code failure, int& injected_failures,
+        bool throw_failure = false)
         : inner_(std::move(inner))
         , failure_(failure)
         , injected_failures_(&injected_failures)
+        , throw_failure_(throw_failure)
     {
     }
 
@@ -42,6 +47,12 @@ public:
     bool increment(std::error_code& error) override
     {
         ++*injected_failures_;
+        if (throw_failure_)
+        {
+            throw std::filesystem::filesystem_error(
+                "simulated kanban scan exception", inner_->entry().path(),
+                failure_);
+        }
         error = failure_;
         return false;
     }
@@ -50,6 +61,7 @@ private:
     std::unique_ptr<kanban::KanbanDirectoryCursor> inner_;
     std::error_code failure_;
     int* injected_failures_ = nullptr;
+    bool throw_failure_ = false;
 };
 
 class FaultInjectingKanbanDirectoryOperations final
@@ -82,14 +94,16 @@ public:
 
         auto cursor = native_->open(directory, error);
         if (!cursor || error || !matches_failure_directory
-            || failure_point_ != KanbanScanFailurePoint::Advancement)
+            || failure_point_ == KanbanScanFailurePoint::Construction)
         {
             return cursor;
         }
+        const bool throws = failure_point_ == KanbanScanFailurePoint::Exception;
         return std::make_unique<FailingKanbanDirectoryCursor>(
             std::move(cursor),
-            std::make_error_code(std::errc::io_error),
-            injected_failures);
+            std::make_error_code(throws ? std::errc::illegal_byte_sequence
+                                        : std::errc::io_error),
+            injected_failures, throws);
     }
 
     int injected_failures = 0;

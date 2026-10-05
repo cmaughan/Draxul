@@ -43,6 +43,21 @@ int preferred_column_rank(std::string_view name)
 }
 } // namespace
 
+std::string kanban_path_utf8(const std::filesystem::path& path)
+{
+    const auto encoded = path.u8string();
+    return std::string(reinterpret_cast<const char*>(encoded.data()), encoded.size());
+}
+
+std::filesystem::path kanban_path_from_utf8(std::string_view utf8)
+{
+    std::u8string encoded;
+    encoded.reserve(utf8.size());
+    for (const char ch : utf8)
+        encoded.push_back(static_cast<char8_t>(ch));
+    return std::filesystem::path(encoded);
+}
+
 CardKind card_kind_for_file(std::string_view file_name)
 {
     if(ends_with(file_name, "-bug.md"))
