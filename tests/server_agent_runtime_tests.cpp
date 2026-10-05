@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "support/server_kernel_test_support.h"
+#include <algorithm>
 
 using namespace draxul;
 using draxul::tests::TempDir;
@@ -220,6 +221,8 @@ TEST_CASE("managed agents launch and restart without a UI",
     CHECK(started.result["runtime_generation"] == 1);
     const std::string instance_id
         = started.result["instance_id"].get<std::string>();
+    CHECK(std::ranges::count(instance_id, '-') == 1);
+    CHECK(instance_id.size() <= 16);
     const std::string pane_id
         = started.result["route"]["pane_id"]
               .get<std::string>();

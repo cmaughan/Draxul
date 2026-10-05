@@ -618,6 +618,78 @@ class WindowsServerHelperPreflightTests(unittest.TestCase):
         inventory.assert_not_called()
 
 
+class ReleaseShortcutTests(unittest.TestCase):
+    def test_release_process_preserves_arguments_cwd_output_and_exit_status(self) -> None:
+        if sys.platform.startswith("win"):
+            self.skipTest("POSIX executable fixture; Windows selection is covered separately")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            bd = root / "build"
+            bd.mkdir()
+            (bd / "CMakeCache.txt").write_text("CMAKE_BUILD_TYPE:STRING=Release\n")
+            exe = bd / "draxul"
+            exe.write_text(
+                f"#!{sys.executable}\n"
+                "import json, os, sys\n"
+                "print(json.dumps({'args': sys.argv[1:], 'cwd': os.getcwd()}))\n"
+                "sys.exit(17)\n"
+            )
+            exe.chmod(0o755)
+            driver = (
+                "import runpy, pathlib, sys; "
+                f"helper = runpy.run_path({str(ROOT / 'do.py')!r}); "
+                "sys.exit(helper['cmd_rel'](pathlib.Path(sys.argv[1]), sys.argv[2:]))"
+            )
+            args = ["agent", "prompt", "agent-1", "--text", "release --help with spaces", "--json"]
+            result = subprocess.run(
+                [sys.executable, "-c", driver, str(root), "--", *args],
+                cwd=tmp, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 17, result.stderr)
+            self.assertEqual(json.loads(result.stdout), {"args": args, "cwd": str(root.resolve())})
+
+    def test_missing_or_debug_build_does_not_launch_or_build(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            bd = root / "build"
+            bd.mkdir()
+            (bd / "CMakeCache.txt").write_text("CMAKE_BUILD_TYPE:STRING=Debug\n")
+            with (
+                mock.patch.object(draxul_do.subprocess, "run") as launch,
+                mock.patch.object(draxul_do, "_configure_and_build") as build,
+                contextlib.redirect_stderr(io.StringIO()) as errors,
+            ):
+                self.assertEqual(draxul_do.cmd_rel(root, []), 1)
+                (bd / "CMakeCache.txt").write_text("CMAKE_BUILD_TYPE:STRING=Release\n")
+                self.assertEqual(draxul_do.cmd_rel(root, []), 1)
+            launch.assert_not_called()
+            build.assert_not_called()
+            self.assertIn("No existing Release executable", errors.getvalue())
+
+    def test_windows_prefers_ninja_release_and_supports_visual_studio_release(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            ninja = root / "build-ninja-release"
+            ninja.mkdir()
+            (ninja / "CMakeCache.txt").write_text("CMAKE_BUILD_TYPE:STRING=Release\n")
+            ninja_exe = ninja / "draxul.exe"
+            ninja_exe.touch()
+            vs = root / "build"
+            (vs / "Release").mkdir(parents=True)
+            (vs / "CMakeCache.txt").write_text("CMAKE_CONFIGURATION_TYPES:STRING=Debug;Release\n")
+            vs_exe = vs / "Release" / "draxul.exe"
+            vs_exe.touch()
+            with (
+                mock.patch.object(draxul_do.sys, "platform", "win32"),
+                mock.patch.object(draxul_do.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as launch,
+            ):
+                self.assertEqual(draxul_do.cmd_rel(root, ["--help"]), 0)
+                launch.assert_called_with([str(ninja_exe), "--help"], check=False)
+                ninja_exe.unlink()
+                self.assertEqual(draxul_do.cmd_rel(root, ["pane", "list", "--json"]), 0)
+                launch.assert_called_with([str(vs_exe), "pane", "list", "--json"], check=False)
+
+
 class RunCommandTests(unittest.TestCase):
     def test_windows_gui_launch_returns_after_starting_app(self) -> None:
         executable = ROOT / "build-ninja-release" / "draxul.exe"

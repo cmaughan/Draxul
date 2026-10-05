@@ -833,32 +833,13 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             if (!pane_id)
                 pane_id = tab->panes.front().pane_id;
 
-            std::string instance_id;
-            for (;;)
-            {
-                instance_id = "server-agent-"
-                    + session->session_id + "-"
-                    + std::to_string(
-                        session->next_agent_serial++);
-                bool used = false;
-                for (const auto& candidate_space : topology.spaces)
-                {
-                    for (const auto& candidate_tab : candidate_space.tabs)
-                    {
-                        used = used
-                            || std::ranges::any_of(
-                                candidate_tab.panes,
-                                [&](const TopologyPane& pane) {
-                                    return pane.agent
-                                        && pane.agent
-                                               ->instance_id
-                                        == instance_id;
-                                });
-                    }
-                }
-                if (!used)
-                    break;
-            }
+            // Restored identities may not have appeared in the live projection yet.
+            for (const auto& candidate_space : topology.spaces)
+                for (const auto& candidate_tab : candidate_space.tabs)
+                    for (const auto& pane : candidate_tab.panes)
+                        if (pane.agent)
+                            session->agent_service->reserve_instance_id(pane.agent->instance_id);
+            const std::string instance_id = session->agent_service->allocate_instance_id();
             launch.identity = {
                 .profile_id = definition->profile_id,
                 .kind = definition->kind,

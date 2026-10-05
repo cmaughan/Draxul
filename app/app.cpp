@@ -5336,16 +5336,7 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
     else if (IHost* host = active_pane_manager().focused_host())
         launch.working_dir = host->current_working_directory();
 
-    std::string instance_id;
-    const auto existing_agents = agent_controller_.query(space_controller_);
-    do
-    {
-        instance_id = "agent-" + options_.session_id + "-"
-            + std::to_string(next_agent_instance_serial_++);
-    } while (std::any_of(existing_agents.begin(), existing_agents.end(),
-        [&](const AgentProjection& agent) {
-            return agent.identity.instance_id == instance_id;
-        }));
+    const std::string instance_id = agent_controller_.allocate_instance_id(space_controller_);
     launch.environment = {
         { "DRAXUL_ENV", "1" },
         { "DRAXUL_SESSION_ID", options_.session_id },

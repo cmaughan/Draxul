@@ -262,24 +262,50 @@ TEST_CASE("CLI dispatch preserves precedence exit codes and request arguments", 
         CHECK_FALSE(launch.needs_console);
         CHECK_FALSE(dispatch_cli(launch, capture.context));
     }
-    SECTION("control arguments and output cross the injected request boundary")
+    SECTION("send and prompt preserve text and submit in one request")
     {
         tests::ScopedEnvVar inherited_session("DRAXUL_SESSION_ID", "inherited");
-        const std::string text = "say \"hello\" \xE9\x9B\xAA";
-        const auto command = parse_command_line({ "draxul", "agent", "send", "agent-1", "--text", text, "--session", "explicit", "--json" });
+        const std::string text = "say \"hello\" 雪\nsecond line";
+        for (const std::string verb : { "send", "prompt" })
+        {
+            INFO(verb);
+            const auto command = parse_command_line({ "draxul", "agent", verb, "happy-otter", "--text", text, "--session", "explicit", "--json" });
+            REQUIRE_FALSE(command.error);
+            CliCapture capture;
+            int requests = 0;
+            capture.context.request = [&](std::string_view, const std::filesystem::path&, std::string_view method, nlohmann::json params) {
+                ++requests;
+                CHECK(method == "agent.send_text");
+                CHECK(params.at("instance_id") == "happy-otter");
+                CHECK(params.at("text") == (verb == "prompt" ? text + '\r' : text));
+                CHECK(params.contains("request_id"));
+                return ControlClientResult{ true, { { "accepted", true } }, {}, {} };
+            };
+            CHECK(dispatch_cli(command, capture.context) == 0);
+            CHECK(requests == 1);
+            CHECK(nlohmann::json::parse(CliCapture::read(capture.output.get())).at("accepted") == true);
+        }
+    }
+    SECTION("prompt includes Enter in the input limit and rejects empty input")
+    {
+        CHECK(parse_control_cli({ "draxul", "agent", "prompt", "happy-otter", "--text", "" }).error);
+        CHECK(parse_control_cli({ "draxul", "agent", "prompt", "happy-otter" }).error);
+        const std::string maximum_prompt(64 * 1024 - 1, 'x');
+        const auto command = parse_command_line({ "draxul", "agent", "prompt", "happy-otter", "--text", maximum_prompt, "--json" });
         REQUIRE_FALSE(command.error);
         CliCapture capture;
-        int requests = 0;
         capture.context.request = [&](std::string_view, const std::filesystem::path&, std::string_view method, nlohmann::json params) {
-            ++requests;
             CHECK(method == "agent.send_text");
-            CHECK(params.at("text") == text);
-            CHECK(params.contains("request_id"));
+            const auto bytes = params.at("text").get<std::string>();
+            CHECK(bytes.size() == 64 * 1024);
+            CHECK(bytes.back() == '\r');
             return ControlClientResult{ true, { { "accepted", true } }, {}, {} };
         };
         CHECK(dispatch_cli(command, capture.context) == 0);
-        CHECK(requests == 1);
-        CHECK(nlohmann::json::parse(CliCapture::read(capture.output.get())).at("accepted") == true);
+        const std::string maximum_send(64 * 1024, 'x');
+        CHECK(parse_control_cli({ "draxul", "agent", "prompt", "happy-otter", "--text", maximum_send }).error);
+        CHECK(parse_control_cli({ "draxul", "agent", "send", "happy-otter", "--text", maximum_send }).command);
+        CHECK(parse_control_cli({ "draxul", "agent", "send", "happy-otter", "--text", maximum_send + "x" }).error);
     }
 }
 

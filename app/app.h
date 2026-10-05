@@ -397,7 +397,6 @@ private:
     std::unordered_map<uint64_t, PendingServerStatusAction>
         pending_server_status_actions_;
     std::string remote_topology_projection_error_code_;
-    uint64_t next_agent_instance_serial_ = 1;
     RenderNode render_root_;
     std::vector<uint8_t> atlas_upload_scratch_;
     DiagnosticsCollector diagnostics_collector_;

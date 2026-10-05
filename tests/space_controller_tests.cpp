@@ -11,6 +11,7 @@
 #include "agent_controller.h"
 #include "space_controller.h"
 
+#include <algorithm>
 #include <thread>
 
 using namespace draxul;
@@ -614,7 +615,7 @@ TEST_CASE("agent controller discovers manual agents without persisting identity"
     REQUIRE(rows.size() == 1);
     CHECK(rows[0].identity.kind == "codex");
     CHECK(rows[0].identity.origin == AgentIdentityOrigin::Discovered);
-    CHECK(rows[0].identity.instance_id.starts_with("discovered-"));
+    CHECK(std::ranges::count(rows[0].identity.instance_id, '-') == 1);
     CHECK(rows[0].running);
     CHECK_FALSE(rows[0].session_ref);
 
@@ -653,7 +654,7 @@ TEST_CASE("agent controller manually attaches and corrects transient identity",
     REQUIRE(rows.size() == 1);
     CHECK(rows[0].identity.kind == "codex");
     CHECK(rows[0].identity.origin == AgentIdentityOrigin::Discovered);
-    CHECK(rows[0].identity.instance_id.starts_with("attached-"));
+    CHECK(std::ranges::count(rows[0].identity.instance_id, '-') == 1);
     CHECK(rows[0].identity_evidence_category == "manual_attach");
     CHECK(rows[0].identity_high_confidence);
     CHECK(rows[0].running);

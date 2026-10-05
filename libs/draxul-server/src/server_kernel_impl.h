@@ -269,7 +269,6 @@ public:
         std::unique_ptr<SessionPollService> poll_service;
         std::unordered_map<std::string, ServerTerminalEndpoint> terminals;
         uint64_t next_terminal_serial = 2;
-        uint64_t next_agent_serial = 1;
         std::filesystem::path persistence_path;
         std::vector<std::string> restore_warnings;
         std::optional<TopologySnapshot> restored_topology;

@@ -19,6 +19,7 @@ struct ControlCliCommand
     std::string value;
     std::string action;
     std::string text;
+    bool submit_text = false;
     std::string working_directory;
     std::vector<std::string> values;
     std::vector<std::string> arguments;

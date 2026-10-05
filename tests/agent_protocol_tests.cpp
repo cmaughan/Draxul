@@ -4,6 +4,7 @@
 #include "server_agent_service.h"
 
 #include <nlohmann/json.hpp>
+#include <algorithm>
 
 using namespace draxul;
 
@@ -39,6 +40,104 @@ ServerAgentRuntimeView discovered_codex_runtime(
 }
 
 } // namespace
+
+TEST_CASE("Claude current UI evidence drives explainable server status transitions",
+    "[agent][server][agent_status]")
+{
+    ServerAgentService service("claude-status");
+    auto now = std::chrono::steady_clock::now();
+    auto runtime = discovered_codex_runtime(now);
+    runtime.declared_identity = AgentIdentity{
+        .kind = "claude", .display_name = "Claude",
+        .instance_id = "happy-cat", .origin = AgentIdentityOrigin::Managed,
+    };
+    const std::string border = "────────────────────────────────────";
+    const std::string footer = "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents";
+    struct Case
+    {
+        const char* name;
+        std::vector<std::string> rows;
+        AgentStatus status;
+        const char* rule;
+    };
+    const std::vector<Case> cases{
+        { "observed Claude completion and NBSP draft",
+            { "Ordinary response", "✻ Churned for 10s · done 8:41", "", border,
+                "❯\xc2\xa0" "A private follow-up draft", border, footer },
+            AgentStatus::Idle, "current_input_prompt" },
+        { "empty current prompt", { border, "❯", border, "? for shortcuts" },
+            AgentStatus::Idle, "current_input_prompt" },
+        { "multiline draft is not status evidence",
+            { border, "❯ do you want to proceed", "esc to interrupt", "task completed", border, footer },
+            AgentStatus::Idle, "current_input_prompt" },
+        { "older progress is superseded by the current composer",
+            { "esc to interrupt", "Ordinary final response", border, "❯ next task", border, footer },
+            AgentStatus::Idle, "current_input_prompt" },
+        { "older approval is superseded by completion",
+            { "Do you want to proceed?", "✻ Worked for 1m 12s", border, "❯", border, footer },
+            AgentStatus::Idle, "current_input_prompt" },
+        { "working status above composer overrides draft",
+            { "✻ Thinking… (esc to interrupt)", "", border, "❯ next task", border, footer },
+            AgentStatus::Working, "interruptible_work" },
+        { "working footer overrides old completion",
+            { "✻ Worked for 2s", border, "❯", border, "esc to interrupt" },
+            AgentStatus::Working, "interruptible_work" },
+        { "approval wins over current progress",
+            { "Do you want to proceed?", border, "❯", border, "esc to interrupt" },
+            AgentStatus::Blocked, "approval_prompt" },
+        { "numbered approval menu is not an idle composer",
+            { "Do you want to proceed?", border, "❯ 1. Yes", "  2. No", border },
+            AgentStatus::Blocked, "approval_prompt" },
+        { "completion without a visible composer",
+            { "Ordinary response", "✻ Churned for 10s · done 8:41", "" },
+            AgentStatus::Done, "elapsed_completion" },
+        { "completion duration may contain minutes",
+            { "✽ Worked for 1m 12s" }, AgentStatus::Done, "elapsed_completion" },
+        { "fresh work supersedes old completion",
+            { "✻ Churned for 10s · done 8:41", "Thinking… esc to interrupt" },
+            AgentStatus::Working, "interruptible_work" },
+        { "fresh approval supersedes old completion",
+            { "✻ Worked for 2s", "Allow this command?" },
+            AgentStatus::Blocked, "allow_command_prompt" },
+        { "unframed historical prompt is not current input",
+            { "❯ previous request", "Ordinary response text" }, AgentStatus::Unknown, "" },
+        { "historical framed input followed by output is not current input",
+            { border, "❯ previous request", border, "Ordinary response text" }, AgentStatus::Unknown, "" },
+        { "prose containing for is not a completion summary",
+            { "This ran for 10s", "✻ Looking for files" }, AgentStatus::Unknown, "" },
+        { "arbitrary title alone is not idle evidence",
+            { "Unrecognized private output" }, AgentStatus::Unknown, "" },
+    };
+    for (const auto& fixture : cases)
+    {
+        INFO(fixture.name);
+        now += std::chrono::seconds(1);
+        auto& observation = *runtime.terminal_observation;
+        ++observation.output_generation;
+        observation.captured_at = now;
+        observation.last_output_at = now - std::chrono::milliseconds(200);
+        observation.terminal_title = "Claude - project";
+        observation.bottom_rows = fixture.rows;
+        service.update({ runtime }, now);
+        const auto listed = service.handle("agent.list", nlohmann::json::object());
+        REQUIRE(listed.ok);
+        REQUIRE(listed.value.size() == 1);
+        CHECK(listed.value[0]["status"] == to_string(fixture.status));
+        CHECK(listed.value[0]["running"] == true);
+        const auto explained = service.handle("agent.explain", { { "instance_id", "happy-cat" } });
+        REQUIRE(explained.ok);
+        CHECK(explained.value["explanation"]["rule_id"] == fixture.rule);
+        CHECK(explained.value["explanation"]["manifest_version"] == 2);
+        CHECK(explained.value.dump().find("private") == std::string::npos);
+        const auto waiting = service.handle("agent.wait", {
+            { "instance_id", "happy-cat" }, { "until", { "idle", "blocked", "done" } },
+            { "runtime_generation", runtime.generation.value },
+        });
+        REQUIRE(waiting.ok);
+        CHECK(waiting.value["complete"] == (fixture.status == AgentStatus::Idle
+            || fixture.status == AgentStatus::Blocked || fixture.status == AgentStatus::Done));
+    }
+}
 
 TEST_CASE("server agent snapshots round-trip sanitized state",
     "[agent][protocol]")
@@ -122,8 +221,8 @@ TEST_CASE("server agent service discovers evaluates and retires a runtime",
     REQUIRE(service.snapshot().agents.size() == 1);
     const std::string instance_id
         = service.snapshot().agents[0].identity.instance_id;
-    CHECK(instance_id.starts_with(
-        "server-discovered-terminal-1-4-"));
+    CHECK(std::ranges::count(instance_id, '-') == 1);
+    CHECK(instance_id.size() <= 16);
     CHECK(service.snapshot().agents[0].status
         == AgentStatus::Unknown);
 

@@ -1,5 +1,6 @@
 add_library(draxul-agent STATIC
     src/agent_discovery.cpp
+    src/agent_instance_ids.cpp
     src/agent_model.cpp
     src/agent_registry.cpp
     src/agent_status.cpp

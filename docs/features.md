@@ -652,6 +652,12 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
   project `idle`, `working`, `blocked`, and `done`; ambiguous output remains
   `unknown`. The Agents rail shows semantic state and client-local attention.
   `explain_agent_state` reports only sanitized evidence, never captured text.
+  Claude's status evaluator recognizes its current bordered `❯` composer,
+  including non-breaking spaces and wrapped draft text, as idle. Current
+  progress and approval indicators take precedence; draft contents and older
+  transcript indicators do not. Structured elapsed-time completion summaries
+  count as done when no current composer supersedes them. `agent explain`
+  identifies the matching rule under Claude manifest version 2.
 - Codex and Claude started manually inside ordinary shell panes are discovered
   best-effort by the server. Process inspection runs outside the server's
   terminal/control loop and publishes a cached observation at one-second
@@ -669,6 +675,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
   otherwise it sleeps for up to one second between housekeeping passes. This
   removes the old 25 ms control delay and polling cadence without delaying
   interactive terminal publication.
+- `agent prompt <instance-id> --text <text>` submits the text with Enter in one deduplicated input request. `agent send` sends the exact text without Enter; `agent keys <instance-id> Enter` can submit that draft separately. The 64 KiB input limit includes the Enter byte appended by `prompt`.
 - The shared server exposes its authenticated same-user local control endpoint.
   The headless topology/terminal commands above provide bounded discovery and
   manipulation by stable route ID and Session; structured agent operations
@@ -676,6 +683,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
   keys, and wait on a pinned runtime generation. Sanitized agent events never
   include terminal text; terminal text is available only through explicit pane
   reads and output waits.
+- New agent instance IDs are short names such as `happy-otter`, used directly by `agent get`, `prompt`, `keys`, `wait`, and other agent commands. Managed, discovered, and manually attached agents share collision-checked naming within their Session authority. Names are not recycled while that authority runs; after 4096 word combinations, numeric suffixes extend the namespace. Managed identities survive runtime restart and Session restore; discovered identities are transient. Existing stored identities are left unchanged. Use `agent list --json` to discover the actual IDs and `--session` to select a Session.
 - Shared server Sessions expose the sanitized Agents projection to every
   attached UI. Agent focus and attention acknowledgement remain local to each
   window. `agent list/get/explain/wait/restart/send-text/send-keys` and bounded
@@ -1000,6 +1008,7 @@ and `draxul integration status` do not pass through the launch-option parser.
 - `do run relwithdebinfo` / `do build relwithdebinfo` use `RelWithDebInfo` on Windows for optimized builds with PDB symbols
 - `do run --vs` falls back to the Visual Studio generator if you want the existing `build/` workflow
 - `do run --ninja` forces the Ninja local-iteration path explicitly
+- `do rel [app-args...]` runs the existing Release executable without configuring or building, preserving the caller's working directory, standard streams, and exit code. `dr rel` uses the current repository helper; the local workspace helper also supports `drr rel` from any directory. On Windows it prefers Ninja Release, then the existing `build` Release configuration; on macOS it requires the shared `build` cache to be Release. Missing Release builds report an error without rebuilding. An optional leading `--` separates the forwarded arguments.
 - On Windows, `do run` launches the GUI and immediately returns the calling console prompt. Pass `--console` when the launcher must stay attached for diagnostic output and the application's exit code
 - `do test` builds `draxul-tests-core` and its helper/dependency targets in the selected `do.py` cache, then runs their unit and integration entries through CTest with bounded parallelism, including app-shell, host-API, and CMake registration contracts. Integration cases may launch isolated app/server processes; startup smoke and core render snapshots remain separate
 - When SatView is enabled, the core plugin integration target stages its real plugin package and checks that pane preferences survive close/reopen and native reload; App smoke tests also inspect the read-only chrome layout after weather config reload and drive a real Neovim host through font replacement.

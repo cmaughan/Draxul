@@ -363,6 +363,7 @@ draxul agent start <profile-id> [--cwd <path>] \
   [--space <id>] [--tab <id>] [--pane <id>] [--replace] \
   [-- <agent arguments...>] --json
 draxul agent prompt <instance-id> --text <prompt> --json
+draxul agent send <instance-id> --text <text> --json
 draxul agent keys <instance-id> <key> [key...] --json
 draxul agent wait <instance-id> --until <state,state> \
   [--timeout <duration>] --json
@@ -373,6 +374,20 @@ draxul agent restart <instance-id> --json
 the pane ID while allocating the managed terminal and agent identity. Capture
 the returned `instance_id`; use `agent get` for its route and `pane read` on the
 returned `route.pane_id` to inspect its screen.
+
+`agent prompt` sends the text and presses Enter in one request. Do not follow it
+with another Enter. Use `agent send` to type without submitting; send
+`agent keys <instance-id> Enter` later when ready. The input limit is 64 KiB,
+including the appended Enter byte for `prompt`. For example:
+
+```text
+draxul agent prompt happy-otter --text "Review the latest changes." --json
+```
+
+Use the actual `instance_id` from `agent list` or `agent start`. In the local
+development workspace, `dr rel agent prompt ...` (inside the Draxul repository)
+or `drr rel agent prompt ...` (from any directory) runs the existing Release
+executable without rebuilding.
 
 Agent semantic states are `unknown`, `idle`, `working`, `blocked`, and `done`.
 Use `agent explain` when a state is surprising. A common completion wait is:

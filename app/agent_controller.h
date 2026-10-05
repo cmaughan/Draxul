@@ -3,6 +3,7 @@
 #include "space_id.h"
 #include <draxul/split_tree.h>
 #include <draxul/agent_model.h>
+#include <draxul/agent_instance_ids.h>
 
 #include <chrono>
 #include <optional>
@@ -45,6 +46,7 @@ struct AgentProjection
 class AgentController
 {
 public:
+    std::string allocate_instance_id(SpaceController& spaces);
     // Always recomputes. Use this when the caller needs current truth and is
     // not on the frame path: the control plane, and any mutation that must
     // observe its own effect.
@@ -104,7 +106,7 @@ private:
 
     std::unordered_map<std::string, CachedSemanticState> semantic_state_;
     std::unordered_map<std::string, CachedDiscoveryState> discovery_state_;
-    uint64_t next_discovered_instance_ = 1;
+    AgentInstanceIds instance_ids_;
     std::vector<AgentProjection> server_agents_;
     std::unordered_map<std::string, uint64_t>
         minimum_server_generations_;

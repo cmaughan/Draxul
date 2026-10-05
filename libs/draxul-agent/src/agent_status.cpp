@@ -79,6 +79,94 @@ bool codex_working_line(std::string_view line)
         && normalized.find("esc to interrupt)") != std::string::npos;
 }
 
+bool claude_input_border(std::string_view line)
+{
+    line = trim_view(line);
+    size_t count = 0;
+    while (line.starts_with("─"))
+    {
+        line.remove_prefix(std::string_view("─").size());
+        ++count;
+    }
+    return count >= 3 && line.empty();
+}
+
+struct ClaudeComposer
+{
+    size_t top;
+    size_t bottom;
+};
+
+std::optional<ClaudeComposer> claude_composer(const std::vector<std::string>& rows)
+{
+    for (size_t index = rows.size(); index-- > 1;)
+    {
+        auto prompt = trim_view(rows[index]);
+        if (!prompt.starts_with("❯"))
+            continue;
+        prompt.remove_prefix(std::string_view("❯").size());
+        if (!prompt.empty() && !prompt.starts_with(' ') && !prompt.starts_with('\t')
+            && !prompt.starts_with("\xc2\xa0"))
+            continue;
+        if (prompt.starts_with("\xc2\xa0"))
+            prompt.remove_prefix(2);
+        prompt = trim_view(prompt);
+        // Approval menus also use an arrow, but their numbered choices are
+        // not a text composer.
+        if (prompt.size() >= 3 && prompt.front() >= '0' && prompt.front() <= '9'
+            && prompt.substr(1).starts_with(". "))
+            continue;
+        if (!claude_input_border(rows[index - 1]))
+            continue;
+        for (size_t bottom = index + 1; bottom < rows.size(); ++bottom)
+            if (claude_input_border(rows[bottom]))
+            {
+                // A historical bordered prompt followed by response text is
+                // not the current input area. Recognize only current footer UI.
+                for (size_t footer = bottom + 1; footer < rows.size(); ++footer)
+                {
+                    const auto text = ascii_lower(trim_view(rows[footer]));
+                    const bool status = std::ranges::any_of(kClaudeRules, [&](const ScreenRule& rule) {
+                        return (rule.status == AgentStatus::Working || rule.status == AgentStatus::Blocked)
+                            && text.find(rule.needle) != std::string::npos;
+                    });
+                    if (!text.empty() && text.find("shift+tab") == std::string::npos
+                        && text.find("? for shortcuts") == std::string::npos
+                        && text.find("context left") == std::string::npos && !status)
+                        return std::nullopt;
+                }
+                return ClaudeComposer{ index - 1, bottom };
+            }
+    }
+    return std::nullopt;
+}
+
+bool claude_completion_line(std::string_view line)
+{
+    line = trim_view(line);
+    constexpr std::array<std::string_view, 6> markers = { "✻ ", "✽ ", "✶ ", "✳ ", "✢ ", "· " };
+    const auto marker = std::ranges::find_if(markers,
+        [line](std::string_view prefix) { return line.starts_with(prefix); });
+    if (marker == markers.end())
+        return false;
+    line.remove_prefix(marker->size());
+    const auto duration_start = line.find(" for ");
+    if (duration_start == std::string_view::npos || duration_start == 0)
+        return false;
+    auto duration = line.substr(duration_start + 5);
+    const auto detail = duration.find(" · ");
+    if (detail != std::string_view::npos)
+    {
+        if (!duration.substr(detail).starts_with(" · done "))
+            return false;
+        duration = duration.substr(0, detail);
+    }
+    duration = trim_view(duration);
+    return !duration.empty() && duration.front() >= '0' && duration.front() <= '9'
+        && duration.find_first_of("hms") != std::string_view::npos
+        && duration.find_first_not_of("0123456789.hms ") == std::string_view::npos;
+}
+
 } // namespace
 
 AgentStatusExplanation evaluate_agent_observation(
@@ -106,7 +194,7 @@ AgentStatusExplanation evaluate_agent_observation(
     }
 
     result.authority = AgentStateAuthority::ScreenManifest;
-    result.manifest_version = agent_kind == "codex" ? 2 : 1;
+    result.manifest_version = 2;
 
     const auto apply_rules = [&rules, &result](std::string_view evidence) {
         const std::string normalized = ascii_lower(evidence);
@@ -121,6 +209,47 @@ AgentStatusExplanation evaluate_agent_observation(
         }
         return false;
     };
+
+    if (agent_kind == "claude")
+    {
+        if (const auto composer = claude_composer(observation.bottom_rows))
+        {
+            std::optional<AgentStatusExplanation> working;
+            // The bordered composer is current UI, not a historical user turn.
+            // Never interpret the user's draft (including wrapped lines) as status.
+            for (size_t index = observation.bottom_rows.size(); index-- > composer->bottom + 1;)
+            {
+                if (apply_rules(observation.bottom_rows[index]))
+                {
+                    if (result.status == AgentStatus::Blocked)
+                        return result;
+                    if (result.status == AgentStatus::Working)
+                        working = result;
+                }
+            }
+            // An active progress/approval row can sit just above the composer.
+            // Older transcript rows beyond the nearest nonempty line are stale.
+            for (size_t index = composer->top; index-- > 0;)
+            {
+                if (trim_view(observation.bottom_rows[index]).empty())
+                    continue;
+                if (apply_rules(observation.bottom_rows[index]))
+                {
+                    if (result.status == AgentStatus::Blocked)
+                        return result;
+                    if (result.status == AgentStatus::Working)
+                        working = result;
+                }
+                break;
+            }
+            if (working)
+                return *working;
+            result.status = AgentStatus::Idle;
+            result.rule_id = "current_input_prompt";
+            result.evidence_category = "input_prompt";
+            return result;
+        }
+    }
 
     if (agent_kind == "codex")
     {
@@ -148,6 +277,13 @@ AgentStatusExplanation evaluate_agent_observation(
     {
         if (apply_rules(*row))
             return result;
+        if (agent_kind == "claude" && claude_completion_line(*row))
+        {
+            result.status = AgentStatus::Done;
+            result.rule_id = "elapsed_completion";
+            result.evidence_category = "completion_indicator";
+            return result;
+        }
     }
 
     if (agent_kind == "codex")

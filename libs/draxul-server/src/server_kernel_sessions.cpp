@@ -49,11 +49,6 @@ namespace draxul
 namespace
 {
 
-uint64_t numeric_suffix(std::string_view value)
-{
-    return topology_id_serial<uint64_t>(value, 0);
-}
-
 bool valid_server_session_id(std::string_view value)
 {
     return !value.empty()
@@ -372,7 +367,6 @@ bool ServerKernel::Impl::initialize_session(
     session.poll_service.reset();
     session.terminals.clear();
     session.next_terminal_serial = 2;
-    session.next_agent_serial = 1;
 
     const std::string stable_session_id = session.session_id;
     TopologyServiceCallbacks callbacks{
@@ -418,14 +412,6 @@ bool ServerKernel::Impl::initialize_session(
                         ServerTerminalRuntimeOptions>
                         runtime_options;
                     bool start_immediately = false;
-                    if (pane.agent)
-                    {
-                        session.next_agent_serial = std::max(
-                            session.next_agent_serial,
-                            numeric_suffix(
-                                pane.agent->instance_id)
-                                + 1);
-                    }
                     if (pane.agent
                         && pane.agent->origin
                             == AgentIdentityOrigin::Managed
@@ -590,6 +576,11 @@ bool ServerKernel::Impl::initialize_session(
     session.agent_service
         = std::make_unique<ServerAgentService>(
             stable_session_id);
+    for (const auto& space : session.topology_service->snapshot().spaces)
+        for (const auto& tab : space.tabs)
+            for (const auto& pane : tab.panes)
+                if (pane.agent)
+                    session.agent_service->reserve_instance_id(pane.agent->instance_id);
     session.poll_service
         = std::make_unique<SessionPollService>(epoch_value);
     session.next_agent_refresh_at

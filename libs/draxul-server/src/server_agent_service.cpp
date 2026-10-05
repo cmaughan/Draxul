@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <nlohmann/json.hpp>
-#include <sstream>
 #include <unordered_set>
 #include <utility>
 
@@ -113,6 +112,10 @@ void ServerAgentService::update(
 {
     std::vector<ServerAgentProjection> agents;
     std::unordered_set<std::string> live_terminals;
+    // Reserve all managed identities before discovery, regardless of pane order.
+    for (const auto& runtime : runtimes)
+        if (runtime.declared_identity)
+            reserve_instance_id(runtime.declared_identity->instance_id);
     for (const auto& runtime : runtimes)
     {
         if (runtime.terminal_id.empty())
@@ -151,15 +154,10 @@ void ServerAgentService::update(
                         != discovered->kind;
                 if (changed)
                 {
-                    std::ostringstream instance;
-                    instance << "server-discovered-"
-                             << runtime.terminal_id << '-'
-                             << runtime.generation.value << '-'
-                             << next_instance_serial_++;
                     state.discovered_identity = AgentIdentity{
                         .kind = discovered->kind,
                         .display_name = discovered->display_name,
-                        .instance_id = instance.str(),
+                        .instance_id = allocate_instance_id(),
                         .origin
                         = AgentIdentityOrigin::Discovered,
                     };

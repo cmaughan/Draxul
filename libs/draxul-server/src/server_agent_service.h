@@ -1,6 +1,7 @@
 #pragma once
 
 #include <draxul/agent_protocol.h>
+#include <draxul/agent_instance_ids.h>
 #include <draxul/control_plane.h>
 
 #include <chrono>
@@ -36,6 +37,9 @@ class ServerAgentService
 public:
     explicit ServerAgentService(std::string session_id);
 
+    void reserve_instance_id(std::string_view identity) { instance_ids_.reserve(identity); }
+    std::string allocate_instance_id() { return instance_ids_.next(); }
+
     void update(const std::vector<ServerAgentRuntimeView>& runtimes,
         std::chrono::steady_clock::time_point now
         = std::chrono::steady_clock::now());
@@ -65,7 +69,7 @@ private:
     std::string session_id_;
     ServerAgentSnapshot snapshot_;
     std::unordered_map<std::string, RuntimeState> runtime_states_;
-    uint64_t next_instance_serial_ = 1;
+    AgentInstanceIds instance_ids_;
 };
 
 } // namespace draxul

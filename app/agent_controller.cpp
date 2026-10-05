@@ -4,11 +4,23 @@
 
 #include <draxul/log.h>
 
-#include <sstream>
 #include <unordered_set>
 
 namespace draxul
 {
+
+std::string AgentController::allocate_instance_id(SpaceController& spaces)
+{
+    for (const auto& space : spaces.spaces())
+        for (const auto& tab : space->tab_controller.tabs())
+            tab->pane_manager.for_each_host([&](LeafId leaf, IHost&) {
+                if (const auto* identity = tab->pane_manager.agent_identity(leaf))
+                    instance_ids_.reserve(identity->instance_id);
+            });
+    for (const auto& agent : server_agents_)
+        instance_ids_.reserve(agent.identity.instance_id);
+    return instance_ids_.next();
+}
 
 void AgentController::begin_frame()
 {
@@ -207,14 +219,10 @@ std::vector<AgentProjection> AgentController::compute(SpaceController& spaces)
                         if (new_occupant)
                         {
                             discovery.detected_at = now;
-                            std::ostringstream instance;
-                            instance << "discovered-" << space->id << '-'
-                                     << tab->id << '-' << panes.pane_id(leaf)
-                                     << '-' << next_discovered_instance_++;
                             panes.set_agent_identity(leaf, {
                                                                .kind = match->kind,
                                                                .display_name = match->display_name,
-                                                               .instance_id = instance.str(),
+                                                               .instance_id = allocate_instance_id(spaces),
                                                                .origin = AgentIdentityOrigin::Discovered,
                                                            });
                             identity = panes.agent_identity(leaf);
@@ -537,14 +545,11 @@ bool AgentController::attach_focused(
     discovery.process_present = true;
     discovery.manual_override = true;
 
-    std::ostringstream instance;
-    instance << "attached-" << space->id << '-' << tab->id << '-'
-             << panes.pane_id(leaf) << '-' << next_discovered_instance_++;
     panes.set_agent_identity(leaf, {
                                        .profile_id = definition.profile_id,
                                        .kind = definition.kind,
                                        .display_name = definition.display_name,
-                                       .instance_id = instance.str(),
+                                       .instance_id = allocate_instance_id(spaces),
                                        .origin = AgentIdentityOrigin::Discovered,
                                    });
     invalidate();

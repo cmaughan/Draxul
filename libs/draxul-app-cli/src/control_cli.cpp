@@ -175,7 +175,10 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         command.method = "agent.restart";
     else if (noun == "agent"
         && (verb == "send" || verb == "prompt"))
+    {
         command.method = "agent.send_text";
+        command.submit_text = verb == "prompt";
+    }
     else if (noun == "agent" && verb == "keys")
         command.method = "agent.send_keys";
     else if (noun == "agent" && verb == "wait")
@@ -505,7 +508,13 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
     }
     if (command.method == "agent.send_text" && command.text.empty())
     {
-        parsed.error = "agent send requires --text.";
+        parsed.error = "agent " + verb + " requires non-empty --text.";
+        return parsed;
+    }
+    if (command.method == "agent.send_text"
+        && command.text.size() > 64 * 1024 - (command.submit_text ? 1 : 0))
+    {
+        parsed.error = "Agent input exceeds 64 KiB (including Enter for agent prompt).";
         return parsed;
     }
     if (command.method == "pane.action" && command.action.empty())
@@ -647,7 +656,8 @@ int run_control_cli(const ControlCliCommand& command, const CliContext& io)
     else if (command.method == "agent.send_text")
     {
         params["instance_id"] = command.value;
-        params["text"] = command.text;
+        // Submit in the same deduplicated mutation, not a second key request.
+        params["text"] = command.submit_text ? command.text + '\r' : command.text;
     }
     else if (command.method == "agent.send_keys")
     {

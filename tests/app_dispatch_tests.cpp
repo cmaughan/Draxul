@@ -449,32 +449,49 @@ TEST_CASE("app dispatch: shared Neovim split retains actions until its host exis
     const auto pump_until = [&](auto condition) {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         while (!condition() && std::chrono::steady_clock::now() < deadline)
+        {
             REQUIRE(app.run_smoke_test(std::chrono::milliseconds(20)));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
         REQUIRE(condition());
     };
     pump_until([&] { return registry.terminal_hosts.size() == 1; });
-    DispatchTrackingHost* board = registry.terminal_hosts.front();
-    REQUIRE(board->callbacks() != nullptr);
-    board->clear_dispatched_actions();
+    const auto current_board = [&]() {
+        DispatchTrackingHost* board = nullptr;
+        for (const auto& space : app.space_controller().spaces())
+            for (const auto& tab : space->tab_controller.tabs())
+                tab->pane_manager.for_each_host([&](LeafId, IHost& host) {
+                    if (!host.is_nvim_host())
+                        board = dynamic_cast<DispatchTrackingHost*>(&host);
+                });
+        REQUIRE(board != nullptr);
+        return board;
+    };
+    // Projection rollback can replace the board host. Resolve its current
+    // instance after pumping instead of retaining a destroyed fixture pointer.
+    REQUIRE(current_board()->callbacks() != nullptr);
+    current_board()->clear_dispatched_actions();
     serve_requests = false;
     pump_until([&] { return paused.load(); });
 
     const bool keep_focus = scenario != Scenario::FocusNvim;
     const std::string first_action = "open_file:" + (temp.path / "first card.md").string();
     const std::string second_action = "open_file:" + (temp.path / "second card.md").string();
-    REQUIRE(board->callbacks()->dispatch_to_nvim_host(first_action, keep_focus));
+    REQUIRE(current_board()->callbacks()->dispatch_to_nvim_host(first_action, keep_focus));
     REQUIRE(registry.nvim_hosts.empty());
-    CHECK(board->dispatched_actions().empty());
+    CHECK(current_board()->dispatched_actions().empty());
     if (scenario == Scenario::RepeatedOpen)
-        REQUIRE(board->callbacks()->dispatch_to_nvim_host(second_action, keep_focus));
+        REQUIRE(current_board()->callbacks()->dispatch_to_nvim_host(second_action, keep_focus));
     serve_requests = true;
     if (scenario == Scenario::RejectedOpen)
     {
         pump_until([&] { return rejected.load(); });
-        // Give the UI a chance to consume the rejection before retrying.
-        REQUIRE(app.run_smoke_test(std::chrono::milliseconds(100)));
+        // run_smoke_test can return after one frame; its timeout is not a
+        // requested pumping duration. Drain the reply before sending a retry.
+        const auto drain_until = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+        pump_until([&] { return std::chrono::steady_clock::now() >= drain_until; });
         REQUIRE(registry.nvim_hosts.empty());
-        REQUIRE(board->callbacks()->dispatch_to_nvim_host(second_action, keep_focus));
+        REQUIRE(current_board()->callbacks()->dispatch_to_nvim_host(second_action, keep_focus));
     }
     pump_until([&] {
         return !registry.nvim_hosts.empty()
@@ -486,15 +503,15 @@ TEST_CASE("app dispatch: shared Neovim split retains actions until its host exis
         ? std::vector<std::string>{ first_action, second_action }
         : std::vector<std::string>{ scenario == Scenario::RejectedOpen ? second_action : first_action };
     CHECK(nvim->dispatched_actions() == expected);
-    CHECK(board->dispatched_actions().empty());
+    CHECK(current_board()->dispatched_actions().empty());
     CHECK(split_commands == (scenario == Scenario::RejectedOpen ? 2 : 1));
     REQUIRE(window->on_key != nullptr);
     window->on_key({ .scancode = 4, .keycode = 'a', .mod = kModNone, .pressed = true });
-    CHECK(board->key_events.size() == (keep_focus ? 1 : 0));
+    CHECK(current_board()->key_events.size() == (keep_focus ? 1 : 0));
     CHECK(nvim->key_events.size() == (keep_focus ? 0 : 1));
 
     // Subsequent opens reuse the projected host without another split.
-    REQUIRE(board->callbacks()->dispatch_to_nvim_host(second_action, keep_focus));
+    REQUIRE(current_board()->callbacks()->dispatch_to_nvim_host(second_action, keep_focus));
     CHECK(nvim->dispatched_actions().back() == second_action);
     CHECK(registry.nvim_hosts.size() == 1);
     CHECK(split_commands == (scenario == Scenario::RejectedOpen ? 2 : 1));

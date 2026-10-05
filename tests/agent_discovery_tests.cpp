@@ -1,8 +1,32 @@
 #include <catch2/catch_all.hpp>
 
 #include <draxul/agent_model.h>
+#include <draxul/agent_instance_ids.h>
+#include <algorithm>
+#include <unordered_set>
 
 using namespace draxul;
+
+TEST_CASE("agent names reserve restored identities and never recycle exhausted word pairs",
+    "[agent][discovery]")
+{
+    AgentInstanceIds ids;
+    ids.reserve("happy-cat");
+    ids.reserve("happy-cat-2");
+    std::unordered_set<std::string> names{ "happy-cat", "happy-cat-2" };
+    for (int index = 0; index < 8192; ++index)
+    {
+        const std::string name = ids.next();
+        REQUIRE(names.insert(name).second);
+        REQUIRE(std::ranges::all_of(name, [](char c) {
+            return (c >= 'a' && c <= 'z') || c == '-' || (c >= '0' && c <= '9');
+        }));
+        if (index < 4095)
+            REQUIRE(std::ranges::count(name, '-') == 1);
+        else
+            REQUIRE(std::ranges::count(name, '-') == 2);
+    }
+}
 
 TEST_CASE("agent discovery recognizes direct and structured wrapper processes",
     "[agent][discovery]")

@@ -1201,6 +1201,27 @@ def cmd_test(root: pathlib.Path, args: list[str]) -> int:
     return result
 
 
+def cmd_rel(root: pathlib.Path, args: list[str]) -> int:
+    """Run an existing Release executable without configuring or building."""
+    candidates = [root / "build"]
+    if sys.platform.startswith("win"):
+        candidates.insert(0, root / "build-ninja-release")
+    for bd in candidates:
+        cache = bd / "CMakeCache.txt"
+        configurations = (_cache_value(cache, "CMAKE_CONFIGURATION_TYPES") or "").split(";")
+        if "Release" not in configurations and _cache_build_type(cache) != "Release":
+            continue
+        exe = draxul_exe(bd, "Release")
+        if not exe.is_file():
+            continue
+        app_args = args[1:] if args and args[0] == "--" else args
+        # Inherit the caller's directory and streams: relative paths and JSON
+        # output must behave just like invoking the executable directly.
+        return subprocess.run([str(exe), *app_args], check=False).returncode
+    print("ERROR: No existing Release executable found. Run `dr build release` first.", file=sys.stderr)
+    return 1
+
+
 def cmd_run(root: pathlib.Path, args: list[str]) -> int:
     """Full configure + build + run cycle (replaces r.bat / r.sh)."""
     mode, force_reconfigure, build_system, use_console, app_args = _parse_build_args(args)
@@ -2403,6 +2424,8 @@ def help_text() -> str:
   do <command> [options]
 
 Single-word shortcuts:
+  rel [app-args...]
+               Run the existing Release build without configuring or building
   build [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja]
                Configure and build Draxul (default: debug, ninja on Windows)
   run [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--console]
@@ -2484,6 +2507,9 @@ def main() -> int:
 
     command = args[0].lower()
     skip_build = "--skip-build" in args[1:]
+
+    if command == "rel":
+        return cmd_rel(root, args[1:])
 
     if command == "clean":
         if args[1:]:
