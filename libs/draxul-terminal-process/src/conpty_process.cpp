@@ -287,7 +287,8 @@ std::wstring read_remote_unicode(
 }
 
 void read_process_arguments_and_hint(DWORD process_id,
-    std::vector<std::string>* arguments, std::string* hint)
+    std::vector<std::string>* arguments, std::string* hint,
+    std::string* working_directory = nullptr)
 {
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION
             | PROCESS_VM_READ,
@@ -299,6 +300,14 @@ void read_process_arguments_and_hint(DWORD process_id,
     {
         CloseHandle(process);
         return;
+    }
+
+    if (working_directory)
+    {
+        const std::wstring directory = read_remote_unicode(
+            process, params.current_directory.dos_path, 64 * 1024);
+        if (!directory.empty())
+            *working_directory = narrow_utf8(directory);
     }
 
     const std::wstring command_line = read_remote_unicode(process, params.command_line, 64 * 1024);
@@ -409,14 +418,16 @@ void append_agent_process(
         return;
     std::vector<std::string> arguments;
     std::string hint;
+    std::string working_directory;
     read_process_arguments_and_hint(
-        process_id, &arguments, &hint);
+        process_id, &arguments, &hint, &working_directory);
     observation.processes.push_back({
         .process_id = process_id,
         .parent_process_id = process_parent_id(process_id),
         .executable = std::move(executable),
         .arguments = std::move(arguments),
         .agent_hint = std::move(hint),
+        .working_directory = std::move(working_directory),
     });
 }
 

@@ -1,5 +1,7 @@
 #include <draxul/agent_protocol.h>
 
+#include <cmath>
+
 #include "json_extract.h"
 
 #include <nlohmann/json.hpp>
@@ -192,7 +194,36 @@ nlohmann::json projection_to_json(
     }
     if (projection.exit_code)
         value["exit_code"] = *projection.exit_code;
+    if (projection.activity)
+    {
+        value["activity"] = {
+            { "tokens_per_second", projection.activity->tokens_per_second },
+            { "measured_at_ms", projection.activity->measured_at_ms },
+            { "session_tokens", projection.activity->session_tokens },
+        };
+    }
     return value;
+}
+
+// Optional and additive: older servers omit it and older clients ignore it.
+bool read_activity(const nlohmann::json& value, AgentActivity& activity)
+{
+    if (!value.is_object())
+        return false;
+    const auto rate = value.find("tokens_per_second");
+    const auto measured = value.find("measured_at_ms");
+    const auto tokens = value.find("session_tokens");
+    if (rate == value.end() || !rate->is_number() || measured == value.end()
+        || !measured->is_number_integer() || tokens == value.end()
+        || !tokens->is_number_unsigned())
+        return false;
+    const double tokens_per_second = rate->get<double>();
+    if (!std::isfinite(tokens_per_second) || tokens_per_second < 0.0)
+        return false;
+    activity.tokens_per_second = tokens_per_second;
+    activity.measured_at_ms = measured->get<int64_t>();
+    activity.session_tokens = tokens->get<uint64_t>();
+    return true;
 }
 
 bool read_projection(const nlohmann::json& value,
@@ -275,6 +306,13 @@ bool read_projection(const nlohmann::json& value,
         if (!read_session_ref(*session, ref))
             return false;
         projection.session_ref = std::move(ref);
+    }
+    if (const auto activity = value.find("activity"); activity != value.end())
+    {
+        AgentActivity parsed;
+        if (!read_activity(*activity, parsed))
+            return false;
+        projection.activity = parsed;
     }
     return true;
 }

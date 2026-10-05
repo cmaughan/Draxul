@@ -346,6 +346,8 @@ Good place for:
 | `libs/draxul-host/` | Five independently linked static leaves: neutral `draxul-host-api`, renderer-backed `draxul-grid-host`, process-free client presentation in `draxul-terminal-host`, concrete `draxul-nvim-host`, and `draxul-plugin-host` |
 | `libs/draxul-app-shell/` | Renderer/window/host-free split-tree, root-shell, chrome/pill, rename, and fuzzy-match behavior |
 | `libs/draxul-nanovg/` | Two targets: `draxul-nanovg-backend` (NanoVG core + custom Vulkan/Metal backends and their GLSL shaders; leaf-narrow, exported as `Draxul::PluginSupport::NanoVG` with a settable shader root for plugin hosts; its device-free paint conversion is shared by both native backends) and `draxul-nanovg` (the in-process `INanoVGPass` render-pass integration) |
+| `libs/draxul-agent-usage/` | Server-owned per-agent token activity: incremental Codex/Claude session tails, TokenFu rolling rate window, and `AgentUsageMonitor` (session-id or unique-directory attribution, native `FileMonitor` notifications, budgeted reads); publishes only `AgentActivity` values |
+| `libs/draxul-activity-coin/` | `IActivityCoinPass`: the TokenFu-derived 3D activity coin as an in-process render pass for the Agents rail; procedural mesh with per-facet vertex-shader culling (no buffers or depth), Metal source compiled at runtime and Vulkan SPIR-V from its `shaders/` |
 | `libs/draxul-render-test/` | Render-test driver and reusable render-test hosts |
 
 ## Product Modules

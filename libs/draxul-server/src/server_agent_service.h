@@ -5,6 +5,7 @@
 #include <draxul/control_plane.h>
 
 #include <chrono>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -14,6 +15,8 @@
 namespace draxul
 {
 
+class AgentUsageMonitor;
+
 struct ServerAgentRuntimeView
 {
     std::string space_id;
@@ -22,6 +25,9 @@ struct ServerAgentRuntimeView
     std::string terminal_id;
     std::optional<AgentIdentity> declared_identity;
     std::optional<AgentSessionRef> session_ref;
+    // Directory a managed agent was launched in; discovered agents use the
+    // probed process directory instead.
+    std::string launch_working_directory;
     AgentRuntimeGeneration generation{};
     bool runtime_running = false;
     std::optional<int> exit_code;
@@ -35,7 +41,12 @@ struct ServerAgentRuntimeView
 class ServerAgentService
 {
 public:
+    // usage_monitor attributes token activity from native session files;
+    // without one, projections carry no activity.
     explicit ServerAgentService(std::string session_id);
+    ServerAgentService(std::string session_id,
+        std::unique_ptr<AgentUsageMonitor> usage_monitor);
+    ~ServerAgentService();
 
     void reserve_instance_id(std::string_view identity) { instance_ids_.reserve(identity); }
     std::string allocate_instance_id() { return instance_ids_.next(); }
@@ -64,12 +75,15 @@ private:
         AgentStatusExplanation explanation;
         bool attention = false;
         AgentStatus last_status = AgentStatus::Unknown;
+        std::string working_directory;
+        std::chrono::steady_clock::time_point first_seen_at{};
     };
 
     std::string session_id_;
     ServerAgentSnapshot snapshot_;
     std::unordered_map<std::string, RuntimeState> runtime_states_;
     AgentInstanceIds instance_ids_;
+    std::unique_ptr<AgentUsageMonitor> usage_monitor_;
 };
 
 } // namespace draxul

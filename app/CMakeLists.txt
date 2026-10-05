@@ -56,6 +56,7 @@ target_link_libraries(draxul-app PUBLIC
     draxul-terminal-host
     draxul-plugin
     draxul-nanovg
+    draxul-activity-coin
 )
 target_link_libraries(draxul-app PRIVATE draxul-performance)
 target_link_libraries(draxul-app PRIVATE draxul-agent-integration)

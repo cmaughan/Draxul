@@ -1,5 +1,6 @@
 #include <catch2/catch_all.hpp>
 
+#include <draxul/activity_coin_motion.h>
 #include <draxul/chrome_layout.h>
 
 using namespace draxul;
@@ -437,4 +438,79 @@ TEST_CASE("ChromeLayout preserves one-tab geometry with weather and chord pills 
     CHECK(layout.right_pills.front().rect.x + layout.right_pills.front().rect.w
         == Catch::Approx(481.5f));
     CHECK(layout.tabs[0].col_end <= layout.right_pills.back().col_begin - 1);
+}
+
+TEST_CASE("ChromeLayout places an activity coin beside a coined agent pill",
+    "[chrome][layout][agents][coin]")
+{
+    auto input = base_input();
+    input.spaces = { { 0, "default", true } };
+    input.agents = {
+        { .instance_id = "plain", .display_name = "Shell", .running = true },
+        { .instance_id = "coined", .display_name = "Codex", .running = true,
+            .coin = ChromeAgentCoinInput{ .style = ChromeCoinStyle::Codex, .load = 0.3f } },
+    };
+    refresh_shell(input, true);
+
+    const auto layout = compute_chrome_layout(input);
+    REQUIRE(layout.agents.size() == 2);
+    const auto& plain = layout.agents[0];
+    const auto& coined = layout.agents[1];
+    CHECK_FALSE(plain.coin);
+    REQUIRE(coined.coin);
+
+    // 16px pill + 4px gap at 10px cells reserves two whole columns, so the
+    // pill rect and its grid text shift together.
+    CHECK(coined.text_col == plain.text_col + 2);
+    CHECK(coined.rect.x == Catch::Approx(plain.rect.x + 20.0f));
+    CHECK(coined.label == "2: Codex");
+
+    // The coin matches the pill height, starts where an uncoined pill starts,
+    // is vertically centred on its row, and clears the shifted pill.
+    const auto& coin = *coined.coin;
+    CHECK(coin.radius == Catch::Approx(coined.rect.h * 0.5f));
+    CHECK(coin.center_x - coin.radius == Catch::Approx(plain.rect.x));
+    CHECK(coin.center_y == Catch::Approx(coined.rect.y + coined.rect.h * 0.5f));
+    CHECK(coin.center_x + coin.radius < coined.rect.x);
+    CHECK(coin.input.style == ChromeCoinStyle::Codex);
+    CHECK(coin.input.load == Catch::Approx(0.3f));
+
+    // Clicking the coin focuses its agent: the row hit region spans it.
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Agent,
+              static_cast<int>(coin.center_x), static_cast<int>(coin.center_y))
+        == 2);
+}
+
+TEST_CASE("Activity coin spins under load and settles exactly face-on when idle",
+    "[chrome][agents][coin]")
+{
+    CHECK(activity_coin_target_speed(0.0f) == 0.0f);
+    CHECK(activity_coin_target_speed(-1.0f) == 0.0f);
+    CHECK(activity_coin_target_speed(1.0f) == activity_coin_target_speed(5.0f));
+    CHECK(activity_coin_target_speed(0.2f) < activity_coin_target_speed(0.8f));
+
+    ActivityCoinMotion motion;
+    CHECK_FALSE(activity_coin_in_motion(motion));
+    advance_activity_coin(motion, 0.0f, 1.0f);
+    CHECK_FALSE(activity_coin_in_motion(motion));
+
+    constexpr float kFrame = 1.0f / 30.0f;
+    for (int frame = 0; frame < 60; ++frame)
+        advance_activity_coin(motion, kFrame, 0.3f);
+    CHECK(activity_coin_in_motion(motion));
+    CHECK(motion.angle >= 0.0f);
+    CHECK(motion.angle < 6.2832f);
+    CHECK(motion.angular_speed
+        == Catch::Approx(activity_coin_target_speed(0.3f)).epsilon(0.01));
+
+    int frames_to_rest = 0;
+    while (activity_coin_in_motion(motion) && frames_to_rest < 30 * 10)
+    {
+        advance_activity_coin(motion, kFrame, 0.0f);
+        ++frames_to_rest;
+    }
+    CHECK_FALSE(activity_coin_in_motion(motion));
+    CHECK(motion.angle == 0.0f);
+    CHECK(motion.angular_speed == 0.0f);
+    CHECK(frames_to_rest < 30 * 6);
 }

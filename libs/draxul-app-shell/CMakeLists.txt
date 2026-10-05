@@ -1,4 +1,5 @@
 add_library(draxul-app-shell STATIC
+    src/activity_coin_motion.cpp
     src/app_shell_layout.cpp
     src/chrome_layout.cpp
     src/chrome_pill.cpp

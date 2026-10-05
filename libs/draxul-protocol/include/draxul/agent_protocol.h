@@ -43,6 +43,8 @@ struct ServerAgentProjection
     uint64_t observation_generation = 0;
     bool attention = false;
     bool running = false;
+    // Present while the agent is attributed to a native session file.
+    std::optional<AgentActivity> activity;
 
     bool operator==(const ServerAgentProjection&) const = default;
 };

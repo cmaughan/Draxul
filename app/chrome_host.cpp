@@ -12,6 +12,64 @@
 
 namespace draxul
 {
+namespace
+{
+// Coins spin from the server-measured token rate when the agent is attributed
+// to a native session, using TokenFu's scale (full speed at 50k tokens/s).
+// Without a measurement a working agent spins at ~1 rotation/second; a
+// measured agent that is working between token records turns slowly so it
+// still reads as busy. A starting agent turns slowly.
+constexpr double kCoinFullLoadTokensPerSecond = 50'000.0;
+constexpr float kWorkingCoinLoad = 0.30f;
+constexpr float kWorkingBetweenRecordsCoinLoad = 0.01f;
+constexpr float kStartingCoinLoad = 0.03f;
+constexpr float kDimmedCoinBrightness = 0.45f;
+constexpr auto kCoinFrameInterval = std::chrono::milliseconds(33);
+static_assert(static_cast<int>(ChromeCoinStyle::Codex) == static_cast<int>(ActivityCoinStyle::Codex)
+    && static_cast<int>(ChromeCoinStyle::Claude) == static_cast<int>(ActivityCoinStyle::Claude)
+    && static_cast<int>(ChromeCoinStyle::Grok) == static_cast<int>(ActivityCoinStyle::Grok)
+    && static_cast<int>(ChromeCoinStyle::Neutral) == static_cast<int>(ActivityCoinStyle::Neutral));
+
+ChromeCoinStyle coin_style_for_kind(std::string_view kind)
+{
+    if (kind == "codex")
+        return ChromeCoinStyle::Codex;
+    if (kind == "claude")
+        return ChromeCoinStyle::Claude;
+    if (kind == "grok")
+        return ChromeCoinStyle::Grok;
+    return ChromeCoinStyle::Neutral;
+}
+
+ChromeAgentCoinInput agent_coin_input(const AgentProjection& agent)
+{
+    ChromeAgentCoinInput coin;
+    coin.style = coin_style_for_kind(agent.identity.kind);
+    coin.dimmed = !agent.running || agent.lifecycle == AgentLifecycle::Exited
+        || agent.lifecycle == AgentLifecycle::Failed;
+    if (coin.dimmed)
+        return coin;
+    if (agent.lifecycle == AgentLifecycle::Starting)
+    {
+        coin.load = kStartingCoinLoad;
+        return coin;
+    }
+    const bool working = agent.status == AgentStatus::Working;
+    if (!agent.activity)
+    {
+        coin.load = working ? kWorkingCoinLoad : 0.0f;
+        return coin;
+    }
+    const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+    const double rate = agent_activity_tokens_per_second(*agent.activity, now_ms);
+    coin.load = static_cast<float>(std::clamp(rate / kCoinFullLoadTokensPerSecond, 0.0, 1.0));
+    if (coin.load <= 0.0f && working)
+        coin.load = kWorkingBetweenRecordsCoinLoad;
+    return coin;
+}
+} // namespace
 
 ChromePaneStatus resolve_chrome_pane_status(std::string_view display_name,
     std::string_view host_status, bool show_status, bool running)
@@ -67,6 +125,7 @@ bool ChromeHost::initialize(const HostContext& context, IHostCallbacks&)
 {
     viewport_ = context.initial_viewport;
     running_ = vector_pass_.initialize();
+    coin_pass_ = create_activity_coin_pass();
     return running_;
 }
 
@@ -74,6 +133,9 @@ void ChromeHost::shutdown()
 {
     text_layer_.shutdown();
     vector_pass_.shutdown();
+    coin_pass_.reset();
+    coin_motion_.clear();
+    coins_in_motion_ = false;
     last_layout_ = {};
     running_ = false;
 }
@@ -150,12 +212,9 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
                 suffix = "[starting]";
             else if (agent.status == AgentStatus::Blocked)
                 suffix = "[input]";
-            else if (agent.status == AgentStatus::Working)
-                suffix = "[working]";
             else if (agent.status == AgentStatus::Done)
                 suffix = "[done]";
-            else if (agent.status == AgentStatus::Idle)
-                suffix = "[idle]";
+            // Working and idle are conveyed by the activity coin's spin.
             input.agents.push_back({
                 .instance_id = agent.identity.instance_id,
                 .display_name = agent.identity.display_name,
@@ -163,6 +222,7 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
                 .running = agent.running,
                 .focused = agent.focused,
                 .attention = agent.attention,
+                .coin = agent_coin_input(agent),
             });
         }
     }
@@ -302,6 +362,12 @@ void ChromeHost::draw(IFrameContext& frame)
         return;
     vector_pass_.record(frame, last_layout_, input.theme,
         viewport_.pixel_size.x, viewport_.pixel_size.y);
+    if (auto coins = advance_agent_coins(last_layout_); coin_pass_ && !coins.empty())
+    {
+        coin_pass_->set_coins(std::move(coins));
+        frame.record_render_pass(*coin_pass_,
+            RenderViewport{ 0, 0, viewport_.pixel_size.x, viewport_.pixel_size.y });
+    }
     text_layer_.draw(frame, last_layout_, input.theme);
     frame.flush_submit_chunk();
 }
@@ -527,11 +593,60 @@ bool ChromeHost::on_rename_key(int sdl_keycode)
     return true;
 }
 
+std::vector<ActivityCoinInstance> ChromeHost::advance_agent_coins(const ChromeLayoutOutput& layout)
+{
+    const auto now = std::chrono::steady_clock::now();
+    // Clamp so a long idle gap does not jump a resuming coin.
+    const float elapsed = last_coin_tick_ == std::chrono::steady_clock::time_point{}
+        ? 0.0f
+        : std::clamp(std::chrono::duration<float>(now - last_coin_tick_).count(), 0.0f, 0.1f);
+    last_coin_tick_ = now;
+
+    std::vector<ActivityCoinInstance> coins;
+    std::unordered_map<std::string, ActivityCoinMotion> visible;
+    bool in_motion = false;
+    for (const ChromeAgentLayout& agent : layout.agents)
+    {
+        if (!agent.coin)
+            continue;
+        const ChromeAgentCoinLayout& coin = *agent.coin;
+        ActivityCoinMotion motion;
+        if (const auto it = coin_motion_.find(agent.instance_id); it != coin_motion_.end())
+            motion = it->second;
+        advance_activity_coin(motion, elapsed, coin.input.load);
+        in_motion = in_motion || coin.input.load > 0.0f || activity_coin_in_motion(motion);
+        coins.push_back({
+            .center_x = coin.center_x,
+            .center_y = coin.center_y,
+            .radius = coin.radius,
+            .angle = motion.angle,
+            .brightness = coin.input.dimmed ? kDimmedCoinBrightness : 1.0f,
+            .style = static_cast<ActivityCoinStyle>(static_cast<int>(coin.input.style)),
+        });
+        visible.insert_or_assign(agent.instance_id, motion);
+    }
+    coin_motion_ = std::move(visible);
+    coins_in_motion_ = in_motion;
+    return coins;
+}
+
+void ChromeHost::pump()
+{
+    // pump() runs every loop iteration; pace coin frames to the interval
+    // rather than the display refresh.
+    if (coins_in_motion_ && deps_.request_frame
+        && std::chrono::steady_clock::now() >= last_coin_tick_ + kCoinFrameInterval)
+        deps_.request_frame();
+}
+
 std::optional<std::chrono::steady_clock::time_point> ChromeHost::next_deadline() const
 {
+    const auto now = std::chrono::steady_clock::now();
+    if (coins_in_motion_)
+        return std::max(now, last_coin_tick_ + kCoinFrameInterval);
     if (!rename_editor_.active())
         return std::nullopt;
-    return std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+    return now + std::chrono::milliseconds(250);
 }
 
 } // namespace draxul

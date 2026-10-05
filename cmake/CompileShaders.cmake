@@ -15,6 +15,8 @@ file(GLOB SHADER_SOURCES CONFIGURE_DEPENDS
     # product plugins through the staged draxul-nanovg tree).
     ${CMAKE_SOURCE_DIR}/libs/draxul-nanovg/shaders/*.vert
     ${CMAKE_SOURCE_DIR}/libs/draxul-nanovg/shaders/*.frag
+    ${CMAKE_SOURCE_DIR}/libs/draxul-activity-coin/shaders/*.vert
+    ${CMAKE_SOURCE_DIR}/libs/draxul-activity-coin/shaders/*.frag
 )
 
 file(GLOB SHADER_GLSL_INCLUDES CONFIGURE_DEPENDS ${SHADER_SOURCE_DIR}/*.glsl ${SHADER_SOURCE_DIR}/*.h)

@@ -39,6 +39,8 @@ struct AgentProjection
     std::chrono::steady_clock::time_point last_status_transition_at{};
     bool running = false;
     bool focused = false;
+    // Server-measured token activity when attributed to a native session.
+    std::optional<AgentActivity> activity;
 };
 
 // Derives the Agents index from pane-owned identities and resolves UI

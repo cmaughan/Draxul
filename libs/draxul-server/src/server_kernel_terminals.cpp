@@ -454,6 +454,7 @@ void ServerKernel::Impl::refresh_agents(
                     .terminal_id = pane.terminal_id,
                     .declared_identity = pane.agent,
                     .session_ref = pane.agent_session,
+                    .launch_working_directory = pane.server_working_directory,
                     .generation = {
                         endpoint.service->generation(),
                     },

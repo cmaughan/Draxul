@@ -177,7 +177,8 @@ function(draxul_check_dependency_boundaries)
             draxul-runtime-support)
     endforeach()
 
-    foreach(_render_contract_consumer draxul-gui draxul-ui draxul-nanovg)
+    foreach(_render_contract_consumer draxul-gui draxul-ui draxul-nanovg
+        draxul-activity-coin)
         draxul_reject_transitive_links(${_render_contract_consumer}
             draxul-renderer)
     endforeach()
@@ -249,6 +250,7 @@ function(draxul_check_core_product_isolation)
         draxul-host
         draxul-nanovg
         draxul-nanovg-backend
+        draxul-activity-coin
         draxul-markdown
         draxul-markdown-host
         draxul-kanban

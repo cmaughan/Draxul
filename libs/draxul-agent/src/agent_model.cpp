@@ -20,6 +20,18 @@ std::string_view to_string(AgentIdentityOrigin value) noexcept
     return "managed";
 }
 
+double agent_activity_tokens_per_second(const AgentActivity& activity, int64_t now_ms) noexcept
+{
+    constexpr double kNearZeroTokensPerSecond = 0.1;
+    if (!(activity.tokens_per_second > 0.0))
+        return 0.0;
+    const double rolloff_ms = static_cast<double>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(kAgentActivityRolloff).count());
+    const double age_ms = static_cast<double>(std::max<int64_t>(0, now_ms - activity.measured_at_ms));
+    const double rate = activity.tokens_per_second * std::clamp(1.0 - age_ms / rolloff_ms, 0.0, 1.0);
+    return rate < kNearZeroTokensPerSecond ? 0.0 : rate;
+}
+
 std::string_view to_string(AgentLifecycle value) noexcept
 {
     switch (value)

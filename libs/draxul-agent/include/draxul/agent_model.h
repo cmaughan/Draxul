@@ -109,6 +109,9 @@ struct AgentProcessInfo
     std::string executable;
     std::vector<std::string> arguments;
     std::string agent_hint;
+    // Process current directory when the platform probe can read it. Used
+    // server-side only to locate native session files; never published.
+    std::string working_directory;
 };
 
 struct AgentProcessObservation
@@ -124,7 +127,28 @@ struct AgentDiscoveryMatch
     std::string display_name;
     std::string evidence_category;
     bool high_confidence = false;
+    // Current directory of the matched process, if the probe captured it.
+    std::string working_directory;
 };
+
+// Measured token activity for one agent's native session, published by the
+// server. Clients decay the rate linearly to zero over
+// kAgentActivityRolloff from measured_at_ms (UTC epoch milliseconds of the
+// newest session record that contributed to the rate).
+struct AgentActivity
+{
+    double tokens_per_second = 0.0;
+    int64_t measured_at_ms = 0;
+    uint64_t session_tokens = 0;
+
+    bool operator==(const AgentActivity&) const = default;
+};
+
+inline constexpr std::chrono::seconds kAgentActivityRolloff{ 60 };
+
+// The rate a client should display at now_ms: linear rolloff to zero, with
+// near-zero rates snapped to exactly zero.
+double agent_activity_tokens_per_second(const AgentActivity& activity, int64_t now_ms) noexcept;
 
 // Sanitized explanation of a semantic-state decision. The rule metadata is
 // safe to surface and retain in memory; matched terminal text is not.

@@ -55,6 +55,25 @@ struct ChromeSpaceInput
     bool active = false;
 };
 
+// Provider styling for an agent's activity coin; mirrors ActivityCoinStyle
+// without making the layout depend on the render pass.
+enum class ChromeCoinStyle
+{
+    Codex = 0,
+    Claude = 1,
+    Grok = 2,
+    Neutral = 3,
+};
+
+struct ChromeAgentCoinInput
+{
+    ChromeCoinStyle style = ChromeCoinStyle::Neutral;
+    // Normalized activity in [0, 1]; zero lets the coin settle face-on.
+    float load = 0.0f;
+    // Exited agents keep a dimmed, stationary coin.
+    bool dimmed = false;
+};
+
 struct ChromeAgentInput
 {
     std::string instance_id;
@@ -63,6 +82,8 @@ struct ChromeAgentInput
     bool running = false;
     bool focused = false;
     bool attention = false;
+    // When present the row reserves leading columns for a spinning coin.
+    std::optional<ChromeAgentCoinInput> coin;
 };
 
 struct ChromePaneInput
@@ -141,6 +162,14 @@ struct ChromeSpaceLayout : ChromePillLayout
     bool editing = false;
 };
 
+struct ChromeAgentCoinLayout
+{
+    ChromeAgentCoinInput input{};
+    float center_x = 0.0f;
+    float center_y = 0.0f;
+    float radius = 0.0f;
+};
+
 struct ChromeAgentLayout : ChromePillLayout
 {
     std::string instance_id;
@@ -149,6 +178,7 @@ struct ChromeAgentLayout : ChromePillLayout
     bool running = false;
     bool focused = false;
     bool attention = false;
+    std::optional<ChromeAgentCoinLayout> coin;
 };
 
 struct ChromeRightPillLayout

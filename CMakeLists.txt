@@ -122,6 +122,7 @@ add_subdirectory(libs/draxul-imgui-core)
 # support target; CMake resolves it when plugin support is defined below.
 add_subdirectory(libs/draxul-nanovg)
 add_subdirectory(libs/draxul-plugin-support)
+add_subdirectory(libs/draxul-activity-coin)
 add_subdirectory(plugins/support/nanovg)
 # The reference plugin consumes Draxul::PluginSupport::Adapter, so it mounts
 # after the plugin-support leaves exist.
@@ -133,6 +134,7 @@ add_subdirectory(libs/draxul-terminal-core)
 add_subdirectory(libs/draxul-nvim)
 add_subdirectory(libs/draxul-config)
 add_subdirectory(libs/draxul-agent)
+add_subdirectory(libs/draxul-agent-usage)
 add_subdirectory(libs/draxul-personal-agent)
 add_subdirectory(libs/draxul-agent-integration)
 add_subdirectory(libs/draxul-session-model)

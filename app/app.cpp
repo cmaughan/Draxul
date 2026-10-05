@@ -3849,6 +3849,7 @@ bool App::apply_remote_agents(
             .last_status_transition_at = now,
             .running = remote.running,
             .focused = false,
+            .activity = remote.activity,
         });
     }
     agent_controller_.set_server_agents(

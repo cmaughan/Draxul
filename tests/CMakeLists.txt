@@ -123,6 +123,7 @@ set(DRAXUL_PROTOCOL_TEST_SOURCES
 set(DRAXUL_SERVER_TEST_SOURCES
     personal_agent_tests.cpp
     agent_protocol_tests.cpp
+    agent_usage_tests.cpp
     topology_projection_tests.cpp
     session_transport_load_tests.cpp
     server_agent_runtime_tests.cpp
@@ -457,6 +458,7 @@ target_link_libraries(draxul-test-protocol PRIVATE
 draxul_add_test_target(draxul-test-server "server;integration" 2 ${DRAXUL_SERVER_TEST_SOURCES})
 target_link_libraries(draxul-test-server PRIVATE
     draxul-server-test-internals
+    draxul-agent-usage
     draxul-client)
 
 draxul_add_test_target(draxul-test-server-integration "server-integration;integration" 2 ${DRAXUL_SERVER_INTEGRATION_TEST_SOURCES})

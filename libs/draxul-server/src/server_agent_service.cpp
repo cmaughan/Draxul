@@ -1,5 +1,7 @@
 #include "server_agent_service.h"
 
+#include <draxul/agent_usage.h>
+
 #include <algorithm>
 #include <nlohmann/json.hpp>
 #include <unordered_set>
@@ -80,6 +82,14 @@ nlohmann::json agent_json(
             { "value", agent.session_ref->value },
         };
     }
+    if (agent.activity)
+    {
+        result["activity"] = {
+            { "tokens_per_second", agent.activity->tokens_per_second },
+            { "measured_at_ms", agent.activity->measured_at_ms },
+            { "session_tokens", agent.activity->session_tokens },
+        };
+    }
     return result;
 }
 
@@ -100,17 +110,29 @@ const ServerAgentProjection* find_agent(
 } // namespace
 
 ServerAgentService::ServerAgentService(std::string session_id)
+    : ServerAgentService(std::move(session_id), nullptr)
+{
+}
+
+ServerAgentService::ServerAgentService(std::string session_id,
+    std::unique_ptr<AgentUsageMonitor> usage_monitor)
     : session_id_(std::move(session_id))
+    , usage_monitor_(std::move(usage_monitor))
 {
     snapshot_.revision = 1;
     snapshot_.session_id = session_id_;
 }
+
+ServerAgentService::~ServerAgentService() = default;
 
 void ServerAgentService::update(
     const std::vector<ServerAgentRuntimeView>& runtimes,
     std::chrono::steady_clock::time_point now)
 {
     std::vector<ServerAgentProjection> agents;
+    std::vector<AgentUsageRequest> usage_requests;
+    const auto system_now = std::chrono::time_point_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now());
     std::unordered_set<std::string> live_terminals;
     // Reserve all managed identities before discovery, regardless of pane order.
     for (const auto& runtime : runtimes)
@@ -127,6 +149,8 @@ void ServerAgentService::update(
             state = {};
             state.generation = runtime.generation;
         }
+        if (state.first_seen_at == std::chrono::steady_clock::time_point{})
+            state.first_seen_at = now;
 
         const AgentIdentity* identity = nullptr;
         std::string identity_evidence = "managed_launch";
@@ -134,6 +158,7 @@ void ServerAgentService::update(
         if (runtime.declared_identity)
         {
             identity = &*runtime.declared_identity;
+            state.working_directory = runtime.launch_working_directory;
             state.discovered_identity.reset();
             state.process_present = false;
             state.failed_probes = 0;
@@ -162,10 +187,13 @@ void ServerAgentService::update(
                         = AgentIdentityOrigin::Discovered,
                     };
                     state.detected_at = now;
+                    state.first_seen_at = now;
                     state.explanation = {};
                     state.attention = false;
                     state.last_status = AgentStatus::Unknown;
                 }
+                if (!discovered->working_directory.empty())
+                    state.working_directory = discovered->working_directory;
                 state.identity_evidence_category
                     = discovered->evidence_category;
                 state.identity_high_confidence
@@ -275,6 +303,26 @@ void ServerAgentService::update(
             .attention = state.attention,
             .running = running,
         });
+        if (usage_monitor_ && running)
+        {
+            usage_requests.push_back({
+                .instance_id = identity->instance_id,
+                .kind = identity->kind,
+                .session_ref = runtime.session_ref,
+                .working_directory = state.working_directory,
+                .started_at = system_now
+                    - std::chrono::duration_cast<std::chrono::milliseconds>(now - state.first_seen_at),
+            });
+        }
+    }
+    if (usage_monitor_)
+    {
+        const auto activity = usage_monitor_->update(usage_requests, system_now);
+        for (ServerAgentProjection& agent : agents)
+        {
+            if (const auto found = activity.find(agent.identity.instance_id); found != activity.end())
+                agent.activity = found->second;
+        }
     }
     std::erase_if(runtime_states_,
         [&live_terminals](const auto& entry) {

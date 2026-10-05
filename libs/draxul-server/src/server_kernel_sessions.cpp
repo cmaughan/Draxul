@@ -7,6 +7,7 @@
 #include "session_topology_bridge.h"
 #include "topology_service.h"
 
+#include <draxul/agent_usage.h>
 #include <draxul/topology_layout.h>
 
 #include <draxul/control_plane.h>
@@ -575,7 +576,8 @@ bool ServerKernel::Impl::initialize_session(
         + options.session_checkpoint_interval;
     session.agent_service
         = std::make_unique<ServerAgentService>(
-            stable_session_id);
+            stable_session_id,
+            std::make_unique<AgentUsageMonitor>(AgentUsageRoots::from_environment()));
     for (const auto& space : session.topology_service->snapshot().spaces)
         for (const auto& tab : space.tabs)
             for (const auto& pane : tab.panes)

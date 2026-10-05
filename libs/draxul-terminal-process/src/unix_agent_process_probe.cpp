@@ -148,6 +148,11 @@ std::optional<AgentProcessObservation> capture_foreground_group(
         std::vector<std::string> arguments;
         std::string hint;
         read_macos_arguments_and_hint(process_id, &arguments, &hint);
+        std::string working_directory;
+        proc_vnodepathinfo vnode = {};
+        if (proc_pidinfo(process_id, PROC_PIDVNODEPATHINFO, 0, &vnode, sizeof(vnode))
+            == static_cast<int>(sizeof(vnode)))
+            working_directory = vnode.pvi_cdir.vip_path;
         observation.processes.push_back({
             .process_id = static_cast<uint64_t>(process_id),
             .parent_process_id = static_cast<uint64_t>(info.pbi_ppid),
@@ -155,6 +160,7 @@ std::optional<AgentProcessObservation> capture_foreground_group(
                                           : std::string(info.pbi_name),
             .arguments = std::move(arguments),
             .agent_hint = std::move(hint),
+            .working_directory = std::move(working_directory),
         });
     }
 #elif defined(__linux__)
@@ -202,12 +208,18 @@ std::optional<AgentProcessObservation> capture_foreground_group(
                 break;
             }
         }
+        std::string working_directory;
+        const auto cwd_path = std::filesystem::read_symlink(directory.path() / "cwd", ec);
+        if (!ec)
+            working_directory = cwd_path.string();
+        ec.clear();
         observation.processes.push_back({
             .process_id = static_cast<uint64_t>(process_id),
             .parent_process_id = static_cast<uint64_t>(parent_process_id),
             .executable = std::move(executable),
             .arguments = std::move(arguments),
             .agent_hint = std::move(hint),
+            .working_directory = std::move(working_directory),
         });
     }
 #endif

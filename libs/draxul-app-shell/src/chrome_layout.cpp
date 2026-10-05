@@ -10,6 +10,7 @@ namespace draxul
 namespace
 {
 constexpr int kTabPadCols = 1;
+constexpr int kAgentCoinGapPx = 4;
 constexpr int kEditMinNameCols = 10;
 constexpr int kPaneStatusRightMarginCols = 1;
 
@@ -432,8 +433,14 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             const std::string suffix = source.status_suffix.empty()
                 ? (source.running ? "" : " [exited]")
                 : " " + source.status_suffix;
+            // A coin sits in whole leading columns so the pill and its grid
+            // text shift together. Its diameter matches the pill height.
+            const int pill_h = chrome_pill_height(ch);
+            const int coin_cols = source.coin && cw > 0
+                ? (pill_h + kAgentCoinGapPx + cw - 1) / cw
+                : 0;
             const int max_label_cols = std::max(
-                1, out.sidebar_cols - kTabPadCols * 2 - 1);
+                1, out.sidebar_cols - coin_cols - kTabPadCols * 2 - 1);
             ChromeAgentLayout agent;
             agent.instance_id = source.instance_id;
             agent.agent_index = index;
@@ -445,13 +452,13 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                 std::max(1, max_label_cols
                         - display_columns(prefix) - display_columns(suffix)))
                 + suffix;
-            const int total = std::min(out.sidebar_cols - 1,
-                display_columns(agent.label) + kTabPadCols * 2);
+            const int total = std::max(0, std::min(out.sidebar_cols - 1 - coin_cols,
+                display_columns(agent.label) + kTabPadCols * 2));
             static_cast<ChromePillLayout&>(agent) = layout_chrome_pill({
-                .grid_x = static_cast<float>(shell.sidebar_agents.x),
+                .grid_x = static_cast<float>(shell.sidebar_agents.x + coin_cols * cw),
                 .grid_y = static_cast<float>(row_y),
                 .columns = total,
-                .text_col = kTabPadCols,
+                .text_col = coin_cols + kTabPadCols,
                 .prefix_cols = digits + 1,
                 .cell_width = cw,
                 .cell_height = ch,
@@ -461,6 +468,18 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                     input.theme, ChromePillRole::Agent,
                     agent.focused || agent.attention),
             });
+            if (coin_cols > 0)
+            {
+                // Left-align the coin with where an uncoined pill would start.
+                const float radius = static_cast<float>(pill_h) * 0.5f;
+                agent.coin = ChromeAgentCoinLayout{
+                    .input = *source.coin,
+                    .center_x = static_cast<float>(shell.sidebar_agents.x + input.grid_padding)
+                        + static_cast<float>(cw) * 0.25f + radius,
+                    .center_y = agent.rect.y + agent.rect.h * 0.5f,
+                    .radius = radius,
+                };
+            }
             out.hit_regions.push_back({ personal ? ChromeHitKind::PersonalAgent : ChromeHitKind::Agent, agent.agent_index,
                 { static_cast<float>(shell.sidebar_agents.x),
                     static_cast<float>(row_y),

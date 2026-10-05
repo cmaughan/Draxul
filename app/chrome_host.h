@@ -3,10 +3,13 @@
 #include <draxul/chrome_layout.h>
 #include "chrome_text_layer.h"
 #include "chrome_vector_pass.h"
+#include <draxul/activity_coin_motion.h>
+#include <draxul/activity_coin_pass.h>
 #include <draxul/rename_editor.h>
 #include "space_controller.h"
 
 #include <chrono>
+#include <memory>
 #include <draxul/app_config_types.h>
 #include <draxul/base_renderer.h>
 #include <draxul/host.h>
@@ -17,6 +20,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace draxul
@@ -92,7 +96,7 @@ public:
     }
 
     void set_viewport(const HostViewport& viewport) override;
-    void pump() override {}
+    void pump() override;
     void draw(IFrameContext& frame) override;
     std::optional<std::chrono::steady_clock::time_point> next_deadline() const override;
 
@@ -177,6 +181,8 @@ public:
 
 private:
     ChromeLayoutInput build_layout_input() const;
+    // Advance each visible agent coin and return the instances to draw.
+    std::vector<ActivityCoinInstance> advance_agent_coins(const ChromeLayoutOutput& layout);
     const TabController* active_tabs() const noexcept;
     void apply_rename_commit(RenameCommit commit);
     const ChromeTheme& theme() const;
@@ -186,6 +192,12 @@ private:
 
     Deps deps_;
     ChromeVectorPass vector_pass_;
+    std::unique_ptr<IActivityCoinPass> coin_pass_;
+    // Client-local animation state keyed by agent instance id; pruned when an
+    // agent leaves the visible list.
+    std::unordered_map<std::string, ActivityCoinMotion> coin_motion_;
+    std::chrono::steady_clock::time_point last_coin_tick_{};
+    bool coins_in_motion_ = false;
     ChromeTextLayer text_layer_;
     HostViewport viewport_{};
     AppShellLayout shell_layout_{};

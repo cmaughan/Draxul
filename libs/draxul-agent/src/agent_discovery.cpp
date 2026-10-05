@@ -273,7 +273,10 @@ std::optional<AgentDiscoveryMatch> discover_agent_process(
             return std::nullopt;
         candidates.push_back(&process);
         if (!result || candidate->evidence_category == "environment_hint")
+        {
             result = std::move(candidate);
+            result->working_directory = process.working_directory;
+        }
     }
     if (result && !observation.foreground_reliable && candidates.size() > 1)
     {

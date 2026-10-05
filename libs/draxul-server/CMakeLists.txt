@@ -27,6 +27,7 @@ target_link_libraries(draxul-server PUBLIC
     draxul-terminal-process
     draxul-types
 )
+target_link_libraries(draxul-server PRIVATE draxul-agent-usage)
 
 # Private server collaborators are deliberately absent from draxul-server's
 # public include tree. Focused server tests opt into this boundary explicitly.
