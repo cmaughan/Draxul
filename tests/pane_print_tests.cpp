@@ -6,6 +6,7 @@
 
 #include <draxul/pane_print.h>
 
+#include "support/scoped_env_var.h"
 #include "support/temp_dir.h"
 
 #include <fstream>
@@ -98,6 +99,85 @@ TEST_CASE("snap_paper_white whitens the sheet tint but not ink or edges", "[pane
     CHECK(image.rgba[8] == 135);
     CHECK(image.rgba[12] == 239);
     CHECK(image.rgba[13] == 245);
+}
+
+namespace
+{
+
+// Points the OS temporary-directory lookup at `directory` for the scope:
+// TMPDIR is consulted first on POSIX, TMP then TEMP by GetTempPathW.
+struct ScopedTempDirectory
+{
+    explicit ScopedTempDirectory(const std::string& directory)
+#ifdef _WIN32
+        : tmp("TMP", directory.c_str())
+        , temp("TEMP", directory.c_str())
+#else
+        : tmpdir("TMPDIR", directory.c_str())
+#endif
+    {
+    }
+
+#ifdef _WIN32
+    draxul::tests::ScopedEnvVar tmp;
+    draxul::tests::ScopedEnvVar temp;
+#else
+    draxul::tests::ScopedEnvVar tmpdir;
+#endif
+};
+
+} // namespace
+
+TEST_CASE("pane_print_temp_pdf_path reports unavailable temporary storage without throwing",
+    "[pane-print]")
+{
+    draxul::tests::TempDir dir("pane-print-temp");
+
+    SECTION("usable temporary storage yields a fresh PDF path inside it")
+    {
+        const ScopedTempDirectory override(dir.path.string());
+        std::string error;
+        const auto path = draxul::pane_print_temp_pdf_path(error);
+        REQUIRE(path.has_value());
+        CHECK(error.empty());
+        CHECK(std::filesystem::equivalent(path->parent_path(), dir.path));
+        CHECK(path->extension() == ".pdf");
+        CHECK(path->filename().string().rfind("draxul-pane-", 0) == 0);
+        CHECK_FALSE(std::filesystem::exists(*path));
+    }
+
+    SECTION("a missing temporary directory is a print error")
+    {
+        const ScopedTempDirectory override((dir.path / "missing").string());
+        std::string error;
+        std::optional<std::filesystem::path> path;
+        REQUIRE_NOTHROW(path = draxul::pane_print_temp_pdf_path(error));
+        CHECK_FALSE(path.has_value());
+        CHECK(error.find("temporary storage is unavailable") != std::string::npos);
+    }
+
+    SECTION("a temporary location that is not a directory is a print error")
+    {
+        const auto file = dir.path / "not-a-directory";
+        std::ofstream(file) << "x";
+        const ScopedTempDirectory override(file.string());
+        std::string error;
+        std::optional<std::filesystem::path> path;
+        REQUIRE_NOTHROW(path = draxul::pane_print_temp_pdf_path(error));
+        CHECK_FALSE(path.has_value());
+        CHECK_FALSE(error.empty());
+    }
+}
+
+TEST_CASE("pane_print_path_text keeps international path characters as UTF-8", "[pane-print]")
+{
+    // Cyrillic directory, CJK + emoji file name (outside any single ANSI
+    // code page, so path::string() would throw on Windows).
+    const std::filesystem::path path = std::filesystem::path(u8"печать")
+        / u8"打印-\U0001F5A8.pdf";
+    const auto expected = path.u8string();
+    CHECK(draxul::pane_print_path_text(path)
+        == std::string(reinterpret_cast<const char*>(expected.data()), expected.size()));
 }
 
 #ifdef __APPLE__

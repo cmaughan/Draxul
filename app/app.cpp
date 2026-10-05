@@ -2104,6 +2104,16 @@ void App::start_print_focused_pane()
 
 void App::finish_print_capture(const CapturedFrame& frame)
 {
+    // Resolve the output location first: unavailable temporary storage is a
+    // print error, never an exception escaping the frame loop.
+    std::string error;
+    const std::optional<std::filesystem::path> pdf_path = pane_print_temp_pdf_path(error);
+    if (!pdf_path)
+    {
+        push_toast(2, "Print failed: " + error);
+        return;
+    }
+
     // The host's print hint narrows the crop to actual content (ScoreView:
     // the page/band, not the backdrop) — pane-relative, so offset it.
     glm::ivec2 crop_pos = print_pane_rect_.pixel_pos;
@@ -2124,27 +2134,22 @@ void App::finish_print_capture(const CapturedFrame& frame)
     if (print_hint_.paper_white)
         snap_paper_white(pane);
 
-    const auto stamp = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::system_clock::now().time_since_epoch())
-                           .count();
-    const std::filesystem::path pdf_path = std::filesystem::temp_directory_path() / ("draxul-pane-" + std::to_string(stamp) + ".pdf");
-
-    std::string error;
-    if (!write_rgba_pdf_a4(pane.rgba.data(), pane.width, pane.height, pdf_path, error))
+    if (!write_rgba_pdf_a4(pane.rgba.data(), pane.width, pane.height, *pdf_path, error))
     {
         push_toast(2, "Print failed: " + error);
         return;
     }
+    const std::string pdf_text = pane_print_path_text(*pdf_path);
     DRAXUL_LOG_INFO(LogCategory::App, "print_pane: %dx%d pane -> %s", pane.width, pane.height,
-        pdf_path.string().c_str());
+        pdf_text.c_str());
 
     // Test/verification hook: compose the PDF but skip the print dialog.
     if (std::getenv("DRAXUL_PRINT_DRY_RUN") != nullptr)
     {
-        push_toast(0, "Print dry run: " + pdf_path.string());
+        push_toast(0, "Print dry run: " + pdf_text);
         return;
     }
-    switch (present_print_dialog_for_pdf(pdf_path, error))
+    switch (present_print_dialog_for_pdf(*pdf_path, error))
     {
     case PrintDialogResult::Printed:
         push_toast(0, "Pane sent to printer");

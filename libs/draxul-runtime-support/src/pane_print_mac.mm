@@ -11,7 +11,7 @@ PrintDialogResult present_print_dialog_for_pdf(
 {
     @autoreleasepool
     {
-        NSString* path = [NSString stringWithUTF8String:pdf_path.string().c_str()];
+        NSString* path = [NSString stringWithUTF8String:pane_print_path_text(pdf_path).c_str()];
         PDFDocument* document =
             [[PDFDocument alloc] initWithURL:[NSURL fileURLWithPath:path]];
         if (document == nil)

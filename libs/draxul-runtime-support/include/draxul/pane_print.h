@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,18 @@ CroppedImage crop_rgba(const std::vector<uint8_t>& rgba, int width, int height,
 // Screen-tuned paper tints (ScoreView's warm off-white sheet) print as a
 // faint stipple on real paper; ink and antialiased edges stay untouched.
 void snap_paper_white(CroppedImage& image, uint8_t threshold = 240);
+
+// Chooses the temporary destination for a print job's PDF
+// (`<temp>/draxul-pane-<epoch seconds>.pdf`) without throwing. Returns
+// nullopt with a user-facing error when temporary storage is missing, is
+// not a directory, or cannot be inspected, so the caller can report the
+// failure before composing any document.
+std::optional<std::filesystem::path> pane_print_temp_pdf_path(std::string& error);
+
+// UTF-8 text for a path in logs and notifications. path::string() narrows
+// through the active ANSI code page on Windows and throws for characters
+// outside it (for example a non-English user-profile temp directory).
+std::string pane_print_path_text(const std::filesystem::path& path);
 
 // Writes a one-page A4 PDF with the image centered and aspect-fit inside a
 // small margin. Landscape when the image is wider than tall. macOS-only

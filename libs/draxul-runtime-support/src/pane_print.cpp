@@ -1,7 +1,9 @@
 #include <draxul/pane_print.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
+#include <system_error>
 
 #ifdef __APPLE__
 #include <CoreGraphics/CoreGraphics.h>
@@ -45,6 +47,31 @@ void snap_paper_white(CroppedImage& image, uint8_t threshold)
             image.rgba[at + 2] = 255;
         }
     }
+}
+
+std::optional<std::filesystem::path> pane_print_temp_pdf_path(std::string& error)
+{
+    // The throwing overload would escape the frame loop and terminate the
+    // client when TMPDIR (TMP/TEMP on Windows) names a missing directory.
+    std::error_code ec;
+    const std::filesystem::path directory = std::filesystem::temp_directory_path(ec);
+    if (ec || directory.empty())
+    {
+        error = "temporary storage is unavailable";
+        if (ec)
+            error += " (" + ec.message() + ")";
+        return std::nullopt;
+    }
+    const auto stamp = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch())
+                           .count();
+    return directory / ("draxul-pane-" + std::to_string(stamp) + ".pdf");
+}
+
+std::string pane_print_path_text(const std::filesystem::path& path)
+{
+    const auto utf8 = path.u8string();
+    return std::string(reinterpret_cast<const char*>(utf8.data()), utf8.size());
 }
 
 #ifdef __APPLE__
@@ -95,7 +122,7 @@ bool write_rgba_pdf_a4(const uint8_t* rgba, int width, int height,
         return false;
     }
 
-    const std::string path_string = pdf_path.string();
+    const std::string path_string = pane_print_path_text(pdf_path);
     CFURLRef url = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault,
         reinterpret_cast<const UInt8*>(path_string.c_str()),
         static_cast<CFIndex>(path_string.size()), false);
