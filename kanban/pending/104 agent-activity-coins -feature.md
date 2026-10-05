@@ -51,9 +51,12 @@ pill and spin it according to that agent's activity.
 
 - [x] `do integrate` installs every agent integration (see
       kanban/pending/69 agent-hook-executable-path -bug.md for the hook fix).
-- [ ] Session hooks report only for managed launches; agents started by typing
-      `claude`/`codex` in a shell pane get no native session id and rely on
-      working-directory attribution.
+- [x] Session hooks also report for agents started by typing `claude`/`codex` in a
+      shell pane: optional `--agent-instance`, server resolves the discovered agent
+      by pane and kind, early reports held 30 s, stale/old-generation reports
+      rejected; referenced files are excluded from directory matching.
+- [ ] Hook-reported refs for discovered agents are runtime-only; after a server
+      restart they fall back to directory attribution until the next session start.
 
 - [ ] Claude sub-agent transcripts (`<session>/subagents/*.jsonl`) are not yet
       counted toward the owning agent.

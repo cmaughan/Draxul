@@ -1056,7 +1056,9 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         const auto sequence = read_unsigned("sequence");
         const auto runtime_generation
             = read_unsigned("runtime_generation");
-        if (!server_epoch || !pane_id || !instance_id
+        // agent_instance_id is absent when the agent was started by hand in
+        // a shell pane: the hook then reports by pane and agent kind.
+        if (!server_epoch || !pane_id
             || !source || !agent_kind || !ref_kind_text
             || !ref_value || !integration_version
             || *integration_version == 0
@@ -1088,13 +1090,46 @@ ControlMethodResult ServerKernel::Impl::handle_request(
 
         refresh_agents(
             *session, std::chrono::steady_clock::now());
+        AgentSessionRef session_ref{
+            .source = *source,
+            .agent_kind = *agent_kind,
+            .integration_version
+            = static_cast<uint32_t>(*integration_version),
+            .sequence = *sequence,
+            .kind = *ref_kind,
+            .value = *ref_value,
+        };
         const auto& agents
             = session->agent_service->snapshot().agents;
+        std::string managed_instance_id
+            = instance_id ? *instance_id : std::string{};
+        if (!instance_id)
+        {
+            const auto in_pane = std::ranges::find_if(
+                agents,
+                [&](const ServerAgentProjection& value) {
+                    return value.pane_id == *pane_id
+                        && value.identity.kind == *agent_kind;
+                });
+            if (in_pane != agents.end()
+                && in_pane->identity.origin
+                    == AgentIdentityOrigin::Managed)
+            {
+                managed_instance_id
+                    = in_pane->identity.instance_id;
+            }
+        }
+        if (managed_instance_id.empty())
+        {
+            return report_discovered_agent_session(
+                *session, *pane_id, *runtime_generation,
+                session_ref);
+        }
         const auto agent = std::ranges::find_if(
             agents,
             [&](const ServerAgentProjection& value) {
                 return value.identity.instance_id
-                    == *instance_id;
+                    == managed_instance_id;
             });
         if (agent == agents.end()
             || agent->pane_id != *pane_id
@@ -1112,19 +1147,10 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                 "The session report targets an old agent runtime generation.");
         }
 
-        AgentSessionRef session_ref{
-            .source = *source,
-            .agent_kind = *agent_kind,
-            .integration_version
-            = static_cast<uint32_t>(*integration_version),
-            .sequence = *sequence,
-            .kind = *ref_kind,
-            .value = *ref_value,
-        };
         auto reported
             = session->topology_service
                   ->report_agent_session(
-                      *pane_id, *instance_id,
+                      *pane_id, managed_instance_id,
                       session_ref);
         if (!reported.ok)
             return reported;
@@ -1132,7 +1158,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             *session, std::chrono::steady_clock::now());
         return session->agent_service->handle(
             "agent.get",
-            { { "instance_id", *instance_id } });
+            { { "instance_id", managed_instance_id } });
     }
     if (request.method == "pane.read")
     {

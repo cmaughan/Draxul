@@ -420,6 +420,49 @@ bool ServerKernel::Impl::restart_server_terminal(
     return terminal->second.service->restart_runtime(error);
 }
 
+ControlMethodResult ServerKernel::Impl::report_discovered_agent_session(
+    ServerSession& session, std::string_view pane_id,
+    uint64_t runtime_generation, const AgentSessionRef& session_ref)
+{
+    if (!session.topology_service || !session.agent_service)
+    {
+        return ControlMethodResult::error(
+            "session_unavailable", "Server Session is unavailable.");
+    }
+    std::string terminal_id;
+    for (const auto& space : session.topology_service->snapshot().spaces)
+        for (const auto& tab : space.tabs)
+            for (const auto& pane : tab.panes)
+                if (pane.pane_id == pane_id
+                    && pane.domain == TopologyPaneDomain::ServerTerminal)
+                    terminal_id = pane.terminal_id;
+    const auto terminal = session.terminals.find(terminal_id);
+    if (terminal_id.empty() || terminal == session.terminals.end())
+    {
+        return ControlMethodResult::error(
+            "routing_mismatch",
+            "The session report does not target a server terminal pane.");
+    }
+    const AgentRuntimeGeneration generation{ terminal->second.service->generation() };
+    if (generation.value != runtime_generation)
+    {
+        return ControlMethodResult::error(
+            "agent_replaced",
+            "The session report targets an old agent runtime generation.");
+    }
+    auto reported = session.agent_service->report_discovered_session(
+        terminal_id, generation, session_ref);
+    if (!reported.ok)
+        return reported;
+    refresh_agents(session, std::chrono::steady_clock::now());
+    if (reported.value.contains("agent_instance_id"))
+    {
+        return session.agent_service->handle("agent.get",
+            { { "instance_id", reported.value["agent_instance_id"] } });
+    }
+    return reported;
+}
+
 void ServerKernel::Impl::refresh_agents(
     ServerSession& session,
     std::chrono::steady_clock::time_point now)

@@ -642,8 +642,12 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
   native conversation ID to the owning server pane. Hooks invoke the pane's
   `DRAXUL_EXECUTABLE` (falling back to `draxul` on PATH), so they work without
   Draxul on the command search path; integration version 3 reports older hooks as
-  outdated. Hooks report only for managed launches (`draxul agent start`), which
-  carry `DRAXUL_AGENT_INSTANCE_ID`. Bare
+  outdated. Hooks also report for agents started by hand in a server shell pane:
+  without `DRAXUL_AGENT_INSTANCE_ID` the server resolves the discovered agent by
+  pane and kind, holds an early report for up to 30 s until process discovery
+  catches up, and keeps the reference with the live runtime (it is not persisted).
+  Reported references give exact session attribution for the Agents activity coin;
+  files they claim are skipped when unreferenced agents are matched by directory. Bare
   `draxul integration status` inspects both integrations without modifying configuration.
   `do integrate [debug|release] [--status|--remove] [--skip-build]` installs (or
   removes) every integration with the selected build's CLI and prints status.

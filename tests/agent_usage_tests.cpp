@@ -8,6 +8,7 @@
 #include <draxul/agent_usage.h>
 
 #include <cstdio>
+#include <algorithm>
 #include <ctime>
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -271,4 +272,90 @@ TEST_CASE("Server agent projections publish measured activity that clients decay
     CHECK(agent_activity_tokens_per_second(activity, 1'000'000) == Catch::Approx(1000.0));
     CHECK(agent_activity_tokens_per_second(activity, 1'030'000) == Catch::Approx(500.0));
     CHECK(agent_activity_tokens_per_second(activity, 1'060'000) == 0.0);
+}
+
+TEST_CASE("Hook-reported sessions make hand-started agents in one directory attributable",
+    "[agent-usage][server][agent]")
+{
+    TempDir temp("dx-usage-hooks");
+    const AgentUsageRoots roots{ temp.path / "claude" / "projects", temp.path / "codex" / "sessions" };
+    ServerAgentService service("hooks",
+        std::make_unique<AgentUsageMonitor>(roots, AgentUsageMonitorOptions{ .native_watch = false }));
+    const auto now = usage_now();
+    const std::string cwd = (temp.path / "repo").string();
+    const auto project = roots.claude_projects / claude_project_directory_name(cwd);
+    append(project / "first.jsonl", claude_line(now - std::chrono::seconds{ 4 }, "a1", cwd, 100, 0, 0));
+    append(project / "first.jsonl", claude_line(now - std::chrono::seconds{ 2 }, "a2", cwd, 100, 0, 0));
+    append(project / "second.jsonl", claude_line(now - std::chrono::seconds{ 4 }, "b1", cwd, 10, 0, 0));
+    append(project / "second.jsonl", claude_line(now - std::chrono::seconds{ 2 }, "b2", cwd, 10, 0, 0));
+
+    const auto steady_now = std::chrono::steady_clock::now();
+    const auto shell_with_claude = [&](std::string terminal, uint64_t pid) {
+        return ServerAgentRuntimeView{
+            .space_id = "space-1",
+            .tab_id = "tab-1",
+            .pane_id = "pane-" + terminal,
+            .terminal_id = terminal,
+            .generation = { 1 },
+            .runtime_running = true,
+            .process_observation = AgentProcessObservation{
+                .captured_at = steady_now,
+                .processes = { { .process_id = pid, .parent_process_id = 1,
+                    .executable = "/usr/local/bin/claude", .working_directory = cwd } },
+                .foreground_reliable = true,
+            },
+        };
+    };
+    const auto reference = [](std::string value, uint64_t sequence) {
+        return AgentSessionRef{ .source = "draxul:claude", .agent_kind = "claude",
+            .integration_version = 3, .sequence = sequence, .kind = AgentSessionRefKind::Id,
+            .value = std::move(value) };
+    };
+    const std::vector<ServerAgentRuntimeView> runtimes{
+        shell_with_claude("t1", 11), shell_with_claude("t2", 22)
+    };
+
+    // Two hand-started Claude agents share a directory: without native
+    // session ids neither can be attributed.
+    service.update(runtimes, steady_now);
+    REQUIRE(service.snapshot().agents.size() == 2);
+    for (const auto& agent : service.snapshot().agents)
+        CHECK_FALSE(agent.activity);
+
+    // One hook reports after discovery, the other before its process is
+    // discovered (as Claude's SessionStart can); both are applied.
+    REQUIRE(service.report_discovered_session("t1", { 1 }, reference("first", 1), steady_now).ok);
+    CHECK_FALSE(service.report_discovered_session("t1", { 1 }, reference("first", 1), steady_now).ok);
+    ServerAgentService late("late",
+        std::make_unique<AgentUsageMonitor>(roots, AgentUsageMonitorOptions{ .native_watch = false }));
+    const auto pending = late.report_discovered_session("t2", { 1 }, reference("second", 1), steady_now);
+    REQUIRE(pending.ok);
+    CHECK(pending.value["pending"] == true);
+    // A report for a stale runtime generation never applies.
+    REQUIRE(late.report_discovered_session("t1", { 9 }, reference("first", 1), steady_now).ok);
+
+    service.update(runtimes, steady_now);
+    late.update(runtimes, steady_now);
+    const auto find = [](const ServerAgentService& owner, std::string_view terminal) {
+        const auto& agents = owner.snapshot().agents;
+        return *std::ranges::find_if(agents, [&](const auto& a) { return a.terminal_id == terminal; });
+    };
+    const auto first = find(service, "t1");
+    REQUIRE(first.session_ref);
+    CHECK(first.session_ref->value == "first");
+    REQUIRE(first.activity);
+    CHECK(first.activity->session_tokens == 200);
+    // With its sibling's file claimed, the remaining hand-started agent is no
+    // longer ambiguous and takes the other session in the directory.
+    const auto unreferenced = find(service, "t2");
+    CHECK_FALSE(unreferenced.session_ref);
+    REQUIRE(unreferenced.activity);
+    CHECK(unreferenced.activity->session_tokens == 20);
+
+    const auto second = find(late, "t2");
+    REQUIRE(second.session_ref);
+    CHECK(second.session_ref->value == "second");
+    REQUIRE(second.activity);
+    CHECK(second.activity->session_tokens == 20);
+    CHECK_FALSE(find(late, "t1").session_ref);
 }

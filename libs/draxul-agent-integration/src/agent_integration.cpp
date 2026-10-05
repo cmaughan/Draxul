@@ -44,7 +44,6 @@ constexpr std::string_view kCodexHook = R"HOOK(# managed by Draxul; reinstalling
 param([string]$Action = "")
 if ($Action -ne "session" -or $env:DRAXUL_ENV -ne "1") { exit 0 }
 if ([string]::IsNullOrWhiteSpace($env:DRAXUL_PANE_ID) -or
-    [string]::IsNullOrWhiteSpace($env:DRAXUL_AGENT_INSTANCE_ID) -or
     [string]::IsNullOrWhiteSpace($env:DRAXUL_SESSION_ID)) { exit 0 }
 try { $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json } catch { exit 0 }
 if ($payload.hook_event_name -and $payload.hook_event_name -ne "SessionStart") { exit 0 }
@@ -52,8 +51,13 @@ $sessionRef = $payload.session_id
 if ([string]::IsNullOrWhiteSpace($sessionRef)) { exit 0 }
 $sequence = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 try {
-  $reportArgs = @("pane", "report-agent-session", $env:DRAXUL_PANE_ID,
-    "--agent-instance", $env:DRAXUL_AGENT_INSTANCE_ID, "--source", "draxul:codex",
+  # Agents started by hand in a shell pane have no managed instance id; the
+  # server then resolves the agent by pane and kind.
+  $reportArgs = @("pane", "report-agent-session", $env:DRAXUL_PANE_ID)
+  if (-not [string]::IsNullOrWhiteSpace($env:DRAXUL_AGENT_INSTANCE_ID)) {
+    $reportArgs += @("--agent-instance", $env:DRAXUL_AGENT_INSTANCE_ID)
+  }
+  $reportArgs += @("--source", "draxul:codex",
     "--agent", "codex", "--integration-version", "3", "--sequence", "$sequence",
     "--session-ref", $sessionRef, "--session", $env:DRAXUL_SESSION_ID)
   if (-not [string]::IsNullOrWhiteSpace($env:DRAXUL_SERVER_EPOCH) -and
@@ -74,7 +78,6 @@ constexpr std::string_view kClaudeHook = R"HOOK(# managed by Draxul; reinstallin
 param([string]$Action = "")
 if ($Action -ne "session" -or $env:DRAXUL_ENV -ne "1") { exit 0 }
 if ([string]::IsNullOrWhiteSpace($env:DRAXUL_PANE_ID) -or
-    [string]::IsNullOrWhiteSpace($env:DRAXUL_AGENT_INSTANCE_ID) -or
     [string]::IsNullOrWhiteSpace($env:DRAXUL_SESSION_ID)) { exit 0 }
 try { $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json } catch { exit 0 }
 if ($payload.agent_id -or
@@ -85,8 +88,13 @@ $sessionRef = $payload.session_id
 if ([string]::IsNullOrWhiteSpace($sessionRef)) { exit 0 }
 $sequence = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 try {
-  $reportArgs = @("pane", "report-agent-session", $env:DRAXUL_PANE_ID,
-    "--agent-instance", $env:DRAXUL_AGENT_INSTANCE_ID, "--source", "draxul:claude",
+  # Agents started by hand in a shell pane have no managed instance id; the
+  # server then resolves the agent by pane and kind.
+  $reportArgs = @("pane", "report-agent-session", $env:DRAXUL_PANE_ID)
+  if (-not [string]::IsNullOrWhiteSpace($env:DRAXUL_AGENT_INSTANCE_ID)) {
+    $reportArgs += @("--agent-instance", $env:DRAXUL_AGENT_INSTANCE_ID)
+  }
+  $reportArgs += @("--source", "draxul:claude",
     "--agent", "claude", "--integration-version", "3", "--sequence", "$sequence",
     "--session-ref", $sessionRef, "--ref-kind", "id",
     "--session", $env:DRAXUL_SESSION_ID)
@@ -111,13 +119,12 @@ constexpr std::string_view kCodexHook = R"HOOK(#!/bin/sh
 [ "${1:-}" = "session" ] || exit 0
 [ "${DRAXUL_ENV:-}" = "1" ] || exit 0
 [ -n "${DRAXUL_PANE_ID:-}" ] || exit 0
-[ -n "${DRAXUL_AGENT_INSTANCE_ID:-}" ] || exit 0
 [ -n "${DRAXUL_SESSION_ID:-}" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 input_file="$(mktemp "${TMPDIR:-/tmp}/draxul-codex-hook.XXXXXX")" || exit 0
 trap 'rm -f "$input_file"' EXIT HUP INT TERM
 cat >"$input_file" 2>/dev/null || exit 0
-python3 - "$DRAXUL_PANE_ID" "$DRAXUL_AGENT_INSTANCE_ID" "$DRAXUL_SESSION_ID" "$input_file" <<'PY'
+python3 - "$DRAXUL_PANE_ID" "${DRAXUL_AGENT_INSTANCE_ID:-}" "$DRAXUL_SESSION_ID" "$input_file" <<'PY'
 import json, os, subprocess, sys, time
 try:
     with open(sys.argv[4], encoding="utf-8") as handle:
@@ -131,8 +138,12 @@ if not isinstance(session_ref, str) or not session_ref:
     raise SystemExit(0)
 # Panes carry the exact executable; bare draxul needs it on PATH.
 command = [os.environ.get("DRAXUL_EXECUTABLE") or "draxul",
-    "pane", "report-agent-session", sys.argv[1],
-    "--agent-instance", sys.argv[2], "--source", "draxul:codex",
+    "pane", "report-agent-session", sys.argv[1]]
+# Agents started by hand in a shell pane have no managed instance id; the
+# server then resolves the agent by pane and kind.
+if sys.argv[2]:
+    command.extend(["--agent-instance", sys.argv[2]])
+command += ["--source", "draxul:codex",
     "--agent", "codex", "--integration-version", "3",
     "--sequence", str(time.time_ns()), "--session-ref", session_ref,
     "--session", sys.argv[3]]
@@ -153,13 +164,12 @@ constexpr std::string_view kClaudeHook = R"HOOK(#!/bin/sh
 [ "${1:-}" = "session" ] || exit 0
 [ "${DRAXUL_ENV:-}" = "1" ] || exit 0
 [ -n "${DRAXUL_PANE_ID:-}" ] || exit 0
-[ -n "${DRAXUL_AGENT_INSTANCE_ID:-}" ] || exit 0
 [ -n "${DRAXUL_SESSION_ID:-}" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 input_file="$(mktemp "${TMPDIR:-/tmp}/draxul-claude-hook.XXXXXX")" || exit 0
 trap 'rm -f "$input_file"' EXIT HUP INT TERM
 cat >"$input_file" 2>/dev/null || exit 0
-python3 - "$DRAXUL_PANE_ID" "$DRAXUL_AGENT_INSTANCE_ID" "$DRAXUL_SESSION_ID" "$input_file" <<'PY'
+python3 - "$DRAXUL_PANE_ID" "${DRAXUL_AGENT_INSTANCE_ID:-}" "$DRAXUL_SESSION_ID" "$input_file" <<'PY'
 import json, os, subprocess, sys, time
 try:
     with open(sys.argv[4], encoding="utf-8") as handle:
@@ -173,8 +183,12 @@ if not isinstance(session_ref, str) or not session_ref:
     raise SystemExit(0)
 # Panes carry the exact executable; bare draxul needs it on PATH.
 command = [os.environ.get("DRAXUL_EXECUTABLE") or "draxul",
-    "pane", "report-agent-session", sys.argv[1],
-    "--agent-instance", sys.argv[2], "--source", "draxul:claude",
+    "pane", "report-agent-session", sys.argv[1]]
+# Agents started by hand in a shell pane have no managed instance id; the
+# server then resolves the agent by pane and kind.
+if sys.argv[2]:
+    command.extend(["--agent-instance", sys.argv[2]])
+command += ["--source", "draxul:claude",
     "--agent", "claude", "--integration-version", "3",
     "--sequence", str(time.time_ns()), "--session-ref", session_ref,
     "--ref-kind", "id", "--session", sys.argv[3]]

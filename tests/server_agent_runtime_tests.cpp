@@ -104,6 +104,34 @@ TEST_CASE("server-owned shell discovery converges in two agent clients",
     REQUIRE(listed.result.size() == 1);
     CHECK(listed.result[0]["instance_id"] == instance_id);
 
+    // An integration hook in a shell pane has no managed instance id; the
+    // server attaches the native session to the discovered agent by pane.
+    nlohmann::json report{
+        { "server_epoch", "fixed-epoch" },
+        { "runtime_generation", 1 },
+        { "pane_id", kServerShellPaneId },
+        { "source", "draxul:codex" },
+        { "agent", "codex" },
+        { "integration_version", 3 },
+        { "sequence", 5 },
+        { "ref_kind", "id" },
+        { "ref_value", "hand-started-codex" },
+    };
+    const auto reported = server_request("pane.report_agent_session", report);
+    INFO(reported.error_message);
+    REQUIRE(reported.ok);
+    CHECK(reported.result["instance_id"] == instance_id);
+    CHECK(reported.result["session_ref"]["value"] == "hand-started-codex");
+    report["sequence"] = 4;
+    const auto stale = server_request("pane.report_agent_session", report);
+    CHECK_FALSE(stale.ok);
+    CHECK(stale.error_code == "stale_report");
+    report["sequence"] = 6;
+    report["runtime_generation"] = 2;
+    const auto replaced = server_request("pane.report_agent_session", report);
+    CHECK_FALSE(replaced.ok);
+    CHECK(replaced.error_code == "agent_replaced");
+
     const auto waited = server_request("agent.wait",
         {
             { "instance_id", instance_id },

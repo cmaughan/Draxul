@@ -147,6 +147,9 @@ public:
     ControlMethodResult delete_session(const nlohmann::json& params);
     ControlMethodResult delete_all_sessions(const nlohmann::json& params);
     ControlMethodResult rename_session(const nlohmann::json& params);
+    ControlMethodResult report_discovered_agent_session(
+        ServerSession& session, std::string_view pane_id,
+        uint64_t runtime_generation, const AgentSessionRef& session_ref);
     void reset_services();
     bool checkpoint_session(
         std::string_view session_id, std::string& error);

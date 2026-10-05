@@ -115,6 +115,13 @@ TEST_CASE("control CLI keeps agent argv structured and parses wait policy", "[co
     });
     REQUIRE(report.command);
     CHECK(report.command->server_epoch == "epoch-7");
+
+    // Hand-started agents report without a managed instance id.
+    auto shell_report = parse_control_cli({ "draxul", "pane", "report-agent-session", "pane-7",
+        "--source", "draxul:claude", "--agent", "claude", "--integration-version", "3",
+        "--sequence", "9", "--session-ref", "native-7", "--ref-kind", "id" });
+    REQUIRE(shell_report.command);
+    CHECK(shell_report.command->agent_instance_id.empty());
     CHECK(report.command->runtime_generation == 3);
     CHECK(report.command->server_runtime_directory
         == "D:/runtime");

@@ -533,14 +533,15 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         return parsed;
     }
     if (command.method == "pane.report_agent_session"
-        && (command.agent_instance_id.empty() || command.source.empty()
+        && (command.source.empty()
             || command.agent_kind.empty() || command.integration_version == 0
             || command.sequence == 0 || command.reference_value.empty()
             || (command.reference_kind != "id"
                 && command.reference_kind != "path")))
     {
-        parsed.error = "pane report-agent-session requires --agent-instance, --source, "
-                       "--agent, --integration-version, --sequence, and --session-ref.";
+        parsed.error = "pane report-agent-session requires --source, --agent, "
+                       "--integration-version, --sequence, and --session-ref "
+                       "(--agent-instance is optional for agents started in a shell).";
         return parsed;
     }
     if (command.replace_pane && command.method != "agent.start")
@@ -672,7 +673,8 @@ int run_control_cli(const ControlCliCommand& command, const CliContext& io)
     else if (command.method == "pane.report_agent_session")
     {
         params["pane_id"] = command.value;
-        params["agent_instance_id"] = command.agent_instance_id;
+        if (!command.agent_instance_id.empty())
+            params["agent_instance_id"] = command.agent_instance_id;
         params["source"] = command.source;
         params["agent"] = command.agent_kind;
         params["integration_version"] = command.integration_version;
