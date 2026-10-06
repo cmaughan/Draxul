@@ -95,3 +95,25 @@ After fast-forwarding the independently published personal-agent host update
 same-cache Debug smoke timed out at 30 s again and stopped owned PID 79208.
 Updated-host Release Flashcards startup passed exit 0. No default-profile timing
 cause or fix is inferred; no broad core runtime result is claimed.
+
+## Flashcards draggable queue / immediate rounds, 2026-10-06
+
+The standard same-cache Debug smoke again timed out at 30 seconds (exit 124);
+the runner stopped owned PID 47604. A supervised Flashcards-only startup in the
+same Debug cache passed exit 0 in 20.08 seconds. Final Release Flashcards startup
+also passed exit 0 after a 94.50-second incremental build. No default-profile
+timeout cause or fix is inferred. Current native capture diagnostics and costs
+are retained in `plugins/flashcards/docs/validation.md` and ignored build logs.
+These product-only edits do not claim a broader core runtime pass.
+
+## Windows Personal Assistant root repair, 2026-10-06
+
+Core aggregate passed 54/56 groups in 60.40s; the two failures remain the existing
+family-grapheme font and test-scope fixture issues, cards 63 and 64. Standard
+same-cache Debug smoke again timed out at 30s (exit 124); owned PID 86912 stopped.
+Actual-profile Personal Assistant startup passed exit 0 in 19.69s from that Debug
+cache, and final Release Personal startup passed. The default server now uses the
+current Release helper, configured shared Dropbox collection and schema 3, with
+three error-free definitions. No default-profile timeout fix or cause is claimed.
+See `kanban/done/97 windows-personal-assistant-root -bug.md`; ignored logs are
+`build-ninja-debug/pa-root-*.log`.

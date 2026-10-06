@@ -42,6 +42,20 @@ shared collection identity unchanged. The server reads configuration at startup;
 restarting only the GUI does not load a changed root. This Mac's collection has
 been initialized, without adding example agents.
 
+On Windows, set the key in `%APPDATA%/draxul/config.toml`:
+
+```toml
+[agents]
+personal_root = 'C:/Users/cmaughan/Dropbox/Vault/PA'
+```
+
+After rebuilding, inspect `draxul --server-status --json` and any live terminals
+before restarting the server. Use `draxul --shutdown-server --yes`, then launch
+the rebuilt `draxul.exe --server` or GUI. The client refreshes the Windows server
+helper during launch; starting an old `draxul-server.exe` directly retains its
+old implementation. A configured example collection does not select the Dropbox
+collection.
+
 ```text
 Vault/PA/
   collection.toml

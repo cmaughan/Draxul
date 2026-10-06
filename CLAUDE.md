@@ -223,7 +223,8 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 - User settings live in `config.toml`.
 - The user's shared Personal Assistant collection is `Vault/PA` under their
   Dropbox root on every machine. Set `[agents].personal_root` to that machine's
-  absolute Dropbox path (on this Mac: `/Users/cmaughan/Dropbox/Vault/PA`). Preserve
+  absolute Dropbox path (on this Mac: `/Users/cmaughan/Dropbox/Vault/PA`;
+  on Windows: `C:/Users/cmaughan/Dropbox/Vault/PA`). Preserve
   the shared collection identity; never initialize another collection for the
   same personal agents. Executor locks and provider credentials stay local.
 - `enable_ligatures = true/false` controls whether Draxul combines eligible two-cell programming ligatures during shaping; it defaults to `true`.
