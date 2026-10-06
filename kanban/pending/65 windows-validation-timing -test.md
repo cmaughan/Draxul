@@ -79,3 +79,19 @@ PID 47340 was stopped, outer 34.48 s. A supervised isolated Flashcards startup
 passed in 2.475 s with frame readiness logged. This does not establish a cause or
 fix for the default-profile timeout. Product timings, failures and normal/narrow
 captures are in `plugins/flashcards/docs/validation.md` and the ignored Debug tree.
+
+## Flashcards shared scheduling checkpoint, 2026-10-06
+
+All eight product groups passed (364.60 s), including actual offline grades,
+three-device convergence and stale revealed-answer rejection. The standard
+same-cache Debug smoke again hit its 30-second bound; owned PID 76388 was stopped.
+Actual-profile Flashcards startup/setup passed exit 0 with frame readiness and
+byte-for-byte preservation of existing recall. This does not establish a cause
+or fix for the default-profile timeout. Product timing, diagnosis and final
+normal/narrow footer evidence are in `plugins/flashcards/docs/validation.md`.
+
+After fast-forwarding the independently published personal-agent host update
+`95493166`, all eight Flashcards groups passed again (365.51 s). Standard
+same-cache Debug smoke timed out at 30 s again and stopped owned PID 79208.
+Updated-host Release Flashcards startup passed exit 0. No default-profile timing
+cause or fix is inferred; no broad core runtime result is claimed.

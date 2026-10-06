@@ -24,6 +24,14 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | SatView | `--plugin dev.draxul.satview` at launch or on pane/tab commands | Dynamically loaded satellite overview with an interactive scene, map and ground-observer views, background catalog/simulation work, and plugin-owned ImGui controls. Launch JSON also accepts `satview_config_toml` for initial scene settings. Full narrative: [SatView product docs](../plugins/satview/docs/satview.md) |
 | Rezonality | `--plugin dev.draxul.rezonality` at launch or on pane/tab commands | Fault-tolerant Vulkan/Metal live graphics viewer ported from VkLive. Direct launch creates and focuses a server-topology plugin tab while preserving terminal access. It watches external edits, compiles complete GLSL candidates off the UI thread, renders named surfaces plus OBJ/glTF models with cameras, PBR/HDR materials, and the Cornell-box ray project through Vulkan ray shader groups or a native Metal kernel, retains the last valid GPU generation when a candidate fails, and publishes bounded agent-readable generation diagnostics. The NYX flight-deck launcher uses full-resolution scenegraphs without a final TV pass by default; `-Crt` selects preserved low-resolution `*-crt.scenegraph` variants. Its explicitly installed native Neovim package joins the live Draxul pane registry with compile records, merges every active pane's errors into inline diagnostics and a cross-file quickfix list, can focus or reload an exact contributing pane, and provides `:RezFiles` to open the deduplicated scenegraphs, shader entrypoints, and quoted includes from every current valid generation, including hidden panes whose compiled candidate is ready but not yet GPU-active. In a listed source buffer, `Ctrl+Enter` saves, flashes the visible text orange, and rebuilds every pane using that file without a chooser, keeping shared instances synchronized; `:help rezonality` documents the complete command and multi-pane behavior. All editor commands use the short `:Rez*` prefix, with the former `:Rezonality*` forms retained as compatibility aliases. |
 
+Flashcards can share scheduling through a locally available learning folder set
+by `learning_directory`. Immutable explicit grade events and aggregate pre-sync
+checkpoints preserve existing scores and allow offline devices to converge.
+Imports retain revealed answers and reject stale grades; a bounded read-only
+conversation reader exposes directional self-report evidence. Disposable
+summaries cannot override history, and locally verified files do not establish
+Dropbox network freshness. See the [synchronization contract](../plugins/flashcards/docs/review-sync.md).
+
 Interactive Kanban and Markdown launches join the shared Session. Their
 startup tab is selected and highlighted once the shared topology is ready,
 including when the requested tab belongs to another Space. The command palette can add shell, Neovim,
