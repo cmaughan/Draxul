@@ -70,3 +70,12 @@ again (194.53 s); the standard same-cache Debug smoke passed in 27.79 s outer ti
 Final isolated Release plugin startup also passed (13.34 s build, 15.48 s outer).
 This passing run does not establish a cause or resolution for the earlier timing
 failures. No broader core repeat was needed for the product-only visual change.
+
+## Flashcards queue/cooldown checkpoint, 2026-10-06
+
+All six current product groups passed on the synchronized host (288.84 s).
+Standard same-cache Debug smoke again timed out at its 30-second bound; owned
+PID 47340 was stopped, outer 34.48 s. A supervised isolated Flashcards startup
+passed in 2.475 s with frame readiness logged. This does not establish a cause or
+fix for the default-profile timeout. Product timings, failures and normal/narrow
+captures are in `plugins/flashcards/docs/validation.md` and the ignored Debug tree.
