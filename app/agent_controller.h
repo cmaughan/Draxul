@@ -16,6 +16,7 @@ namespace draxul
 {
 
 class SpaceController;
+struct PersonalAgentSnapshot;
 
 struct AgentProjection
 {
@@ -23,6 +24,7 @@ struct AgentProjection
     int tab_id = -1;
     LeafId leaf_id = kInvalidLeaf;
     std::string pane_id;
+    std::string personal_agent_id;
     AgentIdentity identity;
     std::string identity_evidence_category;
     bool identity_high_confidence = true;
@@ -66,6 +68,7 @@ public:
     void set_server_agents(
         std::vector<AgentProjection> agents);
     void clear_server_agents();
+    void set_personal_agents(const PersonalAgentSnapshot& snapshot);
     bool note_server_agent_restart(
         std::string_view instance_id,
         AgentRuntimeGeneration generation);
@@ -78,6 +81,8 @@ public:
 
 private:
     std::vector<AgentProjection> compute(SpaceController& spaces);
+    std::vector<AgentProjection> compute_panes(SpaceController& spaces);
+    std::vector<AgentProjection> personal_agents_;
     std::vector<AgentProjection> compute_server_agents(
         SpaceController& spaces);
 

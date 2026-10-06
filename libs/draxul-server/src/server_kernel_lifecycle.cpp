@@ -126,7 +126,7 @@ std::filesystem::path failure_marker_path(
 
 ServerKernel::Impl::Impl(ServerKernelOptions value)
     : options(std::move(value))
-    , personal_agents(options.personal_agents_root)
+    , personal_agents(options.personal_agents_root, options.personal_local_state, options.agent_definitions)
 {
     if (options.protocol_major < 0)
         options.protocol_major = kServerProtocolMajor;

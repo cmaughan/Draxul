@@ -1,6 +1,7 @@
 #include "agent_controller.h"
 
 #include "space_controller.h"
+#include <draxul/personal_agent_store.h>
 
 #include <draxul/log.h>
 
@@ -142,7 +143,34 @@ const std::vector<AgentProjection>& AgentController::frame_agents(SpaceControlle
     return cached_agents_;
 }
 
+void AgentController::set_personal_agents(const PersonalAgentSnapshot& snapshot)
+{
+    personal_agents_.clear();
+    for (const auto& definition : snapshot.agents)
+    {
+        AgentProjection value;
+        value.personal_agent_id=definition.id;
+        value.identity.instance_id="personal-"+definition.id;
+        value.identity.display_name=definition.name;
+        personal_agents_.push_back(std::move(value));
+    }
+    invalidate();
+}
+
 std::vector<AgentProjection> AgentController::compute(SpaceController& spaces)
+{
+    auto agents=compute_panes(spaces);
+    for (auto& agent : agents)
+        if (agent.identity.instance_id.starts_with("personal-"))
+        {
+            agent.personal_agent_id=agent.identity.instance_id.substr(9);
+            const auto named=std::ranges::find(personal_agents_,agent.personal_agent_id,&AgentProjection::personal_agent_id);
+            if (named!=personal_agents_.end()) agent.identity.display_name=named->identity.display_name;
+        }
+    return agents;
+}
+
+std::vector<AgentProjection> AgentController::compute_panes(SpaceController& spaces)
 {
     if (server_agents_authoritative_)
         return compute_server_agents(spaces);

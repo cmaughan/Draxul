@@ -594,3 +594,35 @@ TEST_CASE("CommandPaletteHost prompt: open_prompt allocates a handle and submits
     CHECK(submitted == "Work Bench");
     CHECK_FALSE(h.host.is_active());
 }
+
+TEST_CASE("Context menu supports pointer choices and outside-click cancellation", "[personal][palette][context]")
+{
+    PaletteHostHarness h;
+    if (!h.init()) SKIP("bundled font not found");
+    std::string chosen;
+    CommandPalette::ChoiceRequest request;
+    request.title="Delete assistant?";
+    request.entries={{.id="cancel",.name="Cancel"},{.id="delete",.name="Delete agent"}};
+    request.on_submit=[&](std::string id){chosen=std::move(id);};
+    REQUIRE(h.host.open_context_menu(request,20,40));
+    REQUIRE(h.renderer.last_handle);
+    const auto viewport=h.renderer.last_handle->last_viewport;
+    const auto [cw,ch]=h.renderer.cell_size_pixels();
+    CHECK(viewport.pixel_pos.x==20);
+    CHECK(viewport.pixel_pos.y==40);
+    CHECK(viewport.pixel_size.y==3*ch+2*h.renderer.padding());
+    // Header is not actionable; the following rows are Cancel and Delete.
+    h.host.on_mouse_button({.button=SDL_BUTTON_LEFT,.pressed=true,.pos={22,40+ch/2}});
+    CHECK(chosen.empty());
+    h.host.on_mouse_button({.button=SDL_BUTTON_LEFT,.pressed=true,.pos={22,40+2*ch+ch/2}});
+    CHECK(chosen=="delete");
+    CHECK_FALSE(h.host.is_active());
+    chosen.clear();
+    REQUIRE(h.host.open_context_menu(request,20,40));
+    h.host.on_mouse_button({.button=SDL_BUTTON_LEFT,.pressed=true,.pos={1,1}});
+    CHECK(chosen.empty());
+    CHECK_FALSE(h.host.is_active());
+    REQUIRE(h.host.open_context_menu(request,20,40));
+    h.host.on_key({.keycode=SDLK_RETURN,.pressed=true});
+    CHECK(chosen=="cancel");
+}

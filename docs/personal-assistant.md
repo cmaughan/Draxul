@@ -1,91 +1,110 @@
-# Personal Assistant: discovery slice
+# Personal agents: a pill and a conversation
 
-The built-in `personal-assistant` host inspects one server-owned collection.
-It does not launch providers, schedule work, edit instructions, claim ownership,
-or contact external services yet. An enabled field in a manifest does not change
-that: execution is unconditionally disabled in this slice.
+A personal agent is an ordinary interactive Codex or Claude conversation with a
+persistent backing folder. Click the **+** button below the Personal Agents pills
+and chat in the new tab’s terminal. A blank row separates the button from agents,
+and only the button itself is clickable. Add starts Codex with **GPT-6.1-Sol** (`gpt-6.1-sol`) by default. There is no definition form or
+separate preview/run workflow. An explicit model in the Codex profile takes precedence; resumed conversations
+keep their own model. Change models using the provider’s normal controls.
+Authentication and permission settings follow the ordinary provider profile.
 
-## Try it
+Click the agent's pill to return to its existing terminal. Double-click its pill
+to edit its display name inline, using the same editor as tabs and Spaces. Enter
+commits and Escape cancels. Naming is optional and never changes folder identity.
+The pill remains available when the terminal is absent. Opening it starts a new
+conversation that loads the same backing data. Existing managed-terminal Session
+restore continues to use the provider's native resume mechanism when an official
+session reference is available. Closing a GUI leaves the server-owned terminal
+running; explicitly closing the terminal ends that process.
 
-Build with `py do.py build debug` (Windows) or `python3 do.py build debug`
-(macOS). The host is built into core, not an optional plugin.
+Right-click (or Control-click on macOS) a pill and choose **Delete agent…**. A separate confirmation defaults
+to Cancel. Confirming stops its local conversation, removes its pill/tab, and moves
+its complete backing folder into `Vault/PA/.deleted/<id>` for recovery. Other
+agents and their tabs remain open. If this was the last tab, Draxul leaves a normal
+terminal tab available. Provider-native history follows the provider’s own storage
+rules. Closing the menu or cancelling the confirmation makes no changes.
 
-In the normal Draxul `config.toml`, add an absolute path under `[agents]`:
+The Personal Assistant palette/tab action is a small entry page: **N** starts an
+agent and **Enter** opens the selected conversation. Agent chat stays in the
+provider's normal terminal interface.
+
+## Shared backing folder
+
+All machines use **`Vault/PA` under their local Dropbox root**. On this Mac:
 
 ```toml
 [agents]
-personal_root = 'D:/dev/Draxul/examples/personal-assistant'
+personal_root = '/Users/cmaughan/Dropbox/Vault/PA'
 ```
 
-Use the equivalent absolute path on macOS. A locally available Dropbox folder
-can be used instead; copy the example hierarchy there and change this setting.
-The setting is read when the shared server starts. Reloading client configuration
-does not change a running server's collection. Before deliberately restarting a
-server, inspect its terminals and stop/checkpoint valuable work normally.
-
-Start the newly built executable with `--host personal-assistant`, or use the
-command palette's Personal Assistant new-tab/split entry. Repeated tab launches
-focus the existing Personal Assistant tab, including across Spaces in the same
-Session. Explicit splits remain separate. Without configuration,
-the host displays setup guidance. A standalone client without a shared-server
-connection displays a waiting state rather than reading Dropbox independently.
-
-Configured collections also appear in a separate **Personal Agents** sidebar
-section. Click a row to open/focus its detail host. Up/Down (or J/K) selects a
-definition; Page Up/Page Down scrolls its instructions. The rail is clipped to
-available space; the host's keyboard navigation reaches every definition.
-The existing Agents section continues to describe ordinary pane-backed runs.
-Personal entries marked `[off]` mean execution is unavailable, not that the
-manifest's enabled setting has been changed. `[!]` indicates a collection or
-definition error; open the detail host for the diagnostic.
-
-## Current folder format
+Other machines set the same key to their own absolute Dropbox path. Keep the
+shared collection identity unchanged. The server reads configuration at startup;
+restarting only the GUI does not load a changed root. This Mac's collection has
+been initialized, without adding example agents.
 
 ```text
-collection.toml
-agents/
-  news/
-    agent.toml
-    instructions.md
+Vault/PA/
+  collection.toml
+  agents/
+    <automatically-generated-id>/
+      agent.toml       # Draxul metadata: identity, name, provider profile, revision
+      instructions.md # Standing instructions, owned by the agent/user
+      state.md        # Optional durable task context maintained by the agent
+      data/           # Working files
 ```
 
-The example fixes the current schema. Both manifests require `schema_version = 1`;
-unknown fields and versions are rejected. Identities contain only lowercase ASCII
-letters, digits and hyphens, at most 64 characters. Definition identity must match
-its folder. Names, profile and model are nonempty bounded strings; revisions are
-positive integers. `enabled` is a boolean. Intervals range from 60 seconds to one
-year. Profile/model names are displayed, not resolved or executed in this slice.
+Creating an agent stages the folder and publishes it by rename. Draxul seeds a
+minimal `instructions.md` and creates `data/`; it does not invent a task for the
+agent. The startup prefix gives the absolute backing-folder location and tells
+the provider to read its instructions and existing state, initialize missing
+working files if necessary, preserve existing data, and follow the user's chat.
+Ask the agent to change its standing instructions through the same conversation.
+Renaming changes only Draxul metadata and preserves these agent-owned files.
 
-The limits are 32 definitions, 4 KiB per manifest and 16 KiB of UTF-8 instructions
-per definition. Extra memory/inbox/run directories inside a definition are left
-untouched. Do not put unrelated entries directly inside `agents/`.
+Both manifests use **schema version 3**. IDs and revisions are internal details.
+An agent's metadata contains `id`, `name`, `profile` and `revision`; model choice
+belongs to the ordinary provider configuration/chat. The collection is limited
+to 32 agents, metadata to 4 KiB and displayed/scanned instructions to 16 KiB.
+Invalid manifests, unsupported versions, escaped paths and recognizable Dropbox
+conflicts are surfaced and block a new launch. Missing instruction files are
+allowed so the bootstrap can initialize them. A missing collection is never
+silently replaced.
 
-The server scans independently of its views, roughly once per second. Clients
-read the shared projection asynchronously. Authenticated `personal.snapshot` and
-`personal.get` (with `agent_id`) provide schema-versioned collection projections;
-they are collection-scoped, not Session-scoped. The projection explicitly reports
-`execution_enabled = false`. Closing a view neither deletes definitions nor
-stops discovery. Client disconnection labels retained data as last-known.
+## Execution and persistence
 
-Missing roots are never recreated. Malformed, unavailable, oversized, escaped-link
-or recognizable Dropbox-conflicted definitions produce diagnostics. Last-known
-data is retained for inspection while sync settles, including missing definitions;
-there is no definitive deletion operation yet. Restarting the server discards
-this in-memory last-known cache. Collection errors label all retained content
-untrusted for execution. Filesystem checks defend ordinary link escapes, not
-malicious concurrent replacement of files by another local process.
+Personal agents use the same managed terminal runtime, status and native-session
+integration as other agents. Their bootstrap is supplied at fresh launch and
+Session restoration; conversation input is sent directly to the terminal. There
+is no separate five-minute runner, execution pin, read-only adapter or job-history
+view. Reopening a pill reuses its existing local Session terminal; a second Session
+cannot silently launch another instance of the same personal agent and reports
+where it is already open.
 
-## Manual acceptance
+Dropbox stores instructions and working data. Provider authentication and native
+chat history remain under the provider's own storage rules. A shared backing
+folder does not transfer an active conversation or coordinate execution across
+machines. Automatic schedules, messaging and handoff must be reconsidered against
+this conversational model before further implementation.
 
-1. Point a fresh server at the example and open the host in two clients using
-   different named Sessions. Both should show the same News monitor definition.
-2. Edit the sample instructions externally. Both views should converge after
-   the next server/client polling cycle, without launching a provider.
-3. Temporarily break `agent.toml` or remove `instructions.md`: retain the last
-   good instructions with a visible diagnostic, then recover after restoration.
-4. Close and reopen the host; the definition should remain available.
-5. Disconnect the server: existing content is last-known, never presented as
-   evidence of an active personal execution.
+## Headless access
 
-Creation/editing, run lifecycle, schedules and cross-machine ownership are later
-slices in `plans/personal-assistant.md`. Dropbox is storage, not a distributed lock.
+`draxul personal snapshot --json` inspects the collection. Metadata mutations use
+`personal submit --file command.json --json` and `personal result <request-id>`.
+The JSON command specifies a unique `request_id`, current `authority` and
+`collection_id`, and `action` (`create`, `rename` or `delete`). Create requires a definition
+with a chosen profile; identity and default display name are generated by the
+server. Rename supplies the original `expected` definition and the new name. Delete
+requires `expected` and `confirmed: true`; it closes the matching local terminal
+and archives the backing directory, with repeated request IDs returning the same
+result.
+
+The authenticated `agent.start` request accepts `personal_id` alongside
+`profile_id` and normal Session routing. It validates the collection metadata,
+reuses an existing local conversation, or starts the configured provider with its
+backing-folder prefix. Subsequent `agent.send_text`, `agent.send_keys`, `pane.read`
+and native resume operations are the existing managed-agent protocol.
+
+The `personal-agents-v3` capability versions collection projection and metadata
+commands. Metadata IO runs on a worker, clients poll asynchronously, and command
+IDs are idempotent within one server lifetime. After an unconfirmed command,
+inspect its result/collection rather than blindly repeating creation.

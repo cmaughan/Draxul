@@ -1,3 +1,4 @@
+#include <draxul/personal_agent_store.h>
 // WI 128 — Inline tab rename state machine.
 //
 // These tests exercise ChromeHost's rename API directly without standing up
@@ -31,6 +32,8 @@ struct RenameFixture
     SpaceController space_controller;
     std::unique_ptr<ChromeHost> host;
     int frame_requests = 0;
+    std::shared_ptr<PersonalAgentSnapshot> personal=std::make_shared<PersonalAgentSnapshot>();
+    std::string renamed_personal;
     // Stand-in for PaneManager::pane_user_names_ — exercised by the pane
     // rename test cases without standing up a real PaneManager.
     std::unordered_map<LeafId, std::string> pane_names;
@@ -44,6 +47,11 @@ struct RenameFixture
 
         ChromeHost::Deps deps;
         deps.space_controller = &space_controller;
+        personal->agents.push_back({.id="news",.name="News"});
+        deps.personal_agents=[this]{return personal;};
+        deps.set_personal_agent_name=[this](std::string id,std::string name){
+            renamed_personal=id; personal->agents[0].name=std::move(name);
+        };
         deps.set_tab_name = [this](int tab_id, std::string name) {
             for (auto& tab : space_controller.active_tab_controller().tabs())
             {
@@ -296,4 +304,20 @@ TEST_CASE("ChromeHost pane rename: switching from tab to pane edit commits in-pr
     REQUIRE_FALSE(f.host->is_editing_tab());
     REQUIRE(f.space_controller.active_tab_controller().tabs()[0]->name == "alphaZ");
     REQUIRE(f.space_controller.active_tab_controller().tabs()[0]->name_user_set);
+}
+
+TEST_CASE("Personal pill rename shares inline commit and cancel behavior", "[personal][chrome_host][rename]")
+{
+    RenameFixture f;
+    f.host->begin_personal_agent_rename(1);
+    REQUIRE(f.host->is_editing());
+    f.host->on_rename_text_input(" helper");
+    f.host->on_rename_key(SDLK_RETURN);
+    CHECK(f.renamed_personal=="news");
+    CHECK(f.personal->agents[0].name=="News helper");
+    f.host->begin_personal_agent_rename(1);
+    f.host->on_rename_text_input(" discarded");
+    f.host->on_rename_key(SDLK_ESCAPE);
+    CHECK(f.personal->agents[0].name=="News helper");
+    CHECK_FALSE(f.host->is_editing());
 }

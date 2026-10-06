@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <future>
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include <thread>
 
@@ -140,7 +141,7 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
     if (args.size() < 2
         || (args[1] != "space" && args[1] != "agent"
             && args[1] != "pane" && args[1] != "plugin"
-            && args[1] != "ui"))
+            && args[1] != "ui" && args[1] != "personal"))
         return parsed;
     parsed.recognized = true;
     if (args.size() < 3)
@@ -155,7 +156,9 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
     size_t position = 3;
     bool session_explicit = false;
 
-    if (noun == "space" && verb == "list")
+    if (noun == "personal" && (verb == "snapshot" || verb == "result" || verb == "submit"))
+        command.method = "personal." + (verb == "submit" ? std::string("command") : verb);
+    else if (noun == "space" && verb == "list")
         command.method = "space.list";
     else if (noun == "space" && verb == "get")
         command.method = "space.get";
@@ -201,7 +204,7 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         return parsed;
     }
 
-    const bool needs_value = command.method == "space.get" || command.method == "space.focus"
+    const bool needs_value = command.method == "personal.result" || command.method == "space.get" || command.method == "space.focus"
         || command.method == "agent.get" || command.method == "agent.start"
         || command.method == "agent.focus" || command.method == "agent.restart"
         || command.method == "agent.send_text"
@@ -222,7 +225,12 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
 
     while (position < args.size())
     {
-        if (args[position] == "--json")
+        if (args[position] == "--file" && command.method == "personal.command")
+        {
+            if (++position >= args.size()) { parsed.error="--file requires a JSON command file."; return parsed; }
+            command.reference_value=args[position++];
+        }
+        else if (args[position] == "--json")
         {
             command.json = true;
             ++position;
@@ -495,6 +503,8 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         }
     }
 
+    if (command.method == "personal.command" && command.reference_value.empty())
+    { parsed.error="personal submit requires --file <JSON command file>."; return parsed; }
     if (command.method != "pane.read" && command.lines != 50)
     {
         parsed.error = "--lines is only valid for pane read.";
@@ -710,6 +720,34 @@ int run_control_cli(const ControlCliCommand& command, const CliContext& io)
               ConfigDocument::default_path().parent_path())
         : std::filesystem::path(
               command.server_runtime_directory);
+    if (command.method.starts_with("personal."))
+    {
+        try
+        {
+            if (command.method == "personal.command")
+            {
+                const auto path=std::filesystem::u8path(command.reference_value);
+                if (std::filesystem::file_size(path)>65536) throw std::runtime_error("Command file exceeds 64 KiB.");
+                std::ifstream input(path,std::ios::binary);
+                if (!input) throw std::runtime_error("Cannot read command file.");
+                params=nlohmann::json::parse(input);
+                if (!params.is_object()) throw std::runtime_error("Expected a JSON command object.");
+            }
+            else if (command.method == "personal.result") params["request_id"]=command.value;
+            const auto client=make_server_client_id();
+            const auto probe=ServerClient::probe({.runtime_directory=server_runtime,.client_id=client,.launch_if_missing=false});
+            if (!probe.ready()) throw std::runtime_error(probe.error_message);
+            params["client_id"]=client;
+            params["connection_token"]=probe.welcome->connection_token;
+            const auto response=io.request(namespaced_control_id(kServerControlId,server_runtime),server_runtime,command.method,params);
+            std::string ignored;
+            ServerClient::disconnect(server_runtime,client,ignored,probe.welcome->connection_token);
+            if (!response.ok) throw std::runtime_error(response.error_code+": "+response.error_message);
+            std::fprintf(io.output,"%s\n",response.result.dump(2).c_str());
+            return 0;
+        }
+        catch (const std::exception& e) { std::fprintf(io.error,"%s\n",e.what()); return 1; }
+    }
     const bool supports_headless_server
         = command.method == "ui.list"
         || command.method == "agent.list"

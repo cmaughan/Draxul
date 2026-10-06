@@ -14,6 +14,14 @@ class PersonalCallbacks : public IHostCallbacks
 {
 public:
     std::shared_ptr<PersonalAgentSnapshot> snapshot = std::make_shared<PersonalAgentSnapshot>();
+    std::vector<std::string> opened;
+    void open_personal_agent(std::string id) override { opened.push_back(std::move(id)); }
+    std::optional<PersonalAgentCommand> command;
+    std::shared_ptr<PersonalAgentCommandResult> command_result;
+    std::string personal_command(const PersonalAgentCommand& value) override
+    { command=value; command_result.reset(); return "test-request"; }
+    std::shared_ptr<const PersonalAgentCommandResult> personal_result(std::string_view) const override
+    { return command_result; }
     void request_frame() override {}
     void request_quit() override {}
     void wake_window() override {}
@@ -39,45 +47,28 @@ public:
 };
 }
 
-TEST_CASE("personal host displays read only state and preserves definitions on close", "[personal][host]")
+TEST_CASE("personal entry opens provider conversations without a definition form", "[personal][host]")
 {
     tests::FakeWindow window;
     tests::FakeTermRenderer renderer;
     TextService text_service;
     tests::init_text_service(text_service);
     PersonalCallbacks callbacks;
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
-        .text_service = &text_service,
-        .initial_viewport = { .grid_size = { 100, 30 } },
-    };
+    HostContext context{.window=&window,.grid_renderer=&renderer,.text_service=&text_service,
+        .initial_viewport={.grid_size={100,30}}};
     InspectablePersonalHost host;
-    REQUIRE(host.initialize(context, callbacks));
-    CHECK(host.text().find("Configure [agents]") != std::string::npos);
-    callbacks.snapshot = std::make_shared<PersonalAgentSnapshot>();
-    callbacks.snapshot->root = "test collection";
-    callbacks.snapshot->name = "Personal";
-    callbacks.snapshot->agents = {
-        { .id = "news", .name = "News", .profile = "codex", .model = "chosen", .revision = 1,
-            .instructions = "Read the news only." },
-        { .id = "mail", .name = "Mail", .profile = "codex", .model = "chosen", .revision = 1,
-            .instructions = "Read inbox only." },
-    };
-    host.pump();
-    CHECK(host.text().find("Read the news only.") != std::string::npos);
-    CHECK(host.text().find("execution disabled") != std::string::npos);
-    host.on_key({ .keycode = SDLK_DOWN, .pressed = true });
-    host.pump();
-    CHECK(host.text().find("Read inbox only.") != std::string::npos);
-    CHECK(host.dispatch_action("personal.select/news"));
-    CHECK(host.text().find("Read the news only.") != std::string::npos);
+    REQUIRE(host.initialize(context,callbacks));
+    CHECK(host.text().find("chat in its terminal")!=std::string::npos);
+    CHECK(host.text().find("Model (explicit)")==std::string::npos);
+    host.on_key({.keycode=SDLK_N,.pressed=true});
+    REQUIRE(callbacks.opened.size()==1);
+    CHECK(callbacks.opened.back().empty());
+    REQUIRE(host.dispatch_action("personal.select/news"));
+    host.on_key({.keycode=SDLK_RETURN,.pressed=true});
+    CHECK(callbacks.opened.back()=="news");
+    CHECK_FALSE(callbacks.command);
     host.request_close();
     CHECK_FALSE(host.is_running());
-    CHECK(callbacks.snapshot->agents.size() == 2);
-    InspectablePersonalHost reopened;
-    REQUIRE(reopened.initialize(context, callbacks));
-    CHECK(reopened.text().find("Read the news only.") != std::string::npos);
 }
 
 TEST_CASE("personal host provider is built in and launchable", "[personal][host]")

@@ -41,7 +41,7 @@ PaletteLayout compute_palette_layout(const PaletteViewState& state)
     PaletteLayout layout;
     layout.cols = state.grid_cols;
     layout.rows = state.grid_rows;
-    layout.visible_entries = std::max(1, layout.rows - 2); // reserve separator + input
+    layout.visible_entries = std::max(1, layout.rows - (state.mode==PaletteMode::Menu ? 1 : 2)); // menu title or input
     const int entry_count = static_cast<int>(state.entries.size());
 
     layout.col0 = 0;
@@ -161,6 +161,7 @@ std::vector<CellUpdate> render_palette(
     }
     else
     {
+        if (state.mode==PaletteMode::Menu) write_text(pad,0,state.title,kHintFg,content_cols);
         // Entry rows.
         const int entry_count = static_cast<int>(state.entries.size());
         const int shown = std::min(entry_count - layout.scroll_offset, layout.visible_entries);
@@ -168,7 +169,7 @@ std::vector<CellUpdate> render_palette(
         {
             const int entry_idx = layout.scroll_offset + i;
             const auto& entry = state.entries[static_cast<size_t>(entry_idx)];
-            const int local_row = i;
+            const int local_row = i + (state.mode==PaletteMode::Menu ? 1 : 0);
             const bool selected = (entry_idx == state.selected_index);
             const Color row_bg = selected ? kSelectedBg : panel_bg;
 
@@ -195,6 +196,8 @@ std::vector<CellUpdate> render_palette(
             }
         }
 
+        if (state.mode!=PaletteMode::Menu)
+        {
         // Separator row.
         const int sep_local_row = layout.rows - 2;
         {
@@ -230,6 +233,7 @@ std::vector<CellUpdate> render_palette(
                 cell.bg = kCursorBg;
                 cell.fg = kCursorBg; // Match bg so block glyph is invisible
             }
+        }
         }
     }
 

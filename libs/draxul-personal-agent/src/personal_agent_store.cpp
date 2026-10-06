@@ -8,6 +8,14 @@
 #include <fstream>
 #include <set>
 #include <stdexcept>
+#include <sstream>
+#include <random>
+#include <limits>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
 
 namespace draxul
 {
@@ -54,7 +62,7 @@ void check_keys(const toml::table& table, std::initializer_list<std::string_view
     }
     if (!table["schema_version"].is_integer()
         || table["schema_version"].value<int64_t>() != kPersonalAgentSchemaVersion)
-        throw std::runtime_error("Unsupported or missing schema_version; expected 1.");
+        throw std::runtime_error("Unsupported or missing schema_version; expected 3.");
 }
 
 std::string required_text(const toml::table& table, std::string_view key)
@@ -136,24 +144,17 @@ PersonalAgentSnapshot load_personal_agents(const std::filesystem::path& configur
                 reject_conflicts(path, "instructions");
                 const auto text = read_file(root, path / "agent.toml", 4096);
                 const auto table = toml::parse(text);
-                check_keys(table, { "schema_version", "id", "name", "profile", "model", "revision", "enabled", "interval_seconds" });
+                check_keys(table, { "schema_version", "id", "name", "profile", "revision" });
                 if (required_text(table, "id") != definition.id)
                     throw std::runtime_error("Manifest identity must match its folder.");
                 definition.name = required_text(table, "name");
                 definition.profile = required_text(table, "profile");
-                definition.model = required_text(table, "model");
                 const auto revision = table["revision"].value<int64_t>();
-                const auto enabled = table["enabled"].value<bool>();
-                const auto interval = table["interval_seconds"].value<int64_t>();
-                if (!table["revision"].is_integer() || !table["interval_seconds"].is_integer()
-                    || !revision || *revision <= 0 || !enabled || !interval || *interval < 60 || *interval > 31536000)
-                    throw std::runtime_error("Expected positive revision, enabled boolean and interval_seconds from 60 to 31536000.");
+                if (!revision || *revision <= 0)
+                    throw std::runtime_error("Expected a positive metadata revision.");
                 definition.revision = static_cast<uint64_t>(*revision);
-                definition.enabled = *enabled;
-                definition.interval_seconds = static_cast<int>(*interval);
-                definition.instructions = read_file(root, path / "instructions.md", kPersonalInstructionsLimit);
-                if (definition.instructions.empty())
-                    throw std::runtime_error("Instructions must not be empty.");
+                if (std::filesystem::exists(path / "instructions.md"))
+                    definition.instructions = read_file(root, path / "instructions.md", kPersonalInstructionsLimit);
                 if (read_file(root, path / "agent.toml", 4096) != text)
                     throw std::runtime_error("Manifest changed during the scan; waiting for sync.");
             }
@@ -176,6 +177,7 @@ PersonalAgentSnapshot load_personal_agents(const std::filesystem::path& configur
         {
             for (const auto& old : previous.agents)
             {
+                if (std::filesystem::exists(root / ".deleted" / old.id)) continue;
                 if (result.agents.size() >= kPersonalAgentLimit)
                     break;
                 if (std::ranges::find(result.agents, old.id, &PersonalAgentDefinition::id) == result.agents.end())
@@ -199,4 +201,176 @@ PersonalAgentSnapshot load_personal_agents(const std::filesystem::path& configur
     return result;
 }
 
+}
+
+namespace draxul
+{
+std::string personal_unique_id()
+{
+    std::random_device random;
+    std::ostringstream out;
+    out << std::hex << random() << random() << random() << random();
+    return out.str();
+}
+
+std::string personal_read_bounded(const std::filesystem::path& root,
+    const std::filesystem::path& path, size_t limit)
+{
+    return read_file(std::filesystem::canonical(root), path, limit);
+}
+
+void personal_write_atomic(const std::filesystem::path& path, std::string_view text)
+{
+    const auto temporary = path.parent_path() / (".staging-" + personal_unique_id());
+    try
+    {
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        output.write(text.data(), static_cast<std::streamsize>(text.size()));
+        output.flush();
+        if (!output)
+            throw std::runtime_error("Cannot write personal agent file.");
+        output.close();
+        if (!output)
+            throw std::runtime_error("Cannot close personal agent file.");
+#ifdef _WIN32
+        if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+            throw std::runtime_error("Cannot publish personal agent file.");
+#else
+        std::filesystem::rename(temporary, path);
+#endif
+    }
+    catch (...)
+    {
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        throw;
+    }
+}
+
+void validate_personal_agent(const PersonalAgentDefinition& d)
+{
+    auto valid_text = [](std::string_view text) {
+        return !text.empty() && text.size() <= 160
+            && text.find('\0') == std::string_view::npos
+            && utf8_validated_prefix_length(text, text.size()) == text.size()
+            && std::ranges::none_of(text, [](unsigned char ch) { return ch < 32 || ch == 127; });
+    };
+    if (!valid_personal_agent_id(d.id) || !valid_text(d.name)
+        || !valid_text(d.profile)
+        || d.instructions.size() > kPersonalInstructionsLimit
+        || d.instructions.find('\0') != std::string::npos
+        || utf8_validated_prefix_length(d.instructions, d.instructions.size()) != d.instructions.size())
+        throw std::runtime_error("Invalid definition: check identity, name, profile and instructions.");
+}
+
+PersonalAgentDefinition save_personal_agent(const std::filesystem::path& configured_root,
+    std::string_view collection_id, PersonalAgentDefinition candidate,
+    const std::optional<PersonalAgentDefinition>& expected)
+{
+    validate_personal_agent(candidate);
+    const auto root = std::filesystem::canonical(configured_root);
+    const auto snapshot = load_personal_agents(root);
+    if (!snapshot.error.empty() || snapshot.collection_id != collection_id)
+        throw std::runtime_error("Collection unavailable or changed; reload before saving.");
+    const auto found = std::ranges::find(snapshot.agents, candidate.id, &PersonalAgentDefinition::id);
+    if (expected)
+    {
+        if (found == snapshot.agents.end() || !found->error.empty() || *found != *expected)
+            throw std::runtime_error("Definition changed or is invalid; reload before saving. Your draft is retained.");
+        if (expected->revision >= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))
+            throw std::runtime_error("Definition revision exhausted.");
+        candidate.revision = expected->revision + 1;
+    }
+    else
+    {
+        if (found != snapshot.agents.end() || snapshot.agents.size() >= kPersonalAgentLimit)
+            throw std::runtime_error("Identity already exists or collection is full.");
+        candidate.revision = 1;
+    }
+    candidate.error.clear();
+    const auto destination = root / "agents" / candidate.id;
+    const auto staging = root / (".agent-" + personal_unique_id());
+    const auto directory = expected ? destination : staging;
+    if (expected)
+        require_contained(root, directory);
+    else
+        std::filesystem::create_directory(directory);
+    const std::string filename = "instructions.md";
+    try
+    {
+        if (!expected)
+        {
+            personal_write_atomic(directory / filename, candidate.instructions);
+            std::filesystem::create_directory(directory / "data");
+        }
+        toml::table manifest{
+            {"schema_version", kPersonalAgentSchemaVersion}, {"id", candidate.id},
+            {"name", candidate.name}, {"profile", candidate.profile},
+            {"revision", static_cast<int64_t>(candidate.revision)}};
+        std::ostringstream text;
+        text << manifest;
+        // Recheck immediately before publication, including external instructions.
+        const auto latest = load_personal_agents(root);
+        const auto current = std::ranges::find(latest.agents, candidate.id, &PersonalAgentDefinition::id);
+        if (!latest.error.empty() || latest.collection_id != collection_id
+            || (expected && (current == latest.agents.end() || *current != *expected))
+            || (!expected && current != latest.agents.end()))
+            throw std::runtime_error("Collection changed before publication; reload and retry.");
+        personal_write_atomic(directory / "agent.toml", text.str());
+        if (!expected)
+            std::filesystem::rename(staging, destination);
+    }
+    catch (...)
+    {
+        std::error_code ignored;
+        if (!expected)
+            std::filesystem::remove_all(staging, ignored);
+        throw;
+    }
+    return candidate;
+}
+}
+
+namespace draxul
+{
+std::string personal_bootstrap_prompt(const std::filesystem::path& root, std::string_view id)
+{
+    if (!root.is_absolute() || !valid_personal_agent_id(id))
+        throw std::runtime_error("Personal agent backing location is unavailable.");
+    const auto folder = root / "agents" / std::string(id);
+    return "You are a personal agent in Draxul. This is your persistent conversation.\n"
+        "Your shared backing folder is " + utf8_path(folder) + ".\n"
+        "Before responding, read instructions.md in that folder and any existing state.md. "
+        "Keep durable working data in data/. After meaningful work, update state.md with decisions, "
+        "current progress and next steps so you can resume. "
+        "If instructions.md, state.md or data/ are missing, initialize only those missing items "
+        "inside your existing backing folder; preserve existing files. If the Dropbox collection "
+        "or your backing folder is unavailable, report that instead of creating another collection. "
+        "The pill name is only a display label; agent.toml is Draxul metadata, so leave it alone. "
+        "Follow the user's messages in this chat. When asked to change standing instructions, "
+        "update instructions.md. Do not invent a task, schedule or background loop. "
+        "After loading your context, briefly acknowledge readiness and wait for the user's request.\n";
+}
+}
+
+namespace draxul
+{
+void delete_personal_agent(const std::filesystem::path& configured_root,std::string_view collection_id,
+    const PersonalAgentDefinition& expected)
+{
+    if (!valid_personal_agent_id(expected.id)) throw std::runtime_error("Invalid agent identity.");
+    const auto root=std::filesystem::canonical(configured_root);
+    const auto snapshot=load_personal_agents(root);
+    const auto found=std::ranges::find(snapshot.agents,expected.id,&PersonalAgentDefinition::id);
+    if (!snapshot.error.empty() || snapshot.collection_id!=collection_id || found==snapshot.agents.end()
+        || !found->error.empty() || *found!=expected)
+        throw std::runtime_error("Agent changed or is unavailable. Review it before deleting.");
+    const auto source=root/"agents"/expected.id;
+    const auto trash=root/".deleted";
+    std::filesystem::create_directories(trash);
+    require_contained(root,trash);
+    require_contained(root,source);
+    if (std::filesystem::exists(trash/expected.id)) throw std::runtime_error("A deleted folder already uses this identity.");
+    std::filesystem::rename(source,trash/expected.id);
+}
 }

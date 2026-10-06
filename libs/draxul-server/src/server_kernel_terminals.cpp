@@ -1,6 +1,7 @@
 #include "server_kernel_impl.h"
 
 #include <draxul/topology_layout.h>
+#include <draxul/personal_agent_store.h>
 
 #include <algorithm>
 #include <cctype>
@@ -332,6 +333,36 @@ ServerKernel::Impl::managed_agent_runtime_options(
     args.insert(args.end(),
         launch.additional_args.begin(),
         launch.additional_args.end());
+
+    if (launch.identity.instance_id.starts_with("personal-"))
+    {
+        try
+        {
+            const auto prompt=personal_bootstrap_prompt(options.personal_agents_root,launch.identity.instance_id.substr(9));
+            if (definition->kind=="claude")
+            {
+                args.push_back("--append-system-prompt");
+                args.push_back(prompt);
+            }
+            else if (definition->kind=="codex")
+            {
+                // Resume preserves the conversation's own model; a profile's
+                // explicit model also takes precedence over the new-chat default.
+                const bool explicit_model=std::ranges::any_of(args,[](const auto& arg) {
+                    return arg=="--model" || arg=="-m" || arg.starts_with("--model=");
+                });
+                if (!launch.replace_default_args && !explicit_model)
+                {
+                    args.push_back("--model");
+                    args.push_back("gpt-6.1-sol");
+                }
+                args.push_back("--");
+                args.push_back(prompt);
+            }
+            else { error="Personal conversations require Codex or Claude."; return std::nullopt; }
+        }
+        catch(const std::exception& e) { error=e.what(); return std::nullopt; }
+    }
 
     auto environment = options.terminal_environment;
     const auto set_environment

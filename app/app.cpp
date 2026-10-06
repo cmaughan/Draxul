@@ -143,6 +143,8 @@ public:
     std::function<int(int, int)> hit_test_agent_fn;
     std::function<int(int, int)> hit_test_personal_agent_fn;
     std::function<void(int)> activate_personal_agent_fn;
+    std::function<void(int)> rename_personal_agent_fn;
+    std::function<void(int,int,int)> personal_agent_menu_fn;
     std::function<int(int, int)> hit_test_tab_fn;
     std::function<LeafId(int, int)> hit_test_pane_pill_fn;
     std::function<bool(int, int)> hit_test_app_chrome_fn;
@@ -200,6 +202,14 @@ public:
     LeafId hit_test_pane_pill(int phys_x, int phys_y) override
     {
         return hit_test_pane_pill_fn ? hit_test_pane_pill_fn(phys_x, phys_y) : kInvalidLeaf;
+    }
+
+    void personal_agent_menu(int index,int px,int py) override
+    { if (personal_agent_menu_fn) personal_agent_menu_fn(index,px,py); }
+
+    void rename_personal_agent(int index) override
+    {
+        if (rename_personal_agent_fn) rename_personal_agent_fn(index);
     }
 
     bool hit_test_app_chrome(int phys_x, int phys_y) override
@@ -823,6 +833,16 @@ bool App::initialize_chrome_host()
     chrome_deps.space_controller = &space_controller_;
     chrome_deps.agent_controller = &agent_controller_;
     chrome_deps.personal_agents = [this] { return personal_agents(); };
+    chrome_deps.set_personal_agent_name = [this](std::string id,std::string name) {
+        const auto snapshot=personal_agents();
+        if (!snapshot || !pending_personal_command_.empty()) return;
+        const auto found=std::ranges::find(snapshot->agents,id,&PersonalAgentDefinition::id);
+        if (found==snapshot->agents.end()) return;
+        auto renamed=*found; renamed.name=std::move(name);
+        pending_personal_command_=personal_command({.action="rename",.definition=renamed,.expected=*found});
+        pending_personal_create_=false;
+        if (pending_personal_command_.empty()) push_toast(2,"Personal collection unavailable.");
+    };
     chrome_deps.system_resource_snapshot = options_.show_system_resources
         ? &system_resource_snapshot_
         : nullptr;
@@ -1883,39 +1903,33 @@ void App::wire_window_callbacks()
             return;
         const std::string identity = static_cast<size_t>(index) <= snapshot->agents.size()
             ? snapshot->agents[index - 1].id : std::string{};
-        for (const auto& personal_space : space_controller_.spaces())
-        for (const auto& tab : personal_space->tab_controller.tabs())
-        {
-            LeafId selected_leaf = kInvalidLeaf;
-            IHost* selected_host = nullptr;
-            tab->pane_manager.for_each_host([&](LeafId leaf, IHost& host) {
-                if (!selected_host && host.dispatch_action("personal.select/" + identity))
-                {
-                    selected_leaf = leaf;
-                    selected_host = &host;
-                }
-            });
-            if (selected_host)
-            {
-                activate_space(personal_space->id);
-                activate_tab(tab->id);
-                tab->pane_manager.set_focused(selected_leaf);
-                input_dispatcher_.set_host(selected_host);
-                request_frame();
-                return;
-            }
-        }
-        const auto result = mutate_topology({
-            .kind = TopologyMutationKind::CreateTab,
-            .space_id = space_controller_.active_space_id(),
-            .name = "Personal Assistant",
-            .source_path = std::filesystem::u8path(identity),
-            .host_kind = HostKind::PersonalAssistant,
-            .pixel_width = window_->width_pixels(),
-            .pixel_height = diagnostics_host_->layout().terminal_height,
-        });
-        if (!result.error.empty())
-            push_toast(2, result.error);
+        open_personal_agent(identity);
+    };
+    router->personal_agent_menu_fn = [this](int index,int px,int py) {
+        const auto snapshot=personal_agents();
+        if (!palette_host_ || !snapshot || index<1 || static_cast<size_t>(index)>snapshot->agents.size()) return;
+        const auto agent=snapshot->agents[index-1];
+        CommandPalette::ChoiceRequest menu;
+        menu.title=agent.name;
+        menu.entries={{.id="delete",.name="Delete agent..."}};
+        menu.on_submit=[this,agent,px,py](std::string action) {
+            if (action!="delete") return;
+            CommandPalette::ChoiceRequest confirm;
+            confirm.title="Delete "+agent.name+"?";
+            confirm.entries={{.id="cancel",.name="Cancel"},
+                {.id="delete",.name="Delete agent and stop chat",.shortcut_hint="files -> .deleted"}};
+            confirm.on_submit=[this,agent](std::string choice) {
+                if (choice!="delete" || !pending_personal_command_.empty()) return;
+                pending_personal_command_=personal_command({.action="delete",.expected=agent,.confirmed=true});
+                pending_personal_create_=false;
+                if (pending_personal_command_.empty()) push_toast(2,"Personal collection unavailable.");
+            };
+            palette_host_->open_context_menu(std::move(confirm),px,py);
+        };
+        palette_host_->open_context_menu(std::move(menu),px,py);
+    };
+    router->rename_personal_agent_fn = [this](int index) {
+        if (chrome_host_) chrome_host_->begin_personal_agent_rename(index);
     };
     router->hit_test_app_chrome_fn = [this](int px, int py) {
         return hit_test_app_chrome(px, py);
@@ -1939,9 +1953,14 @@ void App::wire_window_callbacks()
             push_toast(2, activated.error().message);
     };
     router->activate_agent_fn = [this](int index) {
-        if (!agent_controller_.focus_by_index(space_controller_, index))
+        const auto& agents = agent_controller_.frame_agents(space_controller_);
+        int visible=0;
+        const AgentProjection* selected=nullptr;
+        for (const auto& agent : agents)
+            if (agent.personal_agent_id.empty() && ++visible==index) { selected=&agent; break; }
+        if (!selected || !agent_controller_.focus(space_controller_,selected->identity.instance_id))
         {
-            push_toast(2, "Agent is no longer available.");
+            push_toast(2,"Agent is no longer available.");
             return;
         }
         refresh_app_shell_layout();
@@ -2572,10 +2591,12 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         // rail's visibility off the projection itself. The query is the
         // frame's cached one; per-pane process probes stay rate-limited
         // inside AgentController.
+        pump_personal_command();
         const auto personal_snapshot = personal_agents();
         if (personal_snapshot != last_personal_snapshot_)
         {
             last_personal_snapshot_ = personal_snapshot;
+            agent_controller_.set_personal_agents(personal_snapshot ? *personal_snapshot : PersonalAgentSnapshot{});
             request_frame();
         }
         const bool have_agents = !agent_controller_.frame_agents(space_controller_).empty()
@@ -3500,7 +3521,7 @@ bool App::initialize_remote_topology()
                "session-stream-commands-v1")
             != options_.server_connection->capabilities.end();
     if (options_.server_connection && !options_.host_factory
-        && std::ranges::find(options_.server_connection->capabilities, "personal-agents-v1")
+        && std::ranges::find(options_.server_connection->capabilities, "personal-agents-v3")
             != options_.server_connection->capabilities.end())
     {
         personal_agent_client_ = std::make_unique<PersonalAgentClient>(
@@ -4923,6 +4944,69 @@ ServerControlChannel App::server_control_channel() const
     });
 }
 
+void App::open_personal_agent(std::string identity)
+{
+    if (!remote_session_client_ || !palette_host_)
+    { push_toast(2,"Connect to a shared server to open a personal conversation."); return; }
+    if (!identity.empty() && agent_controller_.focus(space_controller_,"personal-"+identity))
+    {
+        refresh_app_shell_layout();
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
+        request_frame();
+        return;
+    }
+    const auto snapshot=personal_agents();
+    if (!snapshot || !snapshot->error.empty())
+    { push_toast(2,"Personal collection unavailable."); return; }
+    if (!identity.empty())
+    {
+        const auto found=std::ranges::find(snapshot->agents,identity,&PersonalAgentDefinition::id);
+        if (found==snapshot->agents.end() || !found->error.empty())
+        { push_toast(2,"Personal agent backing data is unavailable."); return; }
+        const auto started=launch_agent({.profile_id=found->profile,.personal_id=found->id});
+        if (!started) push_toast(2,started.error().message);
+        return;
+    }
+    if (!pending_personal_command_.empty()) return;
+    PersonalAgentDefinition candidate;
+    candidate.profile="codex";
+    pending_personal_command_=personal_command({.action="create",.definition=candidate});
+    pending_personal_create_=true;
+    if (pending_personal_command_.empty()) push_toast(2,"Personal collection unavailable.");
+}
+
+void App::pump_personal_command()
+{
+    if (!pending_personal_focus_.empty() && agent_controller_.focus(space_controller_,pending_personal_focus_))
+    {
+        pending_personal_focus_.clear();
+        refresh_app_shell_layout();
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
+        request_frame();
+    }
+    if (pending_personal_command_.empty()) return;
+    const auto result=personal_result(pending_personal_command_);
+    if (!result || !result->done) return;
+    pending_personal_command_.clear();
+    if (!result->ok) { push_toast(2,result->message); return; }
+    if (pending_personal_create_ && result->definition)
+    {
+        const auto& d=*result->definition;
+        const auto started=launch_agent({.profile_id=d.profile,.personal_id=d.id});
+        if (!started) push_toast(2,started.error().message);
+    }
+}
+
+std::string App::personal_command(const PersonalAgentCommand& command)
+{
+    return personal_agent_client_ ? personal_agent_client_->submit(command) : std::string{};
+}
+std::shared_ptr<const PersonalAgentCommandResult> App::personal_result(std::string_view id) const
+{
+    const auto result = personal_agent_client_ ? personal_agent_client_->result(id) : std::nullopt;
+    return result ? std::make_shared<PersonalAgentCommandResult>(*result) : nullptr;
+}
+
 std::shared_ptr<const PersonalAgentSnapshot> App::personal_agents() const
 {
     if (personal_agent_client_)
@@ -5277,6 +5361,7 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
             { "pane_id", *pane_id },
             { "args", request.additional_args },
         };
+        if (!request.personal_id.empty()) params["personal_id"]=request.personal_id;
         if (!request.working_directory.empty())
         {
             params["cwd"]
@@ -5328,6 +5413,7 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
                 Error::init(
                     "Server launched an agent without returning its identity."));
         }
+        if (!request.personal_id.empty()) pending_personal_focus_=instance_id;
         return instance_id;
     }
 

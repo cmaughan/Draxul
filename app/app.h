@@ -356,6 +356,13 @@ private:
     std::unique_ptr<PersonalAgentClient> personal_agent_client_;
     std::shared_ptr<const PersonalAgentSnapshot> last_personal_snapshot_;
     std::shared_ptr<const PersonalAgentSnapshot> personal_agents() const override;
+    void open_personal_agent(std::string identity) override;
+    void pump_personal_command();
+    std::string pending_personal_command_;
+    bool pending_personal_create_ = false;
+    std::string pending_personal_focus_;
+    std::string personal_command(const PersonalAgentCommand&) override;
+    std::shared_ptr<const PersonalAgentCommandResult> personal_result(std::string_view) const override;
     std::shared_ptr<RemoteSessionCoordinator>
         remote_session_coordinator_;
     std::unique_ptr<ITopologyMutationRoute>

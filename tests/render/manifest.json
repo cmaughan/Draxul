@@ -3,7 +3,7 @@
   "scenarios": [
     {
       "name": "personal-assistant",
-      "purpose": "Built-in read-only Personal Assistant host connection-state rendering",
+      "purpose": "Built-in Personal Assistant host connection-state rendering",
       "status": "developer",
       "platforms": ["windows", "macos"],
       "ctest": false,

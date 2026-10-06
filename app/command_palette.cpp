@@ -423,6 +423,13 @@ void CommandPalette::execute_selected()
     }
 }
 
+void CommandPalette::click_choice(int index)
+{
+    if (!open_ || mode_!=Mode::Choices || index<0 || static_cast<size_t>(index)>=filtered_.size()) return;
+    selected_index_=index;
+    submit_choice();
+}
+
 void CommandPalette::submit_choice()
 {
     if (selected_index_ < 0 || selected_index_ >= static_cast<int>(filtered_.size()))
@@ -533,7 +540,7 @@ gui::PaletteViewState CommandPalette::view_state(int grid_cols, int grid_rows, f
     vs.mode = mode_ == Mode::Prompt ? gui::PaletteMode::Prompt : gui::PaletteMode::Actions;
     vs.grid_cols = grid_cols;
     vs.grid_rows = grid_rows;
-    vs.title = prompt_.title;
+    vs.title = mode_==Mode::Choices ? choices_.title : prompt_.title;
     vs.prompt = prompt_.prompt;
     vs.query = query_;
     vs.message = prompt_message_;

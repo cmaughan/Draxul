@@ -84,6 +84,7 @@ struct ChromeAgentInput
     bool attention = false;
     // When present the row reserves leading columns for a spinning coin.
     std::optional<ChromeAgentCoinInput> coin;
+    bool add_button = false;
 };
 
 struct ChromePaneInput
@@ -179,6 +180,7 @@ struct ChromeAgentLayout : ChromePillLayout
     bool focused = false;
     bool attention = false;
     std::optional<ChromeAgentCoinLayout> coin;
+    bool editing = false;
 };
 
 struct ChromeRightPillLayout
@@ -247,6 +249,7 @@ struct ChromeLayoutOutput
     std::vector<ChromeDivider> dividers;
     std::optional<ChromeCaretLayout> tab_caret;
     std::optional<ChromeCaretLayout> space_caret;
+    std::optional<ChromeCaretLayout> personal_agent_caret;
     std::optional<ChromeCaretLayout> pane_caret;
     std::vector<ChromeHitRegion> hit_regions;
     float focus_border = 3.0f;

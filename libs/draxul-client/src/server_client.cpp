@@ -541,7 +541,7 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
         .capabilities = {
             "agent-control-v1",
             "agent-projection-v1",
-            "personal-agents-v1",
+            "personal-agents-v3",
             std::string(kServerClientTokenCapability),
             "client-registration",
             "controller-lease",

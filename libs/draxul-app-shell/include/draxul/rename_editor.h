@@ -16,6 +16,7 @@ enum class RenameTarget
     Space,
     Tab,
     Pane,
+    PersonalAgent,
 };
 
 enum class RenameKey
@@ -38,6 +39,7 @@ struct RenameCommit
     int tab_id = -1;
     LeafId leaf_id = kInvalidLeaf;
     std::string text;
+    std::string personal_id;
 };
 
 struct RenameSnapshot
@@ -49,6 +51,7 @@ struct RenameSnapshot
     std::string_view buffer;
     size_t cursor = 0;
     std::chrono::steady_clock::time_point started_at{};
+    std::string_view personal_id;
 };
 
 // Renderer- and SDL-independent state machine for inline Space, tab, and pane
@@ -60,6 +63,7 @@ public:
     void begin_space(int space_id, std::string initial_text);
     void begin_tab(int tab_id, std::string initial_text);
     void begin_pane(LeafId leaf_id, std::string initial_text);
+    void begin_personal_agent(std::string id, std::string initial_text);
 
     [[nodiscard]] bool active() const;
     [[nodiscard]] bool editing_space() const;
@@ -85,6 +89,7 @@ private:
     int tab_id_ = -1;
     LeafId leaf_id_ = kInvalidLeaf;
     std::string buffer_;
+    std::string personal_id_;
     size_t cursor_ = 0;
     std::chrono::steady_clock::time_point started_at_{};
 };

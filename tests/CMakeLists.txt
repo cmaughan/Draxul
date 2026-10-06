@@ -5,6 +5,9 @@ add_executable(draxul-rpc-fake
 )
 target_link_libraries(draxul-rpc-fake PRIVATE draxul-nvim-protocol)
 
+add_executable(draxul-personal-agent-fake personal_agent_fake.cpp)
+target_link_libraries(draxul-personal-agent-fake PRIVATE nlohmann_json::nlohmann_json)
+
 # Header-only fakes and fixtures are shared by every test executable. Keeping
 # their include path and Catch dependency in one interface target prevents the
 # focused targets below from growing subtly different test environments.
@@ -461,6 +464,10 @@ target_link_libraries(draxul-test-server PRIVATE
     draxul-agent-usage
     draxul-client)
 
+add_dependencies(draxul-test-server draxul-personal-agent-fake)
+target_compile_definitions(draxul-test-server PRIVATE
+    DRAXUL_PERSONAL_FAKE_PATH="$<TARGET_FILE:draxul-personal-agent-fake>")
+
 draxul_add_test_target(draxul-test-server-integration "server-integration;integration" 2 ${DRAXUL_SERVER_INTEGRATION_TEST_SOURCES})
 target_link_libraries(draxul-test-server-integration PRIVATE
     draxul-server-test-internals
@@ -781,6 +788,7 @@ set_tests_properties(draxul-review-skill-py-tests
 )
 
 draxul_configure_internal_target(draxul-rpc-fake)
+draxul_configure_internal_target(draxul-personal-agent-fake)
 
 # These are build-only contracts, not runtime tests. Each translation unit
 # consumes a public API through only its owning target so missing direct

@@ -13,7 +13,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | Markdown | `--host markdown --source <file.md>` | Native Draxul markdown viewer host using the FreeType/HarfBuzz font pipeline, MD4C parsing, variable-height document rows, configurable body text size/margins, restrained styled headings, section indentation, front matter/code/list/table decorations, mouse wheel/PageUp/PageDown/Home/End plus Vim-style `j/k`, `Ctrl+F/B`, `gg`, `G` scrolling, and a draggable proportional scrollbar |
 | Kanban | `--host kanban [--source <folder>]` | Native grid-backed kanban viewer for a `kanban/` folder. By default it combines the current repository board with every initialized recursive Git submodule board, prefixes cards with their source, and uses `b` to cycle all/root/sub-board filters. Subfolders become columns, Markdown files become cards, each board's `.draxul-kanban.toml` stores its own ordering, Vim-style `h/j/k/l`, `Ctrl+F/B`, `gg`, and `G` move selection within the current column, shifted up/down arrows reorder cards inside their owning board, `<`/`>` move files between that board's column folders, capital `D` deletes the selected card only from `done` or `ice-box`, `z` zooms to the selected column full-width (`z` again restores all columns), `p` pins a bottom-two-thirds Markdown preview of the selected card that follows the selection (`p` again removes it), and Enter opens the selected card's Markdown file in a background Neovim host (reusing an existing Neovim pane or spawning a split) without moving focus off the board. Shared-session splits retain the first open request until Neovim is ready, and rapid repeated opens reuse the pending split |
 | Bash | `--host bash` | Server-owned PTY terminal (Unix) |
-| Personal Assistant | `--host personal-assistant` | Read-only server-owned folder collection and separate Personal Agents rail. Set `[agents].personal_root` to an absolute folder; inspect instructions/profile/model, sync errors and last-known definitions. Execution, editing and ownership are not enabled yet. See [setup and current schema](personal-assistant.md). |
+| Personal Assistant | `--host personal-assistant` | Use the separated **+** button to add a Codex conversation (GPT-6.1-Sol by default) in a new tab. Double-click a pill to rename inline; right-click to delete with confirmation and recoverable backing-file removal. Backing instructions and data are created under Dropbox `Vault/PA`, with a startup prefix telling the agent where to read/bootstrap them. Uses ordinary provider settings and native Session resume. See [personal conversations](personal-assistant.md). |
 | Zsh | `--host zsh` | Server-owned PTY terminal (Unix) |
 | PowerShell | `--host powershell` | Server-owned ConPTY terminal on Windows |
 | WSL | `--host wsl` | Server-owned Windows Subsystem for Linux terminal |
@@ -32,7 +32,7 @@ uses that shell on the server.
 Requesting a Kanban board whose resolved path is already open selects its
 existing tab, even when it is in another Space, instead of creating a duplicate.
 Personal Assistant also reuses its existing tab within the Session; selecting a
-Personal Agents rail entry searches every Space and focuses that definition.
+Personal Agents rail entry searches every Space and focuses that agent’s terminal conversation.
 Plugins can opt into the same behavior with `reuse_existing_tab = true` in
 `plugin.toml` (Flashcards does). `--plugin` launches and command-palette tab launches reuse a
 matching plugin ID and JSON configuration; differing configurations and plugins

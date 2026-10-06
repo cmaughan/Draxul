@@ -6,6 +6,7 @@
 
 namespace draxul
 {
+// A lightweight entry point. Conversations themselves use the provider's terminal.
 class PersonalAssistantHost : public GridHostBase
 {
 public:
@@ -17,8 +18,7 @@ public:
     bool dispatch_action(std::string_view action) override;
     void request_close() override { shutdown(); }
     std::string display_name() const override { return "Personal Assistant"; }
-    std::string status_text() const override { return "Read only - execution disabled"; }
-
+    std::string status_text() const override { return "Personal conversations"; }
 private:
     bool initialize_host() override;
     void on_viewport_changed() override;
@@ -28,11 +28,8 @@ private:
     void write_line(int row, std::string_view text);
     std::shared_ptr<const PersonalAgentSnapshot> snapshot_;
     std::string selected_id_;
-    size_t selected_ = 0;
-    size_t instruction_offset_ = 0;
     bool running_ = false;
     bool dirty_ = true;
 };
-
 void register_personal_assistant_host_provider(HostProviderRegistry& registry);
 }

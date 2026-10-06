@@ -1,6 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "gui_action_handler.h"
+#include "command_palette_host.h"
+#include "support/fake_grid_pipeline_renderer.h"
+#include "support/test_host_callbacks.h"
+#include <draxul/text_service.h>
 #include "input_dispatcher.h"
 #include "support/fake_host.h"
 #include "support/fake_window.h"
@@ -41,6 +45,10 @@ public:
     std::function<IHost*()> overlay_host_fn;
     std::function<int(int, int)> hit_test_space_fn;
     std::function<int(int, int)> hit_test_agent_fn;
+    std::function<int(int, int)> hit_test_personal_agent_fn;
+    std::function<void(int)> activate_personal_agent_fn;
+    std::function<void(int)> rename_personal_agent_fn;
+    std::function<void(int,int,int)> personal_agent_menu_fn;
     std::function<int()> app_chrome_width_fn;
     std::function<bool(int, int)> hit_test_shell_divider_fn;
     std::function<void(int)> resize_space_sidebar_fn;
@@ -72,6 +80,15 @@ public:
     {
         return hit_test_agent_fn ? hit_test_agent_fn(x, y) : 0;
     }
+
+    int hit_test_personal_agent(int x,int y) override
+    { return hit_test_personal_agent_fn ? hit_test_personal_agent_fn(x,y) : 0; }
+    void activate_personal_agent(int index) override
+    { if(activate_personal_agent_fn) activate_personal_agent_fn(index); }
+    void personal_agent_menu(int index,int x,int y) override
+    { if (personal_agent_menu_fn) personal_agent_menu_fn(index,x,y); }
+    void rename_personal_agent(int index) override
+    { if(rename_personal_agent_fn) rename_personal_agent_fn(index); }
 
     LeafId hit_test_pane_pill(int, int) override
     {
@@ -714,7 +731,7 @@ struct OverlayE2ESetup
     std::unique_ptr<GuiActionHandler> action_handler;
     std::unique_ptr<InputDispatcher> dispatcher;
 
-    OverlayE2ESetup()
+    OverlayE2ESetup(float scale = 1.0f)
         : bindings(make_test_bindings())
     {
         panel.initialize();
@@ -728,7 +745,7 @@ struct OverlayE2ESetup
         deps.gui_action_handler = action_handler.get();
         deps.ui_panel = &panel;
         deps.host = &host;
-        deps.pixel_scale = PixelScale{ 1.0f };
+        deps.pixel_scale = PixelScale{ scale };
         router.overlay_host_fn = [this]() -> IHost* {
             return overlay_active ? &overlay : nullptr;
         };
@@ -1187,4 +1204,103 @@ TEST_CASE("chord: pending prefix times out and indicator eventually clears",
 
     REQUIRE(setup.dispatcher->update(now + std::chrono::milliseconds(2400), 1500));
     REQUIRE_FALSE(setup.dispatcher->chord_indicator_state(now + std::chrono::milliseconds(2400)).visible());
+}
+
+TEST_CASE("Personal agent pill clicks open chat and double-clicks rename", "[personal][input_dispatcher]")
+{
+    OverlayE2ESetup setup;
+    setup.overlay_active=false;
+    int opened=0,renamed=0,menu=0;
+    setup.router.hit_test_personal_agent_fn=[](int x,int y){return x<200 && y>=130 && y<150 ? 2 : 0;};
+    setup.router.activate_personal_agent_fn=[&](int index){opened=index;};
+    setup.router.rename_personal_agent_fn=[&](int index){renamed=index;};
+    setup.router.personal_agent_menu_fn=[&](int index,int,int){menu=index;};
+    setup.window.on_mouse_button(make_click(10,140));
+    CHECK(opened==2);
+    CHECK(renamed==0);
+    auto twice=make_click(10,140); twice.clicks=2;
+    setup.window.on_mouse_button(twice);
+    CHECK(renamed==2);
+    opened=0;
+    auto right=make_click(10,140); right.button=SDL_BUTTON_RIGHT;
+    setup.window.on_mouse_button(right);
+    CHECK(menu==2);
+    CHECK(opened==0);
+    CHECK(setup.host.mouse_button_events.empty());
+}
+
+TEST_CASE("Personal agent context click routes through a HiDPI menu and confirmation",
+    "[personal][input_dispatcher][palette]")
+{
+    bool control_click = false;
+#ifdef __APPLE__
+    SECTION("secondary mouse button") {}
+    SECTION("macOS Control-click") { control_click = true; }
+#endif
+    OverlayE2ESetup setup(2.0f);
+    tests::FakeGridPipelineRenderer renderer;
+    renderer.padding_pixels = 6;
+    tests::TestHostCallbacks callbacks;
+    TextService text;
+    TextServiceConfig config;
+    config.font_path = tests::bundled_font_path().string();
+    REQUIRE(text.initialize(config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    CommandPaletteHost menu(CommandPaletteHost::Deps{});
+    HostContext context;
+    context.grid_renderer = &renderer;
+    context.text_service = &text;
+    context.initial_viewport.pixel_size = {800, 600};
+    REQUIRE(menu.initialize(context, callbacks));
+    setup.router.overlay_host_fn = [&]() -> IHost* { return menu.is_active() ? &menu : nullptr; };
+    setup.router.hit_test_personal_agent_fn = [](int x, int y) {
+        return x < 200 && y >= 260 && y < 300 ? 1 : 0;
+    };
+    int opened = 0;
+    int deleted = 0;
+    setup.router.activate_personal_agent_fn = [&](int) { ++opened; };
+    setup.router.personal_agent_menu_fn = [&](int index, int x, int y) {
+        CHECK(index == 1);
+        CHECK(x == 20);
+        CHECK(y == 280);
+        CommandPalette::ChoiceRequest request;
+        request.title = "Assistant";
+        request.entries = {{.id="delete", .name="Delete agent..."}};
+        request.on_submit = [&](std::string action) {
+            REQUIRE(action == "delete");
+            CommandPalette::ChoiceRequest confirm;
+            confirm.title = "Delete Assistant?";
+            confirm.entries = {{.id="cancel", .name="Cancel"}, {.id="delete", .name="Delete agent"}};
+            confirm.on_submit = [&](std::string choice) { if (choice == "delete") ++deleted; };
+            REQUIRE(menu.open_context_menu(std::move(confirm), 20, 280));
+        };
+        REQUIRE(menu.open_context_menu(std::move(request), x, y));
+    };
+    auto click = make_click(10, 140);
+    click.button = control_click ? SDL_BUTTON_LEFT : SDL_BUTTON_RIGHT;
+    click.mod = control_click ? kModCtrl : kModNone;
+    setup.window.on_mouse_button(click);
+    REQUIRE(menu.is_active());
+    CHECK(opened == 0);
+    click.pressed = false;
+    setup.window.on_mouse_button(click);
+    REQUIRE(menu.is_active());
+    menu.pump();
+    menu.draw(renderer.frame_context);
+    CHECK(renderer.last_drawn_handle == renderer.last_handle);
+    REQUIRE_FALSE(renderer.last_handle->update_batches.back().empty());
+    const auto choose_row = [&](int row) {
+        const auto viewport = renderer.last_handle->last_viewport;
+        const auto [cw, ch] = renderer.cell_size_pixels();
+        setup.window.on_mouse_button(make_click(
+            (viewport.pixel_pos.x + renderer.padding() + cw) / 2,
+            (viewport.pixel_pos.y + renderer.padding() + row * ch + ch / 2) / 2));
+    };
+    choose_row(1); // Delete opens a fresh confirmation handle.
+    REQUIRE(menu.is_active());
+    CHECK(deleted == 0);
+    CHECK(renderer.create_grid_handle_calls == 2);
+    choose_row(2);
+    CHECK(deleted == 1);
+    CHECK_FALSE(menu.is_active());
+    CHECK(setup.host.mouse_button_events.empty());
 }

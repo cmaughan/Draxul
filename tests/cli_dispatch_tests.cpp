@@ -452,3 +452,18 @@ TEST_CASE("macOS server helper has a distinct nested app identity",
     CHECK(macos_client_executable(client) == client);
 }
 #endif
+
+TEST_CASE("personal CLI requires explicit command files and keeps result identities", "[control][cli][personal]")
+{
+    const auto snapshot=parse_control_cli({"draxul","personal","snapshot","--json"});
+    REQUIRE(snapshot.command);
+    CHECK(snapshot.command->method=="personal.snapshot");
+    const auto submit=parse_control_cli({"draxul","personal","submit","--file","command.json","--json"});
+    REQUIRE(submit.command);
+    CHECK(submit.command->method=="personal.command");
+    CHECK(submit.command->reference_value=="command.json");
+    CHECK(parse_control_cli({"draxul","personal","submit"}).error.has_value());
+    const auto result=parse_control_cli({"draxul","personal","result","request-one"});
+    REQUIRE(result.command);
+    CHECK(result.command->value=="request-one");
+}

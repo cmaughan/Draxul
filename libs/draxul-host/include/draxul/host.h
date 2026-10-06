@@ -24,6 +24,8 @@ class TextService;
 struct AppConfig;
 class ConfigDocument;
 struct PersonalAgentSnapshot;
+struct PersonalAgentCommand;
+struct PersonalAgentCommandResult;
 
 struct HostLaunchOptions
 {
@@ -184,6 +186,9 @@ public:
     // Show a non-blocking toast notification. level: 0=info, 1=warn, 2=error.
     virtual void push_toast(int /*level*/, std::string_view /*message*/) {}
     virtual std::shared_ptr<const PersonalAgentSnapshot> personal_agents() const { return {}; }
+    virtual void open_personal_agent(std::string) {}
+    virtual std::string personal_command(const PersonalAgentCommand&) { return {}; }
+    virtual std::shared_ptr<const PersonalAgentCommandResult> personal_result(std::string_view) const { return {}; }
 };
 
 struct HostContext

@@ -221,6 +221,11 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 ## Config Notes
 
 - User settings live in `config.toml`.
+- The user's shared Personal Assistant collection is `Vault/PA` under their
+  Dropbox root on every machine. Set `[agents].personal_root` to that machine's
+  absolute Dropbox path (on this Mac: `/Users/cmaughan/Dropbox/Vault/PA`). Preserve
+  the shared collection identity; never initialize another collection for the
+  same personal agents. Executor locks and provider credentials stay local.
 - `enable_ligatures = true/false` controls whether Draxul combines eligible two-cell programming ligatures during shaping; it defaults to `true`.
 - `smooth_scroll = true/false` enables trackpad momentum-style scroll accumulation; defaults to `true`.
 - `scroll_speed = 1.0` is a multiplier applied to the raw scroll delta before accumulation in the smooth-scroll path. Range: (0.1, 10.0]; values outside this range log a WARN and fall back to `1.0`. Values below `1.0` slow scrolling; values above `1.0` speed it up.

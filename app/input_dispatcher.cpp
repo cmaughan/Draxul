@@ -452,6 +452,9 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
     {
         if (log_would_emit(LogLevel::Trace, LogCategory::Input))
             log_printf(LogLevel::Trace, LogCategory::Input, "input trace: dispatcher mouse_button swallowed by overlay");
+        auto translated=event;
+        translated.pos={deps_.pixel_scale.to_physical(event.pos.x),deps_.pixel_scale.to_physical(event.pos.y)};
+        deps_.router->overlay_host()->on_mouse_button(translated);
         return;
     }
 
@@ -495,7 +498,22 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
         const int index = deps_.router->hit_test_personal_agent(phys_x, phys_y);
         if (index > 0)
         {
-            deps_.router->activate_personal_agent(index);
+            bool context_click = event.button == SDL_BUTTON_RIGHT;
+#ifdef __APPLE__
+            // Cocoa's conventional secondary click also includes Control-click.
+            context_click |= event.button == SDL_BUTTON_LEFT && (event.mod & kModCtrl);
+#endif
+            if (context_click)
+            {
+                if (deps_.router->is_editing())
+                    deps_.router->commit_rename();
+                deps_.router->personal_agent_menu(index, phys_x, phys_y);
+            }
+            else if (event.button == SDL_BUTTON_LEFT)
+            {
+                if (event.clicks >= 2) deps_.router->rename_personal_agent(index);
+                else deps_.router->activate_personal_agent(index);
+            }
             return;
         }
     }

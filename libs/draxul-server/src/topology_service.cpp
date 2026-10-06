@@ -703,6 +703,29 @@ ControlMethodResult TopologyService::launch_agent(
         return ControlMethodResult::error(
             "space_not_found", "Topology Space was not found.");
     }
+    if (launch.identity.instance_id.starts_with("personal-"))
+    {
+        if (space->tabs.size()>=kTopologyMaxTabsPerSpace)
+            return ControlMethodResult::error("limit_reached","Topology tab limit reached.");
+        if (!callbacks_.create_managed_agent_terminal || !valid_name(name))
+            return ControlMethodResult::error("invalid_agent","Managed terminal is unavailable or its name is invalid.");
+        auto created=make_client_local_tab(std::string(name));
+        auto& pane=created.panes.front();
+        std::string error;
+        auto terminal=callbacks_.create_managed_agent_terminal(space->space_id,created.tab_id,pane.pane_id,name,launch,error);
+        if (!terminal) return ControlMethodResult::error("agent_start_failed",error);
+        pane.domain=TopologyPaneDomain::ServerTerminal;
+        pane.terminal_id=*terminal;
+        pane.client_host_kind.clear();
+        pane.server_working_directory=launch.working_directory;
+        pane.agent=launch.identity;
+        pane.restore_policy=launch.restore_policy;
+        auto result=nlohmann::json{{"space_id",space->space_id},{"tab_id",created.tab_id},{"pane_id",pane.pane_id},
+            {"terminal_id",*terminal},{"instance_id",launch.identity.instance_id},{"topology_revision",snapshot_.revision+1}};
+        space->tabs.push_back(std::move(created));
+        ++snapshot_.revision;
+        return ControlMethodResult::success(std::move(result));
+    }
     TopologyTab* tab = find_tab(*space, tab_id);
     if (!tab)
     {
