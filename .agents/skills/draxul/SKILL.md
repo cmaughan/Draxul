@@ -231,7 +231,9 @@ left-drag orbits the active camera, and the mouse wheel dollies.
 The bundled `nyx_flight_deck` example is a multi-project 5-by-2 dashboard
 launcher rather than a single project root. Run its `launch.ps1` from the
 Rezonality examples tree to create the complete shader, glTF, and terminal
-layout.
+layout. The bundled `starship_bridge` example is a 2-by-2 control panel;
+`python3 plugins/rezonality/examples/starship_bridge/launch.py` creates its tab
+on any platform.
 
 Create an atomic agent workspace with the checked-in generator:
 
