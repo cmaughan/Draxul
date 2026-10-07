@@ -233,7 +233,9 @@ launcher rather than a single project root. Run its `launch.ps1` from the
 Rezonality examples tree to create the complete shader, glTF, and terminal
 layout. The bundled `starship_bridge` example is a 2-by-2 control panel;
 `python3 plugins/rezonality/examples/starship_bridge/launch.py` creates its tab
-on any platform.
+on any platform. The bundled `seaside` example is a 2-by-2 nature scene;
+`python3 plugins/rezonality/examples/seaside/launch.py` generates its meshes
+when missing and creates its tab on any platform.
 
 Create an atomic agent workspace with the checked-in generator:
 
