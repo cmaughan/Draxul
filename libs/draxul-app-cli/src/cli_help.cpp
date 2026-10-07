@@ -78,6 +78,7 @@ const char* cli_help_text() noexcept
            "  draxul personal result <request-id> [--json]\n"
            "  draxul agent list [--session <id>] [--json]\n"
            "  draxul agent get <instance-id> [--session <id>] [--json]\n"
+           "  Targeted agent commands accept --alias <name> instead of <instance-id>.\n"
            "  draxul agent explain <instance-id> [--session <id>] [--json]\n"
            "  draxul agent start <profile-id> [--cwd <path>] [--space <id>]\n"
            "                     [--tab <id>] [--pane <id>] [--replace]\n"

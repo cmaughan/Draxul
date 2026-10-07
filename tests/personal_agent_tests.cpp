@@ -283,117 +283,343 @@ TEST_CASE("personal create and rename preserve agent-owned backing files", "[per
     CHECK(boot->instructions.empty());
 }
 
-TEST_CASE("personal pill launches one interactive terminal with backing bootstrap", "[personal][server][integration]")
+TEST_CASE("personal native chat owns structured turns across clients and server restarts", "[personal][chat][server][integration]")
 {
     TempDir temp("draxul-personal-chat");
-    const auto root=temp.path/"collection";
-    const auto runtime=temp.path/"runtime";
+    const auto root=temp.path/"collection", runtime=temp.path/"runtime";
     create_collection(root);
-    std::string provider="codex";
-    bool explicit_model=false;
-    bool final_tab=false;
-    SECTION("Codex default") {}
-    SECTION("Delete the final tab") { final_tab=true; }
-    SECTION("Codex profile override") { explicit_model=true; }
-    SECTION("Claude") { provider="claude"; explicit_model=true; }
-    ServerKernel server({.personal_agents_root=root,.personal_local_state=temp.path/"local",.runtime_directory=runtime,
-        .agent_definitions={{.profile_id="codex",.kind=provider,.display_name="Test chat",.executable=DRAXUL_PERSONAL_FAKE_PATH,
-            .default_args=explicit_model ? std::vector<std::string>{"--model","profile-model"} : std::vector<std::string>{}}}});
-    REQUIRE(server.start().disposition==ServerStartDisposition::Started);
-    ServerRunGuard guard(server);
-    auto recovery=std::make_shared<ClientRecoveryState>("personal-chat-client");
-    ServerControlChannel channel({.runtime_directory=runtime,.client_id="personal-chat-client",.recovery=recovery});
-    auto request=[&](std::string_view method,nlohmann::json params) {
-        params["session_id"]="default";
-        return channel.request_with_recovery(method,std::move(params));
+    auto exercise=[&](bool resumed) {
+        ServerKernel server({.personal_agents_root=root,.personal_local_state=temp.path/"local",.runtime_directory=runtime,
+            .agent_definitions={{.profile_id="codex",.kind="codex",.display_name="Test chat",.executable=DRAXUL_PERSONAL_FAKE_PATH}}});
+        REQUIRE(server.start().disposition==ServerStartDisposition::Started);
+        ServerRunGuard guard(server);
+        auto recovery=std::make_shared<ClientRecoveryState>("chat-client");
+        ServerControlChannel channel({.runtime_directory=runtime,.client_id="chat-client",.recovery=recovery});
+        auto request=[&](std::string_view method,nlohmann::json params) {
+            params["session_id"]="default"; return channel.request_with_recovery(method,std::move(params));
+        };
+        for(int i=0;i<150;++i)
+        {
+            const auto metadata=request("personal.snapshot",nlohmann::json::object());
+            if(metadata.ok && metadata.result["agents"].size()==1) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        const auto terminal_count=server.status_snapshot().terminals;
+        const auto open=request("agent.start",{{"profile_id","codex"},{"personal_id","news"},{"request_id","open-chat"}});
+        INFO(open.error_message); REQUIRE(open.ok);
+        CHECK(open.result["instance_id"]=="personal-news");
+        CHECK(open.result["alias"]=="News monitor");
+        CHECK(open.result["route"]["terminal_id"]=="");
+        CHECK(server.status_snapshot().terminals==terminal_count);
+        auto wait_state=[&](std::string_view desired) {
+            ControlClientResult result;
+            for(int i=0;i<200;++i)
+            {
+                result=request("personal.chat.snapshot",{{"agent_id","news"}});
+                if(result.ok && result.result["state"]==desired) return result;
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+            INFO(result.result.dump()); REQUIRE(false); return result;
+        };
+        const auto ready=wait_state("idle");
+        {
+            std::ifstream log(root/"agents/news/received.jsonl");
+            std::string line; bool verified=false;
+            while(std::getline(log,line))
+            {
+                const auto request=nlohmann::json::parse(line);
+                if(request.value("method","")!=(resumed?"thread/resume":"thread/start")) continue;
+                CHECK(request["params"]["sandbox"]=="workspace-write");
+                CHECK(request["params"]["approvalPolicy"]=="on-request");
+                CHECK(request["params"]["approvalsReviewer"]=="auto_review");
+                verified=true;
+            }
+            CHECK(verified);
+        }
+        if(resumed)
+        {
+            REQUIRE(ready.result["messages"].size()>=2);CHECK(ready.result["messages"][1]["text"]=="Answer: hello");
+            const auto metadata=request("personal.snapshot",nlohmann::json::object());
+            nlohmann::json deletion{{"action","delete"},{"request_id","delete-chat"},
+                {"authority",metadata.result["authority"]},{"collection_id",metadata.result["collection_id"]},
+                {"expected",metadata.result["agents"][0]},{"confirmed",false}};
+            CHECK_FALSE(request("personal.command",deletion).ok);
+            deletion["confirmed"]=true;REQUIRE(request("personal.command",deletion).ok);
+            ControlClientResult deleted;
+            for(int i=0;i<150;++i)
+            {
+                deleted=request("personal.result",{{"request_id","delete-chat"}});
+                if(deleted.ok && deleted.result.value("done",false)) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+            REQUIRE(deleted.ok);CHECK(deleted.result.value("ok",false));
+            CHECK_FALSE(std::filesystem::exists(root/"agents/news"));
+            CHECK(request("agent.list",nlohmann::json::object()).result.empty());
+            CHECK(server.status_snapshot().terminals==terminal_count);
+            CHECK_FALSE(request("personal.chat.open",{{"agent_id","news"}}).ok);
+            return;
+        }
+        nlohmann::json send{{"agent_id","news"},{"action","send"},{"text","hello"},{"request_id","send-first"}};
+        REQUIRE(request("personal.chat.command",send).ok);
+        REQUIRE(request("personal.chat.command",send).ok); // idempotent, no repeated turn
+        auto changed=send;changed["text"]="changed";
+        CHECK_FALSE(request("personal.chat.command",changed).ok);
+        auto complete=wait_state("idle");
+        REQUIRE(complete.result["messages"].size()==2);
+        CHECK(complete.result["messages"][0]["text"]=="hello");
+        CHECK(complete.result["messages"][1]["text"]=="Answer: hello");
+        CHECK(complete.result["tool_count"]==1);
+        CHECK(complete.result.dump().find("secret calculation")==std::string::npos);
+        CHECK(complete.result.dump().find("hidden reasoning")==std::string::npos);
+        CHECK(complete.result.dump().find("I will calculate")==std::string::npos);
+        ServerControlChannel observer({.runtime_directory=runtime,.client_id="chat-observer",
+            .recovery=std::make_shared<ClientRecoveryState>("chat-observer")});
+        CHECK(observer.request_with_recovery("personal.chat.open",{{"agent_id","news"}}).result["messages"]==complete.result["messages"]);
+        REQUIRE(request("personal.chat.command",{{"agent_id","news"},{"action","send"},{"text","wait"},{"request_id","send-wait"}}).ok);
+        wait_state("working");
+        CHECK_FALSE(request("personal.chat.command",{{"agent_id","news"},{"action","send"},{"text","duplicate"},{"request_id","busy-send"}}).ok);
+        REQUIRE(request("personal.chat.command",{{"agent_id","news"},{"action","stop"},{"request_id","stop-wait"}}).ok);
+        CHECK(wait_state("idle").result["error"]=="Stopped.");
+        REQUIRE(request("agent.send_text",{{"instance_id","personal-news"},{"text","approval\r"},{"request_id","ask-approval"}}).ok);
+        auto approval=wait_state("approval");
+        CHECK(approval.result["approval_text"].get<std::string>().find("echo approved")!=std::string::npos);
+        CHECK_FALSE(request("personal.chat.command",{{"agent_id","news"},{"action","approve"},{"approval_id","stale"},{"request_id","stale-approval"}}).ok);
+        REQUIRE(request("personal.chat.command",{{"agent_id","news"},{"action","decline"},
+            {"approval_id",approval.result["approval_id"]},{"request_id","decline"}}).ok);
+        wait_state("idle");
+        for(const std::string action:{"approve","decline"})
+        {
+            REQUIRE(request("personal.chat.command",{{"agent_id","news"},{"action","send"},{"text","permissions"},{"request_id","permissions-"+action}}).ok);
+            const auto pending=wait_state("approval");
+            CHECK(pending.result["approval_text"].get<std::string>().find("for this turn")!=std::string::npos);
+            const auto approval_id=pending.result["approval_id"].get<std::string>();
+            CHECK_FALSE(request("personal.chat.command",{{"agent_id","news"},{"action",action},{"approval_id","stale"},{"request_id","stale-permissions-"+action}}).ok);
+            REQUIRE(request("personal.chat.command",{{"agent_id","news"},{"action",action},{"approval_id",approval_id},{"request_id","decide-permissions-"+action}}).ok);
+            wait_state("idle");
+            std::ifstream log(root/"agents/news/received.jsonl");
+            std::string line;bool verified=false;
+            while(std::getline(log,line))
+            {
+                const auto wire=nlohmann::json::parse(line);
+                if(!wire.contains("result") || wire["id"].dump()!=approval_id) continue;
+                CHECK(wire["result"]["scope"]=="turn");
+                if(action=="approve")
+                {
+                    CHECK(wire["result"]["permissions"]["network"]["enabled"]==true);
+                    const auto entries=wire["result"]["permissions"]["fileSystem"]["entries"];
+                    REQUIRE(entries.size()==1);CHECK(entries[0]["access"]=="read");
+                    CHECK(entries[0]["path"]["path"]==std::filesystem::canonical(root/"agents/news").string());
+                }
+                else CHECK(wire["result"]["permissions"].empty());
+                CHECK_FALSE(wire["result"].contains("decision"));verified=true;
+            }
+            CHECK(verified);
+        }
+        const auto again=request("agent.start",{{"profile_id","codex"},{"personal_id","news"},{"request_id","reopen-chat"}});
+        REQUIRE(again.ok);CHECK(again.result["route"]["pane_id"]==open.result["route"]["pane_id"]);
+        const auto listed=request("agent.list",nlohmann::json::object());
+        REQUIRE(listed.ok);REQUIRE(listed.result.size()==1);CHECK(listed.result[0]["alias"]=="News monitor");
+        CHECK(server.status_snapshot().terminals==terminal_count);
     };
-    for(int i=0;i<150;++i)
+    exercise(false);exercise(true);
+    const auto received=personal_read_bounded(root,root/".deleted/news/received.jsonl",65536);
+    CHECK(received.find("thread/resume")!=std::string::npos);
+    CHECK(received.find("instructions.md")!=std::string::npos);
+    CHECK(std::filesystem::exists(temp.path/"local/chat/personal/news.json"));
+}
+
+TEST_CASE("personal chat automatically replaces malformed and exited providers without affecting the server", "[personal][chat][server][integration]")
+{
+    TempDir temp("draxul-personal-chat-error");
+    create_collection(temp.path/"collection");
+    std::string prompt,provider="codex";
+    SECTION("unsupported personal provider"){provider="claude";}
+    SECTION("provider exit"){prompt="crash";}
+    SECTION("invalid JSON"){prompt="malformed";}
+    ServerKernel server({.personal_agents_root=temp.path/"collection",.personal_local_state=temp.path/"local",
+        .runtime_directory=temp.path/"runtime",.agent_definitions={{.profile_id="codex",.kind=provider,
+        .display_name="Test",.executable=DRAXUL_PERSONAL_FAKE_PATH}}});
+    REQUIRE(server.start().disposition==ServerStartDisposition::Started);ServerRunGuard guard(server);
+    ServerControlChannel channel({.runtime_directory=temp.path/"runtime",.client_id="chat-error",
+        .recovery=std::make_shared<ClientRecoveryState>("chat-error")});
+    auto call=[&](std::string_view method,nlohmann::json params){return channel.request_with_recovery(method,std::move(params));};
+    ControlClientResult state;
+    for(int i=0;i<200;++i)
     {
-        const auto snapshot=request("personal.snapshot",nlohmann::json::object());
-        if(snapshot.ok && snapshot.result["agents"].size()==1) break;
+        state=call("personal.chat.open",{{"agent_id","news"}});
+        if((state.ok && state.result["state"]=="idle") || state.error_code=="unsupported_provider") break;
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    const auto before=request("topology.snapshot",nlohmann::json::object());
-    REQUIRE(before.ok);
-    const auto original_tab=before.result["spaces"][0]["tabs"][0]["tab_id"];
-    const auto start=request("agent.start",{{"profile_id","codex"},{"personal_id","news"},{"request_id","chat-start"}});
-    INFO(start.error_message);
-    REQUIRE(start.ok);
-    CHECK(start.result["instance_id"]=="personal-news");
-    CHECK(start.result["route"]["tab_id"]!=original_tab);
-    const auto after=request("topology.snapshot",nlohmann::json::object());
-    REQUIRE(after.ok);
-    CHECK(after.result["spaces"][0]["tabs"].size()==2);
-    CHECK(after.result["spaces"][0]["tabs"][1]["panes"].size()==1);
-    const auto terminals=server.status_snapshot().terminals;
-    const auto repeated=request("agent.start",{{"profile_id","codex"},{"personal_id","news"},{"request_id","chat-reopen"}});
-    REQUIRE(repeated.ok);
-    CHECK(repeated.result["instance_id"]==start.result["instance_id"]);
-    CHECK(server.status_snapshot().terminals==terminals);
-    const auto launch_file=root/"agents/news/launch.json";
-    for(int i=0;i<150 && !std::filesystem::exists(launch_file);++i) std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    REQUIRE(std::filesystem::exists(launch_file));
-    const auto args=nlohmann::json::parse(personal_read_bounded(root,launch_file,16384)).get<std::vector<std::string>>();
-    REQUIRE(args.size()>=4);
-    CHECK(args[0]=="--model");
-    CHECK(args[1]==(explicit_model ? "profile-model" : "gpt-6.1-sol"));
-    CHECK(args.back().find("instructions.md")!=std::string::npos);
-    CHECK(args.back().find("state.md")!=std::string::npos);
-    CHECK(args.back().find("agents")!=std::string::npos);
-    CHECK(args.back().find("news")!=std::string::npos);
-    CHECK(std::ranges::find(args,"exec")==args.end());
-    CHECK(std::ranges::find(args,"--print")==args.end());
-    REQUIRE(request("agent.send_text",{{"instance_id","personal-news"},{"text","hello personal chat"}}).ok);
-    REQUIRE(request("agent.send_keys",{{"instance_id","personal-news"},{"keys",{"enter"}}}).ok);
-    const auto received=root/"agents/news/received.txt";
-    for(int i=0;i<150 && !std::filesystem::exists(received);++i) std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    REQUIRE(std::filesystem::exists(received));
-    CHECK(personal_read_bounded(root,received,4096).find("hello personal chat")!=std::string::npos);
-    // The process belongs to the server and remains available to another client.
-    auto observer_recovery=std::make_shared<ClientRecoveryState>("personal-observer");
-    ServerControlChannel observer({.runtime_directory=runtime,.client_id="personal-observer",.recovery=observer_recovery});
-    const auto observed=observer.request_with_recovery("agent.get",{{"session_id","default"},{"instance_id","personal-news"}});
-    REQUIRE(observed.ok);
-    CHECK(observed.result["running"]==true);
-    const auto bad=request("agent.start",{{"profile_id","codex"},{"personal_id","../outside"},{"request_id","bad-chat"}});
-    CHECK_FALSE(bad.ok);
-    if (final_tab)
+    if(provider=="claude") {CHECK_FALSE(state.ok);CHECK(state.error_code=="unsupported_provider");return;}
+    REQUIRE(state.ok);REQUIRE(state.result["state"]=="idle");
+    REQUIRE(call("personal.chat.command",{{"agent_id","news"},{"action","send"},{"text",prompt},{"request_id","failing-turn"}}).ok);
+    bool reconnecting=false;
+    for(int i=0;i<500;++i)
     {
-        const auto topology=request("topology.snapshot",nlohmann::json::object());
-        REQUIRE(topology.ok);
-        const auto closed=request("topology.command",topology_command_to_json({
-            .client_id="personal-chat-client",.command_id="close-original",
-            .expected_revision=topology.result["revision"].get<uint64_t>(),
-            .kind=TopologyCommandKind::CloseTab,
-            .space_id=topology.result["spaces"][0]["space_id"].get<std::string>(),
-            .tab_id=original_tab.get<std::string>()}));
-        REQUIRE(closed.ok);
-    }
-    const auto deletion_terminals=server.status_snapshot().terminals;
-    const auto collection=request("personal.snapshot",nlohmann::json::object());
-    REQUIRE(collection.ok);
-    nlohmann::json deletion{{"action","delete"},{"request_id","delete-personal-news"},
-        {"authority",collection.result["authority"]},{"collection_id",collection.result["collection_id"]},
-        {"expected",collection.result["agents"][0]},{"confirmed",false}};
-    CHECK_FALSE(request("personal.command",deletion).ok);
-    CHECK(std::filesystem::exists(root/"agents/news"));
-    CHECK(server.status_snapshot().terminals==deletion_terminals);
-    deletion["confirmed"]=true;
-    REQUIRE(request("personal.command",deletion).ok);
-    ControlClientResult deleted;
-    for(int i=0;i<150;++i)
-    {
-        deleted=request("personal.result",{{"request_id","delete-personal-news"}});
-        if(deleted.ok && deleted.result.value("done",false)) break;
+        state=call("personal.chat.snapshot",{{"agent_id","news"}});
+        if(state.ok && state.result["state"]=="connecting") reconnecting=true;
+        if(reconnecting && state.ok && state.result["state"]=="idle") break;
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    REQUIRE(deleted.ok); INFO(deleted.result.dump());
-    REQUIRE(deleted.result.value("ok",false));
+    REQUIRE(state.ok);CHECK(reconnecting);CHECK(state.result["state"]=="idle");CHECK(state.result["error"]=="");
+    CHECK(call("server.status",nlohmann::json::object()).ok);
+    const auto& messages=state.result["messages"];
+    CHECK(std::ranges::count_if(messages,[&](const auto& message){return message["role"]=="user" && message["text"]==prompt;})==1);
+    CHECK(std::ranges::count_if(messages,[](const auto& message){return message["role"]=="assistant";})==0);
+    REQUIRE(call("personal.chat.command",{{"agent_id","news"},{"action","send"},{"text","hello"},{"request_id","after-recovery"}}).ok);
+    for(int i=0;i<200;++i)
+    {
+        state=call("personal.chat.snapshot",{{"agent_id","news"}});
+        if(state.ok && state.result["state"]=="idle") break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    REQUIRE(state.result["state"]=="idle");CHECK(state.result["messages"].back()["text"]=="Answer: hello");
+    // Ordinary shells remain usable while the personal process is replaced.
+    auto terminal=remote_client(temp.path/"runtime","ordinary-shell",server.status_snapshot().server_epoch,
+        "terminal",std::string(kServerShellTerminalId));
+    std::string error;REQUIRE(terminal.attach(error));
+    REQUIRE(terminal.send_input("echo DRAXUL_ORDINARY_SHELL_OK\r",error));
+    REQUIRE(wait_for_text(terminal,"DRAXUL_ORDINARY_SHELL_OK",error));
+
+}
+
+#include "personal_chat_service.h"
+
+TEST_CASE("personal schedule checks wake unopened agents and coalesce behind active turns", "[personal][chat][server][integration]")
+{
+    TempDir temp("draxul-personal-schedule");
+    const auto root=temp.path/"collection";
+    create_collection(root);
+    std::filesystem::create_directories(root/"agents/second");
+    write_personal_file(root/"agents/second/agent.toml",
+        "schema_version = 3\nid = 'second'\nname = 'Second'\nprofile = 'codex'\nrevision = 1\n");
+    std::vector<AgentDefinition> profiles{{.profile_id="codex",.kind="codex",.display_name="Test",.executable=DRAXUL_PERSONAL_FAKE_PATH}};
+    PersonalAgentService metadata(root,temp.path/"local",profiles);
+    PersonalChatService chat(metadata,temp.path/"local",profiles);
+    for(int i=0;i<200 && metadata.snapshot().agents.size()!=2;++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    REQUIRE(metadata.snapshot().agents.size()==2);
+    auto now=std::chrono::steady_clock::now();
+    chat.tick(now);
+    CHECK(chat.handle("personal.chat.snapshot",{{"agent_id","news"}}).ok); // Startup prepares unopened identities.
+    auto wait=[&](std::string id, uint64_t checks, std::string state="idle") {
+        ControlMethodResult result;
+        for(int i=0;i<300;++i)
+        {
+            result=chat.handle("personal.chat.snapshot",{{"agent_id",id}});
+            if(result.ok && result.value["state"]==state && result.value["schedule_checks"]==checks) return result.value;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        INFO(result.value.dump());REQUIRE(false);return result.value;
+    };
+    CHECK(wait("news",0)["messages"].empty());
+    CHECK(wait("second",0)["messages"].empty());
+    now+=std::chrono::minutes(5);chat.tick(now);
+    CHECK(wait("news",1)["messages"].empty());
+    CHECK(wait("second",1)["messages"].empty());
+    auto request=[&](std::string action,std::string id,std::string text="") {
+        return chat.handle("personal.chat.command",{{"agent_id","news"},{"action",action},{"request_id",id},{"text",text}});
+    };
+    REQUIRE(request("send","busy","wait").ok);
+    wait("news",1,"working");
+    now+=std::chrono::minutes(5);chat.tick(now);
+    now+=std::chrono::minutes(5);chat.tick(now);
+    const auto busy=wait("news",1,"working");
+    CHECK(busy["schedule_checks"]==1);
+    // Stop explicitly cancels the deferred check; a later cadence can wake again.
+    REQUIRE(request("stop","cancel").ok);
+    CHECK(wait("news",1)["messages"].size()==1);
+    write_personal_file(root/"agents/news/due.txt","due");
+    now+=std::chrono::minutes(5);chat.tick(now);
+    const auto completed=wait("news",2);
+    REQUIRE(completed["messages"].size()==2);
+    CHECK(completed["messages"][1]["text"]=="Scheduled work completed.");
+    CHECK_FALSE(completed["last_schedule_check"].get<std::string>().empty());
+    // Repeated pumps at the same instant do not create duplicate turns.
+    chat.tick(now);chat.tick(now);
+    CHECK(wait("news",2)["messages"].size()==2);
+    REQUIRE(request("send","ordinary","hello").ok);
+    CHECK(wait("news",2)["messages"].back()["text"]=="Answer: hello");
+    write_personal_file(root/"agents/news/invalid-schedule.txt","invalid");
+    now+=std::chrono::minutes(5);chat.tick(now);
+    CHECK(wait("news",3)["error"]=="Schedule check returned an invalid result.");
+    // Multiple ticks while approval-blocked produce exactly one deferred check.
+    std::filesystem::remove(root/"agents/news/invalid-schedule.txt");
+    std::filesystem::remove(root/"agents/news/due.txt");
+    REQUIRE(request("send","blocked","approval").ok);
+    const auto approval=wait("news",3,"approval");
+    now+=std::chrono::minutes(5);chat.tick(now);
+    now+=std::chrono::minutes(5);chat.tick(now);
+    CHECK(wait("news",3,"approval")["schedule_checks"]==3);
+    REQUIRE(chat.handle("personal.chat.command",{{"agent_id","news"},{"action","decline"},
+        {"approval_id",approval["approval_id"]},{"request_id","release-blocked"}}).ok);
+    const auto deferred=wait("news",4);
+    CHECK(deferred["messages"].size()==approval["messages"].size());
+    // Removing an identity never recreates its folder on subsequent checks.
+    std::filesystem::remove_all(root/"agents/news");
+    const auto missing=wait_personal(metadata,[](const auto& snapshot){
+        return std::ranges::any_of(snapshot.agents,[](const auto& agent){return agent.id=="news" && !agent.error.empty();});
+    });
+    REQUIRE(std::ranges::any_of(missing.agents,[](const auto& agent){return agent.id=="news" && !agent.error.empty();}));
+    now+=std::chrono::minutes(5);chat.tick(now);
     CHECK_FALSE(std::filesystem::exists(root/"agents/news"));
-    CHECK(std::filesystem::exists(root/".deleted/news/instructions.md"));
-    CHECK(server.status_snapshot().terminals==(final_tab ? deletion_terminals : deletion_terminals-1));
-    CHECK(request("personal.command",deletion).result==deleted.result);
-    const auto final_snapshot=request("personal.snapshot",nlohmann::json::object());
-    REQUIRE(final_snapshot.ok);
-    CHECK(final_snapshot.result["agents"].empty());
+}
+
+TEST_CASE("unstarted personal chats reopen without resuming a nonexistent rollout", "[personal][chat][server][integration]")
+{
+    TempDir temp("draxul-personal-unstarted");
+    const auto root=temp.path/"collection";
+    create_collection(root);
+    std::vector<AgentDefinition> profiles{{.profile_id="codex",.kind="codex",.display_name="Test",.executable=DRAXUL_PERSONAL_FAKE_PATH}};
+    PersonalAgentService metadata(root,temp.path/"local",profiles);
+    REQUIRE(wait_personal(metadata,[](const auto& s){return s.agents.size()==1;}).error.empty());
+    for(int restart=0;restart<2;++restart)
+    {
+        PersonalChatService chat(metadata,temp.path/"local",profiles);
+        REQUIRE(chat.handle("personal.chat.open",{{"agent_id","news"}}).ok);
+        ControlMethodResult ready;
+        for(int i=0;i<300;++i)
+        {
+            ready=chat.handle("personal.chat.snapshot",{{"agent_id","news"}});
+            if(ready.ok && ready.value["state"]!="connecting") break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        INFO(ready.value.dump());REQUIRE(ready.ok);REQUIRE(ready.value["state"]=="idle");
+        CHECK(ready.value["error"]=="");
+        const auto saved=nlohmann::json::parse(personal_read_bounded(temp.path,temp.path/"local/chat/personal/news.json",65536));
+        CHECK(saved["thread_id"]=="");
+        CHECK(saved["messages"].empty());
+    }
+    const auto received=personal_read_bounded(root,root/"agents/news/received.jsonl",65536);
+    CHECK(received.find("thread/resume")==std::string::npos);
+    CHECK(personal_read_bounded(root,root/"agents/news/instructions.md",65536)=="Summarize news. Do not send messages.\n");
+}
+
+TEST_CASE("personal assistants rebuild missing provider history from their backing folder", "[personal][chat][server][integration]")
+{
+    TempDir temp("draxul-personal-missing-history");
+    const auto root=temp.path/"collection";
+    create_collection(root);
+    std::vector<AgentDefinition> profiles{{.profile_id="codex",.kind="codex",.display_name="Test",.executable=DRAXUL_PERSONAL_FAKE_PATH}};
+    const auto saved=temp.path/"local/chat/personal/news.json";
+    std::filesystem::create_directories(saved.parent_path());
+    personal_write_atomic(saved,nlohmann::json{{"schema",1},{"profile","codex"},{"thread_id","missing-thread"},
+        {"messages",nlohmann::json::array({{{"id","old-message"},{"role","assistant"},{"text","Earlier answer"}}})},{"interrupted",false}}.dump());
+    PersonalAgentService metadata(root,temp.path/"local",profiles);
+    REQUIRE(wait_personal(metadata,[](const auto& s){return s.agents.size()==1;}).error.empty());
+    PersonalChatService chat(metadata,temp.path/"local",profiles);
+    chat.tick(std::chrono::steady_clock::now());
+    ControlMethodResult state;
+    for(int i=0;i<300;++i)
+    {
+        state=chat.handle("personal.chat.snapshot",{{"agent_id","news"}});
+        if(state.ok && state.value["state"]=="idle") break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    INFO(state.value.dump());REQUIRE(state.ok);REQUIRE(state.value["state"]=="idle");CHECK(state.value["error"]=="");
+    REQUIRE(state.value["messages"].size()==1);CHECK(state.value["messages"][0]["text"]=="Earlier answer");
+    const auto wire=personal_read_bounded(root,root/"agents/news/received.jsonl",65536);
+    CHECK(wire.find("thread/resume")!=std::string::npos);CHECK(wire.find("thread/start")!=std::string::npos);
+    CHECK(wire.find("instructions.md")!=std::string::npos);
+    CHECK(personal_read_bounded(root,root/"agents/news/instructions.md",65536)=="Summarize news. Do not send messages.\n");
 }

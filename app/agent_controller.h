@@ -26,6 +26,7 @@ struct AgentProjection
     std::string pane_id;
     std::string personal_agent_id;
     AgentIdentity identity;
+    std::string alias;
     std::string identity_evidence_category;
     bool identity_high_confidence = true;
     std::optional<AgentSessionRef> session_ref;

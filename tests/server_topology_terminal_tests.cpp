@@ -563,8 +563,10 @@ TEST_CASE("shared app launches reuse Personal Assistant and opted-in plugins acr
     launch.space_id = other_space.created_id;
     launch.client_source_path = "news";
     const auto reused_personal = execute(launch);
-    CHECK(reused_personal.created_id == personal.created_id);
-    CHECK(reused_personal.snapshot.spaces.back().tabs.size() == 1);
+    CHECK(reused_personal.created_id != personal.created_id);
+    CHECK(reused_personal.snapshot.spaces.back().tabs.size() == 2);
+    const auto same_personal=execute(launch);
+    CHECK(same_personal.created_id==reused_personal.created_id);
 
     launch.client_host_kind = "plugin";
     launch.client_source_path.clear();
@@ -577,7 +579,7 @@ TEST_CASE("shared app launches reuse Personal Assistant and opted-in plugins acr
     const auto reused_plugin = execute(launch);
     CHECK(reused_plugin.created_id == plugin.created_id);
     CHECK(reused_plugin.snapshot.spaces.front().tabs.size() == 2);
-    CHECK(reused_plugin.snapshot.spaces.back().tabs.size() == 2);
+    CHECK(reused_plugin.snapshot.spaces.back().tabs.size() == 3);
 
     launch.client_plugin_config_json = R"({"deck":"b"})";
     CHECK(execute(launch).created_id != plugin.created_id);

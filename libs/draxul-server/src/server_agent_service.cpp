@@ -54,7 +54,8 @@ nlohmann::json agent_json(
         { "instance_id", agent.identity.instance_id },
         { "profile_id", agent.identity.profile_id },
         { "kind", agent.identity.kind },
-        { "display_name", agent.identity.display_name },
+        { "display_name", agent.alias.empty() ? agent.identity.display_name : agent.alias },
+        { "alias", agent.alias },
         { "origin", to_string(agent.identity.origin) },
         { "identity_evidence_category",
             agent.identity_evidence_category },
@@ -129,13 +130,15 @@ ServerAgentService::~ServerAgentService() = default;
 
 void ServerAgentService::update(
     const std::vector<ServerAgentRuntimeView>& runtimes,
-    std::chrono::steady_clock::time_point now)
+    std::chrono::steady_clock::time_point now, std::vector<ServerAgentProjection> structured_agents)
 {
     std::vector<ServerAgentProjection> agents;
     std::vector<AgentUsageRequest> usage_requests;
     const auto system_now = std::chrono::time_point_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now());
     std::unordered_set<std::string> live_terminals;
+    for (const auto& agent : structured_agents)
+        reserve_instance_id(agent.identity.instance_id);
     // Reserve all managed identities before discovery, regardless of pane order.
     for (const auto& runtime : runtimes)
         if (runtime.declared_identity)
@@ -297,6 +300,7 @@ void ServerAgentService::update(
             .pane_id = runtime.pane_id,
             .terminal_id = runtime.terminal_id,
             .identity = *identity,
+            .alias = runtime.alias,
             .identity_evidence_category
             = std::move(identity_evidence),
             .identity_high_confidence
@@ -351,6 +355,18 @@ void ServerAgentService::update(
             return !live_terminals.contains(entry.first)
                 || now - entry.second.reported_at > kPendingSessionRefLifetime;
         });
+    // One projection owns each identity. Structured conversations take precedence
+    // over terminal observations; multiple panes can show the same conversation.
+    // Duplicate IDs invalidate the entire session poll, including terminal output.
+    std::unordered_set<std::string> projected_ids;
+    std::vector<ServerAgentProjection> merged;
+    for (auto& agent : structured_agents)
+        if (projected_ids.insert(agent.identity.instance_id).second)
+            merged.push_back(std::move(agent));
+    for (auto& agent : agents)
+        if (projected_ids.insert(agent.identity.instance_id).second)
+            merged.push_back(std::move(agent));
+    agents = std::move(merged);
     if (agents != snapshot_.agents)
     {
         snapshot_.agents = std::move(agents);

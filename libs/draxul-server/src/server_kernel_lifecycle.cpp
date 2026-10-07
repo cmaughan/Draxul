@@ -127,6 +127,7 @@ std::filesystem::path failure_marker_path(
 ServerKernel::Impl::Impl(ServerKernelOptions value)
     : options(std::move(value))
     , personal_agents(options.personal_agents_root, options.personal_local_state, options.agent_definitions)
+    , personal_chat(personal_agents, options.personal_local_state, options.agent_definitions)
 {
     if (options.protocol_major < 0)
         options.protocol_major = kServerProtocolMajor;
@@ -588,6 +589,14 @@ int ServerKernel::Impl::run_until_stopped()
         }
         const auto now = std::chrono::steady_clock::now();
         prune_inactive_clients(now);
+        try
+        {
+            personal_chat.tick(now);
+        }
+        catch(const std::exception& error)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App,"Personal schedule check failed: %s",error.what());
+        }
         for (auto& [session_id, session] : sessions)
         {
             if (now >= session->next_agent_refresh_at)

@@ -166,6 +166,18 @@ std::vector<AgentProjection> AgentController::compute(SpaceController& spaces)
             agent.personal_agent_id=agent.identity.instance_id.substr(9);
             const auto named=std::ranges::find(personal_agents_,agent.personal_agent_id,&AgentProjection::personal_agent_id);
             if (named!=personal_agents_.end()) agent.identity.display_name=named->identity.display_name;
+            agent.alias = agent.identity.display_name;
+        }
+        else if (const auto* space = spaces.find_space(agent.space_id))
+        {
+            for (const auto& tab : space->tab_controller.tabs())
+                if (tab->id == agent.tab_id)
+                {
+                    const auto name = tab->pane_manager.pane_name(agent.leaf_id);
+                    agent.alias = name;
+                    if (!name.empty()) agent.identity.display_name = name;
+                    break;
+                }
         }
     return agents;
 }

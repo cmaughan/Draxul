@@ -1,5 +1,6 @@
 #pragma once
 #include "personal_agent_service.h"
+#include "personal_chat_service.h"
 
 #include "fake_terminal_runtime.h"
 #include "remote_terminal_service.h"
@@ -206,6 +207,7 @@ public:
 
     ServerKernelOptions options;
     PersonalAgentService personal_agents;
+    PersonalChatService personal_chat;
     std::shared_ptr<ServerTerminalResourceBudget>
         terminal_resource_budget;
     AgentDefinitionRegistry agent_definitions;

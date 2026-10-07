@@ -56,6 +56,7 @@ const std::vector<std::string>& server_capabilities()
         "agent-control-v1",
         "agent-projection-v1",
         "personal-agents-v3",
+        "personal-chat-v1",
         std::string(kServerClientTokenCapability),
         "fake-remote-terminal",
         "graceful-shutdown",
@@ -336,6 +337,12 @@ ControlMethodResult ServerKernel::Impl::handle_request(
     }
     if (request.method == "server.status")
         return ControlMethodResult::success(server_status_to_json(status_snapshot()));
+    if (request.method.starts_with("personal.chat."))
+    {
+        if (request_client_id.empty())
+            return ControlMethodResult::error("invalid_client", "Personal chat requires an authenticated client.");
+        return personal_chat.handle(request.method, request.params);
+    }
     if (request.method == "personal.command" || request.method == "personal.result")
     {
         if (request_client_id.empty())
@@ -356,6 +363,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                 || snapshot.authority!=request.params.value("authority","")
                 || snapshot.collection_id!=request.params.value("collection_id",""))
                 return ControlMethodResult::error("changed","Agent changed; review it before deleting.");
+            personal_chat.erase(expected.id);
             for (auto& [session_id,session] : sessions)
             {
                 if (!session->topology_service) continue;
@@ -380,7 +388,33 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                     }
                     if (!closed.ok) return closed;
                 }
-                if (!terminals.empty()) refresh_agents(*session,std::chrono::steady_clock::now());
+                std::vector<TopologyCommand> personal_panes;
+                for(const auto& space:session->topology_service->snapshot().spaces)
+                    for(const auto& tab:space.tabs) for(const auto& pane:tab.panes)
+                        if(pane.domain==TopologyPaneDomain::ClientLocal && pane.client_host_kind=="personal-assistant"
+                            && pane.client_source_path==expected.id)
+                            personal_panes.push_back({.kind=TopologyCommandKind::ClosePane,.space_id=space.space_id,
+                                .tab_id=tab.tab_id,.pane_id=pane.pane_id});
+                auto apply=[&](TopologyCommand command) {
+                    command.client_id="personal-delete";command.command_id=personal_unique_id();
+                    command.expected_revision=session->topology_service->snapshot().revision;
+                    return session->topology_service->handle("topology.command",topology_command_to_json(command));
+                };
+                for(auto command:personal_panes)
+                {
+                    auto closed=apply(command);
+                    if(!closed.ok && closed.error_code=="last_pane")
+                    { command.kind=TopologyCommandKind::CloseTab;closed=apply(command); }
+                    if(!closed.ok && closed.error_code=="last_tab")
+                    {
+                        auto placeholder=apply({.kind=TopologyCommandKind::CreateTab,.space_id=command.space_id,
+                            .name="Terminal",.pane_domain=TopologyPaneDomain::ServerTerminal});
+                        if(!placeholder.ok) return placeholder;
+                        closed=apply(command);
+                    }
+                    if(!closed.ok) return closed;
+                }
+                if (!terminals.empty() || !personal_panes.empty()) refresh_agents(*session,std::chrono::steady_clock::now());
             }
         }
         return personal_agents.handle(request.method, request.params);
@@ -888,45 +922,29 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                     for (const auto& pane : candidate_tab.panes)
                         if (pane.agent)
                             session->agent_service->reserve_instance_id(pane.agent->instance_id);
-            std::string personal_id;
-            std::optional<PersonalAgentDefinition> personal;
             if (request.params.contains("personal_id"))
             {
-                if (!request.params["personal_id"].is_string())
-                    return ControlMethodResult::error("invalid_personal", "Personal collection is unavailable.");
-                personal_id=request.params["personal_id"].get<std::string>();
-                const auto collection=personal_agents.snapshot();
-                const auto found=std::ranges::find(collection.agents,personal_id,&PersonalAgentDefinition::id);
-                if (!valid_personal_agent_id(personal_id) || !collection.error.empty()
-                    || found==collection.agents.end() || !found->error.empty() || found->profile!=profile_id)
-                    return ControlMethodResult::error("invalid_personal", "Personal agent metadata is unavailable or changed.");
-                if (personal_agents.deleting(personal_id))
-                    return ControlMethodResult::error("deleting","Agent deletion is in progress.");
-                personal=*found;
-                for (const auto& [other_id, other] : sessions)
-                    if (other->topology_service)
-                        for (const auto& other_space : other->topology_service->snapshot().spaces)
-                            for (const auto& other_tab : other_space.tabs)
-                                for (const auto& pane : other_tab.panes)
-                                    if (pane.agent && pane.agent->instance_id=="personal-"+personal_id)
-                                    {
-                                        if (other.get()==session)
-                                        {
-                                            refresh_agents(*session,std::chrono::steady_clock::now());
-                                            return remember_agent_mutation(session->agent_service->handle(
-                                                "agent.get",{{"instance_id",pane.agent->instance_id}}));
-                                        }
-                                        return ControlMethodResult::error("already_open", "This personal agent is open in Session " + other_id + ".");
-                                    }
-                const auto folder=options.personal_agents_root / "agents" / personal_id;
-                const auto utf8=folder.u8string();
-                launch.working_directory={reinterpret_cast<const char*>(utf8.data()),utf8.size()};
+                const auto id=request.params.value("personal_id",std::string{});
+                const auto metadata=personal_agents.snapshot();
+                const auto found=std::ranges::find(metadata.agents,id,&PersonalAgentDefinition::id);
+                if(found==metadata.agents.end() || found->profile!=profile_id)
+                    return ControlMethodResult::error("invalid_personal","Personal profile does not match.");
+                auto opened=personal_chat.handle("personal.chat.open",{{"agent_id",id}});
+                if(!opened.ok) return opened;
+                auto created=session->topology_service->handle("topology.command",topology_command_to_json({
+                    .client_id=request_client_id,.command_id=personal_unique_id(),
+                    .expected_revision=topology.revision,.kind=TopologyCommandKind::CreateTab,
+                    .space_id=*space_id,.name=found->name,.pane_domain=TopologyPaneDomain::ClientLocal,
+                    .client_host_kind="personal-assistant",.client_source_path=id}));
+                if(!created.ok) return created;
+                refresh_agents(*session,std::chrono::steady_clock::now());
+                return remember_agent_mutation(session->agent_service->handle("agent.get",{{"instance_id","personal-"+id}}));
             }
-            const std::string instance_id = personal ? "personal-"+personal_id : session->agent_service->allocate_instance_id();
+            const std::string instance_id = session->agent_service->allocate_instance_id();
             launch.identity = {
                 .profile_id = definition->profile_id,
                 .kind = definition->kind,
-                .display_name = personal ? personal->name : definition->display_name,
+                .display_name = definition->display_name,
                 .instance_id = instance_id,
                 .origin = AgentIdentityOrigin::Managed,
             };
@@ -978,6 +996,18 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             {
                 return ControlMethodResult::error(
                     "not_found", "Agent not found.");
+            }
+            if(instance_id.starts_with("personal-"))
+            {
+                if(request.method!="agent.send_text")
+                    return ControlMethodResult::error("unsupported_operation","Personal chat accepts messages; use its Stop control to interrupt.");
+                auto text=request.params.value("text",std::string{});
+                if(!text.empty() && text.back()=='\r') text.pop_back();
+                const auto sent=personal_chat.handle("personal.chat.command",{{"agent_id",instance_id.substr(9)},
+                    {"action","send"},{"request_id",personal_unique_id()},{"text",text}});
+                if(!sent.ok) return sent;
+                refresh_agents(*session,std::chrono::steady_clock::now());
+                return remember_agent_mutation(session->agent_service->handle("agent.get",{{"instance_id",instance_id}}));
             }
             const std::string terminal_id
                 = agent->terminal_id;

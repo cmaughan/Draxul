@@ -144,6 +144,7 @@ public:
     std::function<int(int, int)> hit_test_personal_agent_fn;
     std::function<void(int)> activate_personal_agent_fn;
     std::function<void(int)> rename_personal_agent_fn;
+    std::function<void(int)> rename_agent_fn;
     std::function<void(int,int,int)> personal_agent_menu_fn;
     std::function<int(int, int)> hit_test_tab_fn;
     std::function<LeafId(int, int)> hit_test_pane_pill_fn;
@@ -243,6 +244,11 @@ public:
     {
         if (activate_space_fn)
             activate_space_fn(space_id);
+    }
+
+    void rename_agent(int index) override
+    {
+        if (rename_agent_fn) rename_agent_fn(index);
     }
 
     void activate_agent(int one_based_index) override
@@ -878,6 +884,26 @@ bool App::initialize_chrome_host()
         {
             push_toast(2, renamed.error().message.empty() ? "Could not rename the Space." : renamed.error().message);
         }
+    };
+    chrome_deps.set_agent_name = [this](std::string instance_id, std::string name) {
+        const auto agents = agent_controller_.query(space_controller_);
+        const auto agent = std::ranges::find(agents, instance_id,
+            [](const AgentProjection& value) { return value.identity.instance_id; });
+        if (agent == agents.end() || agent->leaf_id == kInvalidLeaf)
+        {
+            push_toast(2, "Agent is no longer available.");
+            return;
+        }
+        const auto result = mutate_topology({
+            .kind = TopologyMutationKind::RenamePane,
+            .space_id = agent->space_id,
+            .tab_id = agent->tab_id,
+            .pane_id = agent->leaf_id,
+            .name = std::move(name),
+        });
+        if (!result.accepted())
+            push_toast(2, result.error.empty() ? "Could not rename the agent." : result.error);
+        agent_controller_.invalidate();
     };
     chrome_deps.set_pane_name = [this](LeafId leaf, std::string name) {
         // Apply to whichever tab currently owns the leaf — pane edits
@@ -1927,6 +1953,9 @@ void App::wire_window_callbacks()
             palette_host_->open_context_menu(std::move(confirm),px,py);
         };
         palette_host_->open_context_menu(std::move(menu),px,py);
+    };
+    router->rename_agent_fn = [this](int index) {
+        if (chrome_host_) chrome_host_->begin_agent_rename(index);
     };
     router->rename_personal_agent_fn = [this](int index) {
         if (chrome_host_) chrome_host_->begin_personal_agent_rename(index);
@@ -3521,6 +3550,8 @@ bool App::initialize_remote_topology()
                "session-stream-commands-v1")
             != options_.server_connection->capabilities.end();
     if (options_.server_connection && !options_.host_factory
+        && std::ranges::find(options_.server_connection->capabilities, "personal-chat-v1")
+            != options_.server_connection->capabilities.end()
         && std::ranges::find(options_.server_connection->capabilities, "personal-agents-v3")
             != options_.server_connection->capabilities.end())
     {
@@ -3840,6 +3871,7 @@ bool App::apply_remote_agents(
             .leaf_id = *pane_mapping,
             .pane_id = remote.pane_id,
             .identity = remote.identity,
+            .alias = remote.alias,
             .identity_evidence_category
             = remote.identity_evidence_category,
             .identity_high_confidence
@@ -4948,13 +4980,6 @@ void App::open_personal_agent(std::string identity)
 {
     if (!remote_session_client_ || !palette_host_)
     { push_toast(2,"Connect to a shared server to open a personal conversation."); return; }
-    if (!identity.empty() && agent_controller_.focus(space_controller_,"personal-"+identity))
-    {
-        refresh_app_shell_layout();
-        input_dispatcher_.set_host(active_pane_manager().focused_host());
-        request_frame();
-        return;
-    }
     const auto snapshot=personal_agents();
     if (!snapshot || !snapshot->error.empty())
     { push_toast(2,"Personal collection unavailable."); return; }
@@ -4963,8 +4988,7 @@ void App::open_personal_agent(std::string identity)
         const auto found=std::ranges::find(snapshot->agents,identity,&PersonalAgentDefinition::id);
         if (found==snapshot->agents.end() || !found->error.empty())
         { push_toast(2,"Personal agent backing data is unavailable."); return; }
-        const auto started=launch_agent({.profile_id=found->profile,.personal_id=found->id});
-        if (!started) push_toast(2,started.error().message);
+        open_personal_conversation(*found);
         return;
     }
     if (!pending_personal_command_.empty()) return;
@@ -4973,6 +4997,15 @@ void App::open_personal_agent(std::string identity)
     pending_personal_command_=personal_command({.action="create",.definition=candidate});
     pending_personal_create_=true;
     if (pending_personal_command_.empty()) push_toast(2,"Personal collection unavailable.");
+}
+
+void App::open_personal_conversation(const PersonalAgentDefinition& definition)
+{
+    const auto result=mutate_topology({.kind=TopologyMutationKind::CreateTab,
+        .space_id=space_controller_.active_space_id(),.name=definition.name,
+        .source_path=definition.id,.host_kind=HostKind::PersonalAssistant,
+        .pixel_width=window_->width_pixels(),.pixel_height=diagnostics_host_->layout().terminal_height});
+    if (!result.accepted()) push_toast(2,result.error);
 }
 
 void App::pump_personal_command()
@@ -4991,10 +5024,24 @@ void App::pump_personal_command()
     if (!result->ok) { push_toast(2,result->message); return; }
     if (pending_personal_create_ && result->definition)
     {
-        const auto& d=*result->definition;
-        const auto started=launch_agent({.profile_id=d.profile,.personal_id=d.id});
-        if (!started) push_toast(2,started.error().message);
+        // The create result precedes the client's next metadata poll. Open from
+        // the acknowledged definition instead of searching that stale snapshot.
+        open_personal_conversation(*result->definition);
     }
+}
+
+std::shared_ptr<const PersonalChatSnapshot> App::personal_chat(std::string_view id)
+{
+    if(options_.render_target_pixel_width>0 && options_.host_kind==HostKind::PersonalAssistant)
+    {
+        static const auto fixture=personal_chat_render_snapshot(id);
+        return fixture;
+    }
+    return personal_agent_client_ ? personal_agent_client_->chat(id) : nullptr;
+}
+std::string App::personal_chat_command(std::string_view id,std::string_view action,std::string_view text,std::string_view approval_id)
+{
+    return personal_agent_client_ ? personal_agent_client_->chat_command(id,action,text,approval_id) : std::string{};
 }
 
 std::string App::personal_command(const PersonalAgentCommand& command)
@@ -5009,6 +5056,11 @@ std::shared_ptr<const PersonalAgentCommandResult> App::personal_result(std::stri
 
 std::shared_ptr<const PersonalAgentSnapshot> App::personal_agents() const
 {
+    if(options_.render_target_pixel_width>0 && options_.host_kind==HostKind::PersonalAssistant)
+    {
+        static const auto fixture=personal_chat_render_collection(options_.host_source_path);
+        return fixture;
+    }
     if (personal_agent_client_)
         return personal_agent_client_->snapshot();
     if (options_.server_connection)

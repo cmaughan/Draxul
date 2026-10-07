@@ -421,8 +421,9 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             const auto& source = agent_rows[i];
             const bool personal = i >= running_rows;
             const bool add = personal && source.add_button;
-            const bool editing = personal && !add && input.rename.target==RenameTarget::PersonalAgent
-                && input.rename.personal_id==source.instance_id;
+            const bool editing = !add && (personal
+                ? input.rename.target == RenameTarget::PersonalAgent && input.rename.personal_id == source.instance_id
+                : input.rename.target == RenameTarget::Agent && input.rename.agent_instance_id == source.instance_id);
             const int row = static_cast<int>(i) + (personal ? 2 : 1) + (add ? 1 : 0);
             const int row_y = shell.sidebar_agents.y + row * ch;
             if (row >= out.sidebar_agent_rows
@@ -477,7 +478,7 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                 const float caret_x=std::min(agent.rect.x+(kTabPadCols+digits+2
                     +columns_to_offset(input.rename.buffer,input.rename.cursor))*cw,
                     agent.rect.x+agent.rect.w-3.0f);
-                out.personal_agent_caret=ChromeCaretLayout{{caret_x,agent.rect.y+2.0f,1.5f,static_cast<float>(ch)-8.0f}};
+                out.agent_caret=ChromeCaretLayout{{caret_x,agent.rect.y+2.0f,1.5f,static_cast<float>(ch)-8.0f}};
             }
             if (coin_cols > 0)
             {

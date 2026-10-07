@@ -568,6 +568,13 @@ TEST_CASE("server deletes all detached Sessions and stops their terminals",
             temp.path, "alpha", "Alpha", error));
         REQUIRE(ServerClient::rename_session(
             temp.path, "beta", "Beta", error));
+        // Rename acknowledges the in-memory change; checkpoints are written
+        // asynchronously. Wait for the precondition, as the single-Session
+        // deletion test above does, before testing their removal.
+        for (int attempt = 0; attempt < 100
+            && (!std::filesystem::exists(alpha_checkpoint)
+                || !std::filesystem::exists(beta_checkpoint)); ++attempt)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         REQUIRE(std::filesystem::exists(alpha_checkpoint));
         REQUIRE(std::filesystem::exists(beta_checkpoint));
 

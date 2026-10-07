@@ -20,6 +20,7 @@ struct ControlCliCommand
     std::string action;
     std::string text;
     bool submit_text = false;
+    bool agent_alias = false;
     std::string working_directory;
     std::vector<std::string> values;
     std::vector<std::string> arguments;

@@ -298,7 +298,7 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 - When a change warrants the complete local inventory, use `py do.py validate debug`
   instead of stacking separate build, smoke, render, and CTest commands. It holds one
   build-tree lease, builds the app and full test aggregate once, then runs smoke, the
-  five platform core snapshots, and the complete unit/integration CTest inventory without another
+  platform core snapshots, and the complete unit/integration CTest inventory without another
   core configure/build. That inventory includes the standalone plugin SDK smoke,
   which performs its own isolated consumer build and may fetch dependencies. Repeat `--render <scenario>` to replace the default snapshot set,
   or use `--no-render` only when visual coverage is explicitly irrelevant. Successful
@@ -400,6 +400,8 @@ IceBox) to the GitHub project board; it is idempotent.
 - **macOS**: Clang/Xcode. Process spawning uses `fork()`/`exec()` with `pipe()`. Rendering via Metal.
 
 ## Known Pitfalls
+
+- NanoVG/Fontstash font names are limited to 63 bytes. Use short stable names within each context; never use full file paths as names, or repeated lookups can reload and retain the entire font every frame. Replace the owning context when its font file changes.
 
 - Do not include backend-private renderer headers from `app/`.
 - Keep shutdown paths non-blocking; a stuck Neovim child must not hang the UI on exit.

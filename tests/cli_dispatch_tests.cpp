@@ -467,3 +467,67 @@ TEST_CASE("personal CLI requires explicit command files and keeps result identit
     REQUIRE(result.command);
     CHECK(result.command->value=="request-one");
 }
+
+TEST_CASE("agent CLI resolves aliases before input and pins waits to identity", "[cli][integration][agent]")
+{
+    for (const std::string verb : {"get", "explain", "prompt", "send", "keys", "restart", "wait", "focus"})
+    {
+        INFO(verb);
+        std::vector<std::string> args{"draxul", "agent", verb, "--alias", "Build reviewer", "--json"};
+        if (verb == "prompt" || verb == "send") args.insert(args.end(), {"--text", "Review"});
+        if (verb == "keys") args.push_back("Enter");
+        if (verb == "wait") args.insert(args.end(), {"--until", "done", "--timeout", "1s"});
+        const auto command = parse_command_line(args);
+        REQUIRE_FALSE(command.error);
+        CliCapture capture;
+        int lists=0, actions=0;
+        capture.context.request = [&](std::string_view, const std::filesystem::path&, std::string_view method, nlohmann::json params) {
+            if (method == "agent.list")
+            {
+                ++lists;
+                return ControlClientResult{true, nlohmann::json::array({
+                    {{"instance_id","happy-otter"},{"alias","Build reviewer"}},
+                    {{"instance_id","calm-cat"},{"alias","Other"}}
+                }), {}, {}};
+            }
+            ++actions;
+            CHECK(lists == 1);
+            CHECK(params["instance_id"] == "happy-otter");
+            if (verb == "prompt") CHECK(params["text"] == "Review\r");
+            if (verb == "wait")
+            {
+                if (actions>1) CHECK(params["runtime_generation"] == 3);
+                return ControlClientResult{true, {{"complete",actions>1},
+                    {"agent",{{"instance_id","happy-otter"},{"runtime_generation",3}}}}, {}, {}};
+            }
+            return ControlClientResult{true, {{"accepted",true}}, {}, {}};
+        };
+        CHECK(dispatch_cli(command, capture.context) == 0);
+        CHECK(lists == 1);
+        CHECK(actions == (verb == "wait" ? 2 : 1));
+    }
+}
+
+TEST_CASE("agent aliases reject duplicates and missing names without sending input", "[cli][integration][agent]")
+{
+    for (int matches : {0,2})
+    {
+        CliCapture capture;
+        int requests=0;
+        capture.context.request = [&](std::string_view, const std::filesystem::path&, std::string_view method, nlohmann::json) {
+            ++requests;
+            CHECK(method == "agent.list");
+            auto agents=nlohmann::json::array();
+            for (int i=0; i<matches; ++i)
+                agents.push_back({{"instance_id", "id-"+std::to_string(i)}, {"alias","Same"}});
+            return ControlClientResult{true,agents,{}, {}};
+        };
+        const auto command=parse_command_line({"draxul","agent","prompt","--alias","Same","--text","Go"});
+        CHECK(dispatch_cli(command,capture.context)==1);
+        CHECK(requests==1);
+        CHECK(CliCapture::read(capture.error.get()).find(matches ? "ambiguous_alias" : "not_found") != std::string::npos);
+    }
+    CHECK(parse_control_cli({"draxul","agent","get","--alias"}).error);
+    CHECK(parse_control_cli({"draxul","agent","get","--alias",""}).error);
+    CHECK(parse_control_cli({"draxul","agent","start","--alias","Name"}).error);
+}

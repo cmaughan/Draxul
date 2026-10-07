@@ -249,7 +249,7 @@ struct ChromeLayoutOutput
     std::vector<ChromeDivider> dividers;
     std::optional<ChromeCaretLayout> tab_caret;
     std::optional<ChromeCaretLayout> space_caret;
-    std::optional<ChromeCaretLayout> personal_agent_caret;
+    std::optional<ChromeCaretLayout> agent_caret;
     std::optional<ChromeCaretLayout> pane_caret;
     std::vector<ChromeHitRegion> hit_regions;
     float focus_border = 3.0f;

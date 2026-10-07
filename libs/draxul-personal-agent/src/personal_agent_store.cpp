@@ -348,8 +348,11 @@ std::string personal_bootstrap_prompt(const std::filesystem::path& root, std::st
         "or your backing folder is unavailable, report that instead of creating another collection. "
         "The pill name is only a display label; agent.toml is Draxul metadata, so leave it alone. "
         "Follow the user's messages in this chat. When asked to change standing instructions, "
-        "update instructions.md. Do not invent a task, schedule or background loop. "
-        "After loading your context, briefly acknowledge readiness and wait for the user's request.\n";
+        "update instructions.md. When the user requests scheduled work, save the task, recurrence, timezone "
+        "and next due time in schedule.md, and record completions in state.md. Draxul checks every five "
+        "minutes while its server is running; checks may be delayed while busy or asleep. Do not claim "
+        "exact-time delivery or create another scheduler. Do not invent a task or schedule. "
+        "If no user task or background check was supplied, briefly acknowledge readiness and wait.\n";
 }
 }
 

@@ -23,6 +23,7 @@ struct ServerAgentRuntimeView
     std::string tab_id;
     std::string pane_id;
     std::string terminal_id;
+    std::string alias;
     std::optional<AgentIdentity> declared_identity;
     std::optional<AgentSessionRef> session_ref;
     // Directory a managed agent was launched in; discovered agents use the
@@ -53,7 +54,8 @@ public:
 
     void update(const std::vector<ServerAgentRuntimeView>& runtimes,
         std::chrono::steady_clock::time_point now
-        = std::chrono::steady_clock::now());
+        = std::chrono::steady_clock::now(),
+        std::vector<ServerAgentProjection> structured_agents = {});
     ControlMethodResult handle(
         std::string_view method, const nlohmann::json& params) const;
 

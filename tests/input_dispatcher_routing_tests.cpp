@@ -48,6 +48,7 @@ public:
     std::function<int(int, int)> hit_test_personal_agent_fn;
     std::function<void(int)> activate_personal_agent_fn;
     std::function<void(int)> rename_personal_agent_fn;
+    std::function<void(int)> rename_agent_fn;
     std::function<void(int,int,int)> personal_agent_menu_fn;
     std::function<int()> app_chrome_width_fn;
     std::function<bool(int, int)> hit_test_shell_divider_fn;
@@ -79,6 +80,11 @@ public:
     int hit_test_agent(int x, int y) override
     {
         return hit_test_agent_fn ? hit_test_agent_fn(x, y) : 0;
+    }
+
+    void rename_agent(int index) override
+    {
+        if (rename_agent_fn) rename_agent_fn(index);
     }
 
     int hit_test_personal_agent(int x,int y) override
@@ -1302,5 +1308,32 @@ TEST_CASE("Personal agent context click routes through a HiDPI menu and confirma
     choose_row(2);
     CHECK(deleted == 1);
     CHECK_FALSE(menu.is_active());
+    CHECK(setup.host.mouse_button_events.empty());
+}
+
+TEST_CASE("Draxul agent pill double-click renames without forwarding input", "[agents][input_dispatcher]")
+{
+    OverlayE2ESetup setup(2.0f);
+    setup.overlay_active = false;
+    int opened = 0, renamed = 0;
+    setup.router.hit_test_agent_fn = [](int x, int y) {
+        return x < 200 && y >= 260 && y < 300 ? 2 : 0;
+    };
+    setup.router.activate_agent_fn = [&](int index) { opened = index; };
+    setup.router.rename_agent_fn = [&](int index) { renamed = index; };
+    auto click = make_click(10, 140);
+    setup.window.on_mouse_button(click);
+    CHECK(opened == 2);
+    CHECK(renamed == 0);
+    opened = 0;
+    click.clicks = 2;
+    setup.window.on_mouse_button(click);
+    CHECK(renamed == 2);
+    CHECK(opened == 0);
+    renamed = 0;
+    click.button = SDL_BUTTON_RIGHT;
+    setup.window.on_mouse_button(click);
+    CHECK(renamed == 0);
+    CHECK(opened == 0);
     CHECK(setup.host.mouse_button_events.empty());
 }

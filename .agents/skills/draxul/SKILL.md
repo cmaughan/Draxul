@@ -386,6 +386,21 @@ including the appended Enter byte for `prompt`. For example:
 draxul agent prompt happy-otter --text "Review the latest changes." --json
 ```
 
+`agent list` and `agent get` expose `alias`, the user's saved pill name (empty
+when unnamed), alongside the stable `instance_id`. To find a named agent, replace
+the instance-ID argument with `--alias "Build reviewer"`, for example:
+
+```text
+draxul agent get --alias "Build reviewer" --json
+draxul agent prompt --alias "Build reviewer" --text "Review the latest changes." --json
+```
+
+Alias matching is exact and case-sensitive within the selected Session. Duplicate
+names fail with `ambiguous_alias`; inspect `agent list` and use the intended ID.
+Aliases also work for explain, send, keys, wait, restart, and UI-local focus.
+Wait resolves once and stays with that ID even if the alias changes. Prefer the
+returned stable ID for subsequent automation; renames do not change identity.
+
 Use the actual `instance_id` from `agent list` or `agent start`. In the local
 development workspace, `dr rel agent prompt ...` (inside the Draxul repository)
 or `drr rel agent prompt ...` (from any directory) runs the existing Release

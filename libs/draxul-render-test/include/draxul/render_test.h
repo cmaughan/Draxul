@@ -12,6 +12,11 @@
 namespace draxul
 {
 
+struct PersonalAgentSnapshot;
+struct PersonalChatSnapshot;
+std::shared_ptr<const PersonalAgentSnapshot> personal_chat_render_collection(std::string_view id);
+std::shared_ptr<const PersonalChatSnapshot> personal_chat_render_snapshot(std::string_view id);
+
 struct RenderTestScenario
 {
     std::string name;

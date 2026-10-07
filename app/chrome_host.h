@@ -67,6 +67,7 @@ public:
         // updates don't overwrite the user's choice.
         std::function<void(int tab_id, std::string name)> set_tab_name;
         std::function<void(std::string id, std::string name)> set_personal_agent_name;
+        std::function<void(std::string instance_id, std::string name)> set_agent_name;
         // Apply a user-typed name to a Space through the same topology route
         // used by the command palette.
         std::function<void(SpaceId space_id, std::string name)> set_space_name;
@@ -142,6 +143,7 @@ public:
     // Space target:
     void begin_space_rename(SpaceId space_id);
     void begin_personal_agent_rename(int index);
+    void begin_agent_rename(int index);
     bool is_editing_space() const;
     SpaceId editing_space_id() const;
     // Tab target:

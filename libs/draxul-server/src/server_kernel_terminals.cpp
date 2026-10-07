@@ -334,36 +334,6 @@ ServerKernel::Impl::managed_agent_runtime_options(
         launch.additional_args.begin(),
         launch.additional_args.end());
 
-    if (launch.identity.instance_id.starts_with("personal-"))
-    {
-        try
-        {
-            const auto prompt=personal_bootstrap_prompt(options.personal_agents_root,launch.identity.instance_id.substr(9));
-            if (definition->kind=="claude")
-            {
-                args.push_back("--append-system-prompt");
-                args.push_back(prompt);
-            }
-            else if (definition->kind=="codex")
-            {
-                // Resume preserves the conversation's own model; a profile's
-                // explicit model also takes precedence over the new-chat default.
-                const bool explicit_model=std::ranges::any_of(args,[](const auto& arg) {
-                    return arg=="--model" || arg=="-m" || arg.starts_with("--model=");
-                });
-                if (!launch.replace_default_args && !explicit_model)
-                {
-                    args.push_back("--model");
-                    args.push_back("gpt-6.1-sol");
-                }
-                args.push_back("--");
-                args.push_back(prompt);
-            }
-            else { error="Personal conversations require Codex or Claude."; return std::nullopt; }
-        }
-        catch(const std::exception& e) { error=e.what(); return std::nullopt; }
-    }
-
     auto environment = options.terminal_environment;
     const auto set_environment
         = [&environment](
@@ -521,11 +491,20 @@ void ServerKernel::Impl::refresh_agents(
                 const auto& endpoint = terminal->second;
                 const bool running
                     = endpoint.runtime->is_running();
+                std::string alias = pane.name;
+                if (pane.agent && pane.agent->instance_id.starts_with("personal-"))
+                {
+                    const auto collection = personal_agents.snapshot();
+                    const auto id = pane.agent->instance_id.substr(9);
+                    const auto definition = std::ranges::find(collection.agents, id, &PersonalAgentDefinition::id);
+                    if (definition != collection.agents.end()) alias = definition->name;
+                }
                 runtimes.push_back({
                     .space_id = space.space_id,
                     .tab_id = tab.tab_id,
                     .pane_id = pane.pane_id,
                     .terminal_id = pane.terminal_id,
+                    .alias = std::move(alias),
                     .declared_identity = pane.agent,
                     .session_ref = pane.agent_session,
                     .launch_working_directory = pane.server_working_directory,
@@ -540,7 +519,7 @@ void ServerKernel::Impl::refresh_agents(
             }
         }
     }
-    session.agent_service->update(runtimes, now);
+    session.agent_service->update(runtimes, now, personal_chat.project(topology));
 }
 
 

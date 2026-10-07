@@ -37,6 +37,7 @@ public:
     virtual int hit_test_agent(int phys_x, int phys_y) = 0;
     virtual int hit_test_personal_agent(int, int) { return 0; }
     virtual void rename_personal_agent(int) {}
+    virtual void rename_agent(int) {}
     virtual void personal_agent_menu(int, int, int) {}
     virtual int hit_test_tab(int phys_x, int phys_y) = 0;
     virtual LeafId hit_test_pane_pill(int phys_x, int phys_y) = 0;

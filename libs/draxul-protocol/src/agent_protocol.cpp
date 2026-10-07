@@ -167,6 +167,7 @@ nlohmann::json projection_to_json(
         { "pane_id", projection.pane_id },
         { "terminal_id", projection.terminal_id },
         { "identity", identity_to_json(projection.identity) },
+        { "alias", projection.alias },
         { "identity_evidence_category",
             projection.identity_evidence_category },
         { "identity_high_confidence",
@@ -233,9 +234,10 @@ bool read_projection(const nlohmann::json& value,
         || !read_text(value, "space_id", projection.space_id)
         || !read_text(value, "tab_id", projection.tab_id)
         || !read_text(value, "pane_id", projection.pane_id)
-        || !read_text(value, "terminal_id", projection.terminal_id)
+        || !read_text(value, "terminal_id", projection.terminal_id, true)
         || !value.contains("identity")
         || !read_identity(value["identity"], projection.identity)
+        || !read_text(value, "alias", projection.alias, true)
         || !read_text(value, "identity_evidence_category",
             projection.identity_evidence_category)
         || !value.contains("identity_high_confidence")

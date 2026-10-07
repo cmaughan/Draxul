@@ -88,6 +88,19 @@ TEST_CASE("Session poll keeps duplicate terminal subscriptions independent",
         runtime);
     TopologyService topology("default");
     ServerAgentService agents("default");
+    // Reproduce multiple pane/provider observations of one identity. They must
+    // not invalidate the terminal channels in the same session response.
+    ServerAgentRuntimeView terminal_agent{
+        .space_id="space-1",.tab_id="tab-1",.pane_id="pane-a",.terminal_id="terminal-a",
+        .declared_identity=AgentIdentity{.kind="codex",.display_name="Personal",.instance_id="personal-news",.origin=AgentIdentityOrigin::Managed},
+        .generation={1},.runtime_running=true};
+    ServerAgentProjection conversation{
+        .space_id="space-1",.tab_id="tab-chat",.pane_id="pane-chat",
+        .identity=*terminal_agent.declared_identity,.identity_evidence_category="personal_chat",.lifecycle=AgentLifecycle::Running,
+        .generation={1},.status=AgentStatus::Idle,.status_authority=AgentStateAuthority::DirectHost,.running=true};
+    agents.update({terminal_agent},std::chrono::steady_clock::now(),{conversation,conversation});
+    REQUIRE(agents.snapshot().agents.size()==1);
+    CHECK(agents.snapshot().agents.front().pane_id=="pane-chat");
     SessionPollService poll("session-epoch");
     const std::array terminal_views{
         SessionPollTerminalView{
@@ -99,7 +112,7 @@ TEST_CASE("Session poll keeps duplicate terminal subscriptions independent",
         .request_serial = 1,
         .server_epoch = "session-epoch",
         .topology_after_revision = topology.snapshot().revision,
-        .agent_after_revision = agents.snapshot().revision,
+        .agent_after_revision = 0,
         .terminals = {
             {
                 .subscription_id = 1,

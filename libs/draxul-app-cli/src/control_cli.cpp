@@ -103,14 +103,15 @@ void print_human(const CliContext& io, const ControlCliCommand& command, const n
                 = route_text("space_id");
             const std::string tab
                 = route_text("tab_id");
-            std::fprintf(io.output, "%c %-20s %-10s %-8s space=%s tab=%s pane=%s\n",
+            std::fprintf(io.output, "%c %-20s %-10s %-8s space=%s tab=%s pane=%s alias=%s\n",
                 agent.value("focused", false) ? '*' : ' ',
                 agent.value("instance_id", "").c_str(),
                 agent.value("kind", "").c_str(),
                 agent.value("status", "").c_str(),
                 space.c_str(),
                 tab.c_str(),
-                route.value("pane_id", "").c_str());
+                route.value("pane_id", "").c_str(),
+                agent.value("alias", "").c_str());
         }
         return;
     }
@@ -215,12 +216,23 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         || command.method == "plugin.reload";
     if (needs_value)
     {
+        if (position < args.size() && args[position] == "--alias"
+            && noun == "agent" && verb != "start")
+        {
+            command.agent_alias = true;
+            ++position;
+        }
         if (position >= args.size() || args[position].starts_with("--"))
         {
             parsed.error = "This command requires an id.\n" + usage();
             return parsed;
         }
         command.value = args[position++];
+        if (command.agent_alias && command.value.empty())
+        {
+            parsed.error = "--alias requires a non-empty name.";
+            return parsed;
+        }
     }
 
     while (position < args.size())
@@ -843,12 +855,13 @@ int run_control_cli(const ControlCliCommand& command, const CliContext& io)
         && (!command.server_runtime_directory.empty()
             || command.replace_pane));
     const auto request
-        = [&](const nlohmann::json& request_params) {
+        = [&](const nlohmann::json& request_params, std::string_view method = {}) {
+              const auto request_method = method.empty() ? std::string_view(command.method) : method;
               if (!using_global_server)
               {
                   auto local = io.request(
                       command.control_id, runtime,
-                      command.method, request_params);
+                      request_method, request_params);
                   if (local.ok
                       || !supports_headless_server
                       || (local.error_code
@@ -870,7 +883,7 @@ int run_control_cli(const ControlCliCommand& command, const CliContext& io)
               return io.request(
                   namespaced_control_id(
                       kServerControlId, server_runtime),
-                  server_runtime, command.method,
+                  server_runtime, request_method,
                   std::move(global_params));
           };
     const auto route_ui_request = [&]() -> ControlClientResult {
@@ -959,6 +972,38 @@ int run_control_cli(const ControlCliCommand& command, const CliContext& io)
             },
             {}, {} };
     };
+    if (command.agent_alias)
+    {
+        const auto listed = request(nlohmann::json::object(), "agent.list");
+        if (!listed.ok || !listed.result.is_array())
+        {
+            std::fprintf(io.error, "%s: %s\n", listed.ok ? "invalid_agent_list" : listed.error_code.c_str(),
+                listed.ok ? "Agent list is not an array." : listed.error_message.c_str());
+            return 1;
+        }
+        std::string instance_id;
+        for (const auto& agent : listed.result)
+        {
+            if (agent.value("alias", "") != command.value) continue;
+            if (!instance_id.empty())
+            {
+                std::fprintf(io.error, "ambiguous_alias: Multiple agents have this alias; use an instance ID from agent list.\n");
+                return 1;
+            }
+            instance_id = agent.value("instance_id", "");
+            if (instance_id.empty())
+            {
+                std::fprintf(io.error, "invalid_agent_list: Matching agent has no instance ID.\n");
+                return 1;
+            }
+        }
+        if (instance_id.empty())
+        {
+            std::fprintf(io.error, "not_found: No agent has this alias in the selected Session.\n");
+            return 1;
+        }
+        params["instance_id"] = std::move(instance_id);
+    }
     auto result = (command.method == "pane.focus"
                       || command.method == "pane.action")
         ? route_ui_request()

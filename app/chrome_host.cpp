@@ -394,6 +394,21 @@ void ChromeHost::begin_tab_rename(int tab_index)
         begin_tab_rename_by_id(tab_id);
 }
 
+void ChromeHost::begin_agent_rename(int index)
+{
+    if (!deps_.agent_controller || !deps_.space_controller || index < 1) return;
+    const auto agents = deps_.agent_controller->frame_agents(*deps_.space_controller);
+    int visible = 0;
+    for (const auto& agent : agents)
+    {
+        if (!agent.personal_agent_id.empty() || ++visible != index) continue;
+        if (auto commit = rename_editor_.commit()) apply_rename_commit(std::move(*commit));
+        rename_editor_.begin_agent(agent.identity.instance_id, agent.identity.display_name);
+        if (deps_.request_frame) deps_.request_frame();
+        return;
+    }
+}
+
 void ChromeHost::begin_personal_agent_rename(int index)
 {
     const auto snapshot=deps_.personal_agents ? deps_.personal_agents() : nullptr;
@@ -502,7 +517,12 @@ bool ChromeHost::is_editing() const
 
 void ChromeHost::apply_rename_commit(RenameCommit commit)
 {
-    if (commit.target == RenameTarget::PersonalAgent)
+    if (commit.target == RenameTarget::Agent)
+    {
+        if (deps_.set_agent_name)
+            deps_.set_agent_name(std::move(commit.agent_instance_id), std::move(commit.text));
+    }
+    else if (commit.target == RenameTarget::PersonalAgent)
     {
         if (!commit.text.empty() && deps_.set_personal_agent_name)
             deps_.set_personal_agent_name(std::move(commit.personal_id),std::move(commit.text));

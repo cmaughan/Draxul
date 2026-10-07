@@ -11,8 +11,8 @@
 
 namespace draxul
 {
-// Owns collection metadata IO on its worker. Interactive agents use the normal terminal runtime. Control requests
-// only enqueue bounded commands/read results; no filesystem work on the kernel loop.
+// Owns collection metadata IO on its worker. PersonalChatService owns provider
+// conversations separately; no filesystem work runs on the kernel loop.
 class PersonalAgentService
 {
 public:

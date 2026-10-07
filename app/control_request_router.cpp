@@ -92,6 +92,7 @@ nlohmann::json agent_json(const AgentProjection& agent)
         { "instance_id", agent.identity.instance_id },
         { "kind", agent.identity.kind },
         { "display_name", agent.identity.display_name },
+        { "alias", agent.alias },
         { "origin", to_string(agent.identity.origin) },
         { "identity_evidence_category", agent.identity_evidence_category },
         { "identity_high_confidence", agent.identity_high_confidence },

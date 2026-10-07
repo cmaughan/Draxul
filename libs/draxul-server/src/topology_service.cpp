@@ -91,6 +91,10 @@ std::string existing_app_tab_id(const TopologySnapshot& snapshot,
                     || pane.client_host_kind != command.client_host_kind
                     || !pane.companion_owner_pane_id.empty())
                     continue;
+                if (command.client_host_kind == "personal-assistant"
+                    && !command.client_source_path.empty()
+                    && pane.client_source_path != command.client_source_path)
+                    continue;
                 if (command.client_host_kind == "plugin")
                 {
                     if (pane.client_plugin_id != command.client_plugin_id)

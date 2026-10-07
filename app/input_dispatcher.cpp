@@ -524,7 +524,11 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
         const int agent_index = deps_.router->hit_test_agent(phys_x, phys_y);
         if (agent_index > 0)
         {
-            deps_.router->activate_agent(agent_index);
+            if (event.button == SDL_BUTTON_LEFT)
+            {
+                if (event.clicks >= 2) deps_.router->rename_agent(agent_index);
+                else deps_.router->activate_agent(agent_index);
+            }
             return;
         }
     }

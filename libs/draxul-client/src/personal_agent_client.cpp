@@ -1,5 +1,8 @@
 #include <draxul/personal_agent_client.h>
+#include <algorithm>
+#include <draxul/client_recovery.h>
 #include <draxul/personal_agent_protocol.h>
+#include <draxul/personal_chat_protocol.h>
 
 namespace draxul
 {
@@ -8,6 +11,7 @@ PersonalAgentClient::PersonalAgentClient(ServerControlChannelOptions options, st
     worker_ = std::jthread([this, options = std::move(options), wake = std::move(wake)](std::stop_token stop) {
         ServerControlChannel channel(options);
         PersonalAgentSnapshot previous;
+        std::map<std::string,std::pair<std::string,std::string>> command_results;
         while (!stop.stop_requested())
         {
             nlohmann::json command;
@@ -46,6 +50,49 @@ PersonalAgentClient::PersonalAgentClient(ServerControlChannelOptions options, st
                 }
                 if (wake) wake();
             }
+            std::deque<nlohmann::json> chat_commands;
+            std::vector<std::string> chat_ids;
+            {
+                std::lock_guard lock(mutex_);
+                chat_commands.swap(chat_commands_);
+                for (const auto& [id, state] : chats_) chat_ids.push_back(id);
+            }
+
+            for (const auto& value : chat_commands)
+            {
+                const auto reply=channel.request(value.value("action","")=="reconnect"?"personal.chat.reconnect":"personal.chat.command",value);
+                command_results[value.at("agent_id").get<std::string>()]={value.at("request_id").get<std::string>(),reply.ok ? "" : reply.error_message};
+            }
+            for (const auto& id : chat_ids)
+            {
+                // Open is idempotent: reconnecting the UI never resends a turn.
+                const auto reply=channel.request_with_recovery("personal.chat.open",{{"agent_id",id}});
+                PersonalChatSnapshot state;
+                try
+                {
+                    if(!reply.ok) throw std::runtime_error(reply.error_message);
+                    state=reply.result.get<PersonalChatSnapshot>();
+                }
+                catch(const std::exception& error)
+                {
+                    std::lock_guard lock(mutex_);
+                    state=*chats_.at(id);
+                    // The shared channel already reconnects in the background.
+                    // Keep the conversation visible during a transport outage.
+                    const bool temporary=!reply.ok && (is_transient_client_error(reply.error_code)
+                        || is_resynchronizing_client_error(reply.error_code));
+                    state.state=temporary?"connecting":"error"; state.error=temporary?"":error.what();
+                }
+                if(command_results.contains(id))
+                { state.last_command_id=command_results.at(id).first;state.last_command_error=command_results.at(id).second; }
+                bool updated=false;
+                {
+                    std::lock_guard lock(mutex_);
+                    updated=*chats_.at(id)!=state;
+                    if(updated) chats_[id]=std::make_shared<PersonalChatSnapshot>(std::move(state));
+                }
+                if(updated && wake) wake();
+            }
             const auto response = channel.request_with_recovery("personal.snapshot", nlohmann::json::object());
             std::string error;
             auto parsed = response.ok ? personal_agents_from_json(response.result, error) : std::nullopt;
@@ -56,6 +103,8 @@ PersonalAgentClient::PersonalAgentClient(ServerControlChannelOptions options, st
             {
                 std::lock_guard lock(mutex_);
                 changed = !snapshot_ || *snapshot_ != current;
+                if(current.error.empty())
+                    std::erase_if(chats_,[&](const auto& entry){return std::ranges::none_of(current.agents,[&](const auto& agent){return agent.id==entry.first;});});
                 if (changed)
                     snapshot_ = std::make_shared<PersonalAgentSnapshot>(current);
             }
@@ -63,7 +112,7 @@ PersonalAgentClient::PersonalAgentClient(ServerControlChannelOptions options, st
             if (changed && wake)
                 wake();
             std::unique_lock lock(mutex_);
-            wake_.wait_for(lock, stop, std::chrono::milliseconds(250), [this] { return !commands_.empty(); });
+            wake_.wait_for(lock, stop, std::chrono::milliseconds(250), [this] { return !commands_.empty() || !chat_commands_.empty(); });
         }
     });
 }
@@ -105,5 +154,26 @@ std::optional<PersonalAgentCommandResult> PersonalAgentClient::result(std::strin
     std::lock_guard lock(mutex_);
     const auto found = results_.find(std::string(id));
     return found == results_.end() ? std::nullopt : std::optional(found->second);
+}
+}
+
+namespace draxul
+{
+std::shared_ptr<const PersonalChatSnapshot> PersonalAgentClient::chat(std::string_view id)
+{
+    if(!valid_personal_agent_id(id)) return {};
+    std::lock_guard lock(mutex_);
+    if(!chats_.contains(std::string(id)) && chats_.size()>=kPersonalAgentLimit) return {};
+    auto& state=chats_[std::string(id)];
+    if(!state) { auto initial=std::make_shared<PersonalChatSnapshot>(); initial->agent_id=id; state=initial; wake_.notify_all(); }
+    return state;
+}
+std::string PersonalAgentClient::chat_command(std::string_view id,std::string_view action,std::string_view text,std::string_view approval_id)
+{
+    std::lock_guard lock(mutex_);
+    if(!chats_.contains(std::string(id)) || chat_commands_.size()>=8) return {};
+    const auto request_id=personal_unique_id();
+    chat_commands_.push_back({{"agent_id",id},{"request_id",request_id},{"action",action},{"text",text},{"approval_id",approval_id}});
+    wake_.notify_all(); return request_id;
 }
 }
