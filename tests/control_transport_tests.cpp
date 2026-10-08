@@ -2,6 +2,7 @@
 
 #include "support/control_test_support.h"
 
+#include "async_frame_stream_test_hooks.h"
 #include "control_codec.h"
 #include "control_deadline.h"
 #include "control_exact_io.h"
@@ -1031,6 +1032,128 @@ TEST_CASE("a stalled Windows control client does not starve another client",
     CHECK(response.result["method"] == "system.hello");
     CloseHandle(stalled);
     server.stop();
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
+namespace
+{
+
+struct ScopedAcceptTestHooks
+{
+    explicit ScopedAcceptTestHooks(
+        const control_detail::AsyncFrameStreamAcceptTestHooks& hooks)
+    {
+        control_detail::set_async_frame_stream_accept_test_hooks(&hooks);
+    }
+    ~ScopedAcceptTestHooks()
+    {
+        control_detail::set_async_frame_stream_accept_test_hooks(nullptr);
+    }
+    ScopedAcceptTestHooks(const ScopedAcceptTestHooks&) = delete;
+    ScopedAcceptTestHooks& operator=(const ScopedAcceptTestHooks&) = delete;
+};
+
+} // namespace
+
+TEST_CASE("Windows Session stream accept finishes synchronous connect failures promptly",
+    "[control][transport][session-stream][windows]")
+{
+    using namespace draxul::control_detail;
+
+    const auto runtime = unique_control_runtime_directory();
+    REQUIRE(std::filesystem::create_directories(runtime));
+    AsyncFrameStreamListener listener;
+    AsyncFrameStreamError error;
+    REQUIRE(listener.start("accept-failure-test", runtime, error));
+
+    std::atomic<bool> early_client_opened = false;
+    std::atomic<int> injected_failures = 0;
+    AsyncFrameStreamAcceptTestHooks hooks;
+    SECTION("a client that disconnects before ConnectNamedPipe")
+    {
+        hooks.before_connect = [&](const std::string& endpoint) {
+            // Only the first accept sees the early disconnect.
+            if (early_client_opened.exchange(true))
+                return;
+            const std::wstring name(endpoint.begin(), endpoint.end());
+            HANDLE early = CreateFileW(name.c_str(),
+                GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+                FILE_FLAG_OVERLAPPED, nullptr);
+            if (early != INVALID_HANDLE_VALUE)
+                CloseHandle(early);
+        };
+    }
+    SECTION("an injected synchronous ConnectNamedPipe error")
+    {
+        hooks.fail_connect = [&]() -> std::optional<uint32_t> {
+            if (injected_failures.fetch_add(1) == 0)
+                return ERROR_ACCESS_DENIED;
+            return std::nullopt;
+        };
+    }
+    ScopedAcceptTestHooks scoped_hooks(hooks);
+
+    // The failed attempt must return without waiting on an operation that
+    // was never started. An early-closed client may instead surface as an
+    // accepted connection whose first read reports the closed peer.
+    std::stop_source accept_stop;
+    auto failed = std::async(std::launch::async, [&] {
+        AsyncFrameStreamError accept_error;
+        auto connection = listener.accept(accept_stop.get_token(), accept_error);
+        return std::pair(std::move(connection), accept_error);
+    });
+    REQUIRE(failed.wait_for(std::chrono::seconds(2))
+        == std::future_status::ready);
+    auto [failed_connection, failed_error] = failed.get();
+    if (failed_connection)
+    {
+        std::string ignored_bytes;
+        AsyncFrameStreamError read_error;
+        CHECK_FALSE(failed_connection->read_frame(
+            ignored_bytes, {}, read_error));
+        CHECK(read_error.code == "closed");
+    }
+    else
+    {
+        CHECK(failed_error.code == "io_error");
+        if (hooks.fail_connect)
+            CHECK(failed_error.native_code == ERROR_ACCESS_DENIED);
+    }
+
+    // The listener still accepts and exchanges frames afterwards.
+    auto accepted = std::async(std::launch::async, [&] {
+        AsyncFrameStreamError accept_error;
+        return listener.accept(accept_stop.get_token(), accept_error);
+    });
+    auto client = AsyncFrameStreamClient::connect(
+        listener.endpoint(), std::chrono::seconds(2), error);
+    REQUIRE(client);
+    REQUIRE(accepted.wait_for(std::chrono::seconds(2))
+        == std::future_status::ready);
+    auto server = accepted.get();
+    REQUIRE(server);
+    REQUIRE(client->write_frame("after-failure", {}, error));
+    std::string bytes;
+    REQUIRE(server->read_frame(bytes, {}, error));
+    CHECK(bytes == "after-failure");
+
+    // Shutdown interrupts a genuinely pending connect.
+    auto pending = std::async(std::launch::async, [&] {
+        AsyncFrameStreamError accept_error;
+        auto connection = listener.accept(accept_stop.get_token(), accept_error);
+        return std::pair(connection != nullptr, accept_error.code);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    listener.stop();
+    REQUIRE(pending.wait_for(std::chrono::seconds(2))
+        == std::future_status::ready);
+    const auto [pending_connected, pending_code] = pending.get();
+    CHECK_FALSE(pending_connected);
+    CHECK(pending_code == "cancelled");
+
+    client->close();
+    server->close();
     std::error_code ignored;
     std::filesystem::remove_all(runtime, ignored);
 }
