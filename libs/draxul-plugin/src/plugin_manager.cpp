@@ -1,5 +1,6 @@
 #include <draxul/plugin_manager.h>
 
+#include <draxul/filesystem_path_text.h>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/runtime_path.h>
@@ -167,9 +168,89 @@ std::filesystem::path process_plugin_runtime_directory()
 #else
     const uint64_t process_id = static_cast<uint64_t>(getpid());
 #endif
+    // Every character here is repeated in front of each staged package path,
+    // and Windows paths beyond MAX_PATH fail without long-path opt-in. Keep
+    // the per-process root short; the tick suffix only guards PID reuse.
     return user_cache_dir() / "draxul" / "plugin-runtime"
-        / ("process-" + std::to_string(process_id) + "-"
+        / ("p" + std::to_string(process_id) + "-"
             + next_runtime_generation());
+}
+
+// Windows rejects most paths of MAX_PATH (260) characters or more unless the
+// process is long-path aware; report that limit when it is the likely cause.
+constexpr size_t kWindowsMaxPath = 260;
+
+std::string staging_failure(std::string_view operation,
+    const std::filesystem::path& path, const std::error_code& error)
+{
+    const size_t length = path.native().size();
+    std::string message = "Unable to stage plugin generation: " + std::string(operation)
+        + " failed for " + path_to_utf8(path) + " (" + std::to_string(length)
+        + " characters): " + error.message() + " [" + error.category().name() + ":"
+        + std::to_string(error.value()) + "]";
+#ifdef _WIN32
+    if (length >= kWindowsMaxPath)
+        message += "; the path exceeds the Windows MAX_PATH limit of "
+            + std::to_string(kWindowsMaxPath) + " characters";
+#endif
+    return message;
+}
+
+// Copies one immutable package generation, reporting the first failing
+// filesystem operation and path instead of an anonymous recursive-copy error.
+bool copy_package_tree(const std::filesystem::path& source,
+    const std::filesystem::path& target, std::string& error)
+{
+    std::error_code fs_error;
+    std::filesystem::create_directories(target, fs_error);
+    if (fs_error)
+    {
+        error = staging_failure("create directory", target, fs_error);
+        return false;
+    }
+    std::filesystem::recursive_directory_iterator it(source, fs_error);
+    if (fs_error)
+    {
+        error = staging_failure("enumerate package", source, fs_error);
+        return false;
+    }
+    for (const std::filesystem::recursive_directory_iterator end; it != end;)
+    {
+        const std::filesystem::path entry = it->path();
+        const std::filesystem::path destination = target / entry.lexically_relative(source);
+        const bool directory = it->is_directory(fs_error);
+        if (fs_error)
+        {
+            error = staging_failure("inspect", entry, fs_error);
+            return false;
+        }
+        if (directory)
+        {
+            std::filesystem::create_directories(destination, fs_error);
+            if (fs_error)
+            {
+                error = staging_failure("create directory", destination, fs_error);
+                return false;
+            }
+        }
+        else
+        {
+            std::filesystem::copy_file(entry, destination,
+                std::filesystem::copy_options::overwrite_existing, fs_error);
+            if (fs_error)
+            {
+                error = staging_failure("copy file", destination, fs_error);
+                return false;
+            }
+        }
+        it.increment(fs_error);
+        if (fs_error)
+        {
+            error = staging_failure("enumerate package", entry, fs_error);
+            return false;
+        }
+    }
+    return true;
 }
 
 std::optional<std::filesystem::path> published_manifest(
@@ -403,19 +484,15 @@ std::shared_ptr<LoadedPlugin> PluginManager::load(std::string_view id, std::stri
 std::optional<PluginManifest> PluginManager::stage_generation(
     const PluginManifest& manifest, std::string& error)
 {
-    const std::string runtime_generation = next_runtime_generation();
+    // The runtime directory is private to this manager, so a short
+    // process-unique serial is enough to keep staged generations distinct.
+    static std::atomic<uint64_t> staged_serial{ 0 };
+    const std::string runtime_generation
+        = "g" + std::to_string(staged_serial.fetch_add(1) + 1);
     const auto target = runtime_directory_ / manifest.id / runtime_generation;
-    std::error_code copy_error;
-    std::filesystem::create_directories(target.parent_path(), copy_error);
-    std::filesystem::copy(manifest.directory, target,
-        std::filesystem::copy_options::recursive
-            | std::filesystem::copy_options::overwrite_existing,
-        copy_error);
-    if (copy_error)
-    {
-        error = "Unable to stage plugin generation: " + copy_error.message();
+    if (!copy_package_tree(manifest.directory, target, error))
         return std::nullopt;
-    }
+    std::error_code copy_error;
     PluginManifest staged = manifest;
     const auto relative_library = std::filesystem::relative(
         manifest.library_path, manifest.directory, copy_error);

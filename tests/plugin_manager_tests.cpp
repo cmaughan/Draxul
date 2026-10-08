@@ -28,6 +28,7 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#include <unistd.h>
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #include <signal.h>
@@ -1774,6 +1775,88 @@ TEST_CASE("plugin manager prepares a distinct shadow-copied generation",
     CHECK(candidate->manifest().directory.string().find(runtime.string()) == 0);
     CHECK(manager->activate(candidate));
     CHECK(manager->load("dev.draxul.fixture", error) == candidate);
+}
+
+TEST_CASE("plugin staging keeps nested package paths compact and reports failures",
+    "[plugin][reload][integration]")
+{
+    TempPlugins temp;
+    const auto bundled = temp.root / "bundled";
+    const auto user = temp.root / "user";
+    const auto runtime = temp.root / "runtime";
+    const std::string id = "dev.draxul.fixture";
+    install_plugin(bundled, "fixture", id, DRAXUL_FIXTURE_VALID_PATH);
+    // A realistic package also carries private dependencies and nested assets.
+    const auto published = bundled / "fixture" / "generations" / "build-1";
+    const auto nested_asset = std::filesystem::path("assets") / "textures" / "roads"
+        / "asphalt.png";
+    std::filesystem::create_directories((published / nested_asset).parent_path());
+    std::ofstream(published / nested_asset) << "asset";
+    std::ofstream(published / "private-dependency.bin") << "dependency";
+
+    SECTION("successful staging copies the whole package under a short prefix")
+    {
+        const auto manager = draxul::PluginManager::discover(bundled, user, runtime);
+        std::string error;
+        const auto plugin = manager->load(id, error);
+        REQUIRE(plugin);
+        CHECK(error.empty());
+        const auto staged = plugin->manifest().directory;
+        // <runtime>/<id>/g<serial>: the staging overhead added in front of
+        // every package-relative path is the id plus a short serial, which
+        // keeps nested assets inside Windows MAX_PATH for long profile roots.
+        CHECK(staged.parent_path() == runtime / id);
+        CHECK(staged.filename().native().size() <= 12);
+        CHECK(staged.lexically_relative(runtime).native().size() <= id.size() + 13);
+        CHECK(plugin->manifest().library_path.parent_path() == staged);
+        std::ifstream asset(staged / nested_asset);
+        const std::string asset_text((std::istreambuf_iterator<char>(asset)),
+            std::istreambuf_iterator<char>());
+        CHECK(asset_text == "asset");
+        CHECK(std::filesystem::is_regular_file(staged / "private-dependency.bin"));
+        CHECK(std::filesystem::is_regular_file(staged / "plugin.toml"));
+
+        const auto candidate = manager->prepare_reload(id, error);
+        REQUIRE(candidate);
+        CHECK(candidate->manifest().directory.parent_path() == runtime / id);
+        CHECK(candidate->generation() != plugin->generation());
+    }
+
+    SECTION("a blocked staging directory names the failing operation and path")
+    {
+        const auto manager = draxul::PluginManager::discover(bundled, user, runtime);
+        // Occupy the per-plugin staging directory with a regular file.
+        std::ofstream(runtime / id) << "blocker";
+        draxul::PluginHost host(manager);
+        draxul::HostContext context;
+        context.launch_options.kind = draxul::HostKind::Plugin;
+        context.launch_options.client_plugin_id = id;
+        draxul::tests::TestHostCallbacks callbacks;
+        CHECK_FALSE(host.initialize(context, callbacks));
+        const std::string error = host.init_error();
+        CHECK(error.find("Unable to stage plugin generation: create directory failed for ")
+            != std::string::npos);
+        CHECK(error.find((runtime / id).filename().string()) != std::string::npos);
+        CHECK(error.find(" characters): ") != std::string::npos);
+        CHECK(error.find("Unknown error") == std::string::npos);
+    }
+
+#ifndef _WIN32
+    SECTION("an unreadable nested asset names the destination it could not copy")
+    {
+        if (geteuid() == 0)
+            SKIP("root can read files without permission bits");
+        const auto manager = draxul::PluginManager::discover(bundled, user, runtime);
+        std::filesystem::permissions(published / nested_asset,
+            std::filesystem::perms::none);
+        std::string error;
+        CHECK_FALSE(manager->load(id, error));
+        std::filesystem::permissions(published / nested_asset,
+            std::filesystem::perms::owner_read | std::filesystem::perms::owner_write);
+        CHECK(error.find("copy file failed for ") != std::string::npos);
+        CHECK(error.find(nested_asset.generic_string()) != std::string::npos);
+    }
+#endif
 }
 
 TEST_CASE("two UI clients keep shared-server plugin generations local",
