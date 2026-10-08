@@ -14,4 +14,4 @@
 - [x] **Acceptance:** Updating the first cell of `" 界"` to `"A"` preserves the wide glyph; overlapping writes still remove orphaned continuations.
   `tests/grid_tests.cpp` "grid narrow writes preserve a wide neighbour they do not overlap"; the protocol path is also covered by `tests/ui_events_tests.cpp` "ui event handler keeps valid wide state across partial grid_line updates".
 - [x] **Validation:** Run core aggregate tests and same-cache smoke.
-  `do.py test debug`: only pre-existing/load failures (see `kanban/pending/88 nvim-wide-cell-protocol-decoding -bug.md` session notes); `do.py smoke debug --skip-build` passed.
+  `do.py test debug`: only pre-existing/load failures (see `kanban/done/88 nvim-wide-cell-protocol-decoding -bug.md` session notes); `do.py smoke debug --skip-build` passed.

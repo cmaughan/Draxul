@@ -19,7 +19,7 @@
   `tests/ui_events_tests.cpp` "ui event handler keeps valid wide state across partial grid_line updates" (also relies on `kanban/done/70 narrow-cell-wide-neighbor -bug.md`).
 - [x] **Validation:** Correct fixtures that omit explicit followers; run core aggregate tests, Unicode rendering checks, and same-cache smoke.
   Added followers to the grapheme-width fixture and rewrote the repeat/wide overrun bounds fixture into protocol shape, keeping a malformed repeated-wide packet as a valid-state check. `draxul-render-unicode-view`, `basic-view`, and `cmdline-view` pass; `unicode-view.macos.bmp` re-blessed with the corrected spacing. Aggregate run: only failures that also fail on the unmodified baseline or pass on isolated rerun; smoke passed.
-- [ ] **Windows:** Re-bless `tests/render/reference/unicode-view.windows.bmp` (`py do.py blessunicode`) on Windows. It still encodes the shifted wide-glyph layout; it was not regenerated because Windows is unavailable in this session.
+- [x] **Windows:** Re-bless `tests/render/reference/unicode-view.windows.bmp` (`py do.py blessunicode`) on Windows. It still encodes the shifted wide-glyph layout; it was not regenerated because Windows is unavailable in this session.
 
 ## Windows inspection — 2026-10-08
 
@@ -33,3 +33,15 @@ Do not bless that regression into the expected image. The baseline gate remains
 pending until the emoji fallback is corrected, then inspect and bless the whole
 frame. Actual/diff/report artifacts are under `tests/render/out/` and aggregate
 evidence under `build-ninja-debug/validation-logs/20261008-150658-521060/`.
+
+## Windows re-bless — 2026-10-08
+
+After `63 joined-family-emoji-fallback -bug.md` restored a complete colored family
+glyph, the whole Debug capture was inspected before blessing: every wide Japanese
+glyph is contiguous across two cells with no trailing blank column, the emoji line
+shows 😀 👍🏽, the cell-fitted family, 🚀 and ✨ in color, and the combining,
+Nerd Font, symbol and ligature-baseline lines match the previous reference. The
+top-right chrome includes live CPU/RAM figures; the previous reference already
+did (69% vs 70%), and the comparison tolerance absorbs that pre-existing variance.
+`py do.py blessunicode` blessed `unicode-view.windows.bmp` (1200x760) in 16.7 s
+from the same Ninja Debug cache.
