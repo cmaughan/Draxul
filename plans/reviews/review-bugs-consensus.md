@@ -418,7 +418,7 @@ The following are complete proposed cards for the trusted parent process.
 - [ ] **Acceptance:** Both integrations report native conversation references when the application is absent from the command search path.
 - [ ] **Validation:** Check Windows and macOS hook behavior; run core aggregate tests and same-cache smoke.
 
-### kanban/pending/70 narrow-cell-wide-neighbor -bug.md
+### kanban/done/70 narrow-cell-wide-neighbor -bug.md
 
 # Preserve nonoverlapping wide characters
 
@@ -469,7 +469,7 @@ The following are complete proposed cards for the trusted parent process.
 - [ ] **Acceptance:** A burst beyond queue capacity cannot leave a discarded unique update permanently missing; memory remains bounded.
 - [ ] **Validation:** Coordinate existing notification work; run core aggregate tests and same-cache smoke.
 
-### kanban/pending/73 terminal-cross-feed-clusters -bug.md
+### kanban/done/73 terminal-cross-feed-clusters -bug.md
 
 # Preserve character clusters across output chunks
 

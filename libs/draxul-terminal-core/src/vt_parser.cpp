@@ -79,16 +79,11 @@ std::optional<DecodedCodepoint> consume_codepoint(
     };
 }
 
-std::optional<std::string> consume_cluster(std::string_view text, size_t& offset)
+// Append the codepoints that continue the cluster in `cluster`. The
+// `expect_joined` state (previous codepoint was a ZWJ) persists so a cluster
+// can be resumed when its continuation arrives in a later feed.
+void extend_cluster(std::string_view text, size_t& offset, std::string& cluster, bool& expect_joined)
 {
-    PERF_MEASURE();
-    auto decoded = consume_codepoint(text, offset);
-    if (!decoded)
-        return std::nullopt;
-
-    std::string cluster = std::move(decoded->text);
-    bool expect_joined = false;
-
     while (offset < text.size())
     {
         const size_t next_start = offset;
@@ -97,15 +92,26 @@ std::optional<std::string> consume_cluster(std::string_view text, size_t& offset
             break;
         const uint32_t next = next_codepoint->value;
         const bool keep = next == 0x200D || next == 0xFE0F || is_width_ignorable(next) || is_emoji_modifier(next) || expect_joined;
-        expect_joined = next == 0x200D;
         if (!keep)
         {
             offset = next_start;
             break;
         }
+        expect_joined = next == 0x200D;
         cluster += next_codepoint->text;
     }
+}
 
+std::optional<std::string> consume_cluster(std::string_view text, size_t& offset, bool& expect_joined)
+{
+    PERF_MEASURE();
+    auto decoded = consume_codepoint(text, offset);
+    if (!decoded)
+        return std::nullopt;
+
+    std::string cluster = std::move(decoded->text);
+    expect_joined = false;
+    extend_cluster(text, offset, cluster, expect_joined);
     return cluster;
 }
 
@@ -126,12 +132,12 @@ void VtParser::feed(std::string_view bytes)
         case State::Ground:
             if (ch == '\x1B')
             {
-                flush_plain_text();
+                flush_plain_text(false);
                 state_ = State::Escape;
             }
             else if (static_cast<unsigned char>(ch) < 0x20)
             {
-                flush_plain_text();
+                flush_plain_text(false);
                 cbs_.on_control(ch);
             }
             else
@@ -141,7 +147,7 @@ void VtParser::feed(std::string_view bytes)
                     DRAXUL_LOG_WARN(LogCategory::App,
                         "vt_parser: plain_text buffer exceeded cap (%zu bytes); flushing",
                         kMaxPlainTextBuffer);
-                    flush_plain_text();
+                    flush_plain_text(true);
                 }
                 plain_text_.push_back(ch);
             }
@@ -270,8 +276,9 @@ void VtParser::feed(std::string_view bytes)
     // Flush any remaining plain text accumulated during this feed() call.
     // This ensures we emit clusters at end-of-input rather than waiting for
     // the next control/escape character — and avoids the O(K^2) cost of
-    // flushing after every single byte in the Ground state.
-    flush_plain_text();
+    // flushing after every single byte in the Ground state. The final
+    // cluster stays open so a continuation in the next feed can extend it.
+    flush_plain_text(true);
 }
 
 void VtParser::reset()
@@ -279,6 +286,8 @@ void VtParser::reset()
     PERF_MEASURE();
     state_ = State::Ground;
     plain_text_.clear();
+    cluster_open_ = false;
+    cluster_expect_joined_ = false;
     csi_buffer_.clear();
     osc_buffer_.clear();
     dcs_buffer_.clear();
@@ -309,22 +318,45 @@ void VtParser::dispatch_escape_followup(char ch)
     }
 }
 
-void VtParser::flush_plain_text()
+void VtParser::flush_plain_text(bool keep_cluster_open)
 {
     PERF_MEASURE();
     size_t offset = 0;
+    if (cluster_open_)
+    {
+        // Output can be split anywhere, including between a base character
+        // and its combining marks or joined emoji. Extend the cluster that
+        // the previous feed already emitted instead of starting a new one.
+        std::string continuation;
+        extend_cluster(plain_text_, offset, continuation, cluster_expect_joined_);
+        if (!continuation.empty())
+        {
+            if (cbs_.on_cluster_continue)
+                cbs_.on_cluster_continue(continuation);
+            else
+                cbs_.on_cluster(continuation);
+        }
+    }
     while (offset < plain_text_.size())
     {
         const size_t before = offset;
-        auto cluster = consume_cluster(plain_text_, offset);
+        auto cluster = consume_cluster(plain_text_, offset, cluster_expect_joined_);
         if (!cluster)
             break;
         cbs_.on_cluster(*cluster);
+        cluster_open_ = true;
         if (offset == before)
             break;
     }
     if (offset > 0)
         plain_text_.erase(0, offset);
+    if (!keep_cluster_open)
+    {
+        // A control or escape sequence terminates the cluster, exactly as it
+        // does when the same bytes arrive in a single feed.
+        cluster_open_ = false;
+        cluster_expect_joined_ = false;
+    }
 }
 
 } // namespace draxul

@@ -223,6 +223,8 @@ private:
     void scroll_rows(int top, int bottom, int rows);
     void newline(bool carriage_return);
     void write_cluster(const std::string& cluster);
+    void continue_cluster(const std::string& continuation);
+    void place_cluster(const std::string& cluster, const std::string& rendered_cluster);
     void erase_line(int mode);
     void erase_display(int mode);
     void handle_control(char ch);
@@ -283,6 +285,18 @@ private:
     std::deque<ShellMark> shell_marks_;
     std::string terminal_title_;
     std::string current_cwd_;
+    // The most recently written cluster, so a continuation that arrives in a
+    // later output chunk can extend it in place.
+    struct LastCluster
+    {
+        bool valid = false;
+        bool absorbed = false; // consumed as a charset designation
+        int col = 0;
+        int row = 0;
+        std::string cluster;
+        std::string rendered;
+    };
+    LastCluster last_cluster_;
 };
 
 } // namespace draxul

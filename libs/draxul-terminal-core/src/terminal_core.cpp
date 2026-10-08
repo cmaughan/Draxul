@@ -105,6 +105,7 @@ TerminalCore::TerminalCore(ITerminalCoreHost& host)
           std::bind_front(&TerminalCore::handle_osc, this),
           std::bind_front(&TerminalCore::handle_esc, this),
           std::bind_front(&TerminalCore::handle_dcs, this),
+          std::bind_front(&TerminalCore::continue_cluster, this),
       })
     , alt_screen_(AltScreenManager::GridAccessors{
           std::bind_front(&TerminalCore::grid_cols, this),
@@ -149,6 +150,7 @@ void TerminalCore::reset()
     shell_marks_.clear();
     terminal_title_.clear();
     current_cwd_.clear();
+    last_cluster_ = {};
     output_cursor_batch_active_ = false;
     output_cursor_batch_saw_hide_ = false;
     output_cursor_batch_saw_show_ = false;
@@ -583,6 +585,9 @@ void TerminalCore::write_cluster(const std::string& cluster)
         else if (pending_charset_designation_ == ')')
             g1_charset_ = mode;
         pending_charset_designation_ = '\0';
+        // Any continuation belongs to the consumed designation, not to the
+        // cell written before it.
+        last_cluster_ = LastCluster{ .absorbed = true };
         return;
     }
 
@@ -590,7 +595,6 @@ void TerminalCore::write_cluster(const std::string& cluster)
     const std::string rendered_cluster = active_charset == CharsetMode::DecSpecialGraphics
         ? dec_special_graphics(cluster)
         : cluster;
-    int width = cluster_cell_width(rendered_cluster);
 
     if (vt_.pending_wrap && vt_.auto_wrap_mode)
     {
@@ -599,6 +603,43 @@ void TerminalCore::write_cluster(const std::string& cluster)
     }
 
     vt_.col = std::clamp(vt_.col, 0, std::max(0, grid_cols() - 1));
+    place_cluster(cluster, rendered_cluster);
+}
+
+void TerminalCore::continue_cluster(const std::string& continuation)
+{
+    PERF_MEASURE();
+    // The parser reports codepoints that extend the previous cluster when
+    // they arrive in a later output chunk. Rewrite that cluster from the
+    // position it was placed at, so chunked output produces the same cells
+    // and cursor as the same bytes delivered at once. If the cell no longer
+    // holds that cluster, fall back to writing the continuation on its own.
+    const bool can_extend = last_cluster_.valid
+        && last_cluster_.row >= 0 && last_cluster_.row < grid_rows()
+        && last_cluster_.col >= 0 && last_cluster_.col < grid_cols()
+        && grid().get_cell(last_cluster_.col, last_cluster_.row).text == last_cluster_.rendered;
+    if (last_cluster_.absorbed)
+        return;
+    if (!can_extend)
+    {
+        write_cluster(continuation);
+        return;
+    }
+
+    const std::string cluster = last_cluster_.cluster + continuation;
+    const CharsetMode active_charset = gl_uses_g1_charset_ ? g1_charset_ : g0_charset_;
+    const std::string rendered_cluster = active_charset == CharsetMode::DecSpecialGraphics
+        ? dec_special_graphics(cluster)
+        : cluster;
+    vt_.col = last_cluster_.col;
+    vt_.row = last_cluster_.row;
+    vt_.pending_wrap = false;
+    place_cluster(cluster, rendered_cluster);
+}
+
+void TerminalCore::place_cluster(const std::string& cluster, const std::string& rendered_cluster)
+{
+    int width = cluster_cell_width(rendered_cluster);
 
     // Wide character at last available column: wrap first if auto-wrap enabled.
     if (width == 2 && vt_.col >= grid_cols() - 1)
@@ -617,6 +658,13 @@ void TerminalCore::write_cluster(const std::string& cluster)
 
     grid().set_cell(vt_.col, vt_.row, rendered_cluster, attr_id(), width == 2);
     grid().set_cell_hyperlink_id(vt_.col, vt_.row, current_hyperlink_id_);
+    last_cluster_ = LastCluster{
+        .valid = true,
+        .col = vt_.col,
+        .row = vt_.row,
+        .cluster = cluster,
+        .rendered = std::string(grid().get_cell(vt_.col, vt_.row).text.view()),
+    };
     const int new_col = vt_.col + width;
 
     if (new_col >= grid_cols())
