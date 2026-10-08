@@ -421,10 +421,10 @@ These actual pending cards cover all 34 Codex findings. They are not reproduced 
 | B10 | `kanban/done/62 topology-durable-limits -bug.md` |
 | B11 | `kanban/pending/66 windows-stream-accept-failure -bug.md` |
 | B12 | `kanban/pending/69 agent-hook-executable-path -bug.md` |
-| B13 | `kanban/pending/70 narrow-cell-wide-neighbor -bug.md` |
+| B13 | `kanban/done/70 narrow-cell-wide-neighbor -bug.md` |
 | B14 | `kanban/pending/71 cancellable-nvim-output -bug.md` |
 | B15 / Claude M6 | `kanban/pending/72 nvim-redraw-queue-recovery -bug.md` |
-| B16 | `kanban/pending/73 terminal-cross-feed-clusters -bug.md` |
+| B16 | `kanban/done/73 terminal-cross-feed-clusters -bug.md` |
 | B17 | `kanban/pending/74 markdown-display-density -bug.md` |
 | B18 / related Claude C6 | `kanban/pending/75 windows-markdown-source-paths -bug.md` |
 | B19 | `kanban/pending/76 windows-deploy-plugin-packages -bug.md` |
@@ -610,7 +610,7 @@ These are complete proposed contents for the trusted parent to create. No card f
 
 **Evidence and trigger:** Lines 294–296 advance two columns for a wide leader before its explicit empty continuation cell arrives. The official line-grid protocol sends that follower.
 
-**Related:** `kanban/pending/70 narrow-cell-wide-neighbor -bug.md`.
+**Related:** `kanban/done/70 narrow-cell-wide-neighbor -bug.md`.
 
 - [ ] **Investigate:** Trace protocol cells, repeats, partial updates, continuation handling, and grid cleanup.
 - [ ] **Fix:** Advance once per protocol cell and handle empty wide followers without erasing their leader.

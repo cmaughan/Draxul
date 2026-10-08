@@ -7,7 +7,9 @@
 
 #include <chrono>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <vector>
 
 using namespace draxul;
 using namespace draxul::tests;
@@ -1362,4 +1364,103 @@ TEST_CASE("terminal: DECSTBM on 1-row grid does not corrupt scroll region", "[te
     ts.host.feed("\x1B[0;0r");
     REQUIRE(ts.host.scroll_top() == 0);
     REQUIRE(ts.host.scroll_bottom() == 0);
+}
+
+namespace
+{
+
+struct TerminalCellsState
+{
+    std::vector<std::string> cells;
+    int col = 0;
+    int row = 0;
+
+    bool operator==(const TerminalCellsState&) const = default;
+};
+
+TerminalCellsState feed_in_chunks(int cols, int rows, const std::vector<std::string_view>& chunks)
+{
+    VtTerminalSetup ts(cols, rows);
+    REQUIRE(ts.ok);
+    for (const auto chunk : chunks)
+        ts.host.feed(chunk);
+
+    TerminalCellsState state;
+    for (int r = 0; r < rows; ++r)
+    {
+        for (int c = 0; c < cols; ++c)
+        {
+            const Cell& cell = ts.host.cell(c, r);
+            state.cells.push_back(std::string(cell.text.view())
+                + (cell.double_width ? "[W]" : "")
+                + (cell.double_width_cont ? "[C]" : ""));
+        }
+    }
+    state.col = ts.host.col();
+    state.row = ts.host.row();
+    return state;
+}
+
+} // namespace
+
+TEST_CASE("terminal: clusters split across output chunks match unsplit output", "[terminal][unicode]")
+{
+    struct ClusterCase
+    {
+        const char* name;
+        int cols;
+        std::string bytes;
+    };
+    const std::vector<ClusterCase> cases = {
+        { "combining accent", 10, "ae\xCC\x81z" },
+        { "stacked combining accents", 10, "o\xCC\x88\xCC\x81!" },
+        { "zwj family", 10, "x\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x91\xA7y" },
+        { "emoji modifier", 10, "\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBDk" },
+        { "variation selector widens at wrap boundary", 4, "abc\xE2\x9D\xA4\xEF\xB8\x8Fq" },
+        { "combining accent on last column", 4, "abce\xCC\x81z" },
+        { "combining accent after wide glyph", 6, "\xE7\x95\x8C\xCC\x81z" },
+        { "control interrupts a cluster", 10, "e\r\xCC\x81z" },
+        { "escape interrupts a cluster", 10, "e\x1B[1m\xCC\x81z" },
+        { "zwj before escape does not join across it", 10, "\xF0\x9F\x91\xA8\xE2\x80\x8D\x1B[0m\xF0\x9F\x91\xA9" },
+    };
+
+    for (const auto& test : cases)
+    {
+        CAPTURE(test.name);
+        const std::string_view bytes = test.bytes;
+        const auto expected = feed_in_chunks(test.cols, 3, { bytes });
+
+        for (size_t split = 1; split < bytes.size(); ++split)
+        {
+            CAPTURE(split);
+            REQUIRE(feed_in_chunks(test.cols, 3, { bytes.substr(0, split), bytes.substr(split) }) == expected);
+        }
+
+        std::vector<std::string_view> single_bytes;
+        for (size_t i = 0; i < bytes.size(); ++i)
+            single_bytes.push_back(bytes.substr(i, 1));
+        INFO("byte-at-a-time delivery");
+        REQUIRE(feed_in_chunks(test.cols, 3, single_bytes) == expected);
+    }
+}
+
+TEST_CASE("terminal: a combining mark in a later chunk extends the previous cell", "[terminal][unicode]")
+{
+    VtTerminalSetup ts(4, 3);
+    REQUIRE(ts.ok);
+
+    ts.host.feed("abce");
+    REQUIRE(ts.host.col() == 3);
+    ts.host.feed("\xCC\x81");
+
+    INFO("accent joins the base on the last column instead of wrapping");
+    CHECK(ts.host.cell_text(3, 0) == std::string("e\xCC\x81"));
+    CHECK(ts.host.cell_text(0, 1) == std::string(" "));
+    CHECK(ts.host.row() == 0);
+
+    ts.host.feed("z");
+    INFO("pending wrap from the extended cluster still applies");
+    CHECK(ts.host.cell_text(0, 1) == std::string("z"));
+    CHECK(ts.host.row() == 1);
+    CHECK(ts.host.col() == 1);
 }

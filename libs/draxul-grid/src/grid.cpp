@@ -302,15 +302,21 @@ void Grid::set_cell(int col, int row, const std::string& text, uint16_t hl_id, b
     // cells skip the prev-cell block above, so the flag can survive resizes).
     cell.double_width_cont = false;
 
+    // A wide leader is valid only when its continuation fits on this row.
+    // Terminal wrapping normally prevents an edge write, but keeping the grid
+    // invariant here also protects direct restore and protocol callers.
+    const bool store_double_width = double_width && col + 1 < cols_;
+
     if (col + 1 < cols_)
     {
         auto& next = cells_[index + 1];
-        if (next.double_width)
+        if (next.double_width && store_double_width)
         {
-            // The new cell displaces a wide leader in the following column.
-            // Clear its continuation as well: otherwise writing a wide glyph
-            // over that leader creates a new continuation in this column and
-            // leaves the old one stranded one cell farther right.
+            // A wide write overlaps the following column, displacing the wide
+            // leader there. Clear its continuation as well: otherwise the new
+            // continuation lands on that leader and leaves the old one
+            // stranded one cell farther right. A narrow write does not
+            // overlap the next column, so a wide neighbour there survives.
             if (col + 2 < cols_)
             {
                 auto& displaced_continuation = cells_[index + 2];
@@ -338,10 +344,6 @@ void Grid::set_cell(int col, int row, const std::string& text, uint16_t hl_id, b
     cell.hyperlink_id = 0;
     cell.detected_url_id = 0;
     cell.dirty = false;
-    // A wide leader is valid only when its continuation fits on this row.
-    // Terminal wrapping normally prevents an edge write, but keeping the grid
-    // invariant here also protects direct restore and protocol callers.
-    const bool store_double_width = double_width && col + 1 < cols_;
     cell.double_width = store_double_width;
     cell.double_width_cont = false;
     mark_dirty_index(static_cast<int>(index));

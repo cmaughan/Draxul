@@ -49,6 +49,11 @@ public:
         // A complete DCS sequence (everything between ESC P and ST).
         // Optional — consumed without dispatch if null.
         std::function<void(std::string_view body)> on_dcs;
+        // Codepoints (combining marks, variation selectors, ZWJ-joined
+        // characters, ...) that extend the cluster most recently passed to
+        // on_cluster, arriving in a later feed() with no intervening control
+        // or escape. Optional — delivered through on_cluster if null.
+        std::function<void(const std::string& continuation)> on_cluster_continue;
     };
 
     explicit VtParser(Callbacks cbs);
@@ -73,12 +78,15 @@ private:
         DcsIgnoreEsc,
     };
 
-    void flush_plain_text();
+    void flush_plain_text(bool keep_cluster_open);
     void dispatch_escape_followup(char ch);
 
     Callbacks cbs_;
     State state_ = State::Ground;
     std::string plain_text_; // accumulates printable bytes in Ground state
+    // The last emitted cluster may still be extended by the next feed().
+    bool cluster_open_ = false;
+    bool cluster_expect_joined_ = false; // that cluster ended with a ZWJ
     std::string csi_buffer_;
     std::string osc_buffer_;
     std::string dcs_buffer_;

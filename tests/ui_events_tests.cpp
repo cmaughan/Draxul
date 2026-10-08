@@ -299,12 +299,17 @@ TEST_CASE("ui event handler applies grapheme widths like nvim", "[ui]")
     handler.process_redraw({ redraw_event("grid_line", { grid_line_batch(1, 0, 0, {
                                                                                       cell(combining, 1),
                                                                                       cell(emoji, 2),
+                                                                                      cell(""),
                                                                                       cell(flag, 3),
+                                                                                      cell(""),
                                                                                       cell(family, 4),
+                                                                                      cell(""),
                                                                                       cell(keycap, 5),
                                                                                       cell(heart, 6),
                                                                                       cell(heart_emoji, 7),
+                                                                                      cell(""),
                                                                                       cell(cjk, 8),
+                                                                                      cell(""),
                                                                                       cell(devanagari, 9),
                                                                                       cell(lazy, 10),
                                                                                       cell(devicon, 11),
@@ -449,6 +454,165 @@ TEST_CASE("ui event handler keeps alignment across odd repeat and empty cell com
     REQUIRE(grid.get_cell(6, 0).text == std::string("C"));
     INFO("cells beyond the batch stay untouched");
     REQUIRE(grid.get_cell(7, 0).text == std::string("h"));
+}
+
+namespace
+{
+
+bool wide_pairs_consistent(const Grid& grid)
+{
+    for (int row = 0; row < grid.rows(); ++row)
+    {
+        for (int col = 0; col < grid.cols(); ++col)
+        {
+            const Cell& cell = grid.get_cell(col, row);
+            if (cell.double_width_cont && (col == 0 || !grid.get_cell(col - 1, row).double_width))
+                return false;
+            if (cell.double_width && (col + 1 >= grid.cols() || !grid.get_cell(col + 1, row).double_width_cont))
+                return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+TEST_CASE("ui event handler decodes protocol-shaped wide cells without shifting the line", "[ui][wide]")
+{
+    // ext_linegrid represents a double-width character as the character
+    // followed by an explicit empty-text cell; each protocol cell is one column.
+    const std::string wide = "\xE7\x95\x8C"; // U+754C
+    Grid grid;
+    grid.resize(8, 1);
+
+    HighlightTable highlights;
+    UiEventHandler handler;
+    handler.set_grid(&grid);
+    handler.set_highlights(&highlights);
+    int cursor_col = -1;
+    handler.on_cursor_goto = [&](int col, int /*row*/) { cursor_col = col; };
+
+    handler.process_redraw({
+        redraw_event("grid_line", { grid_line_batch(1, 0, 0, {
+                                                                 cell("a", 1),
+                                                                 cell(wide, 2),
+                                                                 cell(""),
+                                                                 cell("b", 3),
+                                                                 cell(wide, 4),
+                                                                 cell(""),
+                                                                 cell("c", 5, 2),
+                                                             }) }),
+        redraw_event("grid_cursor_goto", { arr({ i(1), i(0), i(3) }) }),
+    });
+
+    CHECK(grid.get_cell(0, 0).text == std::string("a"));
+    CHECK(grid.get_cell(1, 0).text == wide);
+    CHECK(grid.get_cell(1, 0).double_width);
+    CHECK(grid.get_cell(1, 0).hl_attr_id == 2);
+    CHECK(grid.get_cell(2, 0).double_width_cont);
+    CHECK(grid.get_cell(2, 0).hl_attr_id == 2);
+    INFO("text after a wide character keeps its protocol column and highlight");
+    CHECK(grid.get_cell(3, 0).text == std::string("b"));
+    CHECK(grid.get_cell(3, 0).hl_attr_id == 3);
+    CHECK(grid.get_cell(4, 0).text == wide);
+    CHECK(grid.get_cell(4, 0).double_width);
+    CHECK(grid.get_cell(5, 0).double_width_cont);
+    INFO("end-of-line repeats land in the final protocol columns");
+    CHECK(grid.get_cell(6, 0).text == std::string("c"));
+    CHECK(grid.get_cell(7, 0).text == std::string("c"));
+    CHECK(grid.get_cell(7, 0).hl_attr_id == 5);
+    INFO("the editor's cursor column addresses the same cell as the decoded text");
+    CHECK(cursor_col == 3);
+    CHECK(grid.get_cell(cursor_col, 0).text == std::string("b"));
+    CHECK(wide_pairs_consistent(grid));
+}
+
+TEST_CASE("ui event handler keeps valid wide state across partial grid_line updates", "[ui][wide]")
+{
+    const std::string wide = "\xE7\x95\x8C"; // U+754C
+    Grid grid;
+    grid.resize(6, 1);
+
+    HighlightTable highlights;
+    UiEventHandler handler;
+    handler.set_grid(&grid);
+    handler.set_highlights(&highlights);
+
+    // Row: " 界xy " with the wide pair at columns 1-2.
+    handler.process_redraw({ redraw_event("grid_line", { grid_line_batch(1, 0, 0, {
+                                                                                      cell(" ", 1),
+                                                                                      cell(wide, 2),
+                                                                                      cell(""),
+                                                                                      cell("x", 1),
+                                                                                      cell("y"),
+                                                                                      cell(" "),
+                                                                                  }) }) });
+    REQUIRE(grid.get_cell(1, 0).double_width);
+    REQUIRE(grid.get_cell(2, 0).double_width_cont);
+
+    SECTION("narrow update immediately before the wide leader preserves it")
+    {
+        handler.process_redraw({ redraw_event("grid_line", { grid_line_batch(1, 0, 0, { cell("A", 3) }) }) });
+
+        CHECK(grid.get_cell(0, 0).text == std::string("A"));
+        CHECK(grid.get_cell(1, 0).text == wide);
+        CHECK(grid.get_cell(1, 0).double_width);
+        CHECK(grid.get_cell(2, 0).double_width_cont);
+    }
+
+    SECTION("update beginning at the explicit continuation preserves its leader")
+    {
+        handler.process_redraw({ redraw_event("grid_line", { grid_line_batch(1, 0, 2, {
+                                                                                          cell("", 2),
+                                                                                          cell("z", 4),
+                                                                                      }) }) });
+
+        CHECK(grid.get_cell(1, 0).text == wide);
+        CHECK(grid.get_cell(1, 0).double_width);
+        CHECK(grid.get_cell(2, 0).double_width_cont);
+        CHECK(grid.get_cell(3, 0).text == std::string("z"));
+        CHECK(grid.get_cell(4, 0).text == std::string("y"));
+    }
+
+    SECTION("narrow text written over the continuation clears the orphaned leader")
+    {
+        handler.process_redraw({ redraw_event("grid_line", { grid_line_batch(1, 0, 2, { cell("q", 4) }) }) });
+
+        CHECK_FALSE(grid.get_cell(1, 0).double_width);
+        CHECK(grid.get_cell(2, 0).text == std::string("q"));
+        CHECK_FALSE(grid.get_cell(2, 0).double_width_cont);
+        CHECK(grid.get_cell(3, 0).text == std::string("x"));
+    }
+
+    SECTION("wide-to-narrow replacement clears the continuation")
+    {
+        handler.process_redraw({ redraw_event("grid_line", { grid_line_batch(1, 0, 1, {
+                                                                                          cell("p", 4),
+                                                                                          cell("q"),
+                                                                                      }) }) });
+
+        CHECK(grid.get_cell(1, 0).text == std::string("p"));
+        CHECK_FALSE(grid.get_cell(1, 0).double_width);
+        CHECK(grid.get_cell(2, 0).text == std::string("q"));
+        CHECK_FALSE(grid.get_cell(2, 0).double_width_cont);
+        CHECK(grid.get_cell(3, 0).text == std::string("x"));
+    }
+
+    SECTION("narrow-to-wide replacement shifts nothing after its follower")
+    {
+        handler.process_redraw({ redraw_event("grid_line", { grid_line_batch(1, 0, 3, {
+                                                                                          cell(wide, 5),
+                                                                                          cell(""),
+                                                                                      }) }) });
+
+        CHECK(grid.get_cell(1, 0).double_width);
+        CHECK(grid.get_cell(3, 0).text == wide);
+        CHECK(grid.get_cell(3, 0).double_width);
+        CHECK(grid.get_cell(4, 0).double_width_cont);
+        CHECK(grid.get_cell(5, 0).text == std::string(" "));
+    }
+
+    CHECK(wide_pairs_consistent(grid));
 }
 
 TEST_CASE("ui event handler ignores malformed grid_line payloads", "[ui]")

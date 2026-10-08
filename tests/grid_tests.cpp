@@ -232,6 +232,61 @@ TEST_CASE("grid clears the previous leader when an overlapping wide write starts
     CHECK(has_consistent_wide_pairs(grid));
 }
 
+TEST_CASE("grid narrow writes preserve a wide neighbour they do not overlap", "[grid]")
+{
+    const std::string wide = "\xE7\x95\x8C"; // U+754C, double width
+    Grid grid;
+    grid.resize(4, 1);
+    grid.set_cell(0, 0, " ", 1, false);
+    grid.set_cell(1, 0, wide, 2, true);
+    grid.clear_dirty();
+
+    SECTION("narrow write immediately before the leader")
+    {
+        grid.set_cell(0, 0, "A", 3, false);
+
+        CHECK(grid.get_cell(0, 0).text == std::string("A"));
+        CHECK(grid.get_cell(1, 0).text == wide);
+        CHECK(grid.get_cell(1, 0).double_width);
+        CHECK(grid.get_cell(1, 0).hl_attr_id == 2);
+        CHECK(grid.get_cell(2, 0).double_width_cont);
+        CHECK_FALSE(grid.is_dirty(1, 0));
+        CHECK_FALSE(grid.is_dirty(2, 0));
+    }
+
+    SECTION("narrow write immediately after the continuation")
+    {
+        grid.set_cell(3, 0, "B", 3, false);
+
+        CHECK(grid.get_cell(1, 0).text == wide);
+        CHECK(grid.get_cell(1, 0).double_width);
+        CHECK(grid.get_cell(2, 0).double_width_cont);
+        CHECK(grid.get_cell(3, 0).text == std::string("B"));
+    }
+
+    SECTION("wide write immediately before the leader still displaces it")
+    {
+        grid.set_cell(0, 0, wide, 3, true);
+
+        CHECK(grid.get_cell(0, 0).double_width);
+        CHECK(grid.get_cell(1, 0).double_width_cont);
+        CHECK_FALSE(grid.get_cell(2, 0).double_width_cont);
+        CHECK(grid.get_cell(2, 0).text == std::string());
+    }
+
+    SECTION("narrow write over the continuation removes the orphaned leader")
+    {
+        grid.set_cell(2, 0, "C", 3, false);
+
+        CHECK_FALSE(grid.get_cell(1, 0).double_width);
+        CHECK(grid.get_cell(1, 0).text == std::string(" "));
+        CHECK(grid.get_cell(2, 0).text == std::string("C"));
+        CHECK_FALSE(grid.get_cell(2, 0).double_width_cont);
+    }
+
+    CHECK(has_consistent_wide_pairs(grid));
+}
+
 TEST_CASE("grid scroll preserves double-width cells and continuations together", "[grid]")
 {
     Grid grid;

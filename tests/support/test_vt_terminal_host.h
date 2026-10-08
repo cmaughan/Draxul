@@ -27,6 +27,11 @@ public:
         return std::string(grid().get_cell(col, row).text.view());
     }
 
+    const Cell& cell(int col, int row)
+    {
+        return grid().get_cell(col, row);
+    }
+
     uint16_t cell_hl(int col, int row)
     {
         return grid().get_cell(col, row).hl_attr_id;

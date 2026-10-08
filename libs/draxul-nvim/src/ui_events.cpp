@@ -244,6 +244,7 @@ void UiEventHandler::handle_grid_line(const MpackValue& args)
     }
 
     int col = col_start;
+    int wide_leader_col = -1;
     uint16_t current_hl = 0;
     bool truncated = false;
 
@@ -282,7 +283,13 @@ void UiEventHandler::handle_grid_line(const MpackValue& args)
         if (cols_known && repeat > grid_cols - col)
             repeat = std::max(0, grid_cols - col);
 
-        bool dw = cluster_cell_width(*text, options_ ? *options_ : UiOptions{}) == 2;
+        // ext_linegrid sends a double-width character as its leader followed
+        // by an explicit empty-text cell for the right half. Every protocol
+        // cell therefore occupies exactly one column. Grid::set_cell already
+        // creates the continuation for a wide leader, so an empty follower of
+        // a leader (written earlier in this packet or already in the grid) is
+        // skipped instead of overwriting, and thereby erasing, that leader.
+        const bool dw = cluster_cell_width(*text, options_ ? *options_ : UiOptions{}) == 2;
         for (int r = 0; r < repeat; r++)
         {
             if (cols_known && col >= grid_cols)
@@ -290,10 +297,12 @@ void UiEventHandler::handle_grid_line(const MpackValue& args)
                 truncated = true;
                 break;
             }
-            grid_->set_cell(col, row, *text, current_hl, dw);
+            const bool wide_follower = text->empty() && col > 0
+                && (wide_leader_col == col - 1 || grid_->sink_is_wide_leader(col - 1, row));
+            if (!wide_follower)
+                grid_->set_cell(col, row, *text, current_hl, dw);
+            wide_leader_col = dw ? col : -1;
             col++;
-            if (dw)
-                col++;
         }
         if (truncated)
             break;

@@ -257,16 +257,34 @@ TEST_CASE("grid_line with combined repeat and wide glyph overrun", "[grid_line_b
     handler.set_grid(&grid);
     handler.set_highlights(&highlights);
 
-    // CJK character (2 cells each) starting at col 6, repeat=5
-    // Would need cols: 6,7, 8,9, 10,11, 12,13, 14,15 — but grid is only 10 wide
-    feed(handler, redraw_event("grid_line", { grid_line_batch(1, 0, 6, { cell("\xe4\xb8\x80", 1, 5) }) }));
+    // Protocol-shaped wide cells (leader + explicit empty follower) starting at
+    // col 6. Five pairs would need cols 6..15, but the grid is only 10 wide.
+    const std::string wide = "\xe4\xb8\x80"; // U+4E00, double width
+    feed(handler, redraw_event("grid_line", { grid_line_batch(1, 0, 6, { cell(wide, 1), cell(""), cell(wide), cell(""), cell(wide), cell(""), cell(wide), cell(""), cell(wide), cell("") }) }));
 
-    // First two CJK chars should land (cols 6-7, 8-9)
-    INFO("first wide char lands at col 6");
-    REQUIRE(grid.get_cell(6, 0).text == std::string("\xe4\xb8\x80"));
-    INFO("no crash on combined repeat + wide overrun");
+    INFO("the two pairs that fit land at cols 6-7 and 8-9");
+    REQUIRE(grid.get_cell(6, 0).text == wide);
+    REQUIRE(grid.get_cell(6, 0).double_width);
+    REQUIRE(grid.get_cell(7, 0).double_width_cont);
+    REQUIRE(grid.get_cell(8, 0).text == wide);
+    REQUIRE(grid.get_cell(8, 0).double_width);
+    REQUIRE(grid.get_cell(9, 0).double_width_cont);
+    INFO("no crash on wide overrun");
     REQUIRE(grid.cols() == 10);
     REQUIRE(grid.rows() == 1);
+
+    // A malformed packet that repeats a wide leader without followers must
+    // still advance one column per protocol cell and leave valid pair state.
+    feed(handler, redraw_event("grid_line", { grid_line_batch(1, 0, 0, { cell(wide, 1, 3), cell("z") }) }));
+    REQUIRE(grid.get_cell(3, 0).text == std::string("z"));
+    for (int col = 0; col < grid.cols(); ++col)
+    {
+        const Cell& c = grid.get_cell(col, 0);
+        if (c.double_width)
+            REQUIRE(grid.get_cell(col + 1, 0).double_width_cont);
+        if (c.double_width_cont)
+            REQUIRE(grid.get_cell(col - 1, 0).double_width);
+    }
 }
 
 TEST_CASE("grid_line normal right-edge cell writes correctly", "[grid_line_bounds]")
