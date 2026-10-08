@@ -22,11 +22,27 @@ struct NvimRpc::Impl
 {
     NvimProcess* process_ = nullptr;
     std::thread reader_thread_;
+    std::thread writer_thread_;
     std::atomic<bool> running_{ false };
 
-    std::mutex write_mutex_;
+    // Outbound FIFO owned by writer_thread_. Callers only encode and enqueue,
+    // so no caller (including the main thread and the reader thread replying
+    // to Neovim) blocks on a child that has stopped reading.
+    std::mutex outbound_mutex_;
+    std::condition_variable outbound_cv_; // wakes the writer
+    std::condition_variable outbound_idle_cv_; // wakes close()'s bounded flush
+    std::deque<std::vector<char>> outbound_;
+    size_t outbound_bytes_ = 0;
+    bool writer_busy_ = false;
+    bool writer_stop_ = false;
+    bool write_failed_ = false;
+
     std::mutex notif_mutex_;
     std::deque<RpcNotification> notifications_;
+    // Signalled by drain_notifications() and close(); the reader waits on it
+    // while the queue is full instead of discarding queued redraw state.
+    std::condition_variable notif_space_cv_;
+    bool notif_backpressure_logged_ = false;
 
     std::mutex response_mutex_;
     std::condition_variable response_cv_;
@@ -50,8 +66,10 @@ namespace
 // 5 s is a conservative default: long enough for most nvim operations (plugin init,
 // large-workspace indexing), short enough to surface genuine hangs promptly.
 static constexpr auto kRpcRequestTimeout = std::chrono::seconds(5);
-static constexpr size_t kMaxNotificationQueueDepth = 4096;
 static constexpr size_t kNotificationQueueWarnDepth = 512;
+// close() lets already-accepted output (normally a final quit command) reach a
+// healthy editor for this long before cancelling a write that cannot finish.
+static constexpr auto kCloseFlushTimeout = std::chrono::milliseconds(50);
 
 // WI 05: how many malformed RPC packets (type-mismatches during dispatch)
 // we tolerate before declaring the transport unusable and tearing down the
@@ -102,7 +120,7 @@ NvimRpc::~NvimRpc()
     // initialization throws or exits early after initialize() started the
     // reader thread), the joinable std::thread member inside impl_ would
     // otherwise trigger std::terminate on destruction. Always drain here.
-    if (impl_ && impl_->reader_thread_.joinable())
+    if (impl_ && (impl_->reader_thread_.joinable() || impl_->writer_thread_.joinable()))
     {
         shutdown();
     }
@@ -119,8 +137,17 @@ bool NvimRpc::initialize(NvimProcess& process, RpcCallbacks callbacks)
     // reader_thread_func(). After this point callbacks_ is read-only from
     // every thread, which is safe for concurrent const access.
     callbacks_ = std::move(callbacks);
+    {
+        std::lock_guard<std::mutex> lock(impl_->outbound_mutex_);
+        impl_->outbound_.clear();
+        impl_->outbound_bytes_ = 0;
+        impl_->writer_busy_ = false;
+        impl_->writer_stop_ = false;
+        impl_->write_failed_ = false;
+    }
     impl_->running_ = true;
 
+    impl_->writer_thread_ = std::thread(&NvimRpc::writer_thread_func, this);
     impl_->reader_thread_ = std::thread(&NvimRpc::reader_thread_func, this);
     return true;
 }
@@ -134,15 +161,119 @@ void NvimRpc::close()
         DRAXUL_LOG_INFO(LogCategory::Rpc, "RPC transport closed");
     }
     impl_->response_cv_.notify_all();
+    {
+        // Release a reader waiting for notification space. Taking the mutex
+        // orders this wake after its predicate check.
+        std::lock_guard<std::mutex> lock(impl_->notif_mutex_);
+    }
+    impl_->notif_space_cv_.notify_all();
+
+    // Stop accepting output and give what was already accepted a short,
+    // bounded chance to reach a healthy child. Then cancel: a write blocked on
+    // a child that stopped reading must not hold shutdown hostage.
+    {
+        std::unique_lock<std::mutex> lock(impl_->outbound_mutex_);
+        impl_->writer_stop_ = true;
+        impl_->outbound_cv_.notify_all();
+        if (impl_->writer_thread_.joinable())
+        {
+            impl_->outbound_idle_cv_.wait_for(lock, kCloseFlushTimeout, [this] {
+                return impl_->write_failed_ || (impl_->outbound_.empty() && !impl_->writer_busy_);
+            });
+        }
+    }
+    if (impl_->process_)
+        impl_->process_->cancel_writes();
 }
 
 void NvimRpc::shutdown()
 {
     PERF_MEASURE();
     close();
+    if (impl_->writer_thread_.joinable())
+    {
+        impl_->writer_thread_.join();
+    }
     if (impl_->reader_thread_.joinable())
     {
         impl_->reader_thread_.join();
+    }
+}
+
+bool NvimRpc::enqueue_outbound(std::vector<char> encoded, const char* what)
+{
+    std::lock_guard<std::mutex> lock(impl_->outbound_mutex_);
+    if (impl_->writer_stop_ || impl_->write_failed_)
+        return false;
+    if (encoded.size() > kMaxOutboundBytes - impl_->outbound_bytes_)
+    {
+        // Reject the whole message rather than block the caller or split a
+        // message: accepted messages keep their order and framing.
+        DRAXUL_LOG_ERROR(LogCategory::Rpc,
+            "Outbound RPC queue full (%zu bytes pending, limit %zu); dropping %s (%zu bytes)",
+            impl_->outbound_bytes_, kMaxOutboundBytes, what, encoded.size());
+        return false;
+    }
+    impl_->outbound_bytes_ += encoded.size();
+    impl_->outbound_.push_back(std::move(encoded));
+    impl_->outbound_cv_.notify_one();
+    return true;
+}
+
+void NvimRpc::writer_thread_func()
+{
+    PERF_MEASURE();
+    std::unique_lock<std::mutex> lock(impl_->outbound_mutex_);
+    while (true)
+    {
+        impl_->outbound_cv_.wait(lock, [this] {
+            return impl_->writer_stop_ || !impl_->outbound_.empty();
+        });
+        if (impl_->outbound_.empty())
+            break; // stopped and fully flushed
+
+        std::vector<char> message = std::move(impl_->outbound_.front());
+        impl_->outbound_.pop_front();
+        impl_->writer_busy_ = true;
+        lock.unlock();
+
+        const bool ok = impl_->process_
+            && impl_->process_->write(reinterpret_cast<const uint8_t*>(message.data()), message.size());
+
+        lock.lock();
+        impl_->writer_busy_ = false;
+        impl_->outbound_bytes_ -= message.size();
+        if (!ok)
+        {
+            impl_->write_failed_ = true;
+            impl_->outbound_.clear();
+            impl_->outbound_bytes_ = 0;
+            impl_->outbound_idle_cv_.notify_all();
+            lock.unlock();
+
+            if (impl_->running_)
+            {
+                DRAXUL_LOG_ERROR(LogCategory::Rpc, "Write to nvim failed; RPC transport unusable");
+                {
+                    // Publish under the waiters' mutex so a request() between
+                    // its predicate check and wait cannot miss the failure.
+                    std::lock_guard<std::mutex> response_lock(impl_->response_mutex_);
+                    impl_->read_failed_ = true;
+                }
+                impl_->response_cv_.notify_all();
+                // One wake so the owner notices the failed transport; later
+                // messages are rejected without waking anyone.
+                if (callbacks_.on_notification_available)
+                    callbacks_.on_notification_available();
+            }
+            else
+            {
+                DRAXUL_LOG_DEBUG(LogCategory::Rpc, "Pending nvim output cancelled by close()");
+            }
+            return;
+        }
+        if (impl_->outbound_.empty())
+            impl_->outbound_idle_cv_.notify_all();
     }
 }
 
@@ -201,18 +332,11 @@ RpcResult NvimRpc::request(const std::string& method, const std::vector<MpackVal
         return RpcResult::err(Error::io("failed to encode rpc request: " + method));
     }
 
+    if (!enqueue_outbound(std::move(encoded), method.c_str()))
     {
-        std::lock_guard<std::mutex> write_lock(impl_->write_mutex_);
         if (!impl_->running_)
             return RpcResult::err(Error::io("rpc transport closed"));
-
-        if (!impl_->process_->write(reinterpret_cast<const uint8_t*>(encoded.data()), encoded.size()))
-        {
-            DRAXUL_LOG_ERROR(LogCategory::Rpc, "Write failed for request %s", method.c_str());
-            impl_->read_failed_ = true;
-            impl_->response_cv_.notify_all();
-            return RpcResult::err(Error::io("rpc write failed: " + method));
-        }
+        return RpcResult::err(Error::io("rpc write failed: " + method));
     }
 
     std::unique_lock<std::mutex> lock(impl_->response_mutex_);
@@ -262,26 +386,22 @@ void NvimRpc::notify(const std::string& method, const std::vector<MpackValue>& p
         return;
     }
 
-    std::lock_guard<std::mutex> write_lock(impl_->write_mutex_);
-    if (!impl_->running_)
-        return;
-
-    if (!impl_->process_->write(reinterpret_cast<const uint8_t*>(encoded.data()), encoded.size()))
-    {
-        DRAXUL_LOG_ERROR(LogCategory::Rpc, "Write failed for notification %s", method.c_str());
-        impl_->read_failed_ = true;
-        impl_->response_cv_.notify_all();
-    }
+    if (!enqueue_outbound(std::move(encoded), method.c_str()))
+        DRAXUL_LOG_DEBUG(LogCategory::Rpc, "Notification %s not sent; transport unavailable", method.c_str());
 }
 
 std::vector<RpcNotification> NvimRpc::drain_notifications()
 {
     PERF_MEASURE();
-    std::lock_guard<std::mutex> lock(impl_->notif_mutex_);
-    std::vector<RpcNotification> result(
-        std::make_move_iterator(impl_->notifications_.begin()),
-        std::make_move_iterator(impl_->notifications_.end()));
-    impl_->notifications_.clear();
+    std::vector<RpcNotification> result;
+    {
+        std::lock_guard<std::mutex> lock(impl_->notif_mutex_);
+        result.assign(std::make_move_iterator(impl_->notifications_.begin()),
+            std::make_move_iterator(impl_->notifications_.end()));
+        impl_->notifications_.clear();
+    }
+    // Resume a reader paused on a full queue.
+    impl_->notif_space_cv_.notify_all();
     return result;
 }
 
@@ -362,16 +482,29 @@ void NvimRpc::dispatch_rpc_notification(const std::vector<MpackValue>& msg_array
         notif.params = msg_array[2].as_array();
 
     {
-        std::lock_guard<std::mutex> lock(impl_->notif_mutex_);
+        std::unique_lock<std::mutex> lock(impl_->notif_mutex_);
         if (impl_->notifications_.size() >= kMaxNotificationQueueDepth)
         {
-            // Drop the oldest notification to stay bounded.
-            impl_->notifications_.pop_front();
-            DRAXUL_LOG_WARN(LogCategory::Rpc,
-                "RPC notification queue at capacity (%zu); dropping oldest",
-                kMaxNotificationQueueDepth);
+            // Never discard: a dropped redraw batch (grid_line, hl_attr_define,
+            // grid_resize, flush) leaves the display permanently wrong. Stop
+            // consuming the pipe until the owner drains, so Neovim blocks on
+            // its output instead. Memory stays bounded by the queue depth.
+            if (!impl_->notif_backpressure_logged_)
+            {
+                impl_->notif_backpressure_logged_ = true;
+                DRAXUL_LOG_WARN(LogCategory::Rpc,
+                    "RPC notification queue at capacity (%zu); pausing reads until drained",
+                    kMaxNotificationQueueDepth);
+            }
+            impl_->notif_space_cv_.wait(lock, [this] {
+                return impl_->notifications_.size() < kMaxNotificationQueueDepth || !impl_->running_;
+            });
+            if (impl_->notifications_.size() >= kMaxNotificationQueueDepth)
+                return; // closing: the owner will not drain again
         }
-        else if (impl_->notifications_.size() == kNotificationQueueWarnDepth)
+        if (impl_->notifications_.empty())
+            impl_->notif_backpressure_logged_ = false;
+        if (impl_->notifications_.size() == kNotificationQueueWarnDepth)
         {
             DRAXUL_LOG_WARN(LogCategory::Rpc,
                 "RPC notification queue depth reached %zu",
@@ -557,16 +690,10 @@ void NvimRpc::reply_to_request(uint32_t msgid, const MpackValue& error, const Mp
         DRAXUL_LOG_ERROR(LogCategory::Rpc, "Failed to encode response for msgid %u", msgid);
         return;
     }
-    std::lock_guard<std::mutex> lock(impl_->write_mutex_);
-    if (impl_->process_
-        && !impl_->process_->write(reinterpret_cast<const uint8_t*>(encoded.data()), encoded.size()))
-    {
-        DRAXUL_LOG_ERROR(LogCategory::Rpc, "Write failed for reply to msgid %u", msgid);
-        impl_->read_failed_ = true;
-        impl_->response_cv_.notify_all();
-        if (callbacks_.on_notification_available)
-            callbacks_.on_notification_available();
-    }
+    // Enqueue only: the reader thread must keep consuming Neovim output even
+    // when Neovim is not reading our replies.
+    if (!enqueue_outbound(std::move(encoded), "reply"))
+        DRAXUL_LOG_DEBUG(LogCategory::Rpc, "Reply to msgid %u not sent; transport unavailable", msgid);
 }
 
 } // namespace draxul

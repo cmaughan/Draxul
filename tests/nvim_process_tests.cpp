@@ -491,3 +491,50 @@ TEST_CASE("Windows nvim shutdown reaps an unresponsive child off the caller thre
     CHECK(reaped);
 }
 #endif
+
+// kanban/pending/71 cancellable-nvim-output -bug.md: both platform transports
+// must release a writer blocked on a child that stopped reading (POSIX via
+// the non-blocking pipe and cancel self-pipe, Windows via CancelSynchronousIo)
+// while the child is still alive and holding its end of the pipe.
+TEST_CASE("nvim process cancel_writes releases a write blocked on a non-reading child", "[nvim][shutdown]")
+{
+    TempDir temp("draxul-nvim-write-cancel");
+    const auto ready = temp.path / "ready";
+    const std::string ready_string = ready.string();
+    const std::string release_string = (temp.path / "never-released").string();
+    ScopedEnvVar mode("DRAXUL_RPC_FAKE_MODE", "stall_then_echo");
+    ScopedEnvVar ready_env("DRAXUL_RPC_FAKE_READY_FILE", ready_string.c_str());
+    ScopedEnvVar release_env("DRAXUL_RPC_FAKE_RELEASE_FILE", release_string.c_str());
+
+    NvimProcess process;
+    REQUIRE(process.spawn(DRAXUL_RPC_FAKE_PATH));
+    REQUIRE(wait_until([&] { return std::filesystem::exists(ready); }, std::chrono::seconds(5)));
+
+    const std::vector<uint8_t> payload(4 * 1024 * 1024, 0x90);
+    std::atomic<bool> finished{ false };
+    std::atomic<bool> wrote{ true };
+    std::thread writer([&] {
+        wrote = process.write(payload.data(), payload.size());
+        finished = true;
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    INFO("the write is blocked because the child is not reading");
+    CHECK_FALSE(finished.load());
+
+    const auto cancel_start = std::chrono::steady_clock::now();
+    process.cancel_writes();
+    const auto cancel_elapsed = std::chrono::steady_clock::now() - cancel_start;
+    writer.join();
+
+    INFO("cancellation returns promptly once the writer has left the pipe");
+    CHECK(cancel_elapsed < std::chrono::milliseconds(400));
+    INFO("the cancelled write reports failure");
+    CHECK_FALSE(wrote.load());
+    INFO("later writes fail fast after cancellation");
+    const uint8_t byte = 0;
+    CHECK_FALSE(process.write(&byte, 1));
+    CHECK(process.is_running());
+
+    process.shutdown();
+}

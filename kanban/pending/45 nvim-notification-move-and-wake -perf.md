@@ -8,6 +8,7 @@
 - [ ] **Baseline:** Count copied bytes, allocations, and SDL wakes for a fixed burst of redraw notifications.
 - [ ] **Implement:** Move validated notification payloads and use an empty-to-nonempty wake flag acknowledged on drain.
 - [ ] **Functional safety:** Preserve request/response routing, queue bounds, EOF wake, and races around drain and requeue.
+  - Since `kanban/done/72 nvim-redraw-queue-recovery -bug.md`, a full queue pauses the reader on `notif_space_cv_` until `drain_notifications()` signals it; a coalesced wake flag must still guarantee a drain while the reader is paused, and the drain must keep signalling space.
 - [ ] **Compare:** Require no decoded-tree deep copy and bounded wakes per burst.
 - [ ] **Platforms:** Run RPC and Neovim integration on Windows/macOS, aggregate and smoke.
 - [ ] **Acceptance:** Bursty notifications reach the GUI with fewer copies and wake events.

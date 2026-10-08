@@ -423,7 +423,7 @@ These actual pending cards cover all 34 Codex findings. They are not reproduced 
 | B12 | `kanban/pending/69 agent-hook-executable-path -bug.md` |
 | B13 | `kanban/done/70 narrow-cell-wide-neighbor -bug.md` |
 | B14 | `kanban/pending/71 cancellable-nvim-output -bug.md` |
-| B15 / Claude M6 | `kanban/pending/72 nvim-redraw-queue-recovery -bug.md` |
+| B15 / Claude M6 | `kanban/done/72 nvim-redraw-queue-recovery -bug.md` |
 | B16 | `kanban/done/73 terminal-cross-feed-clusters -bug.md` |
 | B17 | `kanban/pending/74 markdown-display-density -bug.md` |
 | B18 / related Claude C6 | `kanban/pending/75 windows-markdown-source-paths -bug.md` |
