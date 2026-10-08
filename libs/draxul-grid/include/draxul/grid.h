@@ -100,6 +100,10 @@ public:
     {
         return rows_;
     }
+    bool sink_is_wide_leader(int col, int row) const override
+    {
+        return get_cell(col, row).double_width;
+    }
 
     bool is_dirty(int col, int row) const;
     void mark_dirty(int col, int row);

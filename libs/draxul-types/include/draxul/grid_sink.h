@@ -26,6 +26,14 @@ public:
     {
         return 0;
     }
+
+    // Optional query: whether (col, row) currently holds the leading half of a
+    // double-width cell. Protocol decoders use it to recognise an explicit
+    // continuation cell that arrives in a later update than its leader.
+    virtual bool sink_is_wide_leader(int /*col*/, int /*row*/) const
+    {
+        return false;
+    }
 };
 
 } // namespace draxul
