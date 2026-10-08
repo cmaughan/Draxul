@@ -5,6 +5,7 @@
 #include "support/server_kernel_test_support.h"
 
 #include <draxul/agent_integration.h>
+#include <draxul/filesystem_path_text.h>
 #include <draxul/topology_layout.h>
 #include <draxul/topology_projection.h>
 
@@ -2499,12 +2500,14 @@ TEST_CASE("remote observer receives a burst of large resize events in bounded fr
     run_guard.join();
 }
 
-#if defined(DRAXUL_EXECUTABLE_PATH) && !defined(_WIN32)
+#ifdef DRAXUL_EXECUTABLE_PATH
 TEST_CASE("installed agent hooks report native sessions through the pane executable off PATH",
     "[server][agent-integration][cli][process]")
 {
+#ifndef _WIN32
     if (std::system("command -v python3 >/dev/null 2>&1") != 0)
         SKIP("python3 is required by the POSIX hooks");
+#endif
     TempDir temp("draxul-hook-executable-route");
     const auto checkpoint = server_session_state_path(temp.path);
     std::string error;
@@ -2576,9 +2579,36 @@ TEST_CASE("installed agent hooks report native sessions through the pane executa
     // characters, and the hook runs with a PATH that cannot find draxul.
     const auto bin = temp.path / std::filesystem::path(u8"Dräxul bïn");
     std::filesystem::create_directories(bin);
+#ifdef _WIN32
+    const auto executable = bin / "draxul app.exe";
+    const auto original = path_from_utf8(DRAXUL_EXECUTABLE_PATH);
+    std::filesystem::copy_file(original, executable);
+    for (const auto& entry : std::filesystem::directory_iterator(original.parent_path()))
+    {
+        if (entry.is_regular_file()
+            && (_wcsicmp(entry.path().extension().c_str(), L".dll") == 0))
+        {
+            std::filesystem::copy_file(entry.path(), bin / entry.path().filename());
+        }
+    }
+    wchar_t system_directory[MAX_PATH]{};
+    const UINT system_length = GetSystemDirectoryW(system_directory, MAX_PATH);
+    REQUIRE(system_length > 0);
+    REQUIRE(system_length < MAX_PATH);
+    const auto powershell = std::filesystem::path(system_directory)
+        / "WindowsPowerShell" / "v1.0" / "powershell.exe";
+    REQUIRE(std::filesystem::is_regular_file(powershell));
+    const auto ps_quote = [](std::string_view value) {
+        std::string quoted = "'";
+        for (const char character : value)
+            quoted += character == '\'' ? "''" : std::string(1, character);
+        return quoted + "'";
+    };
+#else
     const auto executable = bin / "draxul app";
     std::filesystem::create_symlink(DRAXUL_EXECUTABLE_PATH, executable);
     REQUIRE(std::system("env -i PATH=/usr/bin:/bin sh -c 'command -v draxul' >/dev/null 2>&1") != 0);
+#endif
 
     for (const auto provider :
         { AgentIntegrationProvider::Codex, AgentIntegrationProvider::Claude })
@@ -2603,6 +2633,74 @@ TEST_CASE("installed agent hooks report native sessions through the pane executa
         const std::string pane_id = kind == "claude"
             ? claude_pane_id
             : std::string(kServerShellPaneId);
+#ifdef _WIN32
+        const auto launcher = directory / "invoke-hook.ps1";
+        {
+            std::ofstream output(launcher, std::ios::binary);
+            output << "\xEF\xBB\xBF"
+                   << "$ErrorActionPreference = 'Stop'\n"
+                   << "$env:PATH = ''\n"
+                   << "if (Get-Command draxul -ErrorAction SilentlyContinue) { exit 91 }\n"
+                   << "$env:DRAXUL_ENV = '1'\n"
+                   << "$env:DRAXUL_PANE_ID = " << ps_quote(pane_id) << "\n"
+                   << "$env:DRAXUL_AGENT_INSTANCE_ID = " << ps_quote("managed-" + kind) << "\n"
+                   << "$env:DRAXUL_SESSION_ID = 'default'\n"
+                   << "$env:DRAXUL_SERVER_EPOCH = 'hook-route-epoch'\n"
+                   << "$env:DRAXUL_RUNTIME_GENERATION = '1'\n"
+                   << "$env:DRAXUL_SERVER_RUNTIME_DIR = " << ps_quote(path_to_utf8(temp.path)) << "\n"
+                   << "$env:DRAXUL_EXECUTABLE = " << ps_quote(path_to_utf8(executable)) << "\n";
+            for (const auto variable : { "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
+                     "CODEX_HOME", "CLAUDE_CONFIG_DIR" })
+            {
+                output << "$env:" << variable << " = " << ps_quote(path_to_utf8(directory)) << "\n";
+            }
+            output << "[Console]::SetIn([System.IO.StringReader]::new([System.IO.File]::ReadAllText("
+                   << ps_quote(path_to_utf8(payload)) << ")))\n"
+                   << "& " << ps_quote(path_to_utf8(paths.hook)) << " session\n";
+            REQUIRE(output.good());
+        }
+        struct HookProcess
+        {
+            HANDLE job = nullptr;
+            PROCESS_INFORMATION process{};
+
+            ~HookProcess()
+            {
+                if (job)
+                    CloseHandle(job);
+                if (process.hProcess)
+                {
+                    if (WaitForSingleObject(process.hProcess, 0) == WAIT_TIMEOUT)
+                        TerminateProcess(process.hProcess, 92);
+                    WaitForSingleObject(process.hProcess, 5000);
+                    CloseHandle(process.hProcess);
+                }
+                if (process.hThread)
+                    CloseHandle(process.hThread);
+            }
+        } child;
+        child.job = CreateJobObjectW(nullptr, nullptr);
+        REQUIRE(child.job != nullptr);
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        REQUIRE(SetInformationJobObject(child.job, JobObjectExtendedLimitInformation,
+            &limits, sizeof(limits)));
+        std::wstring command = L"\"" + powershell.wstring()
+            + L"\" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \""
+            + launcher.wstring() + L"\"";
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        REQUIRE(CreateProcessW(powershell.c_str(), command.data(), nullptr, nullptr,
+            FALSE, CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, directory.c_str(),
+            &startup, &child.process));
+        REQUIRE(AssignProcessToJobObject(child.job, child.process.hProcess));
+        REQUIRE(ResumeThread(child.process.hThread) != static_cast<DWORD>(-1));
+        REQUIRE(WaitForSingleObject(child.process.hProcess, 30000) == WAIT_OBJECT_0);
+        DWORD exit_code = 0;
+        REQUIRE(GetExitCodeProcess(child.process.hProcess, &exit_code));
+        INFO(kind);
+        CHECK(exit_code == 0);
+#else
         const std::string command
             = "env -i PATH=/usr/bin:/bin DRAXUL_ENV=1"
               " DRAXUL_PANE_ID="
@@ -2617,6 +2715,7 @@ TEST_CASE("installed agent hooks report native sessions through the pane executa
             + " sh " + shell_quote(paths.hook.string()) + " session < "
             + shell_quote(payload.string());
         REQUIRE(std::system(command.c_str()) == 0);
+#endif
     }
 
     TopologyClient reader({
@@ -2631,6 +2730,9 @@ TEST_CASE("installed agent hooks report native sessions through the pane executa
     {
         REQUIRE(pane.agent);
         INFO(pane.agent->kind);
+        CHECK(pane.agent->instance_id == "managed-" + pane.agent->kind);
+        CHECK(pane.pane_id == (pane.agent->kind == "claude"
+                ? claude_pane_id : std::string(kServerShellPaneId)));
         REQUIRE(pane.agent_session);
         CHECK(pane.agent_session->source == "draxul:" + pane.agent->kind);
         CHECK(pane.agent_session->value == "native-" + pane.agent->kind);

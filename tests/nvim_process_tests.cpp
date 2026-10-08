@@ -492,7 +492,7 @@ TEST_CASE("Windows nvim shutdown reaps an unresponsive child off the caller thre
 }
 #endif
 
-// kanban/pending/71 cancellable-nvim-output -bug.md: both platform transports
+// kanban/done/71 cancellable-nvim-output -bug.md: both platform transports
 // must release a writer blocked on a child that stopped reading (POSIX via
 // the non-blocking pipe and cancel self-pipe, Windows via CancelSynchronousIo)
 // while the child is still alive and holding its end of the pipe.

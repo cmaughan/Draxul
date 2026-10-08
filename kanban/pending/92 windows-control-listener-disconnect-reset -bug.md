@@ -7,7 +7,7 @@
 
 **Evidence and trigger:** Synchronous errors at line 499 fall through without disconnecting the retained first pipe at line 583. Early disconnect can leave repeated `ERROR_NO_DATA`.
 
-**Related:** `kanban/pending/66 windows-stream-accept-failure -bug.md` owns a separate stream-listener failure.
+**Related:** `kanban/done/66 windows-stream-accept-failure -bug.md` owns a separate stream-listener failure.
 
 - [ ] **Investigate:** Trace retained/additional listener states, synchronous errors, pending completion, and cancellation.
 - [ ] **Fix:** Disconnect/reset failed retained instances and apply useful error reporting and bounded retry pacing.

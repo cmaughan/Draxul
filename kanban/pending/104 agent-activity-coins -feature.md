@@ -52,7 +52,7 @@ pill and spin it according to that agent's activity.
 ## Follow-ups
 
 - [x] `do integrate` installs every agent integration (see
-      kanban/pending/69 agent-hook-executable-path -bug.md for the hook fix).
+      kanban/done/69 agent-hook-executable-path -bug.md for the hook fix).
 - [x] Session hooks also report for agents started by typing `claude`/`codex` in a
       shell pane: optional `--agent-instance`, server resolves the discovered agent
       by pane and kind, early reports held 30 s, stale/old-generation reports

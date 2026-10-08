@@ -2,7 +2,34 @@
 
 **Summary:** Find out why server-state checks and startup sometimes time out or observe old state, so a successful retry does not hide an unreliable test or real startup problem.
 
-**Priority:** P2
+**Priority:** P2 — Resolve recurring Windows startup and observer timing failures.
+
+## Windows gate sweep — 2026-10-08
+
+`py do.py validate debug` reproduced the default-profile smoke timeout (30.64s)
+before CTest began: the client reported a server control-request deadline and no
+running server. The preflight had confirmed no live server. No existing user
+server was stopped. The same executable passed `py do.py smoke debug --skip-build`
+with fresh `APPDATA`/`LOCALAPPDATA` at
+`D:/dev/Draxul/build-windows-smoke-profile`; this isolates a profile-dependent
+startup difference, not a proven fix or explanation.
+
+The aggregate also reproduced the existing remote initial-state failure at
+`remote_terminal_host_tests.cpp:1159` (observer 0x0, deadline exceeded). It ran
+73/79 entries successfully in 232.92s. Logs are retained under
+`build-ninja-debug/validation-logs/20261008-150658-521060/`.
+Keep this card pending; a successful isolated-profile run does not erase either
+failure. The newly exposed blocked-write cancellation failure is owned by
+`71 cancellable-nvim-output -bug.md`, not folded into this timing investigation.
+
+The final core + Rezonality aggregate still failed remote initial-state receipt
+(64/70 entries passed, 306.89 s). Its paired fresh-profile Debug smoke passed
+(35.273 s including environment setup), and fresh-profile Release smoke passed
+(33.867 s). A separate Release attempt failed before application startup because
+the machine ran out of resources while initializing MSVC; PowerShell also
+reported CoreCLR error `0x800705AA`. Recovery allowed startup without code changes.
+This environmental incident is not a diagnosis of the original default-profile
+timeout. Final logs are in `build-ninja-debug/windows-gates/`.
 **Source:** Windows validation of [62 shared-zlib-install-exports -bug.md](../done/62%20shared-zlib-install-exports%20-bug.md), 2026-10-01.
 
 - [x] Record failures and confirm that the same-cache reruns pass.

@@ -19,7 +19,7 @@
     After startup the main thread never issues `request()`; requests come from
     `UiRequestWorker`. Neovim's rpcrequests are answered on the reader thread,
     whose replies are now enqueue-only (see
-    `kanban/pending/71 cancellable-nvim-output -bug.md`), so pausing the reader
+    `kanban/done/71 cancellable-nvim-output -bug.md`), so pausing the reader
     cannot deadlock the writer.
 - [x] **Fix:** Preserve ordered delivery or introduce explicit invalidation and complete display recovery.
   - Chose ordered delivery: at capacity the reader thread waits on a condition

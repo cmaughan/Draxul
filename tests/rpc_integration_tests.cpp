@@ -321,7 +321,7 @@ constexpr size_t kOversizedPayloadBytes = 2 * 1024 * 1024;
 
 } // namespace
 
-// kanban/pending/71 cancellable-nvim-output -bug.md: an editor that stops
+// kanban/done/71 cancellable-nvim-output -bug.md: an editor that stops
 // reading must not freeze the interface. Before outbound ownership moved to a
 // writer thread, the first notify() below blocked the caller until the child
 // read again.
@@ -415,6 +415,9 @@ TEST_CASE("nvim rpc shutdown is bounded while output is blocked on a non-reading
 
     const auto shutdown_start = std::chrono::steady_clock::now();
     process.shutdown();
+    const auto process_shutdown_elapsed = std::chrono::steady_clock::now() - shutdown_start;
+    INFO("process shutdown returns without closing a pipe under a blocked reader");
+    CHECK(process_shutdown_elapsed < std::chrono::milliseconds(500));
     rpc.shutdown();
     const auto shutdown_elapsed = std::chrono::steady_clock::now() - shutdown_start;
     INFO("process and transport shutdown complete within the bounded reaping window");

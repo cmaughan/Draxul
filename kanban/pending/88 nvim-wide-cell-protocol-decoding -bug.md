@@ -1,7 +1,7 @@
 # Decode wide editor cells without shifting the line
 **Summary:** Preserve the editor’s cell positions so wide characters do not shift the rest of a line.
 
-**Priority:** P1  
+**Priority:** P1 — Preserve Neovim wide-cell layout and trustworthy render references.
 **Source:** `libs/draxul-nvim/src/ui_events.cpp`  
 **Reported by:** Claude H3; consensus F24.
 
@@ -20,3 +20,16 @@
 - [x] **Validation:** Correct fixtures that omit explicit followers; run core aggregate tests, Unicode rendering checks, and same-cache smoke.
   Added followers to the grapheme-width fixture and rewrote the repeat/wide overrun bounds fixture into protocol shape, keeping a malformed repeated-wide packet as a valid-state check. `draxul-render-unicode-view`, `basic-view`, and `cmdline-view` pass; `unicode-view.macos.bmp` re-blessed with the corrected spacing. Aggregate run: only failures that also fail on the unmodified baseline or pass on isolated rerun; smoke passed.
 - [ ] **Windows:** Re-bless `tests/render/reference/unicode-view.windows.bmp` (`py do.py blessunicode`) on Windows. It still encodes the shifted wide-glyph layout; it was not regenerated because Windows is unavailable in this session.
+
+## Windows inspection — 2026-10-08
+
+The real Unicode capture shows corrected contiguous two-cell Japanese glyphs,
+instead of the extra blank column after every wide glyph in the old reference.
+The comparison passed (0.822807% changed pixels, 2.1% tolerance), and the protocol
+suite passed in the full Debug aggregate. However, the same new capture shows
+missing family-emoji glyphs where the existing reference has a complete emoji;
+the font suite independently reproduces `63 joined-family-emoji-fallback -bug.md`.
+Do not bless that regression into the expected image. The baseline gate remains
+pending until the emoji fallback is corrected, then inspect and bless the whole
+frame. Actual/diff/report artifacts are under `tests/render/out/` and aggregate
+evidence under `build-ninja-debug/validation-logs/20261008-150658-521060/`.

@@ -300,22 +300,26 @@ void NvimProcess::shutdown()
         CloseHandle(stdin_h);
 
     HANDLE stdout_h = impl_->child_stdout_read_.exchange(INVALID_HANDLE_VALUE, std::memory_order_acq_rel);
-    if (stdout_h != INVALID_HANDLE_VALUE)
-        CloseHandle(stdout_h);
 
     if (process_handle)
     {
         // The UI-facing owner relinquishes the handle immediately. A
         // self-contained reaper owns the bounded wait, escalation, and close.
-        std::thread([process_handle] {
+        std::thread([process_handle, stdout_h] {
             const DWORD wait_result = WaitForSingleObject(process_handle, 2000);
             if (wait_result == WAIT_TIMEOUT)
             {
                 TerminateProcess(process_handle, 0);
                 WaitForSingleObject(process_handle, 2000);
             }
+            if (stdout_h != INVALID_HANDLE_VALUE)
+                CloseHandle(stdout_h);
             CloseHandle(process_handle);
         }).detach();
+    }
+    else if (stdout_h != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle(stdout_h);
     }
 }
 

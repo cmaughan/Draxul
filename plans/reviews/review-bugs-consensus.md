@@ -384,7 +384,7 @@ The following are complete proposed cards for the trusted parent process.
 - [ ] **Acceptance:** Over-limit names and layouts are rejected without changes; accepted boundary values save and restore successfully.
 - [ ] **Validation:** Run core aggregate tests and same-cache smoke.
 
-### kanban/pending/66 windows-stream-accept-failure -bug.md
+### kanban/done/66 windows-stream-accept-failure -bug.md
 
 # Avoid waiting for nonexistent connection operations
 
@@ -401,7 +401,7 @@ The following are complete proposed cards for the trusted parent process.
 - [ ] **Acceptance:** Immediate disconnect and injected synchronous errors return promptly; listener shutdown completes.
 - [ ] **Validation:** Run Windows control/server coverage, core aggregate tests, and same-cache smoke.
 
-### kanban/pending/69 agent-hook-executable-path -bug.md
+### kanban/done/69 agent-hook-executable-path -bug.md
 
 # Use the supplied executable location in agent hooks
 
@@ -435,7 +435,7 @@ The following are complete proposed cards for the trusted parent process.
 - [ ] **Acceptance:** Updating the first cell of `" 界"` to `"A"` preserves the wide glyph; overlapping writes still remove orphaned continuations.
 - [ ] **Validation:** Run core aggregate tests and same-cache smoke.
 
-### kanban/pending/71 cancellable-nvim-output -bug.md
+### kanban/done/71 cancellable-nvim-output -bug.md
 
 # Make editor writes bounded and cancellable
 
@@ -520,7 +520,7 @@ The following are complete proposed cards for the trusted parent process.
 - [ ] **Acceptance:** Absolute and relative non-English source paths open on Windows with a non-UTF-8 code page; ordinary paths remain valid.
 - [ ] **Validation:** Run core aggregate tests and same-cache smoke; verify the Windows path scenario.
 
-### kanban/pending/76 windows-deploy-plugin-packages -bug.md
+### kanban/done/76 windows-deploy-plugin-packages -bug.md
 
 # Include native plugin packages in Windows deployment
 

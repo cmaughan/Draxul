@@ -4,7 +4,24 @@
 instructions, provider/model choice, visible activity, bounded scheduled runs and
 single-executor ownership. The host is built in like Kanban; the server owns work.
 
-**Priority:** P2
+**Priority:** P2 — Complete and validate the persistent personal-assistant workflow.
+
+## Windows gate sweep — 2026-10-08
+
+- Unblocked MSVC compilation of `tests/personal_agent_tests.cpp`: explicitly
+  extract the JSON state as `std::string` before comparing with `string_view`.
+  The prior mixed comparison has ambiguous reversed overloads on MSVC.
+- The full Debug inventory built and ran; this card is not ready to close.
+  `personal schedule checks wake unopened agents and coalesce behind active turns`
+  raised a Windows `remove_all` exception at `personal_agent_tests.cpp:488`,
+  while `personal chart paths and decoding handle local reports and bad files`
+  failed the non-ASCII path comparison at `personal_assistant_host_tests.cpp:162`.
+  Neither failure was waived or repaired as part of the unrelated Windows gates.
+- Evidence: `build-ninja-debug/validation-logs/20261008-150658-521060/ctest-behavior.log`.
+  Overall inventory: 73/79 CTest entries passed in 232.92s; five core render
+  comparisons passed. A clean-profile same-cache Debug startup passed; the
+  default-profile timeout remains tracked by
+  `65 windows-validation-timing -test.md`.
 
 **Design:** [Personal Assistant initial implementation plan](../../plans/personal-assistant.md)  
 **Status:** Course correction implemented (2026-10-06): personal agents are persistent provider terminal conversations, opened from a sidebar pill. The prior definition editor and one-shot runner are superseded.

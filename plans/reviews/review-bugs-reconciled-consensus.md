@@ -419,15 +419,15 @@ These actual pending cards cover all 34 Codex findings. They are not reproduced 
 | B8 | `plugins/rezonality/kanban/pending/10 color-attachment-count-validation -bug.md` |
 | B9 | `kanban/pending/60 print-temporary-directory-failure -bug.md` |
 | B10 | `kanban/done/62 topology-durable-limits -bug.md` |
-| B11 | `kanban/pending/66 windows-stream-accept-failure -bug.md` |
-| B12 | `kanban/pending/69 agent-hook-executable-path -bug.md` |
+| B11 | `kanban/done/66 windows-stream-accept-failure -bug.md` |
+| B12 | `kanban/done/69 agent-hook-executable-path -bug.md` |
 | B13 | `kanban/done/70 narrow-cell-wide-neighbor -bug.md` |
-| B14 | `kanban/pending/71 cancellable-nvim-output -bug.md` |
+| B14 | `kanban/done/71 cancellable-nvim-output -bug.md` |
 | B15 / Claude M6 | `kanban/done/72 nvim-redraw-queue-recovery -bug.md` |
 | B16 | `kanban/done/73 terminal-cross-feed-clusters -bug.md` |
 | B17 | `kanban/pending/74 markdown-display-density -bug.md` |
 | B18 / related Claude C6 | `kanban/pending/75 windows-markdown-source-paths -bug.md` |
-| B19 | `kanban/pending/76 windows-deploy-plugin-packages -bug.md` |
+| B19 | `kanban/done/76 windows-deploy-plugin-packages -bug.md` |
 | B20 | `plugins/satview/kanban/pending/11 paused-controls-completion-ticks -bug.md` |
 | B21 | `plugins/megacity/kanban/pending/12 label-upload-staging-lifetime -bug.md` |
 | B22 | `plugins/scoreview/kanban/pending/08 device-failure-keyboard-fallback -bug.md` |
@@ -578,7 +578,7 @@ These are complete proposed contents for the trusted parent to create. No card f
 - [ ] **Acceptance:** A failed scan leaves usable state and reports an error without terminating the application.
 - [ ] **Validation:** Run core aggregate tests and same-cache smoke; verify Windows filename behavior and existing POSIX behavior.
 
-### kanban/pending/87 zoomed-pane-input-hit-testing -bug.md
+### kanban/done/87 zoomed-pane-input-hit-testing -bug.md
 
 # Route zoomed input to the visible pane
 **Summary:** Keep mouse input on the visible zoomed pane so typing cannot move to a hidden pane.
@@ -684,7 +684,7 @@ These are complete proposed contents for the trusted parent to create. No card f
 
 **Evidence and trigger:** Synchronous errors at line 499 fall through without disconnecting the retained first pipe at line 583. Early disconnect can leave repeated `ERROR_NO_DATA`.
 
-**Related:** `kanban/pending/66 windows-stream-accept-failure -bug.md` owns a separate stream-listener failure.
+**Related:** `kanban/done/66 windows-stream-accept-failure -bug.md` owns a separate stream-listener failure.
 
 - [ ] **Investigate:** Trace retained/additional listener states, synchronous errors, pending completion, and cancellation.
 - [ ] **Fix:** Disconnect/reset failed retained instances and apply useful error reporting and bounded retry pacing.

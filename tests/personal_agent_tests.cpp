@@ -316,7 +316,7 @@ TEST_CASE("personal native chat owns structured turns across clients and server 
             for(int i=0;i<200;++i)
             {
                 result=request("personal.chat.snapshot",{{"agent_id","news"}});
-                if(result.ok && result.result["state"]==desired) return result;
+                if(result.ok && result.result["state"].get<std::string>()==desired) return result;
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
             }
             INFO(result.result.dump()); REQUIRE(false); return result;
