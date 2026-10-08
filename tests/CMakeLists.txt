@@ -471,6 +471,7 @@ target_compile_definitions(draxul-test-server PRIVATE
 draxul_add_test_target(draxul-test-server-integration "server-integration;integration" 2 ${DRAXUL_SERVER_INTEGRATION_TEST_SOURCES})
 target_link_libraries(draxul-test-server-integration PRIVATE
     draxul-server-test-internals
+    draxul-agent-integration
     draxul-client)
 
 draxul_add_test_target(draxul-test-client "client;integration" 2 ${DRAXUL_CLIENT_TEST_SOURCES})

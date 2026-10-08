@@ -4,6 +4,7 @@
 #include "support/scoped_env_var.h"
 #include "support/server_kernel_test_support.h"
 
+#include <draxul/agent_integration.h>
 #include <draxul/topology_layout.h>
 #include <draxul/topology_projection.h>
 
@@ -2497,3 +2498,143 @@ TEST_CASE("remote observer receives a burst of large resize events in bounded fr
 
     run_guard.join();
 }
+
+#if defined(DRAXUL_EXECUTABLE_PATH) && !defined(_WIN32)
+TEST_CASE("installed agent hooks report native sessions through the pane executable off PATH",
+    "[server][agent-integration][cli][process]")
+{
+    if (std::system("command -v python3 >/dev/null 2>&1") != 0)
+        SKIP("python3 is required by the POSIX hooks");
+    TempDir temp("draxul-hook-executable-route");
+    const auto checkpoint = server_session_state_path(temp.path);
+    std::string error;
+    std::string claude_pane_id;
+    {
+        ServerKernel seed({
+            .runtime_directory = temp.path,
+            .epoch_override = "hook-route-seed",
+        });
+        REQUIRE(seed.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard seed_guard(seed);
+        TopologyClient client({
+            .runtime_directory = temp.path,
+            .client_id = "hook-route-seed",
+        });
+        REQUIRE(client.refresh(error));
+        const std::string space_id
+            = client.snapshot().spaces.front().space_id;
+        const std::string tab_id
+            = client.snapshot().spaces.front().tabs.front().tab_id;
+        TopologyCommand split{
+            .command_id = "hook-route-split",
+            .expected_revision = client.snapshot().revision,
+            .kind = TopologyCommandKind::SplitPane,
+            .space_id = space_id,
+            .tab_id = tab_id,
+            .pane_id = std::string(kServerShellPaneId),
+            .name = "Claude",
+            .pane_domain = TopologyPaneDomain::ServerTerminal,
+        };
+        TopologyCommandResult split_result;
+        REQUIRE(client.execute(split, split_result, error));
+        claude_pane_id = split_result.created_id;
+        seed_guard.join();
+    }
+
+    // Give both server panes a managed agent so each integration has a
+    // matching route; ShellOnly restores the shell without the agent.
+    auto saved = load_session_state_from_path(checkpoint, &error);
+    INFO(error);
+    REQUIRE(saved);
+    auto& saved_panes
+        = saved->spaces.front().tabs.front().pane_layout.panes;
+    REQUIRE(saved_panes.size() == 2);
+    for (auto& pane : saved_panes)
+    {
+        const std::string kind
+            = pane.pane_id == claude_pane_id ? "claude" : "codex";
+        pane.agent = AgentIdentity{
+            .profile_id = kind,
+            .kind = kind,
+            .display_name = kind,
+            .instance_id = "managed-" + kind,
+        };
+        pane.restore_policy = AgentRestorePolicy::ShellOnly;
+    }
+    REQUIRE(save_session_state_to_path(*saved, checkpoint, &error));
+
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "hook-route-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    // The pane executable lives at a path with spaces and non-English
+    // characters, and the hook runs with a PATH that cannot find draxul.
+    const auto bin = temp.path / std::filesystem::path(u8"Dräxul bïn");
+    std::filesystem::create_directories(bin);
+    const auto executable = bin / "draxul app";
+    std::filesystem::create_symlink(DRAXUL_EXECUTABLE_PATH, executable);
+    REQUIRE(std::system("env -i PATH=/usr/bin:/bin sh -c 'command -v draxul' >/dev/null 2>&1") != 0);
+
+    for (const auto provider :
+        { AgentIntegrationProvider::Codex, AgentIntegrationProvider::Claude })
+    {
+        const std::string kind(agent_integration_provider_name(provider));
+        const auto directory = temp.path / kind;
+        std::filesystem::create_directories(directory);
+        const auto paths = agent_integration_paths(provider, directory);
+        const auto installed = apply_agent_integration({
+            .provider = provider,
+            .action = AgentIntegrationAction::Install,
+            .paths = paths,
+        });
+        INFO(installed.error);
+        REQUIRE(installed.success);
+        const auto payload = directory / "payload.json";
+        {
+            std::ofstream output(payload, std::ios::binary);
+            output << R"({"hook_event_name":"SessionStart","session_id":"native-)"
+                   << kind << R"("})";
+        }
+        const std::string pane_id = kind == "claude"
+            ? claude_pane_id
+            : std::string(kServerShellPaneId);
+        const std::string command
+            = "env -i PATH=/usr/bin:/bin DRAXUL_ENV=1"
+              " DRAXUL_PANE_ID="
+            + shell_quote(pane_id)
+            + " DRAXUL_AGENT_INSTANCE_ID=" + shell_quote("managed-" + kind)
+            + " DRAXUL_SESSION_ID=default"
+              " DRAXUL_SERVER_EPOCH=hook-route-epoch"
+              " DRAXUL_RUNTIME_GENERATION=1"
+              " DRAXUL_SERVER_RUNTIME_DIR="
+            + shell_quote(temp.path.string())
+            + " DRAXUL_EXECUTABLE=" + shell_quote(executable.string())
+            + " sh " + shell_quote(paths.hook.string()) + " session < "
+            + shell_quote(payload.string());
+        REQUIRE(std::system(command.c_str()) == 0);
+    }
+
+    TopologyClient reader({
+        .runtime_directory = temp.path,
+        .client_id = "hook-route-reader",
+    });
+    REQUIRE(reader.refresh(error));
+    const auto& panes
+        = reader.snapshot().spaces.front().tabs.front().panes;
+    REQUIRE(panes.size() == 2);
+    for (const auto& pane : panes)
+    {
+        REQUIRE(pane.agent);
+        INFO(pane.agent->kind);
+        REQUIRE(pane.agent_session);
+        CHECK(pane.agent_session->source == "draxul:" + pane.agent->kind);
+        CHECK(pane.agent_session->value == "native-" + pane.agent->kind);
+    }
+    run_guard.join();
+}
+#endif
