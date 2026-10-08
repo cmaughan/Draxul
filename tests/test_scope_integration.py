@@ -26,7 +26,10 @@ class TestScopeIntegration(unittest.TestCase):
                                check=True, capture_output=True, text=True)
             def selected(products=set(), all_tests=False, label=None):
                 _, filters, _ = do._test_scope_selection(products, all_tests, label)
+                # Like do.py, name a configuration: CTest lists no tests from a
+                # multi-config tree (the default Visual Studio generator) without one.
                 result = subprocess.run(['ctest', '--test-dir', str(build),
+                                         '--build-config', 'Debug',
                                          *filters, '--show-only=json-v1'],
                                         check=True, capture_output=True, text=True)
                 return {test['name'] for test in json.loads(result.stdout)['tests']}
