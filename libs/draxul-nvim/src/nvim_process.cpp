@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <cwchar>
@@ -12,6 +14,7 @@
 #include <limits>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -23,6 +26,7 @@
 #include <chrono>
 #include <cstring>
 #include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -48,9 +52,46 @@ struct NvimProcess::Impl
     std::atomic<int> child_stdin_write_{ -1 };
     std::atomic<int> child_stdout_read_{ -1 };
     std::atomic<pid_t> child_pid_{ -1 };
+    // Self-pipe that wakes a writer polling the non-blocking stdin pipe.
+    // Created by spawn() and closed only by the destructor, after every
+    // writer has left write().
+    int cancel_read_ = -1;
+    int cancel_write_ = -1;
 #endif
     std::atomic<bool> started_{ false };
+
+    // Write cancellation. writer_mutex_ guards the in-progress writer
+    // bookkeeping so cancel_writes() can wait (bounded) for writers to leave
+    // the pipe before shutdown closes it. On Windows the registered thread ids
+    // are the targets of CancelSynchronousIo; holding the mutex while
+    // cancelling keeps each target inside write() and therefore alive.
+    std::atomic<bool> write_cancelled_{ false };
+    mutable std::mutex writer_mutex_;
+    mutable std::condition_variable writers_idle_cv_;
+#ifdef _WIN32
+    std::vector<DWORD> writer_threads_;
+#else
+    int active_writers_ = 0;
+#endif
+
+    ~Impl()
+    {
+#ifndef _WIN32
+        if (cancel_read_ >= 0)
+            close(cancel_read_);
+        if (cancel_write_ >= 0)
+            close(cancel_write_);
+#endif
+    }
 };
+
+namespace
+{
+// Bounded wait for blocked writers to observe cancellation. Cancellation
+// wakes them immediately; the bound only guards against a platform that
+// fails to interrupt the write so shutdown can never hang on the child.
+constexpr auto kWriterCancelWait = std::chrono::milliseconds(500);
+} // namespace
 
 NvimProcess::NvimProcess()
     : impl_(std::make_unique<Impl>())
@@ -225,6 +266,7 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
     // Keeping only the process handle makes the ownership contract explicit.
     CloseHandle(proc_info.hThread);
 
+    impl_->write_cancelled_.store(false, std::memory_order_release);
     {
         std::lock_guard<std::mutex> lock(impl_->process_mutex_);
         impl_->child_stdin_write_.store(stdin_write, std::memory_order_relaxed);
@@ -240,6 +282,10 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
 void NvimProcess::shutdown()
 {
     PERF_MEASURE();
+
+    // A writer blocked on a child that stopped reading must leave WriteFile
+    // before the handle is closed underneath it.
+    cancel_writes();
 
     HANDLE process_handle = nullptr;
     {
@@ -278,6 +324,31 @@ bool NvimProcess::write(const uint8_t* data, size_t len) const
     HANDLE h = impl_->child_stdin_write_.load(std::memory_order_acquire);
     if (h == INVALID_HANDLE_VALUE)
         return false;
+
+    // Register this thread as a CancelSynchronousIo target for the duration
+    // of the write. Anonymous pipes do not support overlapped I/O, so a
+    // synchronous WriteFile blocked on a full pipe is cancelled per thread.
+    const DWORD thread_id = GetCurrentThreadId();
+    {
+        std::lock_guard<std::mutex> lock(impl_->writer_mutex_);
+        if (impl_->write_cancelled_.load(std::memory_order_acquire))
+            return false;
+        impl_->writer_threads_.push_back(thread_id);
+    }
+    struct WriterRegistration
+    {
+        Impl& impl;
+        DWORD id;
+        ~WriterRegistration()
+        {
+            std::lock_guard<std::mutex> lock(impl.writer_mutex_);
+            auto it = std::find(impl.writer_threads_.begin(), impl.writer_threads_.end(), id);
+            if (it != impl.writer_threads_.end())
+                impl.writer_threads_.erase(it);
+            impl.writers_idle_cv_.notify_all();
+        }
+    } registration{ *impl_, thread_id };
+
     // WriteFile on an anonymous/named pipe is allowed to perform a partial
     // write: it may return TRUE with `written` < `to_write` when the pipe's
     // kernel buffer is nearly full (e.g. large msgpack-RPC payloads such as
@@ -291,9 +362,13 @@ bool NvimProcess::write(const uint8_t* data, size_t len) const
     //  * WriteFile returns TRUE with written == 0 -> should not happen on a
     //    blocking handle, but we treat it as a hard error to avoid spinning
     //    forever if the kernel ever violates that contract.
+    //  * cancel_writes() -> WriteFile fails with ERROR_OPERATION_ABORTED, or
+    //    the flag is observed before the next chunk.
     size_t total_written = 0;
     while (total_written < len)
     {
+        if (impl_->write_cancelled_.load(std::memory_order_acquire))
+            return false;
         DWORD written = 0;
         DWORD to_write = static_cast<DWORD>(
             std::min<size_t>(len - total_written, MAXDWORD));
@@ -304,6 +379,37 @@ bool NvimProcess::write(const uint8_t* data, size_t len) const
         total_written += written;
     }
     return true;
+}
+
+void NvimProcess::cancel_writes() const
+{
+    impl_->write_cancelled_.store(true, std::memory_order_release);
+    // A writer may register and pass its flag check just before entering
+    // WriteFile, where a single CancelSynchronousIo would find no I/O to
+    // cancel. Repeat until every registered writer has left, within a bound.
+    const auto deadline = std::chrono::steady_clock::now() + kWriterCancelWait;
+    std::unique_lock<std::mutex> lock(impl_->writer_mutex_);
+    while (!impl_->writer_threads_.empty())
+    {
+        for (DWORD id : impl_->writer_threads_)
+        {
+            // The writer cannot deregister (and so cannot exit) while this
+            // mutex is held, so the id still names the writing thread.
+            if (HANDLE thread = OpenThread(THREAD_TERMINATE, FALSE, id))
+            {
+                CancelSynchronousIo(thread);
+                CloseHandle(thread);
+            }
+        }
+        if (std::chrono::steady_clock::now() >= deadline)
+        {
+            DRAXUL_LOG_WARN(LogCategory::Nvim,
+                "Timed out waiting for %zu nvim pipe writer(s) to cancel",
+                impl_->writer_threads_.size());
+            return;
+        }
+        impl_->writers_idle_cv_.wait_for(lock, std::chrono::milliseconds(1));
+    }
 }
 
 int NvimProcess::read(uint8_t* buffer, size_t max_len) const
@@ -569,6 +675,17 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
     close(stdout_pipe[1]);
     close(exec_status_pipe[1]);
 
+    // The parent's stdin end is non-blocking so write() can wait in poll()
+    // alongside the cancellation self-pipe instead of blocking in the kernel
+    // on a child that stopped reading. O_NONBLOCK is an open-file-description
+    // flag; the child's read end is a separate description and is unaffected.
+    if (const int flags = fcntl(stdin_pipe[1], F_GETFL); flags < 0
+        || fcntl(stdin_pipe[1], F_SETFL, flags | O_NONBLOCK) != 0)
+    {
+        const int e = errno;
+        DRAXUL_LOG_WARN(LogCategory::Nvim, "Failed to make nvim stdin non-blocking: %s", strerror(e));
+    }
+
     int exec_errno = 0;
     ssize_t status_bytes = ::read(exec_status_pipe[0], &exec_errno, sizeof(exec_errno));
     close(exec_status_pipe[0]);
@@ -582,6 +699,39 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
         return Result<void, Error>::err(Error::spawn(
             std::string("execvp(") + nvim_path + ") failed: " + strerror(exec_errno)));
     }
+
+    // Re-arm write cancellation. The self-pipe outlives each child so a
+    // writer never polls a descriptor that shutdown may have recycled.
+    if (impl_->cancel_read_ < 0)
+    {
+        std::array<int, 2> cancel_pipe{ -1, -1 };
+        if (pipe(cancel_pipe.data()) == 0)
+        {
+            for (int fd : cancel_pipe)
+            {
+                fcntl(fd, F_SETFD, FD_CLOEXEC);
+                if (const int flags = fcntl(fd, F_GETFL); flags >= 0)
+                    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+            }
+            impl_->cancel_read_ = cancel_pipe[0];
+            impl_->cancel_write_ = cancel_pipe[1];
+        }
+        else
+        {
+            const int e = errno;
+            DRAXUL_LOG_WARN(LogCategory::Nvim,
+                "Failed to create nvim write-cancel pipe (%s); writes poll for cancellation",
+                strerror(e));
+        }
+    }
+    else
+    {
+        std::array<char, 16> drain{};
+        while (::read(impl_->cancel_read_, drain.data(), drain.size()) > 0)
+        {
+        }
+    }
+    impl_->write_cancelled_.store(false, std::memory_order_release);
 
     impl_->child_stdin_write_.store(stdin_pipe[1], std::memory_order_relaxed);
     impl_->child_stdout_read_.store(stdout_pipe[0], std::memory_order_relaxed);
@@ -597,6 +747,11 @@ void NvimProcess::shutdown()
     PERF_MEASURE();
     if (!impl_->started_.load(std::memory_order_acquire))
         return;
+
+    // Wake any writer waiting on a child that stopped reading and wait
+    // (bounded) for it to leave write(), so the stdin descriptor is not
+    // closed, and possibly reused, underneath it.
+    cancel_writes();
 
     // Atomically swap each fd to -1 so racing reader/writer threads see
     // the sentinel and fail their syscall cleanly instead of using a
@@ -645,17 +800,60 @@ bool NvimProcess::write(const uint8_t* data, size_t len) const
     int fd = impl_->child_stdin_write_.load(std::memory_order_acquire);
     if (fd < 0)
         return false;
+
+    {
+        std::lock_guard<std::mutex> lock(impl_->writer_mutex_);
+        if (impl_->write_cancelled_.load(std::memory_order_acquire))
+            return false;
+        ++impl_->active_writers_;
+    }
+    struct WriterRegistration
+    {
+        Impl& impl;
+        ~WriterRegistration()
+        {
+            std::lock_guard<std::mutex> lock(impl.writer_mutex_);
+            --impl.active_writers_;
+            impl.writers_idle_cv_.notify_all();
+        }
+    } registration{ *impl_ };
+
     ScopedPipeSignalBlock signal_block;
     if (!signal_block.active())
         return false;
+    const int cancel_fd = impl_->cancel_read_;
     size_t total_written = 0;
     while (total_written < len)
     {
+        if (impl_->write_cancelled_.load(std::memory_order_acquire))
+            return false;
         ssize_t n = ::write(fd, data + total_written, len - total_written);
         if (n < 0)
         {
             if (errno == EINTR)
                 continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                // The child is not reading. Wait for pipe space or for
+                // cancel_writes(); without the self-pipe, poll in short
+                // slices so the cancellation flag is still observed.
+                std::array<pollfd, 2> fds{};
+                fds[0].fd = fd;
+                fds[0].events = POLLOUT;
+                fds[1].fd = cancel_fd;
+                fds[1].events = POLLIN;
+                const nfds_t count = cancel_fd >= 0 ? 2 : 1;
+                const int ready = poll(fds.data(), count, cancel_fd >= 0 ? -1 : 50);
+                if (ready < 0 && errno != EINTR)
+                    return false;
+                if (count == 2 && fds[1].revents != 0)
+                    return false;
+                if ((fds[0].revents & POLLNVAL) != 0)
+                    return false;
+                // POLLOUT, POLLHUP, or POLLERR: retry; a closed reader
+                // surfaces as EPIPE from the next write.
+                continue;
+            }
             if (errno == EPIPE)
                 signal_block.consume_write_failure();
             return false;
@@ -665,6 +863,31 @@ bool NvimProcess::write(const uint8_t* data, size_t len) const
         total_written += (size_t)n;
     }
     return true;
+}
+
+void NvimProcess::cancel_writes() const
+{
+    {
+        std::lock_guard<std::mutex> lock(impl_->writer_mutex_);
+        impl_->write_cancelled_.store(true, std::memory_order_release);
+    }
+    if (impl_->cancel_write_ >= 0)
+    {
+        // Level-triggered and never drained until the next spawn(): one byte
+        // wakes every current and future poll. A full pipe already wakes.
+        const char byte = 1;
+        ssize_t n;
+        do
+        {
+            n = ::write(impl_->cancel_write_, &byte, 1);
+        } while (n < 0 && errno == EINTR);
+    }
+    std::unique_lock<std::mutex> lock(impl_->writer_mutex_);
+    if (!impl_->writers_idle_cv_.wait_for(lock, kWriterCancelWait, [&] { return impl_->active_writers_ == 0; }))
+    {
+        DRAXUL_LOG_WARN(LogCategory::Nvim,
+            "Timed out waiting for %d nvim pipe writer(s) to cancel", impl_->active_writers_);
+    }
 }
 
 int NvimProcess::read(uint8_t* buffer, size_t max_len) const

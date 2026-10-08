@@ -1,8 +1,10 @@
 #include <draxul/mpack_codec.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <chrono>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -15,6 +17,7 @@
 #include <windows.h>
 #else
 #include <signal.h>
+#include <unistd.h>
 #endif
 
 using namespace draxul;
@@ -150,6 +153,56 @@ bool send_response(uint32_t msgid, const MpackValue& error, const MpackValue& re
     return write_all(encoded);
 }
 
+int read_stdin_chunk(uint8_t* buffer, size_t size)
+{
+#ifdef _WIN32
+    return _read(0, buffer, static_cast<unsigned>(size));
+#else
+    return static_cast<int>(::read(0, buffer, size));
+#endif
+}
+
+// Echo every client notification as ["echo", [sequence, payload_bytes]] in
+// arrival order until stdin closes. sequence is params[0]; payload_bytes is
+// the length of a string params[1], or zero.
+int echo_notifications_until_eof()
+{
+    std::vector<uint8_t> pending;
+    std::vector<uint8_t> chunk(64 * 1024);
+    while (true)
+    {
+        const int n = read_stdin_chunk(chunk.data(), chunk.size());
+        if (n <= 0)
+            return 0;
+        pending.insert(pending.end(), chunk.begin(), chunk.begin() + n);
+        size_t offset = 0;
+        while (offset < pending.size())
+        {
+            MpackValue message;
+            size_t consumed = 0;
+            const std::span<const uint8_t> remaining(pending.data() + offset, pending.size() - offset);
+            if (!decode_mpack_value(remaining, message, &consumed) || consumed == 0)
+                break;
+            offset += consumed;
+            if (message.type() != MpackValue::Array || message.as_array().size() < 3
+                || message.as_array()[0].as_int() != 2)
+                continue;
+            const auto& params = message.as_array()[2];
+            int64_t sequence = -1;
+            int64_t payload_bytes = 0;
+            if (params.type() == MpackValue::Array && !params.as_array().empty())
+            {
+                sequence = params.as_array()[0].as_int();
+                if (params.as_array().size() > 1 && params.as_array()[1].type() == MpackValue::String)
+                    payload_bytes = static_cast<int64_t>(params.as_array()[1].as_str().size());
+            }
+            if (!send_notification("echo", { MpackValue::make_int(sequence), MpackValue::make_int(payload_bytes) }))
+                return 11;
+        }
+        pending.erase(pending.begin(), pending.begin() + static_cast<std::ptrdiff_t>(offset));
+    }
+}
+
 bool send_response_with_raw_msgid(const MpackValue& raw_msgid, const MpackValue& error, const MpackValue& result)
 {
     std::vector<char> encoded;
@@ -207,6 +260,18 @@ int main()
         write_marker_file(std::getenv("DRAXUL_RPC_FAKE_READY_FILE"), "ready");
         wait_for_release_file();
         return 0;
+    }
+
+    if (current_mode == "stall_then_echo")
+    {
+        // A child that stops reading its input: the client's writes fill the
+        // pipe. After release, consume everything and echo it back in order.
+        write_marker_file(std::getenv("DRAXUL_RPC_FAKE_READY_FILE"), "ready");
+        const char* release = std::getenv("DRAXUL_RPC_FAKE_RELEASE_FILE");
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        while (!marker_file_exists(release) && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return echo_notifications_until_eof();
     }
 
     if (current_mode == "dump_term_and_exit")

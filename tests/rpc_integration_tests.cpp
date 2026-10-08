@@ -240,7 +240,7 @@ TEST_CASE("nvim rpc logs a warning when the transport aborts before a response a
     REQUIRE(has_log_message(capture.records, LogLevel::Warn, LogCategory::Rpc, "Request timed out or aborted: fake_method"));
 }
 
-TEST_CASE("nvim rpc notify write failure does not signal notification availability", "[rpc]")
+TEST_CASE("nvim rpc notify write failure fails the transport with a single wake", "[rpc]")
 {
     ScopedEnvVar env("DRAXUL_RPC_FAKE_MODE", "close_stdin_until_release");
     TempDir temp("draxul-rpc-notify-write-failure");
@@ -270,12 +270,23 @@ TEST_CASE("nvim rpc notify write failure does not signal notification availabili
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     REQUIRE(std::filesystem::exists(ready_file));
 
+    // Output is written by the transport's writer thread, so the failure is
+    // observed asynchronously. It must wake the owner once (the caller may be
+    // idle in its event wait), but further rejected messages must not each
+    // produce a spurious wake.
     rpc.notify("fake_notification", { MpackValue::make_int(7) });
+    const auto failure_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while ((!rpc.connection_failed() || notification_callbacks.load() == 0)
+        && std::chrono::steady_clock::now() < failure_deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    rpc.notify("fake_notification", { MpackValue::make_int(8) });
+    rpc.notify("fake_notification", { MpackValue::make_int(9) });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
     INFO("write failure is tracked as a connection failure");
     REQUIRE(rpc.connection_failed());
-    INFO("no notification was queued, so the notification callback must not fire");
-    REQUIRE(notification_callbacks.load() == 0);
+    INFO("the write failure wakes the owner exactly once");
+    REQUIRE(notification_callbacks.load() == 1);
     INFO("draining notifications after write failure is empty");
     REQUIRE(rpc.drain_notifications().empty());
 
@@ -286,4 +297,126 @@ TEST_CASE("nvim rpc notify write failure does not signal notification availabili
 
     rpc.shutdown();
     process.shutdown();
+}
+
+namespace
+{
+
+bool wait_for_file(const std::filesystem::path& path, std::chrono::milliseconds timeout)
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!std::filesystem::exists(path) && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    return std::filesystem::exists(path);
+}
+
+void touch_file(const std::filesystem::path& path)
+{
+    std::ofstream out(path, std::ios::binary);
+    out << "release";
+}
+
+// Several times any platform pipe buffer (macOS 64 KiB, Windows 4 KiB).
+constexpr size_t kOversizedPayloadBytes = 2 * 1024 * 1024;
+
+} // namespace
+
+// kanban/pending/71 cancellable-nvim-output -bug.md: an editor that stops
+// reading must not freeze the interface. Before outbound ownership moved to a
+// writer thread, the first notify() below blocked the caller until the child
+// read again.
+TEST_CASE("nvim rpc output to a non-reading child keeps callers responsive and preserves order", "[rpc]")
+{
+    TempDir temp("draxul-rpc-stalled-output");
+    const auto ready_file = temp.path / "ready.txt";
+    const auto release_file = temp.path / "release.txt";
+    const std::string ready_string = ready_file.string();
+    const std::string release_string = release_file.string();
+    ScopedEnvVar env("DRAXUL_RPC_FAKE_MODE", "stall_then_echo");
+    ScopedEnvVar ready_env("DRAXUL_RPC_FAKE_READY_FILE", ready_string.c_str());
+    ScopedEnvVar release_env("DRAXUL_RPC_FAKE_RELEASE_FILE", release_string.c_str());
+
+    NvimProcess process;
+    REQUIRE(process.spawn(helper_path()));
+    NvimRpc rpc;
+    REQUIRE(rpc.initialize(process));
+    REQUIRE(wait_for_file(ready_file, std::chrono::seconds(5)));
+
+    constexpr int kMessages = 100;
+    const auto start = std::chrono::steady_clock::now();
+    rpc.notify("seq", { MpackValue::make_int(0), MpackValue::make_str(std::string(kOversizedPayloadBytes, 'p')) });
+    for (int i = 1; i < kMessages; ++i)
+        rpc.notify("seq", { MpackValue::make_int(i) });
+    const auto enqueue_elapsed = std::chrono::steady_clock::now() - start;
+
+    INFO("oversized output to a stalled child returns without waiting for the child");
+    CHECK(enqueue_elapsed < std::chrono::seconds(1));
+    CHECK_FALSE(rpc.connection_failed());
+
+    touch_file(release_file);
+
+    std::vector<RpcNotification> echoes;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (static_cast<int>(echoes.size()) < kMessages && std::chrono::steady_clock::now() < deadline)
+    {
+        auto batch = rpc.drain_notifications();
+        echoes.insert(echoes.end(), std::make_move_iterator(batch.begin()), std::make_move_iterator(batch.end()));
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    rpc.close();
+    process.shutdown();
+    rpc.shutdown();
+
+    REQUIRE(static_cast<int>(echoes.size()) == kMessages);
+    bool ordered = true;
+    for (int i = 0; i < kMessages; ++i)
+    {
+        const auto& echo = echoes[static_cast<size_t>(i)];
+        ordered = ordered && echo.method == "echo" && echo.params.size() == 2 && echo.params[0].as_int() == i;
+    }
+    INFO("every message reaches the child once, in submission order");
+    CHECK(ordered);
+    INFO("the oversized payload arrives intact");
+    CHECK(echoes[0].params[1].as_int() == static_cast<int64_t>(kOversizedPayloadBytes));
+}
+
+TEST_CASE("nvim rpc shutdown is bounded while output is blocked on a non-reading child", "[rpc][shutdown]")
+{
+    TempDir temp("draxul-rpc-stalled-shutdown");
+    const auto ready_file = temp.path / "ready.txt";
+    const auto release_file = temp.path / "never-released.txt";
+    const std::string ready_string = ready_file.string();
+    const std::string release_string = release_file.string();
+    ScopedEnvVar env("DRAXUL_RPC_FAKE_MODE", "stall_then_echo");
+    ScopedEnvVar ready_env("DRAXUL_RPC_FAKE_READY_FILE", ready_string.c_str());
+    ScopedEnvVar release_env("DRAXUL_RPC_FAKE_RELEASE_FILE", release_string.c_str());
+
+    NvimProcess process;
+    REQUIRE(process.spawn(helper_path()));
+    NvimRpc rpc;
+    REQUIRE(rpc.initialize(process));
+    REQUIRE(wait_for_file(ready_file, std::chrono::seconds(5)));
+
+    rpc.notify("seq", { MpackValue::make_int(0), MpackValue::make_str(std::string(kOversizedPayloadBytes, 'p')) });
+    // Mirror NvimHost::shutdown(): a final quit command queued behind the
+    // blocked payload.
+    rpc.notify("nvim_input", { MpackValue::make_str("<C-\\><C-n>:qa!<CR>") });
+    // Let the writer fill the pipe and block on the stalled child.
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    const auto close_start = std::chrono::steady_clock::now();
+    rpc.close();
+    const auto close_elapsed = std::chrono::steady_clock::now() - close_start;
+    INFO("close() cancels the blocked write instead of waiting for the child");
+    CHECK(close_elapsed < std::chrono::milliseconds(750));
+    INFO("a requested close is not reported as a connection failure");
+    CHECK_FALSE(rpc.connection_failed());
+
+    const auto shutdown_start = std::chrono::steady_clock::now();
+    process.shutdown();
+    rpc.shutdown();
+    const auto shutdown_elapsed = std::chrono::steady_clock::now() - shutdown_start;
+    INFO("process and transport shutdown complete within the bounded reaping window");
+    CHECK(shutdown_elapsed < std::chrono::seconds(4));
 }
