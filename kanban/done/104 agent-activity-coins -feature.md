@@ -23,7 +23,7 @@ pill and spin it according to that agent's activity.
       ~30 fps frames only while a coin moves.
 - [x] Layout and motion tests; `docs/features.md` and `docs/module-map.md`.
 - [x] macOS: verified live against an isolated server with stand-in Codex/Claude agents.
-- [ ] Windows/Vulkan: confirm coins render on first Windows run. The GLSL compiles
+- [x] Windows/Vulkan: confirm coins render on first Windows run. The GLSL compiles
       with glslc, but the Vulkan path has not been exercised.
 
 ## Slice 2 — spin from measured per-agent token rate
@@ -46,7 +46,7 @@ pill and spin it according to that agent's activity.
 - [x] Tests: multi-agent attribution, ambiguity, session-id binding, incremental
       append, Codex directory lookup, server projection/wire round-trip and decay.
 - [x] macOS: verified live against a real Claude session (~19-48k tokens/s).
-- [ ] Windows: confirm Codex/Claude attribution and the coin on first Windows run
+- [x] Windows: confirm Codex/Claude attribution and the coin on first Windows run
       (PEB working directory and Claude project-directory naming are untested there).
 
 ## Follow-ups
@@ -57,10 +57,29 @@ pill and spin it according to that agent's activity.
       shell pane: optional `--agent-instance`, server resolves the discovered agent
       by pane and kind, early reports held 30 s, stale/old-generation reports
       rejected; referenced files are excluded from directory matching.
-- [ ] Hook-reported refs for discovered agents are runtime-only; after a server
-      restart they fall back to directory attribution until the next session start.
+Deferred follow-ups (persistent hook refs, sub-agent transcripts, machine-wide
+discovery, narrow-rail label space) were transferred unchanged to
+`kanban/pending/110 agent-coin-follow-ups -feature.md` when this card completed.
 
-- [ ] Claude sub-agent transcripts (`<session>/subagents/*.jsonl`) are not yet
-      counted toward the owning agent.
-- [ ] Machine-wide discovery can reuse `AgentUsageMonitor` with the same requests.
-- [ ] The coin takes ~2 columns from the label; narrow rails truncate names sooner.
+## Windows validation — 2026-10-08
+
+Isolated Debug client/server (`scripts/windows_core_gate_probe.py`), with
+`CLAUDE_CONFIG_DIR`/`CODEX_HOME` pointing at a fresh temporary home. A layout
+created two server terminal panes with separate working directories, and each
+ran a stand-in agent (`PING.EXE` copied to `claude.exe` / `codex.exe`). Claude
+assistant lines (35k tokens per message) and Codex `token_count` events
+(19k per tick) were appended once a second for 20 seconds.
+
+- Discovery and attribution: `agent list --json` reported Claude `snug-clam`
+  and Codex `smart-goat`, each attributed from its own process working
+  directory through the PEB probe. Claude resolved its session under
+  `projects/<C--…-work-claude>/` (Windows project-directory naming) and Codex
+  through `session_meta.cwd`. Measured rates were 34.9k and 19.0k tokens/s at
+  both snapshots (expected 35k and 19k), with session totals growing
+  (315k→700k and 171k→380k).
+- Vulkan coins: the capture shows Claude's orange mark and Codex's blue mark
+  beside the two Agents-rail pills. The client log contains no Vulkan
+  validation errors; the only `[error]` line is the unrelated stale `W:\p4`
+  loader manifest. The client exited 0 and the isolated server shut down
+  cleanly. Evidence: `%TEMP%/dgaw0poewh/` (`coins.bmp`, `gate104-agents.json`,
+  logs).
