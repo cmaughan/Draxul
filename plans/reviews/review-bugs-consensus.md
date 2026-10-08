@@ -367,7 +367,7 @@ The following are complete proposed cards for the trusted parent process.
 - [ ] **Acceptance:** Injected growth and mapping failures emit no draw that addresses insufficient or stale storage; later frames recover.
 - [ ] **Validation:** Run core aggregate tests, same-cache smoke, and relevant macOS rendering checks.
 
-### kanban/pending/62 topology-durable-limits -bug.md
+### kanban/done/62 topology-durable-limits -bug.md
 
 # Keep live session changes within saving limits
 

@@ -1,5 +1,6 @@
 #include <draxul/async_frame_stream.h>
 
+#include "async_frame_stream_test_hooks.h"
 #include "control_codec.h"
 
 #include <draxul/control_plane.h>
@@ -10,6 +11,7 @@
 #include <chrono>
 #include <cstdio>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -98,7 +100,16 @@ std::string stream_endpoint(std::string_view stream_id,
     return std::string(R"(\\.\pipe\draxul-session-stream-)") + suffix;
 }
 
+std::atomic<const control_detail::AsyncFrameStreamAcceptTestHooks*>
+    g_accept_test_hooks = nullptr;
+
 } // namespace
+
+void control_detail::set_async_frame_stream_accept_test_hooks(
+    const AsyncFrameStreamAcceptTestHooks* hooks)
+{
+    g_accept_test_hooks.store(hooks);
+}
 
 class AsyncFrameStreamConnection::Impl
 {
@@ -410,21 +421,45 @@ std::unique_ptr<AsyncFrameStreamConnection> AsyncFrameStreamListener::accept(
         std::lock_guard guard(impl_->mutex);
         impl_->pending = pipe;
     }
+    const auto* hooks = g_accept_test_hooks.load();
+    if (hooks && hooks->before_connect)
+        hooks->before_connect(impl_->endpoint_value);
     OVERLAPPED operation{};
     operation.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    BOOL connected = operation.hEvent
-        ? ConnectNamedPipe(pipe, &operation)
-        : FALSE;
-    DWORD code = connected ? ERROR_SUCCESS : GetLastError();
+    BOOL connected = FALSE;
+    DWORD code = ERROR_SUCCESS;
+    std::optional<uint32_t> injected;
+    if (operation.hEvent && hooks && hooks->fail_connect)
+        injected = hooks->fail_connect();
+    if (!operation.hEvent)
+    {
+        code = GetLastError();
+    }
+    else if (injected)
+    {
+        code = *injected;
+    }
+    else
+    {
+        connected = ConnectNamedPipe(pipe, &operation);
+        code = connected ? ERROR_SUCCESS : GetLastError();
+    }
+    // Only ERROR_IO_PENDING leaves an operation in flight. Synchronous
+    // success, ERROR_PIPE_CONNECTED, and synchronous failures such as
+    // ERROR_NO_DATA (the client connected and closed before this call) never
+    // signal the event, so they must not be cancelled and drained.
+    bool in_flight = false;
     if (!connected && code == ERROR_PIPE_CONNECTED)
         connected = TRUE;
     else if (!connected && code == ERROR_IO_PENDING)
     {
+        in_flight = true;
         while (impl_->active && !stop_token.stop_requested())
         {
             const DWORD wait = WaitForSingleObject(operation.hEvent, 50);
             if (wait == WAIT_OBJECT_0)
             {
+                in_flight = false;
                 DWORD ignored = 0;
                 connected = GetOverlappedResult(
                     pipe, &operation, &ignored, FALSE);
@@ -438,11 +473,16 @@ std::unique_ptr<AsyncFrameStreamConnection> AsyncFrameStreamListener::accept(
             }
         }
     }
-    if (!connected)
+    if (in_flight)
     {
+        // The pending connect must finish before its OVERLAPPED leaves scope.
+        // A connect that completed just before the cancel still counts; the
+        // stop checks below discard it during shutdown.
         CancelIoEx(pipe, &operation);
-        if (operation.hEvent)
-            WaitForSingleObject(operation.hEvent, INFINITE);
+        DWORD ignored = 0;
+        connected = GetOverlappedResult(pipe, &operation, &ignored, TRUE);
+        if (!connected)
+            code = GetLastError();
     }
     if (operation.hEvent)
         CloseHandle(operation.hEvent);

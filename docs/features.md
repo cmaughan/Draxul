@@ -740,7 +740,9 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - Server recovery is bounded before processes launch: checkpoints are limited
   to 4 MiB, 64 Spaces, 128 tabs per Space, 256 panes per tab, 64 layout levels,
   and bounded text/list fields. Diagnostics identify invalid fields without
-  echoing commands or paths.
+  echoing commands or paths. Live topology changes enforce the same bounds
+  (including 512-byte Space, tab, and pane names) before any terminal starts,
+  so a change the server accepts can always be checkpointed and restored.
 - A successful server checkpoint atomically replaces the previous snapshot.
   Draxul does not currently maintain a second `.bak` copy; corrupt checkpoints
   are archived before checkpointing resumes.
