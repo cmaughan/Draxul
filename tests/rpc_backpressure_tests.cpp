@@ -1,9 +1,11 @@
 
 #include "support/scoped_env_var.h"
+#include "support/test_support.h"
 
 #include <draxul/log.h>
 #include <draxul/nvim_transport.h>
 
+#include <algorithm>
 #include <atomic>
 #include <catch2/catch_all.hpp>
 #include <chrono>
@@ -438,4 +440,83 @@ TEST_CASE("rpc backpressure: NvimRpc enqueue-then-drain in sequence returns FIFO
     }
     INFO("notifications arrive in FIFO order (0..99)");
     REQUIRE(order_ok);
+}
+
+// -----------------------------------------------------------------------
+// Regression: kanban/done/72 nvim-redraw-queue-recovery -bug.md.
+// A burst larger than the notification queue used to discard the oldest
+// redraw batches, leaving the display permanently wrong. The reader must now
+// pause at capacity (bounded memory) and deliver every notification in order
+// once the owner drains, with the response that followed the burst intact.
+// -----------------------------------------------------------------------
+
+TEST_CASE("rpc backpressure: a burst beyond queue capacity pauses the reader instead of dropping", "[rpc]")
+{
+    constexpr size_t kCapacity = NvimRpc::kMaxNotificationQueueDepth;
+    constexpr int kBurst = static_cast<int>(kCapacity) + 1000;
+    const std::string burst_count = std::to_string(kBurst);
+    ScopedEnvVar env("DRAXUL_RPC_FAKE_MODE", "notify_burst");
+    ScopedEnvVar count_env("DRAXUL_RPC_FAKE_NOTIFY_COUNT", burst_count.c_str());
+    ScopedLogCapture capture(LogLevel::Warn);
+
+    NvimProcess process;
+    REQUIRE(process.spawn(DRAXUL_RPC_FAKE_PATH));
+    NvimRpc rpc;
+    REQUIRE(rpc.initialize(process));
+
+    // The response is queued behind the burst, so request from a worker the
+    // way UiRequestWorker does; the draining thread never blocks in request().
+    std::atomic<bool> request_done{ false };
+    RpcResult result;
+    std::thread requester([&] {
+        result = rpc.request("test_method", { MpackValue::make_int(1) });
+        request_done = true;
+    });
+
+    const auto fill_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (rpc.notification_queue_depth() < kCapacity && std::chrono::steady_clock::now() < fill_deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    INFO("the undrained queue fills to capacity");
+    REQUIRE(rpc.notification_queue_depth() == kCapacity);
+
+    // While undrained, the queue must stay at capacity: nothing is evicted to
+    // make room, and memory does not grow past the bound.
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    INFO("the reader is paused at capacity rather than evicting or growing");
+    CHECK(rpc.notification_queue_depth() == kCapacity);
+    CHECK_FALSE(request_done.load());
+
+    std::vector<RpcNotification> all;
+    all.reserve(static_cast<size_t>(kBurst));
+    size_t max_depth = kCapacity;
+    const auto drain_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while ((static_cast<int>(all.size()) < kBurst || !request_done.load())
+        && std::chrono::steady_clock::now() < drain_deadline)
+    {
+        max_depth = std::max(max_depth, rpc.notification_queue_depth());
+        auto batch = rpc.drain_notifications();
+        all.insert(all.end(), std::make_move_iterator(batch.begin()), std::make_move_iterator(batch.end()));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    requester.join();
+    rpc.shutdown();
+    process.shutdown();
+
+    INFO("the response behind the burst still completes the request");
+    REQUIRE(result.has_value());
+    INFO("every notification is delivered once the owner drains");
+    REQUIRE(static_cast<int>(all.size()) == kBurst);
+    bool contiguous = true;
+    for (int i = 0; i < kBurst; ++i)
+        contiguous = contiguous && all[static_cast<size_t>(i)].params[0].as_int() == i;
+    INFO("no unique update is discarded or reordered");
+    CHECK(contiguous);
+    INFO("queue depth never exceeds the bound");
+    CHECK(max_depth <= kCapacity);
+
+    bool reported = false;
+    for (const auto& record : capture.records)
+        reported = reported || record.message.find("pausing reads until drained") != std::string::npos;
+    INFO("saturation is reported");
+    CHECK(reported);
 }

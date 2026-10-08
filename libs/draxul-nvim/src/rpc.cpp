@@ -39,6 +39,10 @@ struct NvimRpc::Impl
 
     std::mutex notif_mutex_;
     std::deque<RpcNotification> notifications_;
+    // Signalled by drain_notifications() and close(); the reader waits on it
+    // while the queue is full instead of discarding queued redraw state.
+    std::condition_variable notif_space_cv_;
+    bool notif_backpressure_logged_ = false;
 
     std::mutex response_mutex_;
     std::condition_variable response_cv_;
@@ -62,7 +66,6 @@ namespace
 // 5 s is a conservative default: long enough for most nvim operations (plugin init,
 // large-workspace indexing), short enough to surface genuine hangs promptly.
 static constexpr auto kRpcRequestTimeout = std::chrono::seconds(5);
-static constexpr size_t kMaxNotificationQueueDepth = 4096;
 static constexpr size_t kNotificationQueueWarnDepth = 512;
 // close() lets already-accepted output (normally a final quit command) reach a
 // healthy editor for this long before cancelling a write that cannot finish.
@@ -158,6 +161,12 @@ void NvimRpc::close()
         DRAXUL_LOG_INFO(LogCategory::Rpc, "RPC transport closed");
     }
     impl_->response_cv_.notify_all();
+    {
+        // Release a reader waiting for notification space. Taking the mutex
+        // orders this wake after its predicate check.
+        std::lock_guard<std::mutex> lock(impl_->notif_mutex_);
+    }
+    impl_->notif_space_cv_.notify_all();
 
     // Stop accepting output and give what was already accepted a short,
     // bounded chance to reach a healthy child. Then cancel: a write blocked on
@@ -384,11 +393,15 @@ void NvimRpc::notify(const std::string& method, const std::vector<MpackValue>& p
 std::vector<RpcNotification> NvimRpc::drain_notifications()
 {
     PERF_MEASURE();
-    std::lock_guard<std::mutex> lock(impl_->notif_mutex_);
-    std::vector<RpcNotification> result(
-        std::make_move_iterator(impl_->notifications_.begin()),
-        std::make_move_iterator(impl_->notifications_.end()));
-    impl_->notifications_.clear();
+    std::vector<RpcNotification> result;
+    {
+        std::lock_guard<std::mutex> lock(impl_->notif_mutex_);
+        result.assign(std::make_move_iterator(impl_->notifications_.begin()),
+            std::make_move_iterator(impl_->notifications_.end()));
+        impl_->notifications_.clear();
+    }
+    // Resume a reader paused on a full queue.
+    impl_->notif_space_cv_.notify_all();
     return result;
 }
 
@@ -469,16 +482,29 @@ void NvimRpc::dispatch_rpc_notification(const std::vector<MpackValue>& msg_array
         notif.params = msg_array[2].as_array();
 
     {
-        std::lock_guard<std::mutex> lock(impl_->notif_mutex_);
+        std::unique_lock<std::mutex> lock(impl_->notif_mutex_);
         if (impl_->notifications_.size() >= kMaxNotificationQueueDepth)
         {
-            // Drop the oldest notification to stay bounded.
-            impl_->notifications_.pop_front();
-            DRAXUL_LOG_WARN(LogCategory::Rpc,
-                "RPC notification queue at capacity (%zu); dropping oldest",
-                kMaxNotificationQueueDepth);
+            // Never discard: a dropped redraw batch (grid_line, hl_attr_define,
+            // grid_resize, flush) leaves the display permanently wrong. Stop
+            // consuming the pipe until the owner drains, so Neovim blocks on
+            // its output instead. Memory stays bounded by the queue depth.
+            if (!impl_->notif_backpressure_logged_)
+            {
+                impl_->notif_backpressure_logged_ = true;
+                DRAXUL_LOG_WARN(LogCategory::Rpc,
+                    "RPC notification queue at capacity (%zu); pausing reads until drained",
+                    kMaxNotificationQueueDepth);
+            }
+            impl_->notif_space_cv_.wait(lock, [this] {
+                return impl_->notifications_.size() < kMaxNotificationQueueDepth || !impl_->running_;
+            });
+            if (impl_->notifications_.size() >= kMaxNotificationQueueDepth)
+                return; // closing: the owner will not drain again
         }
-        else if (impl_->notifications_.size() == kNotificationQueueWarnDepth)
+        if (impl_->notifications_.empty())
+            impl_->notif_backpressure_logged_ = false;
+        if (impl_->notifications_.size() == kNotificationQueueWarnDepth)
         {
             DRAXUL_LOG_WARN(LogCategory::Rpc,
                 "RPC notification queue depth reached %zu",

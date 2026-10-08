@@ -363,6 +363,20 @@ int main()
         }
     }
 
+    if (current_mode == "notify_burst")
+    {
+        // More notifications than the client queue holds, then the response.
+        // The client must pause reading rather than discard any of them.
+        int count = 5000;
+        if (const char* value = std::getenv("DRAXUL_RPC_FAKE_NOTIFY_COUNT"))
+            count = std::atoi(value);
+        for (int i = 0; i < count; ++i)
+        {
+            if (!send_notification("redraw", { MpackValue::make_int(static_cast<int64_t>(i)) }))
+                return 4;
+        }
+    }
+
     if (current_mode == "error")
     {
         return send_response(msgid, MpackValue::make_str("boom"), MpackValue::make_nil()) ? 0 : 5;

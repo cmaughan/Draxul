@@ -63,9 +63,18 @@ struct RpcCallbacks
 // thread, so a child that stops reading never blocks the caller. The FIFO is
 // bounded by kMaxOutboundBytes; a message that would exceed it is rejected
 // whole, so the stream never carries a partial message.
+//
+// Inbound notifications are bounded by kMaxNotificationQueueDepth. When the
+// queue is full the reader thread stops consuming the pipe until
+// drain_notifications() makes room, applying backpressure to Neovim instead
+// of discarding redraw state. A response that arrives behind a full queue
+// waits for that drain, so the draining thread must not block in request():
+// the main thread only issues startup requests, before it begins draining and
+// before Neovim has produced more than a handful of redraw batches.
 class NvimRpc : public IRpcChannel
 {
 public:
+    static constexpr size_t kMaxNotificationQueueDepth = 4096;
     static constexpr size_t kMaxOutboundBytes = 256ULL * 1024 * 1024;
 
     NvimRpc();
@@ -82,6 +91,8 @@ public:
     RpcResult request(const std::string& method, const std::vector<MpackValue>& params) override;
     void notify(const std::string& method, const std::vector<MpackValue>& params) override;
 
+    // Returns every queued notification in arrival order and resumes a
+    // reader paused on a full queue.
     std::vector<RpcNotification> drain_notifications();
     // Thread-safe; acquires the internal notification mutex.
     size_t notification_queue_depth() const;
