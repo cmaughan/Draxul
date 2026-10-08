@@ -71,9 +71,13 @@ struct StyledSpan
     StyleId style;
     SourceSpan source;
     bool line_break = false;
+    std::string link_destination;
+    std::string image_destination;
 };
 
-void collect_inline_spans(const std::vector<Inline>& inlines, StyleId style, std::vector<StyledSpan>& spans)
+std::string collect_inline_text(const std::vector<Inline>& inlines);
+
+void collect_inline_spans(const std::vector<Inline>& inlines, StyleId style, std::vector<StyledSpan>& spans, std::string_view link = {})
 {
     for (const auto& inline_node : inlines)
     {
@@ -87,6 +91,14 @@ void collect_inline_spans(const std::vector<Inline>& inlines, StyleId style, std
             continue;
         }
 
+        if(inline_node.kind==InlineKind::Image)
+        {
+            spans.push_back({.text=inline_node.text+collect_inline_text(inline_node.children),
+                .style=style,.source=inline_node.source,.link_destination=std::string(link),
+                .image_destination=inline_node.destination});
+            continue;
+        }
+        const std::string_view destination=inline_node.kind==InlineKind::Link?inline_node.destination:link;
         StyleId child_style = style;
         if (inline_node.kind == InlineKind::Strong)
             child_style = with_bold(child_style);
@@ -99,10 +111,11 @@ void collect_inline_spans(const std::vector<Inline>& inlines, StyleId style, std
                 .text = inline_node.text,
                 .style = child_style,
                 .source = inline_node.source,
+                .link_destination = std::string(destination),
             });
         }
         if (!inline_node.children.empty())
-            collect_inline_spans(inline_node.children, child_style, spans);
+            collect_inline_spans(inline_node.children, child_style, spans, destination);
     }
 }
 
@@ -181,6 +194,7 @@ public:
         , metrics_for_(metrics_for)
         , scale_(std::max(0.01f, options.pixel_scale))
         , margin_columns_(std::max(0.0f, options.margin_columns))
+        , image_size_(options.image_size)
     {
         document_.content_width = std::max(1.0f, options.viewport_width - 2.0f * padding());
     }
@@ -398,6 +412,8 @@ private:
         StyleId style;
         float dx = 0.0f;
         SourceSpan source;
+        std::string link_destination;
+        float width = 0.0f;
     };
 
     struct WrappedLine
@@ -424,16 +440,18 @@ private:
         };
 
         auto append_piece = [this, &current, &pen](
-                                std::string_view text, StyleId style, SourceSpan source, float gap) {
+                                std::string_view text, StyleId style, SourceSpan source, float gap, std::string_view link) {
             if (text.empty())
                 return;
 
-            if (!current.pieces.empty() && current.pieces.back().style.value == style.value)
+            if (!current.pieces.empty() && current.pieces.back().style.value == style.value
+                && current.pieces.back().link_destination == link)
             {
                 auto& back = current.pieces.back();
                 if (gap > 0.0f)
                     back.text += ' ';
                 back.text.append(text);
+                back.width += gap + measure(text,style);
             }
             else
             {
@@ -442,20 +460,22 @@ private:
                     .style = style,
                     .dx = pen + gap,
                     .source = source,
+                    .link_destination = std::string(link),
+                    .width = measure(text,style),
                 });
             }
             pen += gap + measure(text, style);
         };
 
         auto place_word = [this, width, &current, &pen, &flush_line, &append_piece](
-                              std::string_view word, StyleId style, SourceSpan source, bool space_before) {
+                              std::string_view word, StyleId style, SourceSpan source, bool space_before, std::string_view link) {
             const float gap = (space_before && !current.pieces.empty()) ? measure(" ", style) : 0.0f;
             if (!current.pieces.empty() && pen + gap + measure(word, style) > width)
                 flush_line(false);
 
             if (!current.pieces.empty() || measure(word, style) <= width)
             {
-                append_piece(word, style, source, current.pieces.empty() ? 0.0f : gap);
+                append_piece(word, style, source, current.pieces.empty() ? 0.0f : gap, link);
                 return;
             }
 
@@ -471,7 +491,7 @@ private:
                 const std::string_view cluster = word.substr(cluster_start, offset - cluster_start);
                 if (!current.pieces.empty() && pen + measure(cluster, style) > width)
                     flush_line(false);
-                append_piece(cluster, style, source, 0.0f);
+                append_piece(cluster, style, source, 0.0f, link);
             }
         };
 
@@ -501,7 +521,7 @@ private:
                 if (start == index)
                     break;
 
-                place_word(text.substr(start, index - start), span.style, span.source, pending_space);
+                place_word(text.substr(start, index - start), span.style, span.source, pending_space, span.link_destination);
                 pending_space = false;
             }
         }
@@ -553,6 +573,8 @@ private:
                     .x = origin + piece.dx,
                     .baseline = baseline,
                     .source = piece.source.byte_length > 0 ? piece.source : source,
+                    .link_destination = piece.link_destination,
+                    .width = piece.width,
                 });
             }
 
@@ -570,13 +592,27 @@ private:
         const std::vector<Decoration>& row_decorations)
     {
         const auto spans = collect_inline_spans(inlines, style);
-        append_wrapped_lines(
-            wrap_spans(spans, available_width(indent)),
-            style,
-            source_kind,
-            source,
-            indent,
-            row_decorations);
+        std::vector<StyledSpan> text;
+        auto flush=[&]{
+            if(text.empty()) return;
+            append_wrapped_lines(wrap_spans(text,available_width(indent)),style,source_kind,source,indent,row_decorations);
+            text.clear();
+        };
+        for(const auto& span:spans)
+        {
+            if(span.image_destination.empty() || !image_size_) {text.push_back(span);continue;}
+            flush();
+            const auto [iw,ih]=image_size_(span.image_destination);
+            const float width=std::max(1.f,iw),height=std::max(1.f,ih);
+            const float ratio=std::min(1.f,available_width(indent)/width);
+            LayoutRow row;
+            row.y=y_;row.height=height*ratio;row.source_kind=source_kind;row.source=span.source;
+            row.decorations=row_decorations;
+            row.images.push_back({span.image_destination,span.text,span.link_destination,
+                content_left(indent),y_,width*ratio,height*ratio});
+            document_.rows.push_back(std::move(row));y_+=height*ratio;
+        }
+        flush();
     }
 
     void layout_wrapped_text(
@@ -1077,6 +1113,8 @@ private:
                                 .x = line_x + piece.dx,
                                 .baseline = visual_row.baseline,
                                 .source = cell != nullptr ? cell->source : row.source,
+                                .link_destination = piece.link_destination,
+                                .width = piece.width,
                             });
                         }
                     }
@@ -1097,11 +1135,41 @@ private:
     const FontMetricsLookup& metrics_for_;
     float scale_ = 1.0f;
     float margin_columns_ = 2.0f;
+    std::function<std::pair<float,float>(std::string_view)> image_size_;
     float y_ = 0.0f;
     LayoutDocument document_;
 };
 
 } // namespace
+
+bool is_web_link(std::string_view destination)
+{
+    if(std::ranges::any_of(destination,[](unsigned char c){return c<=32 || c==127;})) return false;
+    const auto separator=destination.find("://");
+    if(separator==std::string_view::npos) return false;
+    std::string scheme(destination.substr(0,separator));
+    for(auto& c:scheme) c=static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if(scheme!="http" && scheme!="https") return false;
+    const auto host=destination.substr(separator+3);
+    return !host.empty() && host.find_first_of("/?#")!=0;
+}
+
+std::string_view markdown_link_at(const LayoutDocument& document,float x,float y)
+{
+    const auto range=visible_rows(document,y,1.f);
+    for(size_t i=range.first;i<range.first+range.count;++i)
+    {
+        const auto& row=document.rows[i];
+        if(y<row.y || y>=row.y+row.height) continue;
+        for(const auto& image:row.images)
+            if(x>=image.x && x<image.x+image.width && is_web_link(image.link_destination))
+                return image.link_destination;
+        for(const auto& run:row.runs)
+            if(x>=run.x && x<run.x+run.width && is_web_link(run.link_destination))
+                return run.link_destination;
+    }
+    return {};
+}
 
 LayoutDocument layout_markdown_document(
     const Document& document,

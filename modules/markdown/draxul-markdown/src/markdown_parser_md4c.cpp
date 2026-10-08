@@ -403,6 +403,11 @@ int enter_span_callback(MD_SPANTYPE type, void* detail, void* userdata)
         const auto* link = static_cast<const MD_SPAN_A_DETAIL*>(detail);
         inline_node.destination = attr_to_string(link->href);
     }
+    else if (type == MD_SPAN_IMG)
+    {
+        const auto* image = static_cast<const MD_SPAN_IMG_DETAIL*>(detail);
+        inline_node.destination = attr_to_string(image->src);
+    }
     else if (type == MD_SPAN_WIKILINK)
     {
         const auto* link = static_cast<const MD_SPAN_WIKILINK_DETAIL*>(detail);

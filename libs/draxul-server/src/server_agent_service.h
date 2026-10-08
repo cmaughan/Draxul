@@ -23,6 +23,7 @@ struct ServerAgentRuntimeView
     std::string tab_id;
     std::string pane_id;
     std::string terminal_id;
+    std::string alias;
     std::optional<AgentIdentity> declared_identity;
     std::optional<AgentSessionRef> session_ref;
     // Directory a managed agent was launched in; discovered agents use the
@@ -53,9 +54,20 @@ public:
 
     void update(const std::vector<ServerAgentRuntimeView>& runtimes,
         std::chrono::steady_clock::time_point now
-        = std::chrono::steady_clock::now());
+        = std::chrono::steady_clock::now(),
+        std::vector<ServerAgentProjection> structured_agents = {});
     ControlMethodResult handle(
         std::string_view method, const nlohmann::json& params) const;
+
+    // Records an official native session reference for a discovered agent
+    // (one started by hand in a shell pane, which has no managed identity).
+    // A report that arrives before process discovery is held briefly and
+    // applied when an agent of the same kind is discovered on that terminal
+    // runtime generation.
+    ControlMethodResult report_discovered_session(std::string_view terminal_id,
+        AgentRuntimeGeneration generation, const AgentSessionRef& session_ref,
+        std::chrono::steady_clock::time_point now
+        = std::chrono::steady_clock::now());
 
     const ServerAgentSnapshot& snapshot() const noexcept
     {
@@ -77,11 +89,22 @@ private:
         AgentStatus last_status = AgentStatus::Unknown;
         std::string working_directory;
         std::chrono::steady_clock::time_point first_seen_at{};
+        // Native session reported by an integration hook for a discovered
+        // agent; managed agents keep theirs in Session topology.
+        std::optional<AgentSessionRef> session_ref;
+    };
+
+    struct PendingSessionRef
+    {
+        AgentRuntimeGeneration generation{};
+        AgentSessionRef session_ref;
+        std::chrono::steady_clock::time_point reported_at{};
     };
 
     std::string session_id_;
     ServerAgentSnapshot snapshot_;
     std::unordered_map<std::string, RuntimeState> runtime_states_;
+    std::unordered_map<std::string, PendingSessionRef> pending_session_refs_;
     AgentInstanceIds instance_ids_;
     std::unique_ptr<AgentUsageMonitor> usage_monitor_;
 };

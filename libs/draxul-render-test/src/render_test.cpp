@@ -1,3 +1,5 @@
+#include <draxul/personal_agent_store.h>
+#include <draxul/personal_chat.h>
 #include <draxul/json_util.h>
 #include <draxul/perf_timing.h>
 #include <draxul/render_test.h>
@@ -246,7 +248,7 @@ AppOptions RenderTestScenario::make_app_options() const
     options.save_user_config = false;
     options.activate_window_on_startup = false;
     options.show_diagnostics_in_render_test = debug_overlay;
-    options.show_system_resources = host_kind != HostKind::Plugin;
+    options.show_system_resources = host_kind != HostKind::Plugin && host_kind != HostKind::PersonalAssistant;
     options.clamp_window_to_display = false;
     options.render_target_pixel_width = width;
     options.render_target_pixel_height = height;
@@ -646,3 +648,25 @@ void write_render_test_failure_report(const RenderTestScenario& scenario, std::s
 }
 
 } // namespace draxul
+
+namespace draxul
+{
+std::shared_ptr<const PersonalAgentSnapshot> personal_chat_render_collection(std::string_view id)
+{
+    auto snapshot=std::make_shared<PersonalAgentSnapshot>();
+    snapshot->agents.push_back({.id=std::string(id),.name="Travel assistant",.profile="codex"});
+    return snapshot;
+}
+std::shared_ptr<const PersonalChatSnapshot> personal_chat_render_snapshot(std::string_view id)
+{
+    auto snapshot=std::make_shared<PersonalChatSnapshot>();
+    snapshot->agent_id=id;snapshot->state="idle";
+    snapshot->messages={
+        {"one","user","Help me plan a quiet weekend in Kyoto."},
+        {"two","assistant","Start with an early walk along the Philosopher's Path, then take your time over breakfast.\n\nLeave the afternoon open for a small temple or a cafe. On Sunday, explore the quieter streets of northern Higashiyama."},
+        {"three","user","That sounds good. Keep the schedule relaxed."},
+        {"four","assistant","## Weekend plan\n\n**One outing** with *time to wander*.\n\n- Morning: [a quiet walk](https://example.com/walk).\n- Afternoon: a small temple.\n\n```text\n10:00  Meet at the station\n```\n\n![Chart](<"+normalized_path_string(std::filesystem::path{DRAXUL_PROJECT_ROOT}/"tests/render/fixtures/personal-chat-chart.png")+">)"}
+    };
+    return snapshot;
+}
+}

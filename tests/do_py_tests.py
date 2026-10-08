@@ -1310,6 +1310,7 @@ class FinalValidationCommandTests(unittest.TestCase):
 
         self.assertEqual(
             (
+                "personal-assistant",
                 "basic-view",
                 "cmdline-view",
                 "unicode-view",

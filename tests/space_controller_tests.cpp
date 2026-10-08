@@ -6,6 +6,7 @@
 #include "support/test_host_callbacks.h"
 
 #include <draxul/app_config.h>
+#include <draxul/personal_agent_store.h>
 #include <draxul/app_options.h>
 
 #include "agent_controller.h"
@@ -989,4 +990,19 @@ TEST_CASE("agent definition registry provides built-ins and replaceable profiles
     CHECK(registry.find("codex")->default_args
         == (std::vector<std::string>{ "--quiet" }));
     CHECK_FALSE(registry.register_definition({}));
+}
+
+TEST_CASE("personal pill metadata names real terminal agents without synthetic runs", "[personal][agent][app]")
+{
+    SpaceController spaces;
+    AgentController agents;
+    PersonalAgentSnapshot snapshot;
+    snapshot.agents.push_back({.id="news",.name="My assistant",.profile="codex"});
+    agents.set_personal_agents(snapshot);
+    CHECK(agents.query(spaces).empty());
+    // The persistent pill is supplied by collection metadata; live activity must
+    // come from the real managed terminal rather than an invented run record.
+    snapshot.agents[0].name="Renamed";
+    agents.set_personal_agents(snapshot);
+    CHECK(agents.query(spaces).empty());
 }

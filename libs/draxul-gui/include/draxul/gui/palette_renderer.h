@@ -17,6 +17,7 @@ enum class PaletteMode
 {
     Actions,
     Prompt,
+    Menu,
 };
 
 struct PaletteEntry

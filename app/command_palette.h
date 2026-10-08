@@ -70,6 +70,7 @@ public:
     // Input handling — returns true when the palette consumed the event.
     bool on_key(const KeyEvent& event);
     bool on_text_input(const TextInputEvent& event);
+    void click_choice(int index);
 
     // Build the view state for rendering. Returns the data needed by render_palette().
     gui::PaletteViewState view_state(int grid_cols, int grid_rows, float panel_bg_alpha = 1.0f);

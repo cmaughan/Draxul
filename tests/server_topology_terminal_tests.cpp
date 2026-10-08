@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include "support/scoped_env_var.h"
 #include "support/server_kernel_test_support.h"
@@ -563,8 +564,10 @@ TEST_CASE("shared app launches reuse Personal Assistant and opted-in plugins acr
     launch.space_id = other_space.created_id;
     launch.client_source_path = "news";
     const auto reused_personal = execute(launch);
-    CHECK(reused_personal.created_id == personal.created_id);
-    CHECK(reused_personal.snapshot.spaces.back().tabs.size() == 1);
+    CHECK(reused_personal.created_id != personal.created_id);
+    CHECK(reused_personal.snapshot.spaces.back().tabs.size() == 2);
+    const auto same_personal=execute(launch);
+    CHECK(same_personal.created_id==reused_personal.created_id);
 
     launch.client_host_kind = "plugin";
     launch.client_source_path.clear();
@@ -577,7 +580,7 @@ TEST_CASE("shared app launches reuse Personal Assistant and opted-in plugins acr
     const auto reused_plugin = execute(launch);
     CHECK(reused_plugin.created_id == plugin.created_id);
     CHECK(reused_plugin.snapshot.spaces.front().tabs.size() == 2);
-    CHECK(reused_plugin.snapshot.spaces.back().tabs.size() == 2);
+    CHECK(reused_plugin.snapshot.spaces.back().tabs.size() == 3);
 
     launch.client_plugin_config_json = R"({"deck":"b"})";
     CHECK(execute(launch).created_id != plugin.created_id);
@@ -728,6 +731,140 @@ TEST_CASE("server topology moves a live pane across Spaces atomically",
         == destination_tab.tab_id);
     CHECK(duplicate->snapshot.revision
         == result->snapshot.revision);
+}
+
+TEST_CASE("same-tab client-local pane moves preserve descriptors and projected identity",
+    "[server][topology][pane-move][client_local]")
+{
+    const std::string host_kind = GENERATE("plugin", "nvim", "markdown", "kanban");
+    INFO(host_kind);
+    TempDir temp("draxul-client-local-move");
+    TopologyService service("client-local-move", {});
+    const TopologySpace source = service.snapshot().spaces.front();
+    const TopologyTab source_tab = source.tabs.front();
+    const std::string shell_id = source_tab.panes.front().pane_id;
+    const auto execute = [&](TopologyCommand command) {
+        command.client_id = "local-move-client";
+        command.expected_revision = service.snapshot().revision;
+        const auto response = service.handle("topology.command",
+            topology_command_to_json(command));
+        INFO(response.error_message);
+        REQUIRE(response.ok);
+        std::string error;
+        const auto result = topology_command_result_from_json(response.value, error);
+        INFO(error);
+        REQUIRE(result);
+        return *result;
+    };
+    const auto split = execute({
+        .command_id = "split-client-local",
+        .kind = TopologyCommandKind::SplitPane,
+        .space_id = source.space_id,
+        .tab_id = source_tab.tab_id,
+        .pane_id = shell_id,
+        .name = "Preserved client pane",
+        .direction = TopologySplitDirection::Vertical,
+        .pane_domain = TopologyPaneDomain::ClientLocal,
+        .client_host_kind = host_kind,
+        .client_working_directory = temp.path.string(),
+        .client_source_path = host_kind == "markdown" ? "notes.md"
+            : host_kind == "kanban" ? "kanban" : "",
+        .client_plugin_id = host_kind == "plugin" ? "dev.draxul.spinning-triangle" : "",
+        .client_plugin_config_json = host_kind == "plugin" ? R"({"paused":true,"initial_angle":0.5})" : "",
+    });
+    const std::string moved_id = split.created_id;
+    const auto target = execute({
+        .command_id = "split-target",
+        .kind = TopologyCommandKind::SplitPane,
+        .space_id = source.space_id,
+        .tab_id = source_tab.tab_id,
+        .pane_id = shell_id,
+        .direction = TopologySplitDirection::Vertical,
+        .pane_domain = TopologyPaneDomain::ClientLocal,
+        .client_host_kind = "nvim",
+    });
+    const TopologySnapshot before = service.snapshot();
+    const TopologyTab before_tab = before.spaces.front().tabs.front();
+    TopologyProjection projections[2];
+    LeafId moved_leaves[2];
+    for (int ui = 0; ui < 2; ++ui)
+    {
+        std::string error;
+        const auto initial = projections[ui].project_tab(
+            before_tab, kInvalidLeaf, HostKind::Nvim, error);
+        REQUIRE(initial);
+        projections[ui].commit_tab(before_tab.tab_id, *initial);
+        moved_leaves[ui] = projections[ui].local_pane(moved_id).value();
+    }
+    TopologyCommand move{
+        .client_id = "local-move-client",
+        .command_id = "move-client-local",
+        .expected_revision = before.revision,
+        .kind = TopologyCommandKind::MovePane,
+        .space_id = source.space_id,
+        .tab_id = source_tab.tab_id,
+        .pane_id = moved_id,
+        .target_pane_id = target.created_id,
+        .direction = TopologySplitDirection::Horizontal,
+        .ratio = 0.4f,
+        .place_before = true,
+    };
+    SECTION("implicit same-tab destination") {}
+    SECTION("explicit same-tab destination")
+    {
+        move.destination_space_id = source.space_id;
+        move.destination_tab_id = source_tab.tab_id;
+    }
+    const auto moved = execute(move);
+    CHECK(moved.snapshot.revision == before.revision + 1);
+    CHECK(moved.moved_pane_id == moved_id);
+    const TopologyTab& moved_tab = moved.snapshot.spaces.front().tabs.front();
+    CHECK(moved_tab.panes == before_tab.panes);
+    CHECK(moved_tab.nodes != before_tab.nodes);
+    for (int ui = 0; ui < 2; ++ui)
+    {
+        std::string error;
+        const auto updated = projections[ui].project_tab(
+            moved_tab, moved_leaves[ui], HostKind::Nvim, error);
+        REQUIRE(updated);
+        CHECK(updated->requires_reconcile);
+        CHECK(projections[ui].local_pane(moved_id) == moved_leaves[ui]);
+        CHECK(updated->layout.tree.focused_id == moved_leaves[ui]);
+        const auto& root = updated->layout.tree.root;
+        REQUIRE(root);
+        CHECK(root->direction == SplitDirection::Vertical);
+        REQUIRE(root->first);
+        CHECK(root->first->leaf_id == projections[ui].local_pane(shell_id));
+        REQUIRE(root->second);
+        CHECK(root->second->direction == SplitDirection::Horizontal);
+        CHECK(root->second->ratio == Catch::Approx(0.4f));
+        REQUIRE(root->second->first);
+        CHECK(root->second->first->leaf_id == moved_leaves[ui]);
+        REQUIRE(root->second->second);
+        CHECK(root->second->second->leaf_id == projections[ui].local_pane(target.created_id));
+    }
+
+    // The same client-local pane must still be rejected when crossing a tab
+    // boundary, including into a different Space, without changing the snapshot.
+    execute({ .command_id = "create-other-tab", .kind = TopologyCommandKind::CreateTab,
+        .space_id = source.space_id, .client_host_kind = "nvim" });
+    execute({ .command_id = "create-other-space", .kind = TopologyCommandKind::CreateSpace,
+        .name = "Other" });
+    const TopologySnapshot before_rejections = service.snapshot();
+    for (const auto& destination : before_rejections.spaces)
+    {
+        const auto& destination_tab = destination.tabs.back();
+        move.command_id = "reject-local-cross-tab-" + destination.space_id;
+        move.expected_revision = before_rejections.revision;
+        move.destination_space_id = destination.space_id;
+        move.destination_tab_id = destination_tab.tab_id;
+        move.target_pane_id = destination_tab.panes.front().pane_id;
+        const auto rejected = service.handle("topology.command", topology_command_to_json(move));
+        CHECK_FALSE(rejected.ok);
+        CHECK(rejected.error_code == "client_local_pane");
+        CHECK(rejected.error_message == "Client-local panes can move only within their current tab.");
+        CHECK(service.snapshot() == before_rejections);
+    }
 }
 
 TEST_CASE("cross-tab pane move rejects unsupported routes before mutation",

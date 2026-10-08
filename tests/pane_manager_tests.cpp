@@ -832,6 +832,74 @@ TEST_CASE("pane manager: projected layout preserves unchanged live hosts",
     CHECK(harness.before_host_destroyed_calls == 1);
 }
 
+TEST_CASE("pane manager: same-tab reparent preserves client-local hosts and updates viewports",
+    "[pane_manager][topology][pane-move]")
+{
+    const HostKind moved_kind = GENERATE(HostKind::Plugin, HostKind::Nvim,
+        HostKind::Markdown, HostKind::Kanban);
+    PaneManagerHarness harness(false);
+    SplitTree tree;
+    const LeafId shell = tree.reset(800, 600);
+    const LeafId moved = tree.split_leaf(shell, SplitDirection::Vertical);
+    const LeafId target = tree.split_leaf(shell, SplitDirection::Vertical);
+    tree.set_focused(moved);
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = tree.snapshot();
+    projected.panes = {
+        { .leaf_id = shell, .launch = { .kind = HostKind::Nvim }, .pane_id = "pane-shell" },
+        { .leaf_id = moved,
+            .launch = {
+                .kind = moved_kind,
+                .source_path = moved_kind == HostKind::Markdown ? "notes.md" : "",
+                .client_plugin_id = moved_kind == HostKind::Plugin ? "dev.draxul.spinning-triangle" : "",
+                .client_plugin_config_json = moved_kind == HostKind::Plugin ? R"({"paused":true,"initial_angle":0.5})" : "",
+            },
+            .pane_name = "Moved pane", .pane_id = "pane-moved" },
+        { .leaf_id = target, .launch = { .kind = HostKind::Nvim }, .pane_id = "pane-target" },
+    };
+    REQUIRE(harness.manager.reconcile_projected_layout(harness.callbacks, 800, 600, projected));
+    REQUIRE(harness.created_hosts.size() == 3);
+    const auto original_hosts = harness.created_hosts;
+    auto* moved_host = static_cast<LifetimeTestHost*>(harness.manager.host_for(moved));
+    REQUIRE(moved_host);
+    moved_host->stable_display_name = "Live state survives";
+    const HostViewport before_viewport = moved_host->last_viewport;
+    const int before_viewport_calls = moved_host->set_viewport_calls;
+
+    // Collapse the source split and insert the same leaf above the target,
+    // as a newly projected server tree does after pane move.
+    auto moved_node = std::move(projected.tree.root->second);
+    auto remaining = std::move(projected.tree.root->first);
+    auto destination_split = std::make_unique<SplitTree::SnapshotNode>();
+    destination_split->is_leaf = false;
+    destination_split->direction = SplitDirection::Horizontal;
+    destination_split->ratio = 0.4f;
+    destination_split->first = std::move(moved_node);
+    destination_split->second = std::move(remaining->second);
+    remaining->second = std::move(destination_split);
+    projected.tree.root = std::move(remaining);
+    REQUIRE(harness.manager.reconcile_projected_layout(harness.callbacks, 800, 600, projected));
+    CHECK(harness.created_hosts == original_hosts);
+    CHECK(harness.before_host_destroyed_calls == 0);
+    for (size_t index = 0; index < original_hosts.size(); ++index)
+    {
+        CHECK(original_hosts[index]->initialize_calls == 1);
+        CHECK(*harness.shutdown_counters[index] == 0);
+    }
+    CHECK(harness.manager.host_for(moved) == moved_host);
+    CHECK(moved_host->display_name() == "Live state survives");
+    CHECK(harness.manager.focused_leaf() == moved);
+    CHECK(harness.manager.pane_id(moved) == "pane-moved");
+    CHECK(harness.manager.pane_name(moved) == "Moved pane");
+    CHECK(moved_host->captured_launch.client_plugin_id == projected.panes[1].launch.client_plugin_id);
+    CHECK(moved_host->captured_launch.client_plugin_config_json == projected.panes[1].launch.client_plugin_config_json);
+    CHECK(moved_host->set_viewport_calls > before_viewport_calls);
+    CHECK(moved_host->last_viewport.pixel_size.y < before_viewport.pixel_size.y);
+    const auto target_descriptor = harness.manager.tree().descriptor_for(target);
+    CHECK(moved_host->last_viewport.pixel_pos.x == target_descriptor.pixel_pos.x);
+    CHECK(moved_host->last_viewport.pixel_pos.y < target_descriptor.pixel_pos.y);
+}
+
 TEST_CASE("pane manager: projected host preserves typed initialization failure",
     "[pane_manager][topology]")
 {

@@ -1,5 +1,6 @@
 #pragma once
 #include "personal_agent_service.h"
+#include "personal_chat_service.h"
 
 #include "fake_terminal_runtime.h"
 #include "remote_terminal_service.h"
@@ -147,6 +148,9 @@ public:
     ControlMethodResult delete_session(const nlohmann::json& params);
     ControlMethodResult delete_all_sessions(const nlohmann::json& params);
     ControlMethodResult rename_session(const nlohmann::json& params);
+    ControlMethodResult report_discovered_agent_session(
+        ServerSession& session, std::string_view pane_id,
+        uint64_t runtime_generation, const AgentSessionRef& session_ref);
     void reset_services();
     bool checkpoint_session(
         std::string_view session_id, std::string& error);
@@ -203,6 +207,7 @@ public:
 
     ServerKernelOptions options;
     PersonalAgentService personal_agents;
+    PersonalChatService personal_chat;
     std::shared_ptr<ServerTerminalResourceBudget>
         terminal_resource_budget;
     AgentDefinitionRegistry agent_definitions;

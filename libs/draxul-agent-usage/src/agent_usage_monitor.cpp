@@ -274,6 +274,7 @@ struct AgentUsageMonitor::Impl
     {
         std::string kind;
         std::filesystem::path path;
+        std::optional<AgentSessionRef> session_ref;
         bool attempted = false;
         UsageTimestamp resolved_at{};
     };
@@ -336,7 +337,8 @@ struct AgentUsageMonitor::Impl
         return watch.monitor->consume_changes();
     }
 
-    std::filesystem::path resolve_claude(const AgentUsageRequest& request, bool ambiguous)
+    std::filesystem::path resolve_claude(const AgentUsageRequest& request, bool ambiguous,
+        const std::unordered_set<std::string>& claimed)
     {
         const std::filesystem::path& root = roots.claude_projects;
         if (root.empty())
@@ -376,7 +378,8 @@ struct AgentUsageMonitor::Impl
         const Candidate* newest = nullptr;
         for (const Candidate& candidate : files_in_project)
         {
-            if (candidate.modified + kStartSlack < request.started_at)
+            if (candidate.modified + kStartSlack < request.started_at
+                || claimed.contains(candidate.path.string()))
                 continue;
             if (!newest || candidate.modified > newest->modified)
                 newest = &candidate;
@@ -415,7 +418,8 @@ struct AgentUsageMonitor::Impl
         return result;
     }
 
-    std::filesystem::path resolve_codex(const AgentUsageRequest& request, bool ambiguous, UsageTimestamp now)
+    std::filesystem::path resolve_codex(const AgentUsageRequest& request, bool ambiguous,
+        const std::unordered_set<std::string>& claimed, UsageTimestamp now)
     {
         const std::filesystem::path& root = roots.codex_sessions;
         if (root.empty())
@@ -466,7 +470,8 @@ struct AgentUsageMonitor::Impl
             for (const Candidate& candidate : jsonl_files(directory))
             {
                 if (candidate.modified + kStartSlack < request.started_at
-                    || (newest && candidate.modified <= newest->modified))
+                    || (newest && candidate.modified <= newest->modified)
+                    || claimed.contains(candidate.path.string()))
                     continue;
                 if (directory_key(codex_working_directory(candidate.path)) == cwd)
                     newest = candidate;
@@ -558,9 +563,21 @@ std::unordered_map<std::string, AgentActivity> AgentUsageMonitor::update(
         if (!request.session_ref)
             ++unreferenced_groups[request.kind + '\x1f' + directory_key(request.working_directory)];
 
-    std::unordered_set<std::string> live;
+    // Resolve agents with a native session reference first: the files they
+    // claim are excluded when locating unreferenced agents by directory.
+    std::vector<const AgentUsageRequest*> ordered;
     for (const auto& request : requests)
+        if (request.session_ref)
+            ordered.push_back(&request);
+    for (const auto& request : requests)
+        if (!request.session_ref)
+            ordered.push_back(&request);
+    std::unordered_set<std::string> claimed;
+
+    std::unordered_set<std::string> live;
+    for (const AgentUsageRequest* ordered_request : ordered)
     {
+        const AgentUsageRequest& request = *ordered_request;
         if (request.kind != "claude" && request.kind != "codex")
             continue;
         live.insert(request.instance_id);
@@ -568,17 +585,25 @@ std::unordered_map<std::string, AgentActivity> AgentUsageMonitor::update(
         if (binding.kind != request.kind)
             binding = { .kind = request.kind };
         const bool changed = request.kind == "claude" ? claude_changed : codex_changed;
-        const bool due = !binding.attempted
-            || ((changed || reconcile) && now - binding.resolved_at >= kMinimumResolveInterval);
-        if (!due)
-            continue;
-        const bool ambiguous = !request.session_ref
-            && unreferenced_groups[request.kind + '\x1f' + directory_key(request.working_directory)] > 1;
-        binding.path = request.kind == "claude"
-            ? impl.resolve_claude(request, ambiguous)
-            : impl.resolve_codex(request, ambiguous, now);
-        binding.attempted = true;
-        binding.resolved_at = now;
+        const bool reference_changed = binding.session_ref != request.session_ref;
+        // Unbound agents retry on every change (their file may just have
+        // appeared); bound agents re-check at most every few seconds.
+        const bool due = !binding.attempted || reference_changed
+            || ((changed || reconcile)
+                && (binding.path.empty() || now - binding.resolved_at >= kMinimumResolveInterval));
+        if (due)
+        {
+            const bool ambiguous = !request.session_ref
+                && unreferenced_groups[request.kind + '\x1f' + directory_key(request.working_directory)] > 1;
+            binding.path = request.kind == "claude"
+                ? impl.resolve_claude(request, ambiguous, claimed)
+                : impl.resolve_codex(request, ambiguous, claimed, now);
+            binding.session_ref = request.session_ref;
+            binding.attempted = true;
+            binding.resolved_at = now;
+        }
+        if (request.session_ref && !binding.path.empty())
+            claimed.insert(binding.path.string());
     }
     std::erase_if(impl.bindings, [&](const auto& entry) { return !live.contains(entry.first); });
 

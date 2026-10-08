@@ -418,19 +418,23 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                 static_cast<float>(shell.sidebar_agents.y + (static_cast<int>(running_rows) + 1) * ch));
         for (size_t i = 0; i < agent_rows.size(); ++i)
         {
+            const auto& source = agent_rows[i];
             const bool personal = i >= running_rows;
-            const int row = static_cast<int>(i) + (personal ? 2 : 1);
+            const bool add = personal && source.add_button;
+            const bool editing = !add && (personal
+                ? input.rename.target == RenameTarget::PersonalAgent && input.rename.personal_id == source.instance_id
+                : input.rename.target == RenameTarget::Agent && input.rename.agent_instance_id == source.instance_id);
+            const int row = static_cast<int>(i) + (personal ? 2 : 1) + (add ? 1 : 0);
             const int row_y = shell.sidebar_agents.y + row * ch;
             if (row >= out.sidebar_agent_rows
                 || row_y + ch > shell.sidebar_agents.y + shell.sidebar_agents.h)
             {
                 break;
             }
-            const auto& source = agent_rows[i];
             const int index = static_cast<int>(personal ? i - running_rows : i) + 1;
-            const std::string prefix = std::to_string(index) + ": ";
+            const std::string prefix = add ? "" : std::to_string(index) + ": ";
             const int digits = static_cast<int>(std::to_string(index).size());
-            const std::string suffix = source.status_suffix.empty()
+            const std::string suffix = add || editing ? "" : source.status_suffix.empty()
                 ? (source.running ? "" : " [exited]")
                 : " " + source.status_suffix;
             // A coin sits in whole leading columns so the pill and its grid
@@ -448,7 +452,8 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             agent.running = source.running;
             agent.focused = source.focused;
             agent.attention = source.attention;
-            agent.label = prefix + truncate_to_columns(source.display_name,
+            agent.editing = editing;
+            agent.label = prefix + truncate_to_columns(editing ? input.rename.buffer : source.display_name,
                 std::max(1, max_label_cols
                         - display_columns(prefix) - display_columns(suffix)))
                 + suffix;
@@ -459,15 +464,22 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                 .grid_y = static_cast<float>(row_y),
                 .columns = total,
                 .text_col = coin_cols + kTabPadCols,
-                .prefix_cols = digits + 1,
+                .prefix_cols = add ? 0 : digits + 1,
                 .cell_width = cw,
                 .cell_height = ch,
                 .left_inset = static_cast<float>(input.grid_padding),
                 .label = agent.label,
                 .palette = chrome_pill_palette(
                     input.theme, ChromePillRole::Agent,
-                    agent.focused || agent.attention),
+                    agent.focused || agent.attention, editing),
             });
+            if (editing)
+            {
+                const float caret_x=std::min(agent.rect.x+(kTabPadCols+digits+2
+                    +columns_to_offset(input.rename.buffer,input.rename.cursor))*cw,
+                    agent.rect.x+agent.rect.w-3.0f);
+                out.agent_caret=ChromeCaretLayout{{caret_x,agent.rect.y+2.0f,1.5f,static_cast<float>(ch)-8.0f}};
+            }
             if (coin_cols > 0)
             {
                 // Left-align the coin with where an uncoined pill would start.
@@ -481,7 +493,7 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                 };
             }
             out.hit_regions.push_back({ personal ? ChromeHitKind::PersonalAgent : ChromeHitKind::Agent, agent.agent_index,
-                { static_cast<float>(shell.sidebar_agents.x),
+                add ? agent.rect : ChromeRect{ static_cast<float>(shell.sidebar_agents.x),
                     static_cast<float>(row_y),
                     static_cast<float>(out.sidebar_width), static_cast<float>(ch) } });
             out.agents.push_back(std::move(agent));

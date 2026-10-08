@@ -122,7 +122,7 @@ TEST_CASE("Claude current UI evidence drives explainable server status transitio
         const auto listed = service.handle("agent.list", nlohmann::json::object());
         REQUIRE(listed.ok);
         REQUIRE(listed.value.size() == 1);
-        CHECK(listed.value[0]["status"] == to_string(fixture.status));
+        CHECK(listed.value[0]["status"].get<std::string>() == std::string(to_string(fixture.status)));
         CHECK(listed.value[0]["running"] == true);
         const auto explained = service.handle("agent.explain", { { "instance_id", "happy-cat" } });
         REQUIRE(explained.ok);

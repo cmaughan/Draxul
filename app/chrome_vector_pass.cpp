@@ -119,6 +119,8 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
                     agent.palette.body_bg, agent.palette.accent_bg);
             }
 
+            draw_caret(vg, layout.agent_caret, layout.edit_started_at, theme.editing_outline);
+
             if (layout.sidebar_section_divider.h > 0.0f)
             {
                 nvgBeginPath(vg);

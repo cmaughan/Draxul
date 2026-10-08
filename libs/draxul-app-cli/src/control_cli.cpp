@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <future>
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include <thread>
 
@@ -102,14 +103,15 @@ void print_human(const CliContext& io, const ControlCliCommand& command, const n
                 = route_text("space_id");
             const std::string tab
                 = route_text("tab_id");
-            std::fprintf(io.output, "%c %-20s %-10s %-8s space=%s tab=%s pane=%s\n",
+            std::fprintf(io.output, "%c %-20s %-10s %-8s space=%s tab=%s pane=%s alias=%s\n",
                 agent.value("focused", false) ? '*' : ' ',
                 agent.value("instance_id", "").c_str(),
                 agent.value("kind", "").c_str(),
                 agent.value("status", "").c_str(),
                 space.c_str(),
                 tab.c_str(),
-                route.value("pane_id", "").c_str());
+                route.value("pane_id", "").c_str(),
+                agent.value("alias", "").c_str());
         }
         return;
     }
@@ -140,7 +142,7 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
     if (args.size() < 2
         || (args[1] != "space" && args[1] != "agent"
             && args[1] != "pane" && args[1] != "plugin"
-            && args[1] != "ui"))
+            && args[1] != "ui" && args[1] != "personal"))
         return parsed;
     parsed.recognized = true;
     if (args.size() < 3)
@@ -155,7 +157,9 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
     size_t position = 3;
     bool session_explicit = false;
 
-    if (noun == "space" && verb == "list")
+    if (noun == "personal" && (verb == "snapshot" || verb == "result" || verb == "submit"))
+        command.method = "personal." + (verb == "submit" ? std::string("command") : verb);
+    else if (noun == "space" && verb == "list")
         command.method = "space.list";
     else if (noun == "space" && verb == "get")
         command.method = "space.get";
@@ -201,7 +205,7 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         return parsed;
     }
 
-    const bool needs_value = command.method == "space.get" || command.method == "space.focus"
+    const bool needs_value = command.method == "personal.result" || command.method == "space.get" || command.method == "space.focus"
         || command.method == "agent.get" || command.method == "agent.start"
         || command.method == "agent.focus" || command.method == "agent.restart"
         || command.method == "agent.send_text"
@@ -212,17 +216,33 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         || command.method == "plugin.reload";
     if (needs_value)
     {
+        if (position < args.size() && args[position] == "--alias"
+            && noun == "agent" && verb != "start")
+        {
+            command.agent_alias = true;
+            ++position;
+        }
         if (position >= args.size() || args[position].starts_with("--"))
         {
             parsed.error = "This command requires an id.\n" + usage();
             return parsed;
         }
         command.value = args[position++];
+        if (command.agent_alias && command.value.empty())
+        {
+            parsed.error = "--alias requires a non-empty name.";
+            return parsed;
+        }
     }
 
     while (position < args.size())
     {
-        if (args[position] == "--json")
+        if (args[position] == "--file" && command.method == "personal.command")
+        {
+            if (++position >= args.size()) { parsed.error="--file requires a JSON command file."; return parsed; }
+            command.reference_value=args[position++];
+        }
+        else if (args[position] == "--json")
         {
             command.json = true;
             ++position;
@@ -495,6 +515,8 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         }
     }
 
+    if (command.method == "personal.command" && command.reference_value.empty())
+    { parsed.error="personal submit requires --file <JSON command file>."; return parsed; }
     if (command.method != "pane.read" && command.lines != 50)
     {
         parsed.error = "--lines is only valid for pane read.";
@@ -533,14 +555,15 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         return parsed;
     }
     if (command.method == "pane.report_agent_session"
-        && (command.agent_instance_id.empty() || command.source.empty()
+        && (command.source.empty()
             || command.agent_kind.empty() || command.integration_version == 0
             || command.sequence == 0 || command.reference_value.empty()
             || (command.reference_kind != "id"
                 && command.reference_kind != "path")))
     {
-        parsed.error = "pane report-agent-session requires --agent-instance, --source, "
-                       "--agent, --integration-version, --sequence, and --session-ref.";
+        parsed.error = "pane report-agent-session requires --source, --agent, "
+                       "--integration-version, --sequence, and --session-ref "
+                       "(--agent-instance is optional for agents started in a shell).";
         return parsed;
     }
     if (command.replace_pane && command.method != "agent.start")
@@ -672,7 +695,8 @@ int run_control_cli(const ControlCliCommand& command, const CliContext& io)
     else if (command.method == "pane.report_agent_session")
     {
         params["pane_id"] = command.value;
-        params["agent_instance_id"] = command.agent_instance_id;
+        if (!command.agent_instance_id.empty())
+            params["agent_instance_id"] = command.agent_instance_id;
         params["source"] = command.source;
         params["agent"] = command.agent_kind;
         params["integration_version"] = command.integration_version;
@@ -708,6 +732,34 @@ int run_control_cli(const ControlCliCommand& command, const CliContext& io)
               ConfigDocument::default_path().parent_path())
         : std::filesystem::path(
               command.server_runtime_directory);
+    if (command.method.starts_with("personal."))
+    {
+        try
+        {
+            if (command.method == "personal.command")
+            {
+                const auto path=std::filesystem::u8path(command.reference_value);
+                if (std::filesystem::file_size(path)>65536) throw std::runtime_error("Command file exceeds 64 KiB.");
+                std::ifstream input(path,std::ios::binary);
+                if (!input) throw std::runtime_error("Cannot read command file.");
+                params=nlohmann::json::parse(input);
+                if (!params.is_object()) throw std::runtime_error("Expected a JSON command object.");
+            }
+            else if (command.method == "personal.result") params["request_id"]=command.value;
+            const auto client=make_server_client_id();
+            const auto probe=ServerClient::probe({.runtime_directory=server_runtime,.client_id=client,.launch_if_missing=false});
+            if (!probe.ready()) throw std::runtime_error(probe.error_message);
+            params["client_id"]=client;
+            params["connection_token"]=probe.welcome->connection_token;
+            const auto response=io.request(namespaced_control_id(kServerControlId,server_runtime),server_runtime,command.method,params);
+            std::string ignored;
+            ServerClient::disconnect(server_runtime,client,ignored,probe.welcome->connection_token);
+            if (!response.ok) throw std::runtime_error(response.error_code+": "+response.error_message);
+            std::fprintf(io.output,"%s\n",response.result.dump(2).c_str());
+            return 0;
+        }
+        catch (const std::exception& e) { std::fprintf(io.error,"%s\n",e.what()); return 1; }
+    }
     const bool supports_headless_server
         = command.method == "ui.list"
         || command.method == "agent.list"
@@ -803,12 +855,13 @@ int run_control_cli(const ControlCliCommand& command, const CliContext& io)
         && (!command.server_runtime_directory.empty()
             || command.replace_pane));
     const auto request
-        = [&](const nlohmann::json& request_params) {
+        = [&](const nlohmann::json& request_params, std::string_view method = {}) {
+              const auto request_method = method.empty() ? std::string_view(command.method) : method;
               if (!using_global_server)
               {
                   auto local = io.request(
                       command.control_id, runtime,
-                      command.method, request_params);
+                      request_method, request_params);
                   if (local.ok
                       || !supports_headless_server
                       || (local.error_code
@@ -830,7 +883,7 @@ int run_control_cli(const ControlCliCommand& command, const CliContext& io)
               return io.request(
                   namespaced_control_id(
                       kServerControlId, server_runtime),
-                  server_runtime, command.method,
+                  server_runtime, request_method,
                   std::move(global_params));
           };
     const auto route_ui_request = [&]() -> ControlClientResult {
@@ -919,6 +972,38 @@ int run_control_cli(const ControlCliCommand& command, const CliContext& io)
             },
             {}, {} };
     };
+    if (command.agent_alias)
+    {
+        const auto listed = request(nlohmann::json::object(), "agent.list");
+        if (!listed.ok || !listed.result.is_array())
+        {
+            std::fprintf(io.error, "%s: %s\n", listed.ok ? "invalid_agent_list" : listed.error_code.c_str(),
+                listed.ok ? "Agent list is not an array." : listed.error_message.c_str());
+            return 1;
+        }
+        std::string instance_id;
+        for (const auto& agent : listed.result)
+        {
+            if (agent.value("alias", "") != command.value) continue;
+            if (!instance_id.empty())
+            {
+                std::fprintf(io.error, "ambiguous_alias: Multiple agents have this alias; use an instance ID from agent list.\n");
+                return 1;
+            }
+            instance_id = agent.value("instance_id", "");
+            if (instance_id.empty())
+            {
+                std::fprintf(io.error, "invalid_agent_list: Matching agent has no instance ID.\n");
+                return 1;
+            }
+        }
+        if (instance_id.empty())
+        {
+            std::fprintf(io.error, "not_found: No agent has this alias in the selected Session.\n");
+            return 1;
+        }
+        params["instance_id"] = std::move(instance_id);
+    }
     auto result = (command.method == "pane.focus"
                       || command.method == "pane.action")
         ? route_ui_request()

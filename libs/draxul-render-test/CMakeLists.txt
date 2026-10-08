@@ -27,6 +27,7 @@ target_link_libraries(draxul-render-test PUBLIC
 )
 target_link_libraries(draxul-render-test PRIVATE
     draxul-bmp
+    draxul-personal-agent
     draxul-performance
 )
 

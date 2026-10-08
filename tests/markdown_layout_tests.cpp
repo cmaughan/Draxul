@@ -695,3 +695,87 @@ TEST_CASE("markdown layout keeps bold-led lines and bullets separated", "[markdo
     }
 
 }
+
+TEST_CASE("markdown links retain destinations and hit boundaries through wrapping and tables", "[markdown][layout][links]")
+{
+    const auto parsed=parse_markdown({},
+        "Before [a **bold linked label** that wraps](https://example.com/one) after "
+        "[second](https://example.com/two).\n\n"
+        "- [averylonglinkedwordthatmustsplit](https://example.com/long)\n\n"
+        "| Reference |\n| --- |\n| [table link](https://example.com/table) |\n\n"
+        "`[literal](https://example.com/code)`\n\n[local](file:///tmp/example)\n");
+    REQUIRE(parsed.ok);
+    const auto theme=default_markdown_theme(12);
+    auto layout=layout_markdown_document(parsed.document,theme,synthetic_metrics(),
+        {.viewport_width=150,.margin_columns=0});
+    int first_fragments=0,long_fragments=0;bool bold_link=false,table_link=false,plain=false;
+    for(const auto& row:layout.rows)
+        for(const auto& run:row.runs)
+        {
+            const auto hit=markdown_link_at(layout,run.x+run.width*.5f,row.y+row.height*.5f);
+            if(is_web_link(run.link_destination))
+            {
+                REQUIRE(run.width>0);
+                CHECK(hit==run.link_destination);
+                if(run.link_destination=="https://example.com/one")
+                { ++first_fragments;bold_link|=(run.style.value & kStyleBoldFlag)!=0; }
+                if(run.link_destination=="https://example.com/long") ++long_fragments;
+                if(run.link_destination=="https://example.com/table") table_link=true;
+            }
+            else
+            {
+                CHECK(hit.empty());
+                plain|=run.text.find("Before")!=std::string::npos;
+            }
+            CHECK(markdown_link_at(layout,-1,row.y).empty());
+            CHECK(markdown_link_at(layout,10000,row.y).empty());
+        }
+    CHECK(first_fragments>1);CHECK(long_fragments>1);CHECK(bold_link);CHECK(table_link);CHECK(plain);
+    CHECK(markdown_link_at(layout,10,layout.content_height+1).empty());
+    // A history viewport shifts rows, including a partially clipped first row.
+    for(auto& row:layout.rows) row.y-=5;
+    for(const auto& row:layout.rows)
+        for(const auto& run:row.runs)
+            if(is_web_link(run.link_destination) && row.y+row.height*.5f>=0)
+                CHECK(markdown_link_at(layout,run.x+run.width*.5f,row.y+row.height*.5f)==run.link_destination);
+}
+
+TEST_CASE("markdown browser links only accept web destinations", "[markdown][layout][links]")
+{
+    CHECK(is_web_link("https://example.com/path?q=one&v=two#heading"));
+    CHECK(is_web_link("HTTP://localhost:8080/"));
+    for(const auto target:{"javascript:alert(1)","file:///tmp/example","mailto:user@example.com",
+        "../local.md","#heading","https://","https:///path","https://example.com/with space",
+        "https://example.com/\nnext"}) CHECK_FALSE(is_web_link(target));
+    const std::string embedded_null("https://example.com/\0next",25);
+    CHECK_FALSE(is_web_link(embedded_null));
+}
+
+TEST_CASE("Markdown images reserve proportional rows between text and preserve image links", "[markdown][layout]")
+{
+    const auto parsed=parse_markdown({},"Before\n\n[![Price chart](<chart space.png>)](https://example.com/chart)\n\nAfter\n\n- ![Small chart](small.png)");
+    LayoutOptions options{.viewport_width=300,.pixel_scale=1,.margin_columns=0,
+        .image_size=[](std::string_view dest){return dest=="small.png"?std::pair{80.f,40.f}:std::pair{1200.f,600.f};}};
+    const auto layout=layout_markdown_document(parsed.document,default_markdown_theme(12),synthetic_metrics(),options);
+    std::vector<const LayoutRow*> images;
+    for(const auto& row:layout.rows) if(!row.images.empty()) images.push_back(&row);
+    REQUIRE(images.size()==2);
+    const auto& chart=images[0]->images.front();
+    CHECK(chart.destination=="chart space.png");CHECK(chart.alt=="Price chart");
+    CHECK(chart.width==300);CHECK(chart.height==150);
+    CHECK(markdown_link_at(layout,chart.x+1,chart.y+1)=="https://example.com/chart");
+    CHECK(images[1]->images.front().width==80);CHECK(images[1]->images.front().height==40);
+    for(size_t i=1;i<layout.rows.size();++i)
+        CHECK(layout.rows[i].y>=layout.rows[i-1].y+layout.rows[i-1].height);
+    const auto visible=visible_rows(layout,chart.y+20,60);
+    REQUIRE(visible.count==1);CHECK(&layout.rows[visible.first]==images.front());
+    options.viewport_width=150;
+    const auto narrow=layout_markdown_document(parsed.document,default_markdown_theme(12),synthetic_metrics(),options);
+    for(const auto& row:narrow.rows) for(const auto& image:row.images)
+        if(image.destination==chart.destination) {CHECK(image.width==150);CHECK(image.height==75);}
+    options.image_size={};
+    const auto text_only=layout_markdown_document(parsed.document,default_markdown_theme(12),synthetic_metrics(),options);
+    bool alt=false;
+    for(const auto& row:text_only.rows) {CHECK(row.images.empty());for(const auto& run:row.runs) if(run.text.find("Price")!=std::string::npos) alt=true;}
+    CHECK(alt);
+}

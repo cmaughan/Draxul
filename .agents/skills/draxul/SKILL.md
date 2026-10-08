@@ -105,6 +105,7 @@ draxul pane restart <pane-id> --json
 draxul pane close <pane-id> --json
 draxul pane swap <pane-id> <pane-id> --json
 draxul pane move <pane-id> --target <pane-id> \
+  [--space <destination-space>] [--tab <destination-tab>] \
   --direction <left|right|up|down> [--ratio <0.1..0.9>] --json
 
 draxul split list --tab <tab-id> --json
@@ -119,10 +120,13 @@ use the control id from `ui list`. External `pane action` calls fan out to every
 attached UI unless `--ui` selects one route.
 
 `left`/`up` place the new or moved pane before the target; `right`/`down` place
-it after. `pane swap` exchanges two pane positions. `pane move` currently
-reparents a pane only within the same tab. Do not simulate a cross-tab move by
-closing and recreating a live pane: that loses process state and changes route
-semantics.
+it after. `pane swap` exchanges two pane positions within a tab. `pane move`
+reparents any pane within its current tab, preserving its pane ID, live host and
+configuration. Server terminals and managed-agent panes can also move across
+tabs and Spaces; client-local panes cannot. Companion panes and their owners
+remain subject to the companion-owner restriction. Do not simulate a cross-tab
+move by closing and recreating a live pane: that loses process state and changes
+route semantics.
 
 Headless terminal operations apply only to `server_terminal` panes. A
 `client_local` Nvim, Markdown, Kanban, product, or plugin pane requires its owning
@@ -231,7 +235,11 @@ left-drag orbits the active camera, and the mouse wheel dollies.
 The bundled `nyx_flight_deck` example is a multi-project 5-by-2 dashboard
 launcher rather than a single project root. Run its `launch.ps1` from the
 Rezonality examples tree to create the complete shader, glTF, and terminal
-layout.
+layout. The bundled `starship_bridge` example is a 2-by-2 control panel;
+`python3 plugins/rezonality/examples/starship_bridge/launch.py` creates its tab
+on any platform. The bundled `seaside` example is a 2-by-2 nature scene;
+`python3 plugins/rezonality/examples/seaside/launch.py` generates its meshes
+when missing and creates its tab on any platform.
 
 Create an atomic agent workspace with the checked-in generator:
 
@@ -383,6 +391,21 @@ including the appended Enter byte for `prompt`. For example:
 ```text
 draxul agent prompt happy-otter --text "Review the latest changes." --json
 ```
+
+`agent list` and `agent get` expose `alias`, the user's saved pill name (empty
+when unnamed), alongside the stable `instance_id`. To find a named agent, replace
+the instance-ID argument with `--alias "Build reviewer"`, for example:
+
+```text
+draxul agent get --alias "Build reviewer" --json
+draxul agent prompt --alias "Build reviewer" --text "Review the latest changes." --json
+```
+
+Alias matching is exact and case-sensitive within the selected Session. Duplicate
+names fail with `ambiguous_alias`; inspect `agent list` and use the intended ID.
+Aliases also work for explain, send, keys, wait, restart, and UI-local focus.
+Wait resolves once and stays with that ID even if the alias changes. Prefer the
+returned stable ID for subsequent automation; renames do not change identity.
 
 Use the actual `instance_id` from `agent list` or `agent start`. In the local
 development workspace, `dr rel agent prompt ...` (inside the Draxul repository)

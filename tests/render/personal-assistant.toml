@@ -1,7 +1,8 @@
 name = "personal-assistant"
 host = "personal-assistant"
+source = "render-chat-fixture"
 width = 1100
-height = 720
+height = 1100
 font_path = "${SCENARIO_DIR}/../../fonts/JetBrainsMonoNerdFont-Regular.ttf"
 font_size = 11
 timeout_ms = 8000

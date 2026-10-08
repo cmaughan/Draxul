@@ -11,14 +11,31 @@ TEST_CASE("server-owned shell discovery converges in two agent clients",
     "[server][agent][process]")
 {
     TempDir temp("draxul-server-agent");
+    // A live personal provider must not change ordinary shell-agent discovery.
+    const auto personal_root=temp.path/"personal";
+    std::filesystem::create_directories(personal_root/"agents/assistant");
+    {std::ofstream file(personal_root/"collection.toml");file<<"schema_version = 3\nid = 'test-personal'\nname = 'Personal'\n";}
+    {std::ofstream file(personal_root/"agents/assistant/agent.toml");file<<"schema_version = 3\nid = 'assistant'\nname = 'Assistant'\nprofile = 'personal-codex'\nrevision = 1\n";}
     ServerKernel server({
+        .personal_agents_root=personal_root,
+        .personal_local_state=temp.path/"personal-local",
         .runtime_directory = temp.path,
         .build_version = "unit-test",
         .epoch_override = "fixed-epoch",
+        .agent_definitions={{.profile_id="personal-codex",.kind="codex",.display_name="Personal Codex",.executable=DRAXUL_PERSONAL_FAKE_PATH}},
     });
     REQUIRE(server.start().disposition
         == ServerStartDisposition::Started);
     ServerRunGuard run_guard(server);
+    ServerControlChannel personal_channel({.runtime_directory=temp.path,.client_id="personal-coexistence"});
+    ControlClientResult personal_state;
+    for(int i=0;i<200;++i)
+    {
+        personal_state=personal_channel.request_with_recovery("personal.chat.snapshot",{{"agent_id","assistant"}});
+        if(personal_state.ok && personal_state.result["state"]=="idle") break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    INFO(personal_state.result.dump());REQUIRE(personal_state.ok);REQUIRE(personal_state.result["state"]=="idle");
 
     auto terminal = remote_client(
         temp.path, "agent-terminal", "fixed-epoch",
@@ -103,6 +120,64 @@ TEST_CASE("server-owned shell discovery converges in two agent clients",
     REQUIRE(listed.ok);
     REQUIRE(listed.result.size() == 1);
     CHECK(listed.result[0]["instance_id"] == instance_id);
+
+    TopologyClient topology({.runtime_directory=temp.path, .client_id="alias-owner"});
+    REQUIRE(topology.refresh(error));
+    const auto route = listed.result[0]["route"];
+    for (const std::string alias : {"Build reviewer", ""})
+    {
+        TopologyCommand rename{
+            .command_id = alias.empty() ? "clear-alias" : "rename-alias",
+            .expected_revision = topology.snapshot().revision,
+            .kind = TopologyCommandKind::RenamePane,
+            .space_id = route["space_id"].get<std::string>(),
+            .tab_id = route["tab_id"].get<std::string>(),
+            .pane_id = route["pane_id"].get<std::string>(),
+            .name = alias,
+        };
+        TopologyCommandResult renamed;
+        REQUIRE(topology.execute(rename, renamed, error));
+        for (int attempt=0; attempt<100; ++attempt)
+        {
+            REQUIRE(first.poll(changed, error));
+            if (first.snapshot().agents[0].alias == alias) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        CHECK(first.snapshot().agents[0].alias == alias);
+        CHECK(first.snapshot().agents[0].identity.instance_id == instance_id);
+        const auto named = server_request("agent.get", {{"instance_id",instance_id}});
+        REQUIRE(named.ok);
+        CHECK(named.result["alias"] == alias);
+        CHECK(named.result["display_name"] == (alias.empty() ? "Codex" : alias));
+    }
+
+    // An integration hook in a shell pane has no managed instance id; the
+    // server attaches the native session to the discovered agent by pane.
+    nlohmann::json report{
+        { "server_epoch", "fixed-epoch" },
+        { "runtime_generation", 1 },
+        { "pane_id", kServerShellPaneId },
+        { "source", "draxul:codex" },
+        { "agent", "codex" },
+        { "integration_version", 3 },
+        { "sequence", 5 },
+        { "ref_kind", "id" },
+        { "ref_value", "hand-started-codex" },
+    };
+    const auto reported = server_request("pane.report_agent_session", report);
+    INFO(reported.error_message);
+    REQUIRE(reported.ok);
+    CHECK(reported.result["instance_id"] == instance_id);
+    CHECK(reported.result["session_ref"]["value"] == "hand-started-codex");
+    report["sequence"] = 4;
+    const auto stale = server_request("pane.report_agent_session", report);
+    CHECK_FALSE(stale.ok);
+    CHECK(stale.error_code == "stale_report");
+    report["sequence"] = 6;
+    report["runtime_generation"] = 2;
+    const auto replaced = server_request("pane.report_agent_session", report);
+    CHECK_FALSE(replaced.ok);
+    CHECK(replaced.error_code == "agent_replaced");
 
     const auto waited = server_request("agent.wait",
         {

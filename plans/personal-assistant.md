@@ -1,10 +1,22 @@
 # Personal Assistant initial implementation plan
 
 Date: 2026-10-01  
-Status: Slice 1 (read-only discovery and display) implemented for review; execution and later slices remain planned. See the tracking card for validation limitations.  
+Status: Course correction (2026-10-06): personal agents are persistent Codex/Claude terminal conversations with optional sidebar names and automatically provisioned Dropbox backing data. The earlier form/editor and bounded one-shot runner are superseded. See `docs/personal-assistant.md` for current behavior.
 Tracking: [67 personal-assistant-host -feature.md](../kanban/pending/67%20personal-assistant-host%20-feature.md)
 
-## Intent
+## Accepted interaction model
+
+Start an agent from a sidebar pill and chat using its existing provider terminal.
+Prefix its startup with the location of `Vault/PA/agents/<id>` so it can read or
+initialize standing instructions and durable context. The user can optionally
+rename the pill; internal IDs and metadata are not a configuration task. Keep
+provider model and permission behavior in the normal chat/profile workflow.
+
+The remaining design below is historical planning. Scheduling, messaging,
+ownership and handoff require review against this simpler model before another
+slice starts; they must not reintroduce a job-definition form or manual-run ritual.
+
+## Original intent (historical)
 
 Make Draxul a visible home for persistent personal agents without building a new
 agent framework. A user chooses a supported provider/model, describes a job in

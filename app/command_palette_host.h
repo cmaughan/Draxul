@@ -41,9 +41,11 @@ public:
 
     void on_key(const KeyEvent& event) override;
     void on_text_input(const TextInputEvent& event) override;
+    void on_mouse_button(const MouseButtonEvent& event) override;
 
     bool open_prompt(CommandPalette::PromptRequest request);
     bool open_choices(CommandPalette::ChoiceRequest request);
+    bool open_context_menu(CommandPalette::ChoiceRequest request, int px, int py);
     bool dispatch_action(std::string_view action) override;
     void request_close() override;
     Color default_background() const override;
@@ -63,6 +65,8 @@ private:
     IHostCallbacks* callbacks_ = nullptr;
     IGridRenderer* renderer_ = nullptr;
     TextService* text_service_ = nullptr;
+    HostViewport full_viewport_;
+    bool context_menu_ = false;
     int pixel_x_ = 0;
     int pixel_y_ = 0;
     int pixel_w_ = 0;

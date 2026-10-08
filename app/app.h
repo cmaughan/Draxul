@@ -43,6 +43,7 @@ class ControlServer;
 class ControlEventJournal;
 class RemoteSessionClient;
 class PersonalAgentClient;
+struct PersonalAgentDefinition;
 class RemoteSessionCoordinator;
 struct ServerAgentSnapshot;
 struct TopologyCommand;
@@ -356,6 +357,16 @@ private:
     std::unique_ptr<PersonalAgentClient> personal_agent_client_;
     std::shared_ptr<const PersonalAgentSnapshot> last_personal_snapshot_;
     std::shared_ptr<const PersonalAgentSnapshot> personal_agents() const override;
+    std::shared_ptr<const PersonalChatSnapshot> personal_chat(std::string_view id) override;
+    std::string personal_chat_command(std::string_view id, std::string_view action, std::string_view text, std::string_view approval_id) override;
+    void open_personal_agent(std::string identity) override;
+    void pump_personal_command();
+    void open_personal_conversation(const PersonalAgentDefinition& definition);
+    std::string pending_personal_command_;
+    bool pending_personal_create_ = false;
+    std::string pending_personal_focus_;
+    std::string personal_command(const PersonalAgentCommand&) override;
+    std::shared_ptr<const PersonalAgentCommandResult> personal_result(std::string_view) const override;
     std::shared_ptr<RemoteSessionCoordinator>
         remote_session_coordinator_;
     std::unique_ptr<ITopologyMutationRoute>

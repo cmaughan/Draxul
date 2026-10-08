@@ -20,8 +20,21 @@ TEST_CASE("personal sidebar entries have distinct section and hit targets", "[ch
     });
     input.agents.push_back({ .instance_id = "live", .display_name = "Live", .running = true });
     input.personal_agents.push_back({ .instance_id = "news", .display_name = "News", .status_suffix = "[off]" });
+    input.personal_agents.push_back({.display_name="+",.add_button=true});
+    input.rename.target=RenameTarget::PersonalAgent;
+    input.rename.personal_id="news";
+    input.rename.buffer="Renamed";
+    input.rename.cursor=7;
     const auto layout = compute_chrome_layout(input);
-    REQUIRE(layout.agents.size() == 2);
+    REQUIRE(layout.agents.size() == 3);
+    CHECK(layout.agents[1].editing);
+    CHECK(layout.agent_caret.has_value());
+    CHECK(layout.agents[1].label.find("Renamed")!=std::string::npos);
+    CHECK(layout.agents[2].label=="+");
+    CHECK(layout.agents[2].row==layout.agents[1].row+2);
+    const auto& add=layout.agents[2].rect;
+    CHECK(hit_test_chrome(layout,ChromeHitKind::PersonalAgent,static_cast<int>(add.x+2),static_cast<int>(add.y+2))==2);
+    CHECK(hit_test_chrome(layout,ChromeHitKind::PersonalAgent,static_cast<int>(add.x+add.w+20),static_cast<int>(add.y+2))==0);
     CHECK(layout.sidebar_personal_agents_header.h > 0);
     CHECK(layout.agents[0].row < layout.agents[1].row - 1);
     const auto& rect = layout.agents[1].rect;
@@ -513,4 +526,26 @@ TEST_CASE("Activity coin spins under load and settles exactly face-on when idle"
     CHECK(motion.angle == 0.0f);
     CHECK(motion.angular_speed == 0.0f);
     CHECK(frames_to_rest < 30 * 6);
+}
+
+TEST_CASE("Draxul agent editor renders its label and caret independently of personal rows", "[chrome][agents][rename]")
+{
+    auto input = base_input();
+    input.spaces = {{0, "default", true}};
+    refresh_shell(input, true);
+    input.agents = {{.instance_id="happy-otter", .display_name="Codex", .status_suffix="[input]", .running=true}};
+    input.personal_agents = {{.instance_id="news", .display_name="News"}};
+    input.rename.target = RenameTarget::Agent;
+    input.rename.agent_instance_id = "happy-otter";
+    input.rename.buffer = "Helper";
+    input.rename.cursor = 6;
+    const auto layout = compute_chrome_layout(input);
+    REQUIRE(layout.agents.size() == 2);
+    CHECK(layout.agents[0].editing);
+    CHECK(layout.agents[0].label == "1: Helper");
+    CHECK_FALSE(layout.agents[1].editing);
+    REQUIRE(layout.agent_caret.has_value());
+    const auto& pill = layout.agents[0].rect;
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Agent,
+        static_cast<int>(pill.x + 2), static_cast<int>(pill.y + 2)) == 1);
 }

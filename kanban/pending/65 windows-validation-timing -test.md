@@ -70,3 +70,50 @@ again (194.53 s); the standard same-cache Debug smoke passed in 27.79 s outer ti
 Final isolated Release plugin startup also passed (13.34 s build, 15.48 s outer).
 This passing run does not establish a cause or resolution for the earlier timing
 failures. No broader core repeat was needed for the product-only visual change.
+
+## Flashcards queue/cooldown checkpoint, 2026-10-06
+
+All six current product groups passed on the synchronized host (288.84 s).
+Standard same-cache Debug smoke again timed out at its 30-second bound; owned
+PID 47340 was stopped, outer 34.48 s. A supervised isolated Flashcards startup
+passed in 2.475 s with frame readiness logged. This does not establish a cause or
+fix for the default-profile timeout. Product timings, failures and normal/narrow
+captures are in `plugins/flashcards/docs/validation.md` and the ignored Debug tree.
+
+## Flashcards shared scheduling checkpoint, 2026-10-06
+
+All eight product groups passed (364.60 s), including actual offline grades,
+three-device convergence and stale revealed-answer rejection. The standard
+same-cache Debug smoke again hit its 30-second bound; owned PID 76388 was stopped.
+Actual-profile Flashcards startup/setup passed exit 0 with frame readiness and
+byte-for-byte preservation of existing recall. This does not establish a cause
+or fix for the default-profile timeout. Product timing, diagnosis and final
+normal/narrow footer evidence are in `plugins/flashcards/docs/validation.md`.
+
+After fast-forwarding the independently published personal-agent host update
+`95493166`, all eight Flashcards groups passed again (365.51 s). Standard
+same-cache Debug smoke timed out at 30 s again and stopped owned PID 79208.
+Updated-host Release Flashcards startup passed exit 0. No default-profile timing
+cause or fix is inferred; no broad core runtime result is claimed.
+
+## Flashcards draggable queue / immediate rounds, 2026-10-06
+
+The standard same-cache Debug smoke again timed out at 30 seconds (exit 124);
+the runner stopped owned PID 47604. A supervised Flashcards-only startup in the
+same Debug cache passed exit 0 in 20.08 seconds. Final Release Flashcards startup
+also passed exit 0 after a 94.50-second incremental build. No default-profile
+timeout cause or fix is inferred. Current native capture diagnostics and costs
+are retained in `plugins/flashcards/docs/validation.md` and ignored build logs.
+These product-only edits do not claim a broader core runtime pass.
+
+## Windows Personal Assistant root repair, 2026-10-06
+
+Core aggregate passed 54/56 groups in 60.40s; the two failures remain the existing
+family-grapheme font and test-scope fixture issues, cards 63 and 64. Standard
+same-cache Debug smoke again timed out at 30s (exit 124); owned PID 86912 stopped.
+Actual-profile Personal Assistant startup passed exit 0 in 19.69s from that Debug
+cache, and final Release Personal startup passed. The default server now uses the
+current Release helper, configured shared Dropbox collection and schema 3, with
+three error-free definitions. No default-profile timeout fix or cause is claimed.
+See `kanban/done/97 windows-personal-assistant-root -bug.md`; ignored logs are
+`build-ninja-debug/pa-root-*.log`.

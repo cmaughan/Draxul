@@ -3,15 +3,15 @@
   "scenarios": [
     {
       "name": "personal-assistant",
-      "purpose": "Built-in read-only Personal Assistant host connection-state rendering",
-      "status": "developer",
-      "platforms": ["windows", "macos"],
-      "ctest": false,
-      "reference_required": false,
-      "renderall": false,
-      "blessall": false,
-      "compare_command": "",
-      "bless_command": ""
+      "purpose": "Personal chat bubbles, wrapped messages and composer (macOS reference; host/process integration tests run on both platforms)",
+      "status": "regression",
+      "platforms": ["macos"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "personal",
+      "bless_command": "blesspersonal"
     },
     {
       "name": "basic-view",

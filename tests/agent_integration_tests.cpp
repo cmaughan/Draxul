@@ -4,6 +4,7 @@
 
 #include <draxul/agent_integration.h>
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -77,12 +78,14 @@ TEST_CASE("Codex explicit-path installation is idempotent and preserves configur
         AgentIntegrationAction::Install, paths);
     REQUIRE(second.success);
     CHECK(second.status.state == AgentIntegrationState::Current);
-    CHECK(second.status.expected_version == 2);
+    CHECK(second.status.expected_version == 3);
     CHECK(second.status.path == paths.hook);
 
     const auto hook = read_text(paths.hook);
     CHECK(hook.find("DRAXUL_INTEGRATION_ID=codex") != std::string::npos);
-    CHECK(hook.find("DRAXUL_INTEGRATION_VERSION=2") != std::string::npos);
+    CHECK(hook.find("DRAXUL_INTEGRATION_VERSION=3") != std::string::npos);
+    // The hook must not depend on draxul being on PATH.
+    CHECK(hook.find("DRAXUL_EXECUTABLE") != std::string::npos);
     CHECK(hook.find("draxul:codex") != std::string::npos);
     CHECK(hook.find("DRAXUL_SERVER_EPOCH") != std::string::npos);
     CHECK(hook.find("runtime-generation") != std::string::npos);
@@ -294,7 +297,7 @@ TEST_CASE("integration reports malformed documents and hook versions through typ
         == AgentIntegrationState::Outdated);
     CHECK(inspect_agent_integration(AgentIntegrationProvider::Claude, claude)
               .expected_version
-        == 2);
+        == 3);
 }
 
 TEST_CASE("uninstall removes only owned hooks and filesystem failures are typed results",
@@ -425,5 +428,49 @@ TEST_CASE("POSIX hook publication preserves private settings permissions",
     CHECK(std::filesystem::status(paths.features).permissions() == private_mode);
     CHECK(nlohmann::json::parse(read_text(paths.registration))["unrelated"] == true);
     CHECK(read_text(paths.features).find("keep-me") != std::string::npos);
+}
+#endif
+
+#ifndef _WIN32
+TEST_CASE("installed hooks report through the pane executable for hand-started and managed agents",
+    "[agent-integration][hook]")
+{
+    if (std::system("command -v python3 >/dev/null 2>&1") != 0)
+        SKIP("python3 is required by the POSIX hooks");
+    TempDir temp("draxul-agent-integration-hook");
+    const auto record = temp.path / "invoked.txt";
+    // A path with a space, deliberately not on PATH.
+    const auto executable = temp.path / "stand in draxul";
+    write_text(executable, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> '" + record.string() + "'\n");
+    std::filesystem::permissions(executable, std::filesystem::perms::owner_all);
+
+    for (const auto provider : { AgentIntegrationProvider::Codex, AgentIntegrationProvider::Claude })
+    {
+        const auto directory = temp.path / agent_integration_provider_name(provider);
+        std::filesystem::create_directories(directory);
+        const auto paths = agent_integration_paths(provider, directory);
+        REQUIRE(apply(provider, AgentIntegrationAction::Install, paths).success);
+        const auto payload = temp.path / "payload.json";
+        write_text(payload, R"({"hook_event_name":"SessionStart","session_id":"native-1"})");
+        for (const std::string instance : { std::string{}, std::string{ "managed-7" } })
+        {
+            std::filesystem::remove(record);
+            const std::string command = "env -i PATH=/usr/bin:/bin DRAXUL_ENV=1 DRAXUL_PANE_ID=pane-3"
+                " DRAXUL_SESSION_ID=default DRAXUL_SERVER_EPOCH=epoch DRAXUL_RUNTIME_GENERATION=2"
+                " DRAXUL_SERVER_RUNTIME_DIR=/tmp/runtime"
+                + (instance.empty() ? std::string{} : " DRAXUL_AGENT_INSTANCE_ID=" + instance)
+                + " DRAXUL_EXECUTABLE='" + executable.string() + "' sh '" + paths.hook.string()
+                + "' session < '" + payload.string() + "'";
+            REQUIRE(std::system(command.c_str()) == 0);
+            const std::string invoked = read_text(record);
+            INFO(agent_integration_provider_name(provider) << " instance='" << instance << "'\n" << invoked);
+            CHECK(invoked.find("report-agent-session\npane-3\n") != std::string::npos);
+            CHECK(invoked.find("--session-ref\nnative-1\n") != std::string::npos);
+            CHECK(invoked.find("--runtime-generation\n2\n") != std::string::npos);
+            CHECK((invoked.find("--agent-instance\n") != std::string::npos) == !instance.empty());
+            if (!instance.empty())
+                CHECK(invoked.find("--agent-instance\nmanaged-7\n") != std::string::npos);
+        }
+    }
 }
 #endif

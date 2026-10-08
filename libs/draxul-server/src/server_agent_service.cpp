@@ -16,6 +16,8 @@ namespace
 constexpr int kRemovalProbeCount = 6;
 constexpr auto kDiscoveredStartupGrace = std::chrono::seconds(3);
 constexpr auto kOutputDebounce = std::chrono::milliseconds(100);
+// A hook can report before the next process probe discovers its agent.
+constexpr auto kPendingSessionRefLifetime = std::chrono::seconds(30);
 
 nlohmann::json route_json(
     const ServerAgentProjection& agent)
@@ -52,7 +54,8 @@ nlohmann::json agent_json(
         { "instance_id", agent.identity.instance_id },
         { "profile_id", agent.identity.profile_id },
         { "kind", agent.identity.kind },
-        { "display_name", agent.identity.display_name },
+        { "display_name", agent.alias.empty() ? agent.identity.display_name : agent.alias },
+        { "alias", agent.alias },
         { "origin", to_string(agent.identity.origin) },
         { "identity_evidence_category",
             agent.identity_evidence_category },
@@ -127,13 +130,15 @@ ServerAgentService::~ServerAgentService() = default;
 
 void ServerAgentService::update(
     const std::vector<ServerAgentRuntimeView>& runtimes,
-    std::chrono::steady_clock::time_point now)
+    std::chrono::steady_clock::time_point now, std::vector<ServerAgentProjection> structured_agents)
 {
     std::vector<ServerAgentProjection> agents;
     std::vector<AgentUsageRequest> usage_requests;
     const auto system_now = std::chrono::time_point_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now());
     std::unordered_set<std::string> live_terminals;
+    for (const auto& agent : structured_agents)
+        reserve_instance_id(agent.identity.instance_id);
     // Reserve all managed identities before discovery, regardless of pane order.
     for (const auto& runtime : runtimes)
         if (runtime.declared_identity)
@@ -188,6 +193,7 @@ void ServerAgentService::update(
                     };
                     state.detected_at = now;
                     state.first_seen_at = now;
+                    state.session_ref.reset();
                     state.explanation = {};
                     state.attention = false;
                     state.last_status = AgentStatus::Unknown;
@@ -208,6 +214,19 @@ void ServerAgentService::update(
                     state.generation = runtime.generation;
                 }
             }
+            if (state.discovered_identity)
+            {
+                const auto pending = pending_session_refs_.find(runtime.terminal_id);
+                if (pending != pending_session_refs_.end()
+                    && pending->second.generation == runtime.generation
+                    && pending->second.session_ref.agent_kind == state.discovered_identity->kind)
+                {
+                    if (!state.session_ref
+                        || pending->second.session_ref.sequence > state.session_ref->sequence)
+                        state.session_ref = pending->second.session_ref;
+                    pending_session_refs_.erase(pending);
+                }
+            }
             identity = state.discovered_identity
                 ? &*state.discovered_identity
                 : nullptr;
@@ -221,6 +240,8 @@ void ServerAgentService::update(
             continue;
         const bool discovered
             = identity->origin == AgentIdentityOrigin::Discovered;
+        const std::optional<AgentSessionRef>& session_ref
+            = discovered ? state.session_ref : runtime.session_ref;
         const bool running = discovered
             ? runtime.runtime_running && state.process_present
             : runtime.runtime_running;
@@ -279,11 +300,12 @@ void ServerAgentService::update(
             .pane_id = runtime.pane_id,
             .terminal_id = runtime.terminal_id,
             .identity = *identity,
+            .alias = runtime.alias,
             .identity_evidence_category
             = std::move(identity_evidence),
             .identity_high_confidence
             = identity_high_confidence,
-            .session_ref = runtime.session_ref,
+            .session_ref = session_ref,
             .lifecycle = lifecycle,
             .generation = runtime.generation,
             .exit_code = runtime.exit_code,
@@ -308,7 +330,7 @@ void ServerAgentService::update(
             usage_requests.push_back({
                 .instance_id = identity->instance_id,
                 .kind = identity->kind,
-                .session_ref = runtime.session_ref,
+                .session_ref = session_ref,
                 .working_directory = state.working_directory,
                 .started_at = system_now
                     - std::chrono::duration_cast<std::chrono::milliseconds>(now - state.first_seen_at),
@@ -328,11 +350,68 @@ void ServerAgentService::update(
         [&live_terminals](const auto& entry) {
             return !live_terminals.contains(entry.first);
         });
+    std::erase_if(pending_session_refs_,
+        [&](const auto& entry) {
+            return !live_terminals.contains(entry.first)
+                || now - entry.second.reported_at > kPendingSessionRefLifetime;
+        });
+    // One projection owns each identity. Structured conversations take precedence
+    // over terminal observations; multiple panes can show the same conversation.
+    // Duplicate IDs invalidate the entire session poll, including terminal output.
+    std::unordered_set<std::string> projected_ids;
+    std::vector<ServerAgentProjection> merged;
+    for (auto& agent : structured_agents)
+        if (projected_ids.insert(agent.identity.instance_id).second)
+            merged.push_back(std::move(agent));
+    for (auto& agent : agents)
+        if (projected_ids.insert(agent.identity.instance_id).second)
+            merged.push_back(std::move(agent));
+    agents = std::move(merged);
     if (agents != snapshot_.agents)
     {
         snapshot_.agents = std::move(agents);
         ++snapshot_.revision;
     }
+}
+
+ControlMethodResult ServerAgentService::report_discovered_session(
+    std::string_view terminal_id, AgentRuntimeGeneration generation,
+    const AgentSessionRef& session_ref, std::chrono::steady_clock::time_point now)
+{
+    std::string validation_error;
+    if (!validate_agent_session_ref(session_ref, &validation_error))
+    {
+        return ControlMethodResult::error(
+            "invalid_session_ref", std::move(validation_error));
+    }
+    const auto state = runtime_states_.find(std::string(terminal_id));
+    if (state != runtime_states_.end() && state->second.generation == generation
+        && state->second.discovered_identity
+        && state->second.discovered_identity->kind == session_ref.agent_kind)
+    {
+        if (state->second.session_ref
+            && session_ref.sequence <= state->second.session_ref->sequence)
+        {
+            return ControlMethodResult::error(
+                "stale_report", "Native session report is stale or was rejected.");
+        }
+        state->second.session_ref = session_ref;
+        pending_session_refs_.erase(std::string(terminal_id));
+        return ControlMethodResult::success({
+            { "agent_instance_id", state->second.discovered_identity->instance_id },
+            { "pending", false },
+        });
+    }
+    auto& pending = pending_session_refs_[std::string(terminal_id)];
+    if (pending.reported_at != std::chrono::steady_clock::time_point{}
+        && pending.generation == generation
+        && session_ref.sequence <= pending.session_ref.sequence)
+    {
+        return ControlMethodResult::error(
+            "stale_report", "Native session report is stale or was rejected.");
+    }
+    pending = { generation, session_ref, now };
+    return ControlMethodResult::success({ { "pending", true } });
 }
 
 ControlMethodResult ServerAgentService::handle(

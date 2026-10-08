@@ -221,6 +221,12 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 ## Config Notes
 
 - User settings live in `config.toml`.
+- The user's shared Personal Assistant collection is `Vault/PA` under their
+  Dropbox root on every machine. Set `[agents].personal_root` to that machine's
+  absolute Dropbox path (on this Mac: `/Users/cmaughan/Dropbox/Vault/PA`;
+  on Windows: `C:/Users/cmaughan/Dropbox/Vault/PA`). Preserve
+  the shared collection identity; never initialize another collection for the
+  same personal agents. Executor locks and provider credentials stay local.
 - `enable_ligatures = true/false` controls whether Draxul combines eligible two-cell programming ligatures during shaping; it defaults to `true`.
 - `smooth_scroll = true/false` enables trackpad momentum-style scroll accumulation; defaults to `true`.
 - `scroll_speed = 1.0` is a multiplier applied to the raw scroll delta before accumulation in the smooth-scroll path. Range: (0.1, 10.0]; values outside this range log a WARN and fall back to `1.0`. Values below `1.0` slow scrolling; values above `1.0` speed it up.
@@ -292,7 +298,7 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 - When a change warrants the complete local inventory, use `py do.py validate debug`
   instead of stacking separate build, smoke, render, and CTest commands. It holds one
   build-tree lease, builds the app and full test aggregate once, then runs smoke, the
-  five platform core snapshots, and the complete unit/integration CTest inventory without another
+  platform core snapshots, and the complete unit/integration CTest inventory without another
   core configure/build. That inventory includes the standalone plugin SDK smoke,
   which performs its own isolated consumer build and may fetch dependencies. Repeat `--render <scenario>` to replace the default snapshot set,
   or use `--no-render` only when visual coverage is explicitly irrelevant. Successful
@@ -394,6 +400,8 @@ IceBox) to the GitHub project board; it is idempotent.
 - **macOS**: Clang/Xcode. Process spawning uses `fork()`/`exec()` with `pipe()`. Rendering via Metal.
 
 ## Known Pitfalls
+
+- NanoVG/Fontstash font names are limited to 63 bytes. Use short stable names within each context; never use full file paths as names, or repeated lookups can reload and retain the entire font every frame. Replace the owning context when its font file changes.
 
 - Do not include backend-private renderer headers from `app/`.
 - Keep shutdown paths non-blocking; a stuck Neovim child must not hang the UI on exit.

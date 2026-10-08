@@ -1,3 +1,4 @@
+#include <draxul/personal_agent_store.h>
 // WI 128 — Inline tab rename state machine.
 //
 // These tests exercise ChromeHost's rename API directly without standing up
@@ -8,6 +9,7 @@
 #include <catch2/catch_all.hpp>
 
 #include "chrome_host.h"
+#include "agent_controller.h"
 #include "pane_manager.h"
 #include "space_controller.h"
 
@@ -31,6 +33,8 @@ struct RenameFixture
     SpaceController space_controller;
     std::unique_ptr<ChromeHost> host;
     int frame_requests = 0;
+    std::shared_ptr<PersonalAgentSnapshot> personal=std::make_shared<PersonalAgentSnapshot>();
+    std::string renamed_personal;
     // Stand-in for PaneManager::pane_user_names_ — exercised by the pane
     // rename test cases without standing up a real PaneManager.
     std::unordered_map<LeafId, std::string> pane_names;
@@ -44,6 +48,11 @@ struct RenameFixture
 
         ChromeHost::Deps deps;
         deps.space_controller = &space_controller;
+        personal->agents.push_back({.id="news",.name="News"});
+        deps.personal_agents=[this]{return personal;};
+        deps.set_personal_agent_name=[this](std::string id,std::string name){
+            renamed_personal=id; personal->agents[0].name=std::move(name);
+        };
         deps.set_tab_name = [this](int tab_id, std::string name) {
             for (auto& tab : space_controller.active_tab_controller().tabs())
             {
@@ -296,4 +305,78 @@ TEST_CASE("ChromeHost pane rename: switching from tab to pane edit commits in-pr
     REQUIRE_FALSE(f.host->is_editing_tab());
     REQUIRE(f.space_controller.active_tab_controller().tabs()[0]->name == "alphaZ");
     REQUIRE(f.space_controller.active_tab_controller().tabs()[0]->name_user_set);
+}
+
+TEST_CASE("Personal pill rename shares inline commit and cancel behavior", "[personal][chrome_host][rename]")
+{
+    RenameFixture f;
+    f.host->begin_personal_agent_rename(1);
+    REQUIRE(f.host->is_editing());
+    f.host->on_rename_text_input(" helper");
+    f.host->on_rename_key(SDLK_RETURN);
+    CHECK(f.renamed_personal=="news");
+    CHECK(f.personal->agents[0].name=="News helper");
+    f.host->begin_personal_agent_rename(1);
+    f.host->on_rename_text_input(" discarded");
+    f.host->on_rename_key(SDLK_ESCAPE);
+    CHECK(f.personal->agents[0].name=="News helper");
+    CHECK_FALSE(f.host->is_editing());
+}
+
+TEST_CASE("Draxul pill rename retains instance identity across reordered rows", "[agents][chrome_host][rename]")
+{
+    SpaceController spaces;
+    auto& tabs = spaces.active_tab_controller();
+    tabs.tabs().push_back(make_test_tab(1, "one"));
+    tabs.tabs().push_back(make_test_tab(2, "two"));
+    tabs.activate_tab(1);
+    AgentController agents;
+    AgentProjection personal;
+    personal.identity = {.kind="codex", .display_name="Personal", .instance_id="personal-news"};
+    AgentProjection target;
+    target.space_id = spaces.active_space_id();
+    target.tab_id = 2;
+    target.leaf_id = 7;
+    target.identity = {.kind="codex", .display_name="Codex", .instance_id="happy-otter"};
+    agents.set_server_agents({personal, target});
+    ChromeHost::Deps deps;
+    deps.space_controller = &spaces;
+    deps.agent_controller = &agents;
+    std::string committed_id;
+    deps.set_agent_name = [&](std::string id, std::string name) {
+        committed_id = id;
+        tabs.tabs()[1]->pane_manager.set_pane_name(7, std::move(name));
+        agents.invalidate();
+    };
+    ChromeHost host(std::move(deps));
+    host.begin_agent_rename(1); // Personal rows are excluded from this index.
+    REQUIRE(host.is_editing());
+    host.on_rename_text_input(" café");
+    host.on_rename_key(SDLK_BACKSPACE); // Removes the complete UTF-8 character.
+    host.on_rename_text_input("é");
+    auto other = target;
+    other.identity.instance_id = "calm-cat";
+    other.tab_id = 1;
+    agents.set_server_agents({other, personal, target});
+    host.on_rename_key(SDLK_RETURN);
+    CHECK(committed_id == "happy-otter");
+    CHECK(tabs.tabs()[1]->pane_manager.pane_name(7) == "Codex café");
+    auto rows = agents.query(spaces);
+    CHECK(rows.back().identity.display_name == "Codex café");
+    CHECK(rows.back().alias == "Codex café");
+    CHECK(rows.back().identity.instance_id == "happy-otter");
+    CHECK(rows.front().identity.display_name == "Codex");
+    CHECK(tabs.active_tab_id() == 1);
+    host.begin_agent_rename(2);
+    host.on_rename_text_input(" discarded");
+    host.on_rename_key(SDLK_ESCAPE);
+    CHECK(agents.query(spaces).back().identity.display_name == "Codex café");
+    host.begin_agent_rename(2);
+    host.on_rename_key(SDLK_HOME);
+    for (int i = 0; i < 10; ++i) host.on_rename_key(SDLK_DELETE);
+    host.on_rename_key(SDLK_RETURN);
+    CHECK(tabs.tabs()[1]->pane_manager.pane_name(7).empty());
+    CHECK(agents.query(spaces).back().identity.display_name == "Codex");
+    host.begin_agent_rename(99);
+    CHECK_FALSE(host.is_editing());
 }

@@ -8,7 +8,9 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
+#include <utility>
 
 namespace draxul::markdown
 {
@@ -23,6 +25,8 @@ struct TextRun
     // Overrides the style foreground; used by markers (task-list checkboxes)
     // that are drawn as glyphs but tinted with the theme accent.
     std::optional<draxul::Color> color;
+    std::string link_destination;
+    float width = 0.0f;
 };
 
 struct Decoration
@@ -46,6 +50,12 @@ struct Decoration
     draxul::Color color = draxul::Color(0.0f, 0.0f, 0.0f, 0.0f);
 };
 
+struct ImageRun
+{
+    std::string destination, alt, link_destination;
+    float x=0, y=0, width=0, height=0;
+};
+
 struct LayoutRow
 {
     float y = 0.0f;
@@ -55,6 +65,7 @@ struct LayoutRow
     std::vector<TextRun> runs;
     std::vector<Decoration> decorations;
     SourceSpan source;
+    std::vector<ImageRun> images;
 };
 
 struct LayoutDocument
@@ -70,6 +81,8 @@ struct LayoutOptions
     float viewport_height = 720.0f;
     float pixel_scale = 1.0f;
     float margin_columns = 2.0f;
+    // Hosts opt in to image layout and own resource loading/rendering.
+    std::function<std::pair<float,float>(std::string_view)> image_size;
 };
 
 struct VisibleRowRange
@@ -77,6 +90,9 @@ struct VisibleRowRange
     size_t first = 0;
     size_t count = 0;
 };
+
+bool is_web_link(std::string_view destination);
+std::string_view markdown_link_at(const LayoutDocument& document,float x,float y);
 
 using FontMetricsLookup
     = std::function<draxul::FontMetrics(const draxul::RichTextStyleKey&)>;

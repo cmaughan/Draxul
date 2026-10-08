@@ -58,6 +58,26 @@ void RenameEditor::begin_pane(LeafId leaf_id, std::string initial_text)
     touch();
 }
 
+void RenameEditor::begin_personal_agent(std::string id, std::string initial_text)
+{
+    cancel();
+    target_=RenameTarget::PersonalAgent;
+    personal_id_=std::move(id);
+    buffer_=std::move(initial_text);
+    cursor_=buffer_.size();
+    touch();
+}
+
+void RenameEditor::begin_agent(std::string instance_id, std::string initial_text)
+{
+    cancel();
+    target_ = RenameTarget::Agent;
+    agent_instance_id_ = std::move(instance_id);
+    buffer_ = std::move(initial_text);
+    cursor_ = buffer_.size();
+    touch();
+}
+
 bool RenameEditor::active() const
 {
     return target_ != RenameTarget::None;
@@ -95,7 +115,7 @@ LeafId RenameEditor::leaf_id() const
 
 RenameSnapshot RenameEditor::snapshot() const
 {
-    return { target_, space_id_, tab_id_, leaf_id_, buffer_, cursor_, started_at_ };
+    return { target_, space_id_, tab_id_, leaf_id_, buffer_, cursor_, started_at_, personal_id_, agent_instance_id_ };
 }
 
 bool RenameEditor::insert(std::string_view utf8)
@@ -166,7 +186,7 @@ std::optional<RenameCommit> RenameEditor::commit()
 {
     if (!active())
         return std::nullopt;
-    RenameCommit result{ target_, space_id_, tab_id_, leaf_id_, std::move(buffer_) };
+    RenameCommit result{ target_, space_id_, tab_id_, leaf_id_, std::move(buffer_), std::move(personal_id_), std::move(agent_instance_id_) };
     cancel();
     return result;
 }
@@ -178,6 +198,8 @@ void RenameEditor::cancel()
     tab_id_ = -1;
     leaf_id_ = kInvalidLeaf;
     buffer_.clear();
+    personal_id_.clear();
+    agent_instance_id_.clear();
     cursor_ = 0;
     started_at_ = {};
 }
