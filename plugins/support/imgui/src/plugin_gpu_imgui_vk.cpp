@@ -93,19 +93,34 @@ private:
             static_cast<uintptr_t>(frame_->continuation_render_pass));
         if (initialized_ && device_ == device && render_pass_ == render_pass)
             return true;
-        if (initialized_)
+        if (initialized_ && device_ == device)
+        {
+            // Only the host's continuation render pass changed (for example
+            // after swapchain recreation). Keep the descriptor pool so the
+            // texture descriptors products registered through it stay valid;
+            // destroying it would leave their handles dangling.
+            ImGui_ImplVulkan_Shutdown();
+            initialized_ = false;
+        }
+        else if (initialized_)
+        {
             shutdown_imgui_backend();
+        }
 
+        // Products register several diagnostic textures per buffered frame
+        // and keep a replaced generation alive until its frame completes.
+        constexpr uint32_t kDescriptorSets = 256;
         VkDescriptorPoolSize pool_size{
-            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64 };
+            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kDescriptorSets };
         VkDescriptorPoolCreateInfo pool_info{
             VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-        pool_info.maxSets = 64;
+        pool_info.maxSets = kDescriptorSets;
         pool_info.poolSizeCount = 1;
         pool_info.pPoolSizes = &pool_size;
-        if (vkCreateDescriptorPool(device, &pool_info, nullptr,
-                &descriptor_pool_) != VK_SUCCESS)
+        if (descriptor_pool_ == VK_NULL_HANDLE
+            && vkCreateDescriptorPool(device, &pool_info, nullptr,
+                   &descriptor_pool_) != VK_SUCCESS)
             return false;
 
         ImGui_ImplVulkan_InitInfo info{};

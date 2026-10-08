@@ -12,9 +12,9 @@
 - [x] **Investigate:** Trace texture registration/removal ownership, context changes, scene teardown, resize retirement, and lazy backend initialization.
 - [x] **Fix:** Provide scoped owner-context handling or explicit owned texture removal and apply it to both product callers.
 - [x] **Fix:** Remove textures before their owning backend is destroyed and handle absent backend data safely.
-- [ ] **Acceptance:** Closing either of two rendered product panes removes descriptors through the correct pool.
+- [x] **Acceptance:** Closing either of two rendered product panes removes descriptors through the correct pool.
 - [x] **Acceptance:** Closing a diagnostic-enabled SatView pane while an unrendered pane’s context is current cannot dereference a null backend.
-- [ ] **Validation:** Run core/product aggregates appropriate to this shared seam, Vulkan validation, relevant multi-pane checks, and same-cache smoke; inspect Metal teardown alignment.
+- [x] **Validation:** Run core/product aggregates appropriate to this shared seam, Vulkan validation, relevant multi-pane checks, and same-cache smoke; inspect Metal teardown alignment.
 
 ## Implementation notes (2026-10-02)
 
@@ -215,3 +215,86 @@
   validation-error count with each future liveness checkpoint. This improves
   the next scheduled gate's before/after attribution; it does not retroactively
   supply missing timestamps for this run.
+
+## Root cause and fix — Windows, 2026-10-08
+
+The invalid-descriptor failures had three causes, all of the same shape:
+draw data built earlier in the frame names diagnostic descriptors that later
+frame work frees.
+
+1. **Resize retirement (SatView + MegaCity, Vulkan).** As diagnosed above, the
+   runtime UI captures the current target generation's ImGui descriptors before
+   `record_prepass()` replaces size-dependent targets. Both products now
+   *retire* the replaced generation (`retire_hdr_targets` /
+   `retire_gbuffer_targets`) and destroy it only after the pass has prepared
+   `buffered_frame_count` more frames, by which time the host has waited on
+   that frame's slot. Full teardown destroys retired sets explicitly.
+2. **Render-pass change (SatView, Vulkan).** A native window resize recreates
+   the swapchain and gives plugins a new continuation render pass.
+   `ensure_hdr_setup()` then destroyed every HDR resource, including diagnostic
+   descriptors and the sampler they reference, mid-frame. It now retires the
+   targets together with the old sampler (the retired set owns and destroys
+   it after its targets). MegaCity's render-pass path does not touch its
+   G-buffer targets.
+3. **Shared plugin ImGui pool (`plugins/support/imgui`).** The same render-pass
+   change made `VulkanGpuImGuiHost` shut ImGui down **and destroy its
+   descriptor pool**, invalidating every texture descriptor a product had
+   registered while the products still held and later freed the handles. A
+   render-pass-only change now re-initializes ImGui against the existing pool;
+   only a device change or real shutdown destroys it. The pool grew from 64 to
+   256 sets because MegaCity registers 15 diagnostic sets per frame target and
+   a retired generation briefly coexists with its replacement.
+4. **Metal (inspection, not runnable here).** `ImGui::Image((__bridge void*)…)`
+   passes unretained `MTLTexture` pointers. Both products released the old
+   targets on resize while that frame's draw data still named them, so the same
+   retire countdown now keeps the replaced targets alive in
+   `satview_render.mm` and `codeviz_render.mm`. These two edits are not
+   compiled on Windows; macOS CI/build must confirm them.
+
+### Live Vulkan gate (Debug, validation layer inserted from the SDK)
+
+Driver: the `scripts/windows_core_gate_probe.py` long-lived client and exact-
+PID/HWND/route guards, isolated runtime/profile. Sequence: SatView (HDR debug
+panel) beside MegaCity (G-buffer debug), four **native window** resizes
+(1200x800, 1500x1000, 1100x900, 1400x950), four split ratios (0.4/0.6/0.3/0.7),
+close SatView, recreate SatView beside MegaCity and focus it, close MegaCity.
+The validation count was sampled after every step.
+
+- Before the fixes (`dgvum2579_`, `dguhogj590`): 44 and 34 validation errors
+  (`vkFreeDescriptorSets-00310`, `vkCmdBindDescriptorSets-…-parameter/06563`,
+  `vkCmdDrawIndexed-08600`). Temporary descriptor tracing showed a set added
+  by one backend, freed by `ensure_hdr_setup()` after the render-pass re-init,
+  and then bound by that frame's ImGui draw.
+- After the fixes (`dg_bt2g0a_`): **0** validation errors at every one of the
+  12 checkpoints; 6 swapchain creations and 11 ImGui backend re-inits
+  exercised; 413 texture registrations and 413 removals. The client exited 0
+  and its isolated server shut down with 0. The only `[error]` line is the
+  unrelated stale `W:\p4\…` loader manifest. Captures show live normals/AO/
+  depth/HDR/final G-buffer images before and after each transition.
+  Two further runs without window resizes (`dg42xmwosz`, `dg93kl13d2`) were
+  also clean. The temporary tracing has been removed.
+- Separate pre-existing observation (also in the earlier failed gate's
+  captures): MegaCity's floating G-buffer Debug window draws over the
+  neighbouring SatView pane; tracked in
+  `plugins/megacity/kanban/pending/17 debug-window-pane-clipping -bug.md`.
+
+## Validation summary — Windows, 2026-10-08
+
+- Configure/build: fresh Ninja Debug cache after fast-forwarding 573 commits
+  (1298 steps), then incremental rebuilds per fix; Release cache rebuilt
+  (`py do.py build release`).
+- Core + products aggregate (`py do.py test debug --products`): 85/90 CTest
+  entries passed in 533 s. The five failures were unrelated to these changes:
+  `personal_agent_tests.cpp:488` `remove_all` (deterministic, also failed in
+  the earlier gate, tracked on `kanban/pending/67 personal-assistant-host -feature.md`);
+  Rezonality native shard failing only on the stale `W:\p4` implicit-layer
+  loader manifest (421/422); `draxul-render-flashcards-queue` aborted because
+  the desktop pointer moved / capture was unavailable while the machine was in
+  use; and two Windows encoding test bugs fixed in the same session and rerun
+  green (`personal_assistant_host_tests.cpp` CJK `u8` literal, 5/5 cases;
+  `draxul-rezonality-agent-layout` UTF-8 decoding, passed 5.9 s).
+- Same-cache Debug smoke: `py do.py smoke debug --skip-build` passed (about
+  6 s, isolated runtime; see `kanban/pending/65 windows-validation-timing -test.md`).
+- Final Release startup: `py do.py smoke release --skip-build` passed in 4.8 s
+  from the Release cache (isolated runtime, owned server shut down).
+- Remote CI not run; macOS/Metal paths rely on normal cross-platform CI.
