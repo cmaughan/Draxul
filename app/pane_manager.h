@@ -197,7 +197,8 @@ public:
     std::chrono::steady_clock::time_point agent_runtime_started_at(LeafId id) const;
 
     // Hit-test a point (physical pixels). Updates focus if a new leaf is hit.
-    // Returns the host under the point, or null.
+    // While zoomed, returns the zoomed host without consulting the hidden
+    // split geometry. Returns the host under the point, or null.
     IHost* host_at_point(int px, int py);
 
     // Hit-test for a divider at the given pixel. Returns the divider id and

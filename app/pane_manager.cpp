@@ -817,6 +817,9 @@ bool PaneManager::restore_layout(
     zoomed_ = zoomed_leaf_ != kInvalidLeaf;
     if (!zoomed_)
         zoomed_leaf_ = kInvalidLeaf;
+    // Older checkpoints could record focus on a pane hidden behind the zoom.
+    if (zoomed_ && tree_.focused() != zoomed_leaf_)
+        tree_.set_focused(zoomed_leaf_);
     zoom_pixel_w_ = pixel_w;
     zoom_pixel_h_ = pixel_h;
     update_all_viewports();
@@ -1173,6 +1176,15 @@ void PaneManager::update_focus(LeafId new_id)
     if (old_id == new_id)
         return;
 
+    // While zoomed, only the zoomed leaf is displayed. Explicit focus moves
+    // (directional navigation, agent jumps, pane activation) carry the zoom
+    // with them so keyboard input never lands in a hidden pane.
+    if (zoomed_ && new_id != zoomed_leaf_ && hosts_.contains(new_id))
+    {
+        zoomed_leaf_ = new_id;
+        update_all_viewports();
+    }
+
     if (IHost* old_host = host_for(old_id))
         old_host->on_focus_lost();
 
@@ -1191,6 +1203,14 @@ IHost* PaneManager::host_for(LeafId id) const
 IHost* PaneManager::host_at_point(int px, int py)
 {
     PERF_MEASURE();
+    // The split rectangles describe hidden panes while zoomed; the zoomed
+    // pane covers the whole content area, so it owns every pointer event.
+    if (zoomed_)
+    {
+        if (IHost* zoomed = host_for(zoomed_leaf_))
+            return zoomed;
+        return focused_host();
+    }
     auto result = tree_.hit_test(px, py);
     if (const auto* leaf_hit = std::get_if<SplitTree::LeafHit>(&result))
     {
@@ -1206,6 +1226,9 @@ std::optional<PaneManager::DividerHitInfo> PaneManager::divider_at_point(int px,
     PERF_MEASURE();
     if (!deps_.allow_local_layout_mutation
         && !deps_.request_projected_divider_ratio)
+        return std::nullopt;
+    // Dividers are hidden while a pane is zoomed.
+    if (zoomed_)
         return std::nullopt;
     auto result = tree_.hit_test(px, py);
     if (const auto* div_hit = std::get_if<SplitTree::DividerHit>(&result))

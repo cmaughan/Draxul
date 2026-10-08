@@ -6,8 +6,13 @@
 #include "support/test_host_callbacks.h"
 #include <draxul/text_service.h>
 #include "input_dispatcher.h"
+#include "pane_manager.h"
 #include "support/fake_host.h"
+#include "support/fake_renderer.h"
 #include "support/fake_window.h"
+#include "support/test_support.h"
+#include <draxul/app_options.h>
+#include <draxul/split_tree.h>
 #include <SDL3/SDL.h>
 #include <draxul/app_config.h>
 #include <draxul/events.h>
@@ -63,9 +68,11 @@ public:
         return overlay_host_fn ? overlay_host_fn() : nullptr;
     }
 
+    PaneManager* pane_manager_ptr = nullptr;
+
     PaneManager* pane_manager() override
     {
-        return nullptr;
+        return pane_manager_ptr;
     }
 
     int hit_test_tab(int, int) override
@@ -1336,4 +1343,177 @@ TEST_CASE("Draxul agent pill double-click renames without forwarding input", "[a
     CHECK(renamed == 0);
     CHECK(opened == 0);
     CHECK(setup.host.mouse_button_events.empty());
+}
+
+// ---------------------------------------------------------------------------
+// Zoomed-pane input routing (kanban 87): with a real PaneManager behind the
+// router, pointer and keyboard input must stay on the visible zoomed pane.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+struct ZoomRoutingSetup
+{
+    tests::FakeWindow window;
+    tests::FakeTermRenderer renderer;
+    TextService text_service;
+    tests::TestHostCallbacks callbacks;
+    AppOptions options;
+    AppConfig config;
+    float display_ppi = 96.0f;
+    PaneManager manager;
+    UiPanel panel;
+    std::vector<GuiKeybinding> bindings;
+    TestInputRouter router;
+    std::unique_ptr<InputDispatcher> dispatcher;
+
+    ZoomRoutingSetup()
+        : manager(make_deps())
+    {
+        tests::init_text_service(text_service, TextService::DEFAULT_POINT_SIZE, display_ppi);
+        panel.initialize();
+        router.pane_manager_ptr = &manager;
+    }
+
+    PaneManager::Deps make_deps()
+    {
+        options.load_user_config = false;
+        options.save_user_config = false;
+        options.host_kind = HostKind::Nvim;
+        options.host_factory = [](HostKind) -> std::unique_ptr<IHost> {
+            return std::make_unique<StubHost>("zoom-routing");
+        };
+        PaneManager::Deps deps;
+        deps.options = &options;
+        deps.config = &config;
+        deps.window = &window;
+        deps.grid_renderer = &renderer;
+        deps.text_service = &text_service;
+        deps.display_ppi = &display_ppi;
+        deps.compute_viewport = [](const PaneDescriptor& desc) {
+            HostViewport viewport;
+            viewport.pixel_pos = desc.pixel_pos;
+            viewport.pixel_size = desc.pixel_size;
+            viewport.grid_size = { 80, 24 };
+            return viewport;
+        };
+        return deps;
+    }
+
+    void connect()
+    {
+        InputDispatcher::Deps deps;
+        deps.keybindings = &bindings;
+        deps.ui_panel = &panel;
+        deps.router = &router;
+        deps.host = manager.focused_host();
+        dispatcher = std::make_unique<InputDispatcher>(std::move(deps));
+        dispatcher->connect(window);
+    }
+
+    StubHost& host(LeafId id)
+    {
+        auto* h = dynamic_cast<StubHost*>(manager.host_for(id));
+        REQUIRE(h != nullptr);
+        return *h;
+    }
+
+    void move_to(int x, int y)
+    {
+        MouseMoveEvent move;
+        move.pos = { x, y };
+        window.on_mouse_move(move);
+    }
+
+    void click(int x, int y, bool pressed)
+    {
+        MouseButtonEvent ev;
+        ev.button = SDL_BUTTON_LEFT;
+        ev.pressed = pressed;
+        ev.mod = kModNone;
+        ev.pos = { x, y };
+        window.on_mouse_button(ev);
+    }
+
+    ~ZoomRoutingSetup()
+    {
+        dispatcher.reset();
+        manager.shutdown();
+        text_service.shutdown();
+    }
+};
+
+} // namespace
+
+TEST_CASE("zoomed pane owns pointer and keyboard input over hidden split geometry",
+    "[input_dispatcher][zoom]")
+{
+    ZoomRoutingSetup setup;
+    REQUIRE(setup.manager.create(setup.callbacks, 800, 600));
+    const LeafId left = setup.manager.focused_leaf();
+    const LeafId right = setup.manager.split_focused(SplitDirection::Vertical, setup.callbacks);
+    REQUIRE(right != kInvalidLeaf);
+    setup.connect();
+
+    const PaneDescriptor left_desc = setup.manager.tree().descriptor_for(left);
+    const int left_x = left_desc.pixel_pos.x + 10;
+    const int mid_y = left_desc.pixel_pos.y + left_desc.pixel_size.y / 2;
+    const int divider_x = left_desc.pixel_pos.x + left_desc.pixel_size.x;
+    // Sanity: the split layout exposes a divider at this point before zooming.
+    REQUIRE(setup.manager.divider_at_point(divider_x, mid_y).has_value());
+
+    setup.manager.toggle_zoom(800, 600);
+    REQUIRE(setup.manager.is_zoomed());
+    REQUIRE(setup.manager.zoomed_leaf() == right);
+
+    StubHost& left_host = setup.host(left);
+    StubHost& right_host = setup.host(right);
+
+    // Moving and clicking where the hidden left pane used to be stays on the
+    // zoomed right pane and never refocuses the hidden one.
+    setup.move_to(left_x, mid_y);
+    setup.click(left_x, mid_y, true);
+    setup.click(left_x, mid_y, false);
+    CHECK(setup.manager.focused_leaf() == right);
+    CHECK(left_host.mouse_move_events.empty());
+    CHECK(left_host.mouse_button_events.empty());
+    CHECK(right_host.mouse_move_events.size() == 1);
+    CHECK(right_host.mouse_button_events.size() == 2);
+
+    // The hidden divider neither hit-tests nor captures a drag; the press is
+    // delivered to the zoomed pane instead.
+    CHECK_FALSE(setup.manager.divider_at_point(divider_x, mid_y).has_value());
+    setup.click(divider_x, mid_y, true);
+    setup.move_to(divider_x - 100, mid_y);
+    setup.click(divider_x - 100, mid_y, false);
+    CHECK(right_host.mouse_button_events.size() == 4);
+    CHECK(left_host.mouse_button_events.empty());
+    CHECK(setup.manager.tree().descriptor_for(left).pixel_size.x == left_desc.pixel_size.x);
+
+    // Typing after all of that reaches the visible pane.
+    setup.window.on_key(KeyEvent{ 0, SDLK_A, kModNone, true });
+    CHECK(left_host.key_events.empty());
+    REQUIRE(right_host.key_events.size() == 1);
+
+    // Explicit focus navigation carries the zoom so focus is never hidden.
+    REQUIRE(setup.manager.focus_direction(FocusDirection::Left));
+    CHECK(setup.manager.is_zoomed());
+    CHECK(setup.manager.zoomed_leaf() == left);
+    CHECK(setup.manager.focused_leaf() == left);
+    REQUIRE(setup.manager.focus_direction(FocusDirection::Right));
+    CHECK(setup.manager.zoomed_leaf() == right);
+
+    // Unzooming restores normal split hit-testing and click-to-focus.
+    setup.manager.toggle_zoom(800, 600);
+    REQUIRE_FALSE(setup.manager.is_zoomed());
+    CHECK(setup.manager.focused_leaf() == right);
+    CHECK(setup.manager.divider_at_point(divider_x, mid_y).has_value());
+    setup.click(left_x, mid_y, true);
+    setup.click(left_x, mid_y, false);
+    CHECK(setup.manager.focused_leaf() == left);
+    CHECK(left_host.mouse_button_events.size() == 2);
+    setup.window.on_key(KeyEvent{ 0, SDLK_B, kModNone, true });
+    REQUIRE(left_host.key_events.size() == 1);
+    CHECK(left_host.key_events[0].keycode == SDLK_B);
 }
