@@ -537,7 +537,7 @@ These are complete proposed contents for the trusted parent to create. No card f
 - [ ] **Acceptance:** Injected replacement failures preserve original bytes and provide a useful error; successful installation remains functional.
 - [ ] **Validation:** Run core aggregate tests and same-cache smoke; exercise Windows sharing failures and POSIX replacement behavior.
 
-### kanban/pending/85 plugin-texture-release-ownership -bug.md
+### kanban/done/85 plugin-texture-release-ownership -bug.md
 
 # Release diagnostic textures through their owning pane
 **Summary:** Release each pane’s diagnostic images through their owner so closing one pane cannot corrupt another pane’s drawing state.
@@ -598,7 +598,7 @@ These are complete proposed contents for the trusted parent to create. No card f
 - [ ] **Acceptance:** Unzooming restores normal split hit-testing and intended focus.
 - [ ] **Validation:** Run core aggregate tests and same-cache smoke; check zoomed input interactively.
 
-### kanban/pending/88 nvim-wide-cell-protocol-decoding -bug.md
+### kanban/done/88 nvim-wide-cell-protocol-decoding -bug.md
 
 # Decode wide editor cells without shifting the line
 **Summary:** Preserve the editor’s cell positions so wide characters do not shift the rest of a line.

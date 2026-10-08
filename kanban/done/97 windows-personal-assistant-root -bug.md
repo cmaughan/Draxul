@@ -46,7 +46,7 @@ Windows configuration and normal client/helper restart in the canonical guide.
 | Configure/generate | Both existing Ninja caches reused; no configure/generate pass. |
 | Debug build | App target passed, 15.13s build window, 8 staging/generation steps; no C++ recompilation. |
 | Core aggregate | `py do.py test debug`: core aggregate build passed, 16.19s / 8 steps. 54/56 CTest groups passed, 60.40s CTest / 60.55s runner. Personal host, server, config and CLI groups passed. |
-| Existing aggregate failures | Joined family grapheme remains seven glyphs; scope fixture still selects an empty set. Owned by `kanban/pending/63 joined-family-emoji-fallback -bug.md` and `kanban/pending/64 windows-test-scope-selection -bug.md`; no assertions weakened or unrelated fixes made. |
+| Existing aggregate failures | Joined family grapheme remains seven glyphs; scope fixture still selects an empty set. Owned by `kanban/done/63 joined-family-emoji-fallback -bug.md` and `kanban/done/64 windows-test-scope-selection -bug.md`; no assertions weakened or unrelated fixes made. |
 | Standard same-cache smoke | `py do.py smoke --skip-build`: timed out at 30s, exit 124, owned PID 86912 stopped. Existing gate remains with `kanban/pending/65 windows-validation-timing -test.md`. |
 | Actual-profile Personal startup | Debug `--smoke-test --host personal-assistant` passed exit 0 in 19.69s; no rebuild. |
 | Final Release | `py do.py run release --console -- --smoke-test --host personal-assistant` passed exit 0; build 17.06s, 10 steps including incremental Flashcards compilation/linking. Startup not separately timed. |

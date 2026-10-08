@@ -41,8 +41,8 @@ accepting an earlier successful checkpoint of the initial topology.
   integration shards passed, including controlled epoch replacement, blocked old
   writers, bounded shutdown, failure preservation, and graceful final persistence.
   The full selection passed 79/84 CTest entries in 372.89s. Its failures were the
-  separate joined-emoji issue (`kanban/pending/63 joined-family-emoji-fallback -bug.md`),
-  scope membership issue (`kanban/pending/64 windows-test-scope-selection -bug.md`),
+  separate joined-emoji issue (`kanban/done/63 joined-family-emoji-fallback -bug.md`),
+  scope membership issue (`kanban/done/64 windows-test-scope-selection -bug.md`),
   remote initial-state timeout (`kanban/pending/65 windows-validation-timing -test.md`),
   SatView catalog-idle deadline, and PCBView render timeout; none are persistence tests.
 - Same-cache Debug `py do.py smoke --skip-build` passed with a fresh temporary

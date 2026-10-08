@@ -53,7 +53,7 @@
   runs; the existing remote-terminal host test times out receiving initial state.
   Each failure also reproduces alone with the existing executables (no rebuild).
   Neither failure exercises the configured-atlas changes. Both exact failures predate
-  this slice and are tracked in `kanban/pending/63 joined-family-emoji-fallback -bug.md`
+  this slice and are tracked in `kanban/done/63 joined-family-emoji-fallback -bug.md`
   and `kanban/pending/65 windows-validation-timing -test.md`; parent owns further triage.
 - Native Vulkan non-default-size checks completed with the existing Debug app and real
   Neovim host, outside the render harness. Sequential children received isolated
@@ -71,7 +71,7 @@
 - Final `py do.py test debug --products` passed the app, renderer, and all new atlas
   regressions (79/84 CTest entries overall, 372.89s; incremental build 22.75s).
   The joined-emoji, scope-label, and remote-initial-state failures belong to the
-  separate cards above and `kanban/pending/64 windows-test-scope-selection -bug.md`;
+  separate cards above and `kanban/done/64 windows-test-scope-selection -bug.md`;
   additional SatView catalog-idle and PCBView render deadline failures are being
   recorded separately. This atlas change does not resolve those failures.
 - Same-cache Debug smoke passed under a fresh temporary APPDATA profile. Final

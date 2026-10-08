@@ -67,8 +67,8 @@
 
 - After the POSIX typed-read correction, `py do.py test debug` passed every
   agent-integration regression and 53/56 CTest entries overall in 81.75s. The
-  remaining failures are separately tracked in `kanban/pending/63 joined-family-emoji-fallback -bug.md`,
-  `kanban/pending/64 windows-test-scope-selection -bug.md`, and
+  remaining failures are separately tracked in `kanban/done/63 joined-family-emoji-fallback -bug.md`,
+  `kanban/done/64 windows-test-scope-selection -bug.md`, and
   `kanban/pending/65 windows-validation-timing -test.md`.
 - Final same-cache Debug `py do.py smoke --skip-build` exited 0 with a short
   isolated APPDATA profile (9.72s including owned-server cleanup). Final Release

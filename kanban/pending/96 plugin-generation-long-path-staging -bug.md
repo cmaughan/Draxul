@@ -4,7 +4,7 @@
 root has a long path, and the placeholder reports only an unknown staging error.
 
 **Priority:** P1
-**Source:** Native validation of `kanban/pending/85 plugin-texture-release-ownership -bug.md`.
+**Source:** Native validation of `kanban/done/85 plugin-texture-release-ownership -bug.md`.
 
 **Evidence:** On 2026-10-02, a Debug MegaCity diagnostic render export under the
 `draxul-critical-fixes-<32-character-id>/texture-owners/` temporary profile produced
