@@ -434,7 +434,7 @@ These actual pending cards cover all 34 Codex findings. They are not reproduced 
 | B23 | `plugins/pcbview/kanban/pending/04 wide-track-pad-blockers -bug.md` |
 | B24 | `plugins/pcbview/kanban/pending/05 continuous-track-pad-clearance -bug.md` |
 | B25 | `plugins/rezonality/kanban/pending/11 shared-depth-pass-synchronization -bug.md` |
-| B26 | `plugins/rezonality/kanban/pending/12 unsupported-texture-feedback -bug.md` |
+| B26 | `plugins/rezonality/kanban/done/12 unsupported-texture-feedback -bug.md` |
 | B27 / Claude H1 | `kanban/pending/77 mouse-drag-release-owner -bug.md` |
 | B28 | `kanban/pending/78 zoomed-pane-print-crop -bug.md` |
 | B29 | `plugins/satview/kanban/pending/10 cache-final-close-validation -bug.md` |
