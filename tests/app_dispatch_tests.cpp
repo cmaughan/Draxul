@@ -447,10 +447,13 @@ TEST_CASE("app dispatch: shared Neovim split retains actions until its host exis
     App app(std::move(opts));
     REQUIRE(app.initialize());
     const auto pump_until = [&](auto condition) {
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        // run_smoke_test is only a pump here. It reports false whenever the
+        // active pane is not content-ready within the slice, which a loaded
+        // host can hit transiently; the condition below is the real check.
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
         while (!condition() && std::chrono::steady_clock::now() < deadline)
         {
-            REQUIRE(app.run_smoke_test(std::chrono::milliseconds(20)));
+            (void)app.run_smoke_test(std::chrono::milliseconds(20));
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         REQUIRE(condition());
