@@ -21,11 +21,13 @@
 #include <draxul/session_state.h>
 #include <draxul/topology_client.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <future>
 #include <limits>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <random>
 #include <thread>
 
@@ -184,6 +186,53 @@ inline bool wait_for_agent(AgentClient& client,
     }
     error = "Timed out waiting for the shared agent projection.";
     return false;
+}
+
+// Checkpoints are written on a detached thread and published by the server loop,
+// so a request that schedules one (or the periodic writer) returns before the file
+// exists. Server handlers set the Session to "writing" before replying, so a
+// following "ok" means the requested checkpoint has been published. The deadline
+// is generous because loaded CI hosts can delay both the writer and the loop.
+inline std::optional<ServerSessionStatusSnapshot> wait_for_session_checkpoint(
+    const std::filesystem::path& runtime_directory,
+    std::string_view session_id, std::string& error,
+    std::chrono::milliseconds timeout = std::chrono::seconds(10))
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    std::string last_state = "missing";
+    do
+    {
+        const auto status = ServerClient::status(runtime_directory);
+        if (!status.ok)
+        {
+            error = status.error_message;
+            return std::nullopt;
+        }
+        const auto session = std::ranges::find(
+            status.status->session_statuses, session_id,
+            &ServerSessionStatusSnapshot::session_id);
+        if (session != status.status->session_statuses.end())
+        {
+            last_state = session->checkpoint_state;
+            if (session->checkpoint_state == "failed")
+            {
+                error = "Session '" + std::string(session_id)
+                    + "' checkpoint failed: "
+                    + session->checkpoint_error;
+                return std::nullopt;
+            }
+            if (session->checkpoint_state == "ok"
+                && std::filesystem::exists(session->checkpoint_path))
+            {
+                error.clear();
+                return *session;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    } while (std::chrono::steady_clock::now() < deadline);
+    error = "Timed out waiting for Session '" + std::string(session_id)
+        + "' checkpoint; last state: " + last_state;
+    return std::nullopt;
 }
 
 #ifdef _WIN32

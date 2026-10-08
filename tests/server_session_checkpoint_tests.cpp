@@ -397,14 +397,10 @@ TEST_CASE("server deletes a detached Session and its checkpoint",
         });
         REQUIRE(alpha_terminal.attach(error));
 
-        for (int attempt = 0;
-            attempt < 100
-            && !std::filesystem::exists(alpha_checkpoint);
-            ++attempt)
-        {
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(10));
-        }
+        const auto initial_checkpoint
+            = wait_for_session_checkpoint(temp.path, "alpha", error);
+        INFO(error);
+        REQUIRE(initial_checkpoint);
         REQUIRE(std::filesystem::exists(alpha_checkpoint));
 
         REQUIRE(ServerClient::rename_session(
@@ -420,21 +416,12 @@ TEST_CASE("server deletes a detached Session and its checkpoint",
             != renamed_status.status->session_statuses.end());
         CHECK(renamed_session->session_name
             == "Renamed Alpha");
-        for (int attempt = 0; attempt < 100; ++attempt)
         {
-            const auto current
-                = ServerClient::status(temp.path);
-            REQUIRE(current.ok);
-            const auto alpha_status = std::ranges::find(
-                current.status->session_statuses,
-                std::string("alpha"),
-                &ServerSessionStatusSnapshot::session_id);
-            REQUIRE(alpha_status
-                != current.status->session_statuses.end());
-            if (alpha_status->checkpoint_state == "ok")
-                break;
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(10));
+            const auto renamed_published
+                = wait_for_session_checkpoint(
+                    temp.path, "alpha", error);
+            INFO(error);
+            REQUIRE(renamed_published);
         }
         auto renamed_checkpoint = load_session_state_from_path(
             alpha_checkpoint, &error);
@@ -568,8 +555,24 @@ TEST_CASE("server deletes all detached Sessions and stops their terminals",
             temp.path, "alpha", "Alpha", error));
         REQUIRE(ServerClient::rename_session(
             temp.path, "beta", "Beta", error));
-        REQUIRE(std::filesystem::exists(alpha_checkpoint));
-        REQUIRE(std::filesystem::exists(beta_checkpoint));
+        // Renaming only schedules the checkpoint; wait for each Session's
+        // writer to publish before asserting that delete-all removes them.
+        for (const auto& [session_id, checkpoint, session_name] :
+            { std::tuple{ "alpha", alpha_checkpoint, "Alpha" },
+                std::tuple{ "beta", beta_checkpoint, "Beta" } })
+        {
+            INFO(session_id);
+            const auto published = wait_for_session_checkpoint(
+                temp.path, session_id, error);
+            INFO(error);
+            REQUIRE(published);
+            REQUIRE(std::filesystem::exists(checkpoint));
+            const auto saved
+                = load_session_state_from_path(checkpoint, &error);
+            INFO(error);
+            REQUIRE(saved);
+            CHECK(saved->session_name == session_name);
+        }
 
         REQUIRE_FALSE(ServerClient::delete_all_sessions(
             temp.path,
@@ -901,7 +904,9 @@ TEST_CASE("server periodically checkpoints topology without a UI",
     REQUIRE(client.execute(rename, renamed, error));
 
     std::optional<ServerStatusSnapshot> checkpoint_status;
-    for (int attempt = 0; attempt < 100; ++attempt)
+    const auto checkpoint_deadline
+        = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (std::chrono::steady_clock::now() < checkpoint_deadline)
     {
         const auto status = ServerClient::status(temp.path);
         REQUIRE(status.ok);
@@ -1586,19 +1591,9 @@ TEST_CASE("server archives an unreadable checkpoint and resumes saving",
     std::string error;
     REQUIRE(client.refresh(error));
     REQUIRE(client.snapshot().spaces.size() == 1);
-    std::optional<ServerStatusSnapshot> saved_status;
-    for (int attempt = 0; attempt < 100; ++attempt)
-    {
-        const auto current = ServerClient::status(temp.path);
-        REQUIRE(current.ok);
-        if (current.status->checkpoint_state == "ok")
-        {
-            saved_status = current.status;
-            break;
-        }
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(10));
-    }
+    const auto saved_status
+        = wait_for_session_checkpoint(temp.path, "default", error);
+    INFO(error);
     REQUIRE(saved_status);
     run_guard.join();
 
@@ -1675,19 +1670,9 @@ TEST_CASE("server restores usable Spaces and checkpoints after partial restore",
     };
     TopologyCommandResult renamed;
     REQUIRE(client.execute(rename, renamed, error));
-    bool checkpointed_after_warning = false;
-    for (int attempt = 0; attempt < 100; ++attempt)
-    {
-        const auto current = ServerClient::status(temp.path);
-        REQUIRE(current.ok);
-        if (current.status->checkpoint_state == "ok")
-        {
-            checkpointed_after_warning = true;
-            break;
-        }
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(10));
-    }
+    const auto checkpointed_after_warning
+        = wait_for_session_checkpoint(temp.path, "default", error);
+    INFO(error);
     REQUIRE(checkpointed_after_warning);
     run_guard.join();
 
