@@ -23,33 +23,39 @@ namespace detail
 
 inline bool cluster_prefers_color_font(std::string_view text);
 
-inline bool can_render_cluster(FT_Face face, TextShaper& shaper, const std::string& text)
+inline bool is_joined_emoji_cluster(const std::string& text)
+{
+    return text.find("\xE2\x80\x8D") != std::string::npos && cluster_prefers_color_font(text);
+}
+
+// Number of glyphs `face` shapes `text` into, or 0 when any glyph is missing
+// or unloadable. Composition is not required here.
+inline size_t renderable_glyph_count(FT_Face face, TextShaper& shaper, const std::string& text)
 {
     if (!face)
-        return false;
+        return 0;
 
     auto shaped = shaper.shape(text);
-    if (shaped.empty())
+    for (const auto& glyph : shaped)
+    {
+        if (glyph.glyph_id == 0)
+            return 0;
+        if (FT_Load_Glyph(face, glyph.glyph_id, FT_LOAD_DEFAULT))
+            return 0;
+    }
+    return shaped.size();
+}
+
+inline bool can_render_cluster(FT_Face face, TextShaper& shaper, const std::string& text)
+{
+    const size_t glyphs = renderable_glyph_count(face, shaper, text);
+    if (glyphs == 0)
         return false;
 
     // Covering each codepoint is insufficient for an emoji joined with ZWJ.
     // Prefer another font that can form the complete grapheme instead of
     // squeezing several unrelated pictures into its two grid cells.
-    if (shaped.size() > 1 && text.find("\xE2\x80\x8D") != std::string::npos
-        && cluster_prefers_color_font(text))
-        return false;
-
-    bool has_glyph = false;
-    for (const auto& glyph : shaped)
-    {
-        if (glyph.glyph_id == 0)
-            return false;
-        if (FT_Load_Glyph(face, glyph.glyph_id, FT_LOAD_DEFAULT))
-            return false;
-        has_glyph = true;
-    }
-
-    return has_glyph;
+    return glyphs == 1 || !is_joined_emoji_cluster(text);
 }
 
 inline bool cluster_prefers_color_font(std::string_view text)
@@ -181,6 +187,8 @@ public:
         {
             if (auto sel = select_color_font(text, resolver))
                 return *sel;
+            if (auto sel = select_partial_color_composition(text, resolver))
+                return *sel;
         }
 
         if (detail::can_render_cluster(resolver.primary().face(), resolver.primary_shaper(), text))
@@ -282,6 +290,45 @@ private:
         if (fb.face)
             return fb;
         return std::nullopt;
+    }
+
+    // No color font composes this joined emoji. UTS #51 displays an unsupported
+    // ZWJ sequence as its component emoji, so choose the color font that renders
+    // every component in the fewest glyphs rather than missing-glyph boxes.
+    // A font that composes the whole grapheme was already preferred above.
+    std::optional<Selection> select_partial_color_composition(const std::string& text, FontResolver& resolver)
+    {
+        if (!detail::is_joined_emoji_cluster(text))
+            return std::nullopt;
+
+        int best_index = 0;
+        size_t best_glyphs = 0;
+        const auto consider = [&](int index, FT_Face face, TextShaper& shaper) {
+            if (!detail::font_has_color(face))
+                return;
+            const size_t glyphs = detail::renderable_glyph_count(face, shaper, text);
+            if (glyphs > 0 && (best_glyphs == 0 || glyphs < best_glyphs))
+            {
+                best_index = index;
+                best_glyphs = glyphs;
+            }
+        };
+
+        consider(-1, resolver.primary().face(), resolver.primary_shaper());
+        auto& fallbacks = resolver.fallbacks();
+        for (int i = 0; i < static_cast<int>(fallbacks.size()); ++i)
+        {
+            if (resolver.ensure_loaded(static_cast<size_t>(i)))
+                consider(i, fallbacks[static_cast<size_t>(i)].font.face(), fallbacks[static_cast<size_t>(i)].shaper);
+        }
+
+        if (best_glyphs == 0)
+            return std::nullopt;
+        store(FontStyle::Regular, text, best_index);
+        if (best_index < 0)
+            return Selection{ resolver.primary().face(), &resolver.primary_shaper() };
+        auto& best = fallbacks[static_cast<size_t>(best_index)];
+        return Selection{ best.font.face(), &best.shaper };
     }
 
     // Check the style's cache then try its variant face; returns an empty

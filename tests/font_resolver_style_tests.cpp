@@ -79,15 +79,35 @@ TEST_CASE("an emoji font must compose the complete joined grapheme", "[font][flu
     const std::string family = "👨‍👩‍👧‍👦";
     REQUIRE_FALSE(detail::can_render_cluster(fluent.font.face(), fluent.shaper, family));
 #if defined(__APPLE__) || defined(_WIN32)
-    // The supported platforms supply a complete family glyph in their system
-    // emoji font, so this coverage gap must proceed down the fallback chain.
+    // Apple Color Emoji composes the family. Segoe UI Emoji stopped composing
+    // family sequences in its September 2026 Windows 11 update and shapes the
+    // four members instead. Either way the coverage gap must proceed down the
+    // fallback chain to the most complete color composition available, never
+    // to missing-glyph boxes or Fluent's visible joiner spaces.
+    size_t best = 0;
+    for (size_t i = 0; i < resolver.fallbacks().size(); ++i)
+    {
+        if (!resolver.ensure_loaded(i) || !detail::font_has_color(resolver.fallbacks()[i].font.face()))
+            continue;
+        const size_t glyphs = detail::renderable_glyph_count(
+            resolver.fallbacks()[i].font.face(), resolver.fallbacks()[i].shaper, family);
+        if (glyphs > 0 && (best == 0 || glyphs < best))
+            best = glyphs;
+    }
+    REQUIRE(best > 0);
+#if defined(__APPLE__)
+    REQUIRE(best == 1);
+#endif
     FontSelector selector;
     const auto selected = selector.select(family, resolver, true, false);
     REQUIRE(selected.face != fluent.font.face());
-    REQUIRE(selected.shaper->shape(family).size() == 1);
+    REQUIRE(detail::font_has_color(selected.face));
+    REQUIRE(detail::renderable_glyph_count(selected.face, *selected.shaper, family) == best);
     TextService service;
     REQUIRE(service.initialize(config, 11, 192));
-    REQUIRE(service.resolve_cluster(family, true, false).is_color);
+    const auto region = service.resolve_cluster(family, true, false);
+    REQUIRE(region.is_color);
+    REQUIRE(region.bitmap_size.x <= service.metrics().cell_width * 2);
 #endif
 }
 

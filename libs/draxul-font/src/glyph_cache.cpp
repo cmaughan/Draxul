@@ -364,8 +364,10 @@ Result<AtlasRegion, Error> GlyphCache::rasterize_cluster(const std::string& text
     // (ligatures, contextual alternates) keep the same pitch as standalone
     // cells; otherwise the cluster compresses and its glyphs shift in X
     // relative to neighbouring cells. Rich text opts out: proportional
-    // chunks need the font's natural additive advances.
-    const int face_cell_w = (cell_aligned_clusters_ && face != nullptr)
+    // chunks need the font's natural additive advances. A color emoji
+    // grapheme occupies its cells as one picture rather than one cell per
+    // codepoint, so its components keep their natural advances too.
+    const int face_cell_w = (cell_aligned_clusters_ && face != nullptr && !FT_HAS_COLOR(face))
         ? static_cast<int>(face->size->metrics.max_advance >> 6)
         : 0;
     const std::vector<int> cp_indices = cell_aligned_clusters_
@@ -520,13 +522,16 @@ Result<AtlasRegion, Error> GlyphCache::rasterize_cluster(const std::string& text
     {
         bitmap_scale = static_cast<float>(face_->size->metrics.y_ppem)
             / static_cast<float>(face->size->metrics.y_ppem);
-        if (cell_aligned_clusters_)
-        {
-            const int cell_width = static_cast<int>(face_->size->metrics.max_advance >> 6);
-            const int cells = std::max(1, display_cell_width(text));
-            bitmap_scale = std::min(bitmap_scale,
-                static_cast<float>(cell_width * cells) / static_cast<float>(cluster_width));
-        }
+    }
+    // Scalable color fallbacks already match the text size, but an emoji
+    // sequence the font cannot compose shapes into several full-size
+    // pictures; fit those into the grapheme's cells like bitmap strikes.
+    if (cluster_is_color && cell_aligned_clusters_ && face != face_)
+    {
+        const int cell_width = static_cast<int>(face_->size->metrics.max_advance >> 6);
+        const int cells = std::max(1, display_cell_width(text));
+        bitmap_scale = std::min(bitmap_scale,
+            static_cast<float>(cell_width * cells) / static_cast<float>(cluster_width));
     }
     if (bitmap_scale != 1.0f)
     {
