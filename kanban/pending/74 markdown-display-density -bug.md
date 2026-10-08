@@ -25,7 +25,7 @@
     96 ppi, compares against a host created at 192 ppi, and checks that a rejected
     density keeps the previous fonts, rows, and glyphs.
 - [ ] **Validation:** Verify display movement on available platforms; run core aggregate tests, relevant rendering checks, and same-cache smoke.
-  - Aggregate tests and smoke: see the commit's validation summary. Physically moving
+  - macOS Debug `do.py test debug` (56 CTest entries) passed apart from three load-sensitive flakes that pass in isolation or also fail on a pre-change binary, plus the known `draxul-do-py-tests` megacity AGENTS.md failure in submodule-less worktrees; `do.py smoke debug --skip-build` passed (2026-10-08). Physically moving
     the window between differently scaled displays was not possible in this headless
     run; still outstanding on macOS and Windows.
 

@@ -28,6 +28,6 @@
     `package.json` inventory hash including a nested asset and a private DLL.
 - [ ] **Validation:** Extend deployment coverage; run core aggregate tests and same-cache smoke, plus relevant packaged-product startup checks.
   - Deployment coverage extended (`tests/do_py_tests.py`, `DeployPackagingTests`);
-    aggregate tests and smoke: see the commit's validation summary. Outstanding: run
+    macOS Debug `do.py test debug` (56 CTest entries) passed apart from three load-sensitive flakes that pass in isolation or also fail on a pre-change binary, plus the known `draxul-do-py-tests` megacity AGENTS.md failure in submodule-less worktrees; `do.py smoke debug --skip-build` passed (2026-10-08). Outstanding: run
     `py do.py deploy` on Windows, extract the zip on a machine without user plugins,
     and confirm the bundled product views open.

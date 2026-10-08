@@ -53,7 +53,7 @@ no underlying Win32 error was exposed by the placeholder.
     unreadable nested asset.
   - Not done: render validation still exits 0 when a product pane is unavailable.
 - [ ] Run scope-appropriate aggregate, same-cache smoke, and native plugin render.
-  - Core aggregate and smoke ran on macOS (see commit). The Windows native plugin
+  - macOS Debug `do.py test debug` (56 CTest entries) passed apart from three load-sensitive flakes that pass in isolation or also fail on a pre-change binary, plus the known `draxul-do-py-tests` megacity AGENTS.md failure in submodule-less worktrees; `do.py smoke debug --skip-build` passed (2026-10-08). The Windows native plugin
     render under a long profile root is outstanding.
 
 Preserve the user's installed plugin/profile state. Use unique child-only profiles

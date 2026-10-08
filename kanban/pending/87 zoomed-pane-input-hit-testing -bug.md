@@ -28,7 +28,7 @@
     in `tests/input_dispatcher_routing_tests.cpp`, which drives real window events
     through `InputDispatcher` into a real `PaneManager`.
 - [ ] **Validation:** Run core aggregate tests and same-cache smoke; check zoomed input interactively.
-  - Aggregate tests and smoke: see the commit's validation summary. The interactive
+  - macOS Debug `do.py test debug` (56 CTest entries) passed apart from three load-sensitive flakes that pass in isolation or also fail on a pre-change binary, plus the known `draxul-do-py-tests` megacity AGENTS.md failure in submodule-less worktrees; `do.py smoke debug --skip-build` passed (2026-10-08). The interactive
     check of zoomed input in a live window is still outstanding (headless agent run).
 
 **Shared with `kanban/pending/78 zoomed-pane-print-crop -bug.md`:** both bugs come
