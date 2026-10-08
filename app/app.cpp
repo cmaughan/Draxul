@@ -2801,6 +2801,17 @@ void App::on_display_scale_changed(float new_ppi)
     // DPI change also requires an ImGui font texture rebuild (different from on_font_changed).
     if (renderer_.imgui())
         renderer_.imgui()->rebuild_imgui_font_texture();
+    // Hosts with private fonts (Markdown, companion previews) rebuild at the
+    // new density before the shared metrics notification relayouts them.
+    for (const auto& space : space_controller_.spaces())
+    {
+        for (auto& tab : space->tab_controller.tabs())
+        {
+            tab->pane_manager.for_each_host([this](LeafId, IHost& host) {
+                host.on_display_density_changed(display_ppi_);
+            });
+        }
+    }
     apply_font_metrics();
 
     // Keep the input dispatcher's pixel_scale in sync so mouse hit-testing remains correct.

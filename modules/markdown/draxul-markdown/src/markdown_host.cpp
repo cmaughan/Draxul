@@ -1,10 +1,12 @@
 #include <draxul/markdown/markdown_host.h>
 
 #include <algorithm>
+#include <cmath>
 #include <draxul/app_config_types.h>
 #include <draxul/base_renderer.h>
 #include <draxul/filesystem_path_text.h>
 #include <draxul/host_registry.h>
+#include <draxul/log.h>
 #include <draxul/markdown/markdown_parser.h>
 #include <SDL3/SDL.h>
 #include <fstream>
@@ -186,6 +188,29 @@ void MarkdownHost::on_config_reloaded(const HostReloadConfig& config)
             return;
         }
     }
+    mark_layout_dirty();
+}
+
+void MarkdownHost::on_display_density_changed(float display_ppi)
+{
+    if (!std::isfinite(display_ppi) || display_ppi <= 0.0f || display_ppi == display_ppi_)
+        return;
+
+    // Build the replacement fonts first so a failure leaves the current
+    // fonts, layout, and draw list presenting the document unchanged.
+    RichTextService rebuilt;
+    if (!rebuilt.initialize(text_config_, base_point_size_, display_ppi))
+    {
+        DRAXUL_LOG_WARN(LogCategory::App,
+            "Markdown: keeping %.0f ppi fonts; rebuilding at %.0f ppi failed",
+            static_cast<double>(display_ppi_), static_cast<double>(display_ppi));
+        return;
+    }
+
+    RichTextService previous = std::move(rich_text_);
+    rich_text_ = std::move(rebuilt);
+    previous.shutdown();
+    display_ppi_ = display_ppi;
     mark_layout_dirty();
 }
 

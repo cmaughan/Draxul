@@ -232,6 +232,14 @@ public:
     {
         // Default no-op; only grid-capable hosts need to respond to font metric changes.
     }
+    // The window moved to a display with a different pixel density. Hosts that
+    // own private fonts (rather than the shared TextService the app already
+    // rebuilt) must rebuild them at the new density. Called before
+    // on_font_metrics_changed() for the same change.
+    virtual void on_display_density_changed(float /*display_ppi*/)
+    {
+        // Default no-op; hosts using the shared TextService are already current.
+    }
     virtual void on_glyph_atlas_reset()
     {
         // Default no-op; hosts without cached grid glyph coordinates need no repair.

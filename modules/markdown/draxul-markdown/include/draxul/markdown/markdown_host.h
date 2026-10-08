@@ -39,6 +39,7 @@ public:
 
     void set_viewport(const draxul::HostViewport& viewport) override;
     void on_config_reloaded(const draxul::HostReloadConfig& config) override;
+    void on_display_density_changed(float display_ppi) override;
     void pump() override;
     void draw(draxul::IFrameContext& frame) override;
     std::optional<std::chrono::steady_clock::time_point> next_deadline() const override;

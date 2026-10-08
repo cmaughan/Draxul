@@ -434,6 +434,88 @@ TEST_CASE("markdown host keeps layout and glyph metrics aligned across font and 
     CHECK(retina.max_glyph_height > standard.max_glyph_height);
 }
 
+TEST_CASE("markdown host rebuilds private fonts when the display density changes",
+    "[markdown][host][dpi]")
+{
+    const std::string font = draxul::tests::bundled_font_path().string();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    TempDir temp("draxul-markdown-density");
+    const auto source = temp.path / "density.md";
+    std::ofstream(source) << "# Density heading\n\nBody text with **emphasis**.\n";
+
+    const auto make_context = [&](AppConfig& config, float display_ppi, float pixel_scale,
+                                  bool companion) {
+        config.font_path = font;
+        config.markdown.font_size = 12.0f;
+        HostContext context;
+        context.config = &config;
+        context.launch_options.kind = HostKind::Markdown;
+        context.launch_options.source_path = source.string();
+        if (companion)
+            context.launch_options.companion_owner_pane_id = "kanban-pane";
+        context.initial_viewport.pixel_size = { 800, 600 };
+        context.initial_viewport.pixel_scale = pixel_scale;
+        context.display_ppi = display_ppi;
+        return context;
+    };
+
+    for (const bool companion : { false, true })
+    {
+        CAPTURE(companion);
+        // Reference: a host created directly on the high-density display.
+        AppConfig retina_config;
+        TestHostCallbacks retina_callbacks;
+        MarkdownHost retina_host;
+        REQUIRE(retina_host.initialize(
+            make_context(retina_config, 192.0f, 2.0f, companion), retina_callbacks));
+        const auto retina = MarkdownHostTestAccess::metric_snapshot(retina_host);
+        REQUIRE(retina.found_body_row);
+
+        // A host created on a standard display, then moved to the Retina one.
+        AppConfig config;
+        TestHostCallbacks callbacks;
+        MarkdownHost host;
+        REQUIRE(host.initialize(make_context(config, 96.0f, 1.0f, companion), callbacks));
+        const auto standard = MarkdownHostTestAccess::metric_snapshot(host);
+        REQUIRE(standard.found_body_row);
+        REQUIRE(standard.body_metrics.cell_height < retina.body_metrics.cell_height);
+
+        HostViewport moved;
+        moved.pixel_size = { 1600, 1200 };
+        moved.pixel_scale = 2.0f;
+        host.set_viewport(moved);
+        host.on_display_density_changed(192.0f);
+        const auto after_move = MarkdownHostTestAccess::metric_snapshot(host);
+        CHECK(after_move.point_size == standard.point_size);
+        CHECK(after_move.body_metrics.cell_width == retina.body_metrics.cell_width);
+        CHECK(after_move.body_metrics.cell_height == retina.body_metrics.cell_height);
+        CHECK(after_move.row_height == Catch::Approx(retina.row_height));
+        CHECK(after_move.row_baseline == Catch::Approx(after_move.expected_baseline));
+        CHECK(after_move.max_glyph_height == Catch::Approx(retina.max_glyph_height));
+        CHECK(after_move.glyphs_overlap_row);
+
+        // A density the font engine rejects keeps the current presentation.
+        host.on_display_density_changed(5.0e9f);
+        CHECK(host.is_running());
+        const auto after_failure = MarkdownHostTestAccess::metric_snapshot(host);
+        CHECK(after_failure.body_metrics.cell_height == after_move.body_metrics.cell_height);
+        CHECK(after_failure.row_height == Catch::Approx(after_move.row_height));
+        CHECK(after_failure.glyph_count == after_move.glyph_count);
+
+        // Moving back restores the standard-density geometry.
+        HostViewport back;
+        back.pixel_size = { 800, 600 };
+        back.pixel_scale = 1.0f;
+        host.set_viewport(back);
+        host.on_display_density_changed(96.0f);
+        const auto restored = MarkdownHostTestAccess::metric_snapshot(host);
+        CHECK(restored.body_metrics.cell_height == standard.body_metrics.cell_height);
+        CHECK(restored.row_height == Catch::Approx(standard.row_height));
+    }
+}
+
 TEST_CASE("markdown companion preview keeps its font offset across reload and zoom",
     "[markdown][host][preview]")
 {
