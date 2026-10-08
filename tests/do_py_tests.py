@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -1534,6 +1535,120 @@ class DeployPackagingTests(unittest.TestCase):
                     },
                     archived_files,
                 )
+
+    @staticmethod
+    def _publish_plugin_generation(package_root: pathlib.Path, files: dict[str, bytes]) -> None:
+        incoming = package_root / ".incoming"
+        incoming.mkdir(parents=True)
+        for relative, content in files.items():
+            path = incoming / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "publish_plugin.py"),
+                "--root",
+                str(package_root),
+                "--incoming",
+                str(incoming),
+            ],
+            check=True,
+        )
+
+    def test_stage_windows_deploy_payload_ships_selected_plugin_packages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            build_dir = root / "build"
+            executable = build_dir / "draxul.exe"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("exe")
+            runtime_dir = root / "windows-runtime"
+            runtime_dir.mkdir()
+            for library_name in draxul_do.WINDOWS_CRT_RUNTIME_LIBRARIES:
+                (runtime_dir / library_name).write_text("runtime")
+
+            package_root = build_dir / "plugins" / "megacity"
+            self._publish_plugin_generation(
+                package_root, {"plugin.toml": b"stale", "megacity.dll": b"stale"}
+            )
+            selected_files = {
+                "plugin.toml": b"schema_version = 1\n",
+                "megacity.dll": b"module",
+                "megacity-private.dll": b"private dependency",
+                "assets/megacity/textures/road.png": b"nested asset",
+            }
+            self._publish_plugin_generation(package_root, selected_files)
+            # An interrupted publish leaves scratch space that must not ship.
+            (package_root / ".incoming").mkdir()
+            (package_root / ".incoming" / "partial.dll").write_text("partial")
+            # Unpublished directories are not discoverable and are not shipped.
+            (build_dir / "plugins" / "scratch").mkdir()
+            (build_dir / "plugins" / "scratch" / "plugin.toml").write_text("loose")
+
+            pointer = json.loads((package_root / "current.json").read_text())
+            generation = pointer["generation"]
+            self.assertEqual(2, len(list((package_root / "generations").iterdir())))
+
+            platform_dir = root / "deploy" / "2026_07_03" / "win"
+            archive_path = root / "deploy" / "2026_07_03" / "draxul-2026_07_03-win.zip"
+            draxul_do._stage_deploy_payload(
+                executable,
+                platform_dir,
+                archive_path,
+                windows_runtime_directory=runtime_dir,
+            )
+
+            generation_prefix = f"plugins/megacity/generations/{generation}"
+            expected_plugin_files = {"plugins/megacity/current.json", f"{generation_prefix}/package.json"}
+            expected_plugin_files.update(f"{generation_prefix}/{name}" for name in selected_files)
+            staged_plugin_files = {
+                path.relative_to(platform_dir).as_posix()
+                for path in (platform_dir / "plugins").rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(expected_plugin_files, staged_plugin_files)
+
+            # Extract the archive and resolve the package the way runtime
+            # discovery does: current.json selects a complete generation whose
+            # inventory still matches every shipped file.
+            extracted = root / "extracted"
+            with zipfile.ZipFile(archive_path) as archive:
+                archive.extractall(extracted)
+            plugins = extracted / "win" / "plugins"
+            discovered = []
+            for package in sorted(path for path in plugins.iterdir() if path.is_dir()):
+                selected = json.loads((package / "current.json").read_text())["generation"]
+                generation_dir = package / "generations" / selected
+                self.assertTrue((generation_dir / "plugin.toml").is_file())
+                inventory = json.loads((generation_dir / "package.json").read_text())["files"]
+                for relative, digest in inventory.items():
+                    shipped = (generation_dir / relative).read_bytes()
+                    self.assertEqual(digest, hashlib.sha256(shipped).hexdigest(), relative)
+                discovered.append(package.name)
+            self.assertEqual(["megacity"], discovered)
+            self.assertEqual(
+                b"nested asset",
+                (plugins / "megacity" / "generations" / generation / "assets" / "megacity"
+                 / "textures" / "road.png").read_bytes(),
+            )
+
+    def test_stage_windows_plugin_packages_rejects_broken_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            package = root / "plugins" / "satview"
+            package.mkdir(parents=True)
+            (package / "current.json").write_text(json.dumps({"generation": "missing"}))
+            with self.assertRaisesRegex(FileNotFoundError, "incomplete"):
+                draxul_do._stage_windows_plugin_packages(root / "plugins", root / "out")
+
+            (package / "current.json").write_text(json.dumps({"generation": "../escape"}))
+            with self.assertRaisesRegex(ValueError, "Invalid plugin generation"):
+                draxul_do._stage_windows_plugin_packages(root / "plugins", root / "out2")
+
+            (package / "current.json").write_text("{not json")
+            with self.assertRaisesRegex(ValueError, "Unreadable plugin selection"):
+                draxul_do._stage_windows_plugin_packages(root / "plugins", root / "out3")
 
 
 class HygieneCommandTests(unittest.TestCase):

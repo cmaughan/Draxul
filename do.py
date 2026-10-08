@@ -1300,6 +1300,43 @@ def _parse_deploy_args(args: list[str]) -> tuple[bool, str]:
     return force_reconfigure, build_system
 
 
+def _stage_windows_plugin_packages(source_root: pathlib.Path, destination_root: pathlib.Path) -> list[str]:
+    """Copy each published plugin package's selected generation for deployment.
+
+    Runtime discovery reads ``<exe>/plugins/<id>/current.json`` and loads only
+    ``generations/<generation>/``. Ship exactly that pair per package so the
+    archive excludes ``.incoming`` scratch space and retained stale generations
+    while keeping the manifest, native modules, private DLLs, and nested assets.
+    """
+    if not source_root.is_dir():
+        return []
+    staged: list[str] = []
+    for package in sorted(path for path in source_root.iterdir() if path.is_dir()):
+        pointer = package / "current.json"
+        if not pointer.is_file():
+            # Unpublished directories are invisible to runtime discovery.
+            continue
+        try:
+            generation = json.loads(pointer.read_text(encoding="utf-8")).get("generation", "")
+        except (OSError, ValueError, AttributeError) as error:
+            raise ValueError(f"Unreadable plugin selection {pointer}: {error}") from error
+        if (
+            not isinstance(generation, str)
+            or generation in ("", ".", "..")
+            or "/" in generation
+            or "\\" in generation
+        ):
+            raise ValueError(f"Invalid plugin generation in {pointer}: {generation!r}")
+        generation_dir = package / "generations" / generation
+        if not (generation_dir / "plugin.toml").is_file():
+            raise FileNotFoundError(f"Published plugin generation is incomplete: {generation_dir}")
+        package_destination = destination_root / package.name
+        shutil.copytree(generation_dir, package_destination / "generations" / generation)
+        shutil.copy2(pointer, package_destination / "current.json")
+        staged.append(package.name)
+    return staged
+
+
 def _stage_deploy_payload(
     source: pathlib.Path,
     platform_dir: pathlib.Path,
@@ -1318,6 +1355,7 @@ def _stage_deploy_payload(
             runtime_directory = source.parent / directory_name
             if runtime_directory.is_dir():
                 shutil.copytree(runtime_directory, platform_dir / directory_name)
+        _stage_windows_plugin_packages(source.parent / "plugins", platform_dir / "plugins")
         for runtime_library in sorted(source.parent.glob("*.dll")):
             shutil.copy2(runtime_library, platform_dir / runtime_library.name)
         if windows_runtime_directory is None and sys.platform.startswith("win"):
@@ -1375,7 +1413,7 @@ def cmd_deploy(root: pathlib.Path, args: list[str]) -> int:
     platform_dir, archive_path = _deploy_output_paths(root, date_label)
     try:
         _stage_deploy_payload(source, platform_dir, archive_path)
-    except OSError as error:
+    except (OSError, ValueError) as error:
         print(f"Failed to stage deploy payload: {error}", file=sys.stderr)
         return 1
     print(f"\nDeploy folder:  {platform_dir}")
