@@ -4,6 +4,8 @@
 instructions, provider/model choice, visible activity, bounded scheduled runs and
 single-executor ownership. The host is built in like Kanban; the server owns work.
 
+**Priority:** P2
+
 **Design:** [Personal Assistant initial implementation plan](../../plans/personal-assistant.md)  
 **Status:** Course correction implemented (2026-10-06): personal agents are persistent provider terminal conversations, opened from a sidebar pill. The prior definition editor and one-shot runner are superseded.
 **Scope:** Core repository; Windows and macOS.

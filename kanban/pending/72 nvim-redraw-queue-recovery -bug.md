@@ -2,8 +2,7 @@
 
 **Summary:** Recover the complete editor display when queued updates overflow so changes are not permanently lost.
 
-**Priority:** 78  
-**Severity:** HIGH  
+**Priority:** P1  
 **Source:** `libs/draxul-nvim/src/rpc.cpp`
 
 **Evidence and trigger:** B15; the bounded queue drops incremental notifications without notifying the host or requesting resynchronization.

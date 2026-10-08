@@ -1,8 +1,7 @@
 # Match shortcut chords to their starting prefix
 **Summary:** Remember which shortcut prefix was pressed so the second key runs the intended command.
 
-**Priority:** 93  
-**Severity:** MEDIUM  
+**Priority:** P2  
 **Source:** `app/input_dispatcher.cpp`  
 **Reported by:** Claude M5; consensus F48.
 

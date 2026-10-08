@@ -3,7 +3,7 @@
 **Summary:** Stop hidden Neovim panes from requesting visible-window redraws so background output does not waste drawing work while their contents remain ready for reopening.
 
 **Source:** `libs/draxul-host/src/grid_host_base.cpp`  
-**Priority/evidence:** P2; static, high confidence. **Reported by:** Claude. `flush_grid()` at lines 222–240 requests a frame, and cursor updates at 397–454 can do likewise, without a presentation-visibility gate. Hidden remote terminals already suspend delivery; hidden Neovim hosts continue ingesting and can trigger visible-window renders.
+**Priority:** P2; static, high confidence. **Reported by:** Claude. `flush_grid()` at lines 222–240 requests a frame, and cursor updates at 397–454 can do likewise, without a presentation-visibility gate. Hidden remote terminals already suspend delivery; hidden Neovim hosts continue ingesting and can trigger visible-window renders.
 
 - [ ] **Baseline:** Count foreground frames while a hidden Neovim pane outputs and blinks.
 - [ ] **Implement:** Track presentation visibility, suppress hidden frame requests and unfocused blink work, then invalidate once on reveal.

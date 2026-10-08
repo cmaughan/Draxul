@@ -1,8 +1,7 @@
 # Release diagnostic textures through their owning pane
 **Summary:** Release each pane’s diagnostic images through their owner so closing one pane cannot corrupt another pane’s drawing state.
 
-**Priority:** 85  
-**Severity:** CRITICAL  
+**Priority:** P0  
 **Source:** `plugins/support/imgui/src/plugin_imgui_context.cpp`  
 **Reported by:** Claude C3 and C4; consensus F04.
 

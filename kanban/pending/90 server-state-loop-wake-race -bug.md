@@ -1,8 +1,7 @@
 # Make server wake notifications reliable
 **Summary:** Make wake-up signals reliable so pending work does not wait for the idle timeout.
 
-**Priority:** 90  
-**Severity:** MEDIUM  
+**Priority:** P2  
 **Source:** `libs/draxul-server/src/server_kernel_lifecycle.cpp`  
 **Reported by:** Claude M2; consensus F45.
 

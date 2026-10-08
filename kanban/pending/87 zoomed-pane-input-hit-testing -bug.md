@@ -1,8 +1,7 @@
 # Route zoomed input to the visible pane
 **Summary:** Keep mouse input on the visible zoomed pane so typing cannot move to a hidden pane.
 
-**Priority:** 87  
-**Severity:** HIGH  
+**Priority:** P1  
 **Source:** `app/pane_manager.cpp`  
 **Reported by:** Claude H2; consensus F23.
 

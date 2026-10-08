@@ -3,7 +3,7 @@
 **Summary:** Share font-image storage between normal, bold, and italic text of the same size so mixed-style documents do not reserve duplicate large images.
 
 **Source:** `libs/draxul-font/src/rich_text_service.cpp`  
-**Priority/evidence:** P2; static, high confidence. **Reported by:** Claude. Lines 62–87 key a full `TextService` by size and bold/italic, while style flags are already passed at use. Each service owns a 2048² RGBA CPU atlas (`glyph_cache.cpp:172–178`) and can cause a corresponding GPU atlas.
+**Priority:** P2; static, high confidence. **Reported by:** Claude. Lines 62–87 key a full `TextService` by size and bold/italic, while style flags are already passed at use. Each service owns a 2048² RGBA CPU atlas (`glyph_cache.cpp:172–178`) and can cause a corresponding GPU atlas.
 
 - [ ] **Baseline:** Count services, CPU/GPU atlases, RSS, and VRAM for a mixed-style Markdown or Kanban preview.
 - [ ] **Implement:** Share by compatible point size while passing style at shaping/rasterization and maintaining correct atlas identity.

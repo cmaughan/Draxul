@@ -1,8 +1,7 @@
 # Reset failed retained Windows listeners
 **Summary:** Reset failed listeners so a quick disconnect cannot leave one retrying forever.
 
-**Priority:** 92  
-**Severity:** MEDIUM  
+**Priority:** P2  
 **Source:** `libs/draxul-control/src/control_transport_win32.cpp`  
 **Reported by:** Claude M4; consensus F47.
 

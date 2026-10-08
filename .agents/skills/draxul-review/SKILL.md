@@ -54,7 +54,7 @@ Report final successes/failures, consensus and report paths, and created/merged 
 
 ### Plain-English card summaries
 
-Every proposed, created, or revised card must put `**Summary:**` immediately below its title heading, before priority, source, or other metadata. Write one short sentence explaining what will change and why it is needed for someone who has not read the code. Use everyday language; avoid class names, file paths, acronyms, and unexplained technical terms. Describe the problem and intended benefit without unsupported claims or invented speedups. Keep technical evidence and implementation details below it.
+Every proposed, created, or revised card must put `**Summary:**` immediately below its title heading, before priority, source, or other metadata. Follow the summary with exactly one `**Priority:** Pn — short reason` line on the CLAUDE.md scale (P0 critical, P1 high, P2 medium, P3 low); never add `**Severity:**`, `**Priority/evidence:**`, or numeric priority lines to a card. Write one short sentence explaining what will change and why it is needed for someone who has not read the code. Use everyday language; avoid class names, file paths, acronyms, and unexplained technical terms. Describe the problem and intended benefit without unsupported claims or invented speedups. Keep technical evidence and implementation details below it.
 
 Apply this to all review types, root and product cards, and cards revised during consensus merging; preserve their evidence and checklist progress. The runner rejects missing, empty, or misplaced summaries before publishing cards. It checks structure, not whether the explanation is accurate or easy to understand; inspect those qualities when reviewing the result.
 

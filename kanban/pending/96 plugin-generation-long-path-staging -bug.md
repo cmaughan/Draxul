@@ -3,8 +3,7 @@
 **Summary:** MegaCity can become unavailable when its isolated Windows config/cache
 root has a long path, and the placeholder reports only an unknown staging error.
 
-**Priority:** 96
-**Severity:** HIGH
+**Priority:** P1
 **Source:** Native validation of `kanban/pending/85 plugin-texture-release-ownership -bug.md`.
 
 **Evidence:** On 2026-10-02, a Debug MegaCity diagnostic render export under the

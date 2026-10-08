@@ -15,7 +15,7 @@ Report every distinct supported finding without a numeric quota or arbitrary out
 
 Start every accepted finding or recommendation with `**Summary:**` and one short sentence explaining what will change and why it is needed, for someone who has not read the code. Use everyday language; avoid class names, file paths, acronyms, and unexplained technical terms. Describe the current problem and intended benefit without claiming unsupported results or measured speedups. Put technical evidence and implementation details below the summary.
 
-Every proposed, created, or revised Kanban card, including cards merged into existing work and cards in product submodules, must put this summary immediately below its title heading and before priority, source, or other metadata. Preserve existing evidence and checklist progress when revising a card.
+Every proposed, created, or revised Kanban card, including cards merged into existing work and cards in product submodules, must put this summary immediately below its title heading and before priority, source, or other metadata. Follow the summary with exactly one `**Priority:** Pn — short reason` line on the CLAUDE.md scale (P0 critical, P1 high, P2 medium, P3 low); never add `**Severity:**`, `**Priority/evidence:**`, or numeric priority lines to a card. Preserve existing evidence and checklist progress when revising a card.
 
 This is **feature planning only**. Do not pull findings from bug or refactor review files.
 
@@ -33,6 +33,6 @@ For each confirmed feature, include:
 - Dependencies on other confirmed work.
 - A concise acceptance signal.
 
-Return one complete implementation-ready markdown work item for the runner to create for each accepted proposal. Use root `kanban/pending/` for core/shared work and `plugins/<product>/kanban/pending/` for work wholly owned by an initialized product submodule. Include a `**Source:**` line with a backtick-quoted owning source path. Use an unused two-digit priority in the owning lane and end each filename with `-feature.md`; do not overwrite or duplicate an existing card. Each card must contain scoped checkbox sections for investigation, implementation, cross-platform behavior, tests, documentation, and acceptance criteria. Mention safe sub-agent ownership only when the work has genuinely separable areas.
+Return one complete implementation-ready markdown work item for the runner to create for each accepted proposal. Use root `kanban/pending/` for core/shared work and `plugins/<product>/kanban/pending/` for work wholly owned by an initialized product submodule. Include a `**Source:**` line with a backtick-quoted owning source path. Use an unused two-digit sequence number in the owning lane and end each filename with `-feature.md`; do not overwrite or duplicate an existing card. Each card must contain scoped checkbox sections for investigation, implementation, cross-platform behavior, tests, documentation, and acceptance criteria. Mention safe sub-agent ownership only when the work has genuinely separable areas.
 
 Append your `<model>` identifier to the consensus file and flag all interdependencies and recommended sequencing there. Return the full consensus, including complete proposed cards under exact `### kanban/pending/<filename>.md` or `### plugins/<product>/kanban/pending/<filename>.md` headings when task creation is enabled.

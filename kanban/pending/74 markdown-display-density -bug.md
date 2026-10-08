@@ -2,8 +2,7 @@
 
 **Summary:** Resize Markdown text when the window moves between displays so it keeps the intended readable size.
 
-**Priority:** 80  
-**Severity:** HIGH  
+**Priority:** P1  
 **Source:** `modules/markdown/draxul-markdown/src/markdown_host.cpp`
 
 **Evidence and trigger:** B17; private fonts retain initialization density after the application updates shared fonts for a different display.

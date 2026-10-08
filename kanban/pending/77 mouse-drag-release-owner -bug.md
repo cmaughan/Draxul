@@ -2,8 +2,7 @@
 
 **Summary:** Stop dragging when the mouse button is released anywhere so selections do not keep moving afterward.
 
-**Priority:** 83  
-**Severity:** MEDIUM  
+**Priority:** P2  
 **Source:** `app/input_dispatcher.cpp`
 
 **Evidence and trigger:** B27; chrome, pills, panel capture, and cross-pane routing can prevent terminal or divider drag cleanup.

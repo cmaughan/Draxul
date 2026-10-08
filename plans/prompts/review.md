@@ -4,7 +4,7 @@ Review the repository through the supplied `repomix-output.xml` in one coordinat
 
 Start every accepted finding or recommendation with `**Summary:**` and one short sentence explaining what will change and why it is needed, for someone who has not read the code. Use everyday language; avoid class names, file paths, acronyms, and unexplained technical terms. Describe the current problem and intended benefit without claiming unsupported results or measured speedups. Put technical evidence and implementation details below the summary.
 
-Every proposed, created, or revised Kanban card, including cards merged into existing work and cards in product submodules, must put this summary immediately below its title heading and before priority, source, or other metadata. Preserve existing evidence and checklist progress when revising a card.
+Every proposed, created, or revised Kanban card, including cards merged into existing work and cards in product submodules, must put this summary immediately below its title heading and before priority, source, or other metadata. Follow the summary with exactly one `**Priority:** Pn — short reason` line on the CLAUDE.md scale (P0 critical, P1 high, P2 medium, P3 low); never add `**Severity:**`, `**Priority/evidence:**`, or numeric priority lines to a card. Preserve existing evidence and checklist progress when revising a card.
 
 ## Review procedure and completion criteria
 
@@ -40,7 +40,7 @@ Evaluate opportunities in areas such as:
 
 For each recommendation, include:
 
-- **Priority**: HIGH, MEDIUM, or LOW.
+- **Priority**: P0, P1, P2, or P3 (see the CLAUDE.md priority scale).
 - **User problem**: the concrete workflow or friction being addressed.
 - **Proposed behavior**: what the user would experience.
 - **Current evidence**: relevant files, documentation, or existing behavior that show the gap is still present.

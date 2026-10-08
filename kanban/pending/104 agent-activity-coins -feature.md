@@ -3,6 +3,8 @@
 **Summary:** Show TokenFu's spinning provider coin beside each discovered agent
 pill and spin it according to that agent's activity.
 
+**Priority:** P2
+
 **Design:** [plans/agent-cards-token-activity.md](../../plans/agent-cards-token-activity.md)
 (this card pulls the coin forward ahead of the full card redesign).
 **Later:** machine-wide agent discovery will feed the same rail and coins.

@@ -2,8 +2,7 @@
 
 **Summary:** Include bundled product views in Windows downloads so users can open the views provided by the build.
 
-**Priority:** 82  
-**Severity:** HIGH  
+**Priority:** P1  
 **Source:** `do.py`
 
 **Evidence and trigger:** B19; deployment omits the published plugin directory required by runtime discovery.

@@ -1,8 +1,7 @@
 # Preserve build locks when process inspection is denied
 **Summary:** Keep build ownership locks when Windows cannot inspect the owner so another build cannot enter the same folder.
 
-**Priority:** 94  
-**Severity:** MEDIUM  
+**Priority:** P2  
 **Source:** `do.py`  
 **Reported by:** Claude M17; consensus F53.
 

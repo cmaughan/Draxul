@@ -2,6 +2,8 @@
 
 **Summary:** Find why the Draxul server icon keeps disappearing from the Mac menu bar and prevent it from happening again so the server controls remain accessible.
 
+**Priority:** P1 — recurring loss of the server menu-bar controls (user report)
+
 **Source:** User report, 2026-09-30.
 
 The server D has disappeared again while the server is running. The previous

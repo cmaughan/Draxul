@@ -2,8 +2,7 @@
 
 **Summary:** Retry failed font-image transfers so a temporary memory shortage does not leave text missing.
 
-**Priority:** 86  
-**Severity:** MEDIUM  
+**Priority:** P2  
 **Source:** `libs/draxul-renderer/src/metal/metal_renderer.mm`
 
 **Evidence and trigger:** B33; allocation, mapping, or encoder failure loses queued glyph pixels after their original dirty state was cleared.

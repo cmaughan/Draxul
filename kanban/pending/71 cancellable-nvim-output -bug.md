@@ -2,8 +2,7 @@
 
 **Summary:** Make large editor input cancellable so an editor that stops reading cannot freeze the interface.
 
-**Priority:** 77  
-**Severity:** HIGH  
+**Priority:** P1  
 **Source:** `libs/draxul-nvim/src/rpc.cpp`
 
 **Evidence and trigger:** B14; synchronous message writes block the interface when a nonreading editor exhausts pipe capacity.

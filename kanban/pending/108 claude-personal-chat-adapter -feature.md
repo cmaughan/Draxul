@@ -2,6 +2,8 @@
 
 Add Claude to the native personal-agent chat pane delivered in `kanban/done/107 personal-agent-native-chat -feature.md`. Ordinary Claude managed/discovered terminals already work and must remain unchanged.
 
+**Priority:** P2
+
 - [ ] Verify the installed Claude SDK/structured streaming protocol against primary documentation, including continuation, tool approvals, questions and cancellation.
 - [ ] Add a server-owned adapter behind the same personal chat snapshot/command boundary; no terminal scraping or fallback.
 - [ ] Preserve local provider conversation identity/history, shared Dropbox instructions/data, and the quiet answers-only UI.

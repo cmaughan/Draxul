@@ -3,7 +3,7 @@
 **Summary:** Read incoming terminal updates directly from their existing copy so changing a few characters does not copy the entire screen on the interface thread.
 
 **Source:** `libs/draxul-host/src/remote_terminal_host.cpp`  
-**Priority/evidence:** P2; static, high confidence. **Reported by:** Claude, Codex. Lines 1204–1208 copy the complete string-bearing snapshot for ordinary live publications, although sparse cells are applied at 1296–1299. Worker publication already owns a snapshot; scrollback composition is the branch that needs a separate value.
+**Priority:** P2; static, high confidence. **Reported by:** Claude, Codex. Lines 1204–1208 copy the complete string-bearing snapshot for ordinary live publications, although sparse cells are applied at 1296–1299. Worker publication already owns a snapshot; scrollback composition is the branch that needs a separate value.
 
 - [ ] **Baseline:** Count GUI-thread cell copies, allocations, and pump time for sparse and metadata-only updates at 200×60 and a larger grid.
 - [ ] **Implement:** Borrow the live publication within its consumption scope and allocate an owned composed view only for scrollback.

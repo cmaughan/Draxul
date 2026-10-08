@@ -2,8 +2,7 @@
 
 **Summary:** Use the supplied application location so agent conversations can be reported outside the command search path.
 
-**Priority:** 75  
-**Severity:** HIGH  
+**Priority:** P1  
 **Source:** `libs/draxul-agent-integration/src/agent_integration.cpp`
 
 **Evidence and trigger:** B12; generated hooks invoke bare `draxul` despite receiving its executable location from the server.

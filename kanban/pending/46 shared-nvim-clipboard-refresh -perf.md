@@ -3,7 +3,7 @@
 **Summary:** Share clipboard refreshes across Neovim panes so each pane does not repeatedly read and copy the same unchanged clipboard contents.
 
 **Source:** `libs/draxul-host/src/nvim_host.cpp`  
-**Priority/evidence:** P2; static, high confidence. **Reported by:** Claude. Lines 186–203 and 558–576 read/copy the OS clipboard every 500 ms per Neovim host, including hidden hosts. The gate limits frequency but not copies of a large clipboard across panes.
+**Priority:** P2; static, high confidence. **Reported by:** Claude. Lines 186–203 and 558–576 read/copy the OS clipboard every 500 ms per Neovim host, including hidden hosts. The gate limits frequency but not copies of a large clipboard across panes.
 
 - [ ] **Baseline:** Count clipboard reads, copied bytes, and GUI time with several hosts and a fixed 5 MiB clipboard.
 - [ ] **Implement:** Use a shared main-thread cache driven by clipboard/focus events, with a bounded fallback where event delivery needs one.

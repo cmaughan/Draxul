@@ -1,8 +1,7 @@
 # Preserve status requests during layout retries
 **Summary:** Complete status requests even when a simultaneous layout request encounters a connection failure.
 
-**Priority:** 89  
-**Severity:** MEDIUM  
+**Priority:** P2  
 **Source:** `libs/draxul-client/src/remote_session_client.cpp`  
 **Reported by:** Claude M1; consensus F44.
 

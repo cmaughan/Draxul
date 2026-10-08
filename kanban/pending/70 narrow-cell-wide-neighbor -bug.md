@@ -2,8 +2,7 @@
 
 **Summary:** Preserve a nearby wide character when updating a narrow character that does not overlap it.
 
-**Priority:** 76  
-**Severity:** HIGH  
+**Priority:** P1  
 **Source:** `libs/draxul-grid/src/grid.cpp`
 
 **Evidence and trigger:** B13; writing a narrow character immediately before a wide leader clears that unrelated leader and continuation.

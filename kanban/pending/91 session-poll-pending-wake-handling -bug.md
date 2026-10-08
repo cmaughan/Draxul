@@ -1,8 +1,7 @@
 # Honor pending wakes in the session poll worker
 **Summary:** Remember background wake requests so input and shutdown are not delayed during recovery.
 
-**Priority:** 91  
-**Severity:** MEDIUM  
+**Priority:** P2  
 **Source:** `libs/draxul-client/src/remote_session_coordinator.cpp`  
 **Reported by:** Claude M3; consensus F46.
 

@@ -2,8 +2,7 @@
 
 **Summary:** Allow an agent to replace an existing terminal even when the tab has reached its pane limit.
 
-**Priority:** 87  
-**Severity:** MEDIUM  
+**Priority:** P2  
 **Source:** `libs/draxul-server/src/topology_service.cpp`
 
 **Evidence and trigger:** B34; the pane-count guard precedes replacement handling, rejecting an operation that adds no pane.

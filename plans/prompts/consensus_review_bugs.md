@@ -15,7 +15,7 @@ Report every distinct supported finding without a numeric quota or arbitrary out
 
 Start every accepted finding or recommendation with `**Summary:**` and one short sentence explaining what will change and why it is needed, for someone who has not read the code. Use everyday language; avoid class names, file paths, acronyms, and unexplained technical terms. Describe the current problem and intended benefit without claiming unsupported results or measured speedups. Put technical evidence and implementation details below the summary.
 
-Every proposed, created, or revised Kanban card, including cards merged into existing work and cards in product submodules, must put this summary immediately below its title heading and before priority, source, or other metadata. Preserve existing evidence and checklist progress when revising a card.
+Every proposed, created, or revised Kanban card, including cards merged into existing work and cards in product submodules, must put this summary immediately below its title heading and before priority, source, or other metadata. Follow the summary with exactly one `**Priority:** Pn — short reason` line on the CLAUDE.md scale (P0 critical, P1 high, P2 medium, P3 low); never add `**Severity:**`, `**Priority/evidence:**`, or numeric priority lines to a card. Preserve existing evidence and checklist progress when revising a card.
 
 This is a **bug triage**, not a general review. Your job:
 
@@ -32,7 +32,7 @@ For each confirmed bug, the consensus entry should include:
 - Suggested fix
 - Which agent(s) reported it
 
-Then extract bug-fix work items from the confirmed bugs. Put core and shared-boundary cards under exact `### kanban/pending/<filename>.md` headings. Put defects wholly owned by an initialized product submodule under exact `### plugins/<product>/kanban/pending/<filename>.md` headings, deriving `<product>` from the actual initialized product inventory rather than a fixed product-name list. Include a `**Source:**` line with a backtick-quoted owning source path in each card. Use an available two-digit priority in each owning lane, ranking higher-severity bugs first within that lane. Each work item should contain:
+Then extract bug-fix work items from the confirmed bugs. Put core and shared-boundary cards under exact `### kanban/pending/<filename>.md` headings. Put defects wholly owned by an initialized product submodule under exact `### plugins/<product>/kanban/pending/<filename>.md` headings, deriving `<product>` from the actual initialized product inventory rather than a fixed product-name list. Include a `**Source:**` line with a backtick-quoted owning source path in each card. Use an available two-digit sequence number in each owning lane, ranking higher-severity bugs first within that lane, and translate severity into the card's priority: CRITICAL → P0, HIGH → P1, MEDIUM → P2. Each work item should contain:
 - The bug description and trigger scenario
 - Investigation steps (checkboxes)
 - Fix strategy (checkboxes)

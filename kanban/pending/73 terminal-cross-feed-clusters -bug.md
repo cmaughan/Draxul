@@ -2,8 +2,7 @@
 
 **Summary:** Keep accented and joined characters together when terminal output arrives in separate pieces.
 
-**Priority:** 79  
-**Severity:** HIGH  
+**Priority:** P1  
 **Source:** `libs/draxul-terminal-core/src/vt_parser.cpp`
 
 **Evidence and trigger:** B16; final clusters are committed at every feed, so a later combining accent or joined character cannot extend its base.

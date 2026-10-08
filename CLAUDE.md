@@ -375,8 +375,8 @@ issue discovered during that work in its own card.
 
 File naming: `<number> <slug> -<type>.md`
 
-- **number** — priority/sequence. Unique within `kanban/pending/`, but numbers are reused
-  across waves and can collide between directories.
+- **number** — sequence, not priority. Unique within `kanban/pending/`, but numbers are
+  reused across waves and can collide between directories.
 - **slug** — hyphenated short description.
 - **type** — one of `bug`, `test`, `feature`, `refactor`.
 
@@ -390,6 +390,26 @@ See kanban/ice-box/20 url-detection-click -feature.md
 # Bad — ambiguous
 See item 20
 ```
+
+Every card in every board (root and product) declares its urgency in exactly one
+line, directly below the `**Summary:**` paragraph (or the opening paragraph when a card
+has no summary):
+
+```
+**Priority:** P1 — short reason
+```
+
+| Priority | Use for |
+|----------|---------|
+| `P0` | Critical: crash, undefined behavior, data loss or corruption, security, or work that blocks safe change |
+| `P1` | High: incorrect user-visible behavior, a regression, or high-leverage work |
+| `P2` | Medium: edge-case failures, useful cleanup, bounded optimization |
+| `P3` | Low: nice-to-have or deferred (most `ice-box/` cards) |
+
+The Kanban module badges and sorts cards by this field. Do not add `**Severity:**`,
+`**Priority/evidence:**`, HIGH/MEDIUM/LOW, or numeric priorities to cards. Review prompts
+may rank findings by severity, but the cards they produce translate it: CRITICAL → P0,
+HIGH → P1, MEDIUM → P2, LOW → P3.
 
 `python do.py syncboard` syncs `kanban/pending` (as Backlog) and `kanban/ice-box` (as
 IceBox) to the GitHub project board; it is idempotent.

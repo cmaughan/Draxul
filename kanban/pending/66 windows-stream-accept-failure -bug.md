@@ -2,8 +2,7 @@
 
 **Summary:** Finish failed Windows connection attempts promptly so they cannot stop new connections or block shutdown.
 
-**Priority:** 74  
-**Severity:** HIGH  
+**Priority:** P1  
 **Source:** `libs/draxul-control/src/async_frame_stream_win32.cpp`
 
 **Evidence and trigger:** B11; synchronous connection failure reaches an infinite wait on an unsignaled event without pending work.

@@ -2,8 +2,7 @@
 
 **Summary:** Recover a drawing surface after frame preparation fails so rendering can safely continue.
 
-**Priority:** 85  
-**Severity:** MEDIUM  
+**Priority:** P2  
 **Source:** `libs/draxul-renderer/src/vulkan/vk_renderer.cpp`
 
 **Evidence and trigger:** B31; command preparation and atlas-recording failures return after acquisition without retiring the image or recovering synchronization.

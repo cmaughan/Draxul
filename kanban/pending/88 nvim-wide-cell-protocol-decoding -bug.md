@@ -1,8 +1,7 @@
 # Decode wide editor cells without shifting the line
 **Summary:** Preserve the editor’s cell positions so wide characters do not shift the rest of a line.
 
-**Priority:** 88  
-**Severity:** HIGH  
+**Priority:** P1  
 **Source:** `libs/draxul-nvim/src/ui_events.cpp`  
 **Reported by:** Claude H3; consensus F24.
 
