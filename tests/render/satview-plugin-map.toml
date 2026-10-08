@@ -8,10 +8,10 @@
 # pane not-ready until all seven markers and tracks are uploaded, so a capture
 # without satellites times out instead of passing. Captures are deterministic,
 # hence the tight changed-pixel threshold: one displaced marker fails.
-name = "satview-plugin"
+name = "satview-plugin-map"
 host = "plugin"
 plugin_id = "dev.draxul.satview"
-plugin_config_json = '{"remember_state": false, "render_test_fixture": {"unix_seconds": 1774008000, "gp_json_path": "${PROJECT_ROOT}/plugins/satview/tests/fixtures/render/satview_render_fixture_gp.json", "satcat_csv_path": "${PROJECT_ROOT}/plugins/satview/tests/fixtures/render/satview_render_fixture_satcat.csv", "camera_longitude_degrees": 45.0, "camera_latitude_degrees": 0.0, "camera_distance_earth_radii": 3.6, "map_center_degrees": [0.0, 0.0], "marker_scale": 6.0, "required_markers": 7, "required_tracks": 7}, "satview_config_toml": "projection_mode = \"globe\"\nclouds = false\n"}'
+plugin_config_json = '{"remember_state": false, "render_test_fixture": {"unix_seconds": 1774008000, "gp_json_path": "${PROJECT_ROOT}/plugins/satview/tests/fixtures/render/satview_render_fixture_gp.json", "satcat_csv_path": "${PROJECT_ROOT}/plugins/satview/tests/fixtures/render/satview_render_fixture_satcat.csv", "camera_longitude_degrees": 45.0, "camera_latitude_degrees": 0.0, "camera_distance_earth_radii": 3.6, "map_center_degrees": [0.0, 0.0], "marker_scale": 6.0, "required_markers": 7, "required_tracks": 7}, "satview_config_toml": "projection_mode = \"map\"\nclouds = false\n"}'
 width = 960
 height = 640
 settle_ms = 300
