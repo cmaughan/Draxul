@@ -1684,3 +1684,165 @@ TEST_CASE("server restores usable Spaces and checkpoints after partial restore",
     REQUIRE(recovered->spaces.front().name
         == "Recovered Space");
 }
+
+TEST_CASE("server keeps accepted topology changes within durable Session limits",
+    "[server][topology][persistence]")
+{
+    TempDir temp("draxul-server-durable-limits");
+    const auto checkpoint = server_session_state_path(temp.path);
+    const std::string boundary_name(kSessionStateMaxShortTextBytes, 'n');
+    const std::string over_name(kSessionStateMaxShortTextBytes + 1, 'o');
+    std::string bounded_space_id;
+    std::string deep_pane_id;
+
+    {
+        ServerKernel server({
+            .runtime_directory = temp.path,
+            .session_checkpoint_interval = std::chrono::milliseconds(20),
+            .epoch_override = "durable-limits-first",
+        });
+        REQUIRE(server.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard run_guard(server);
+        TopologyClient client({
+            .runtime_directory = temp.path,
+            .client_id = "durable-limits-writer",
+        });
+        std::string error;
+        REQUIRE(client.refresh(error));
+
+        int serial = 0;
+        const auto execute = [&](TopologyCommand command,
+                                 std::string* created_id = nullptr) {
+            command.command_id = "durable-" + std::to_string(++serial);
+            command.expected_revision = client.snapshot().revision;
+            TopologyCommandResult result;
+            const bool applied = client.execute(command, result, error);
+            if (applied && created_id)
+                *created_id = result.created_id;
+            return applied;
+        };
+        // A rejected command must leave the published topology untouched.
+        const auto expect_rejected = [&](TopologyCommand command,
+                                         std::string_view code) {
+            const uint64_t revision = client.snapshot().revision;
+            CHECK_FALSE(execute(std::move(command)));
+            CHECK(client.last_error_code() == code);
+            REQUIRE(client.refresh(error));
+            CHECK(client.snapshot().revision == revision);
+        };
+
+        TopologyCommand create_space;
+        create_space.kind = TopologyCommandKind::CreateSpace;
+        create_space.name = over_name;
+        expect_rejected(create_space, "invalid_name");
+        create_space.name = boundary_name;
+        REQUIRE(execute(create_space, &bounded_space_id));
+        create_space.name = "Filler Space";
+        while (client.snapshot().spaces.size() < kSessionStateMaxSpaces)
+            REQUIRE(execute(create_space));
+        expect_rejected(create_space, "limit_reached");
+
+        TopologyCommand rename_space;
+        rename_space.kind = TopologyCommandKind::RenameSpace;
+        rename_space.space_id = bounded_space_id;
+        rename_space.name = over_name;
+        expect_rejected(rename_space, "invalid_name");
+
+        const auto bounded_space = [&]() -> const TopologySpace& {
+            const auto& spaces = client.snapshot().spaces;
+            const auto found = std::ranges::find(
+                spaces, bounded_space_id, &TopologySpace::space_id);
+            REQUIRE(found != spaces.end());
+            return *found;
+        };
+        const std::string first_tab_id = bounded_space().tabs.front().tab_id;
+        TopologyCommand create_tab;
+        create_tab.kind = TopologyCommandKind::CreateTab;
+        create_tab.space_id = bounded_space_id;
+        create_tab.name = over_name;
+        expect_rejected(create_tab, "invalid_name");
+        create_tab.name = boundary_name;
+        while (bounded_space().tabs.size() < kSessionStateMaxTabsPerSpace)
+            REQUIRE(execute(create_tab));
+        expect_rejected(create_tab, "limit_reached");
+
+        TopologyCommand rename_tab;
+        rename_tab.kind = TopologyCommandKind::RenameTab;
+        rename_tab.space_id = bounded_space_id;
+        rename_tab.tab_id = first_tab_id;
+        rename_tab.name = over_name;
+        expect_rejected(rename_tab, "invalid_name");
+        rename_tab.name = boundary_name;
+        REQUIRE(execute(rename_tab));
+
+        // Repeatedly splitting the newest pane deepens one branch of the tree
+        // until its leaves reach the deepest level a checkpoint accepts.
+        deep_pane_id = bounded_space().tabs.front().panes.front().pane_id;
+        TopologyCommand split;
+        split.kind = TopologyCommandKind::SplitPane;
+        split.space_id = bounded_space_id;
+        split.tab_id = first_tab_id;
+        split.pane_id = deep_pane_id;
+        split.name = over_name;
+        expect_rejected(split, "invalid_name");
+        split.name = boundary_name;
+        for (size_t depth = 0; depth < kSessionStateMaxTreeDepth; ++depth)
+        {
+            split.pane_id = deep_pane_id;
+            REQUIRE(execute(split, &deep_pane_id));
+        }
+        split.pane_id = deep_pane_id;
+        expect_rejected(split, "limit_reached");
+
+        TopologyCommand rename_pane;
+        rename_pane.kind = TopologyCommandKind::RenamePane;
+        rename_pane.space_id = bounded_space_id;
+        rename_pane.tab_id = first_tab_id;
+        rename_pane.pane_id = deep_pane_id;
+        rename_pane.name = over_name;
+        expect_rejected(rename_pane, "invalid_name");
+
+        const auto saved_status
+            = wait_for_session_checkpoint(temp.path, "default", error);
+        INFO(error);
+        REQUIRE(saved_status);
+        run_guard.join();
+    }
+
+    std::string error;
+    const auto saved = load_session_state_from_path(checkpoint, &error);
+    INFO(error);
+    REQUIRE(saved);
+    REQUIRE(saved->spaces.size() == kSessionStateMaxSpaces);
+
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "durable-limits-second",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+    const auto status = ServerClient::status(temp.path);
+    REQUIRE(status.ok);
+    CHECK(status.status->restore_warnings.empty());
+    TopologyClient client({
+        .runtime_directory = temp.path,
+        .client_id = "durable-limits-reader",
+    });
+    REQUIRE(client.refresh(error));
+    const auto& spaces = client.snapshot().spaces;
+    REQUIRE(spaces.size() == kSessionStateMaxSpaces);
+    const auto restored = std::ranges::find(
+        spaces, boundary_name, &TopologySpace::name);
+    REQUIRE(restored != spaces.end());
+    REQUIRE(restored->tabs.size() == kSessionStateMaxTabsPerSpace);
+    const TopologyTab& deep_tab = restored->tabs.front();
+    CHECK(deep_tab.name == boundary_name);
+    CHECK(deep_tab.panes.size() == kSessionStateMaxTreeDepth + 1);
+    const auto deep_pane = std::ranges::find(
+        deep_tab.panes, deep_pane_id, &TopologyPane::pane_id);
+    REQUIRE(deep_pane != deep_tab.panes.end());
+    CHECK(deep_pane->name == boundary_name);
+    run_guard.join();
+}

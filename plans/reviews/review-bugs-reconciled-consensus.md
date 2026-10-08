@@ -418,7 +418,7 @@ These actual pending cards cover all 34 Codex findings. They are not reproduced 
 | B7 | `plugins/rezonality/kanban/pending/09 build-temporary-storage-failure -bug.md` |
 | B8 | `plugins/rezonality/kanban/pending/10 color-attachment-count-validation -bug.md` |
 | B9 | `kanban/pending/60 print-temporary-directory-failure -bug.md` |
-| B10 | `kanban/pending/62 topology-durable-limits -bug.md` |
+| B10 | `kanban/done/62 topology-durable-limits -bug.md` |
 | B11 | `kanban/pending/66 windows-stream-accept-failure -bug.md` |
 | B12 | `kanban/pending/69 agent-hook-executable-path -bug.md` |
 | B13 | `kanban/pending/70 narrow-cell-wide-neighbor -bug.md` |

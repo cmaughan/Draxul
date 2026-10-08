@@ -1,6 +1,7 @@
 #include "topology_service.h"
 
 #include <draxul/remote_terminal_protocol.h>
+#include <draxul/session_state.h>
 #include <draxul/topology_layout.h>
 
 #include <algorithm>
@@ -166,9 +167,47 @@ bool detach_leaf(TopologyTab& tab, std::string_view pane_id)
     return true;
 }
 
+// Live mutations share the durable Session bounds, so every accepted change
+// can still be checkpointed and restored. The wire limits in
+// topology_protocol.h stay wider; these are the binding ones for mutations.
 bool valid_name(std::string_view value)
 {
-    return !value.empty() && value.size() <= kTopologyMaxTextBytes;
+    return !value.empty() && value.size() <= kSessionStateMaxShortTextBytes;
+}
+
+bool valid_optional_name(std::string_view value)
+{
+    return value.size() <= kSessionStateMaxShortTextBytes;
+}
+
+bool durable_agent_identity(const AgentIdentity& identity)
+{
+    return identity.profile_id.size() <= kSessionStateMaxShortTextBytes
+        && identity.kind.size() <= kSessionStateMaxShortTextBytes
+        && identity.display_name.size() <= kSessionStateMaxShortTextBytes
+        && identity.instance_id.size() <= kSessionStateMaxShortTextBytes;
+}
+
+// Splitting a leaf places both children one level deeper. The durable split
+// tree measures the root at depth 0 and accepts leaves up to the limit.
+bool leaf_can_split(const TopologyTab& tab, std::string_view node_id)
+{
+    size_t depth = 0;
+    std::string current(node_id);
+    while (current != tab.root_node_id && depth <= tab.nodes.size())
+    {
+        const auto parent = std::ranges::find_if(tab.nodes,
+            [&](const TopologyNode& node) {
+                return !node.is_leaf
+                    && (node.first_node_id == current
+                        || node.second_node_id == current);
+            });
+        if (parent == tab.nodes.end())
+            break;
+        current = parent->node_id;
+        ++depth;
+    }
+    return depth < kSessionStateMaxTreeDepth;
 }
 
 bool valid_shell_kind(std::string_view value)
@@ -319,7 +358,7 @@ ControlMethodResult TopologyService::apply_layout(
     if (!name || !valid_name(*name) || !root || !space_alias
         || !layout.contains("tabs") || !layout["tabs"].is_array()
         || layout["tabs"].empty()
-        || layout["tabs"].size() > kTopologyMaxTabsPerSpace)
+        || layout["tabs"].size() > kSessionStateMaxTabsPerSpace)
     {
         return ControlMethodResult::error(
             "invalid_layout",
@@ -366,7 +405,7 @@ ControlMethodResult TopologyService::apply_layout(
             || !tab_value.contains("panes")
             || !tab_value["panes"].is_array()
             || tab_value["panes"].empty()
-            || tab_value["panes"].size() > kTopologyMaxPanesPerTab)
+            || tab_value["panes"].size() > kSessionStateMaxPanesPerTab)
         {
             return ControlMethodResult::error(
                 "invalid_layout",
@@ -384,7 +423,8 @@ ControlMethodResult TopologyService::apply_layout(
             const auto cwd = bounded_string(pane_value, "cwd");
             const auto split_from = bounded_string(pane_value, "split_from");
             const auto plugin_id = bounded_string(pane_value, "plugin_id");
-            if (!pane_name || !pane_alias || pane_alias->empty()
+            if (!pane_name || !valid_optional_name(*pane_name)
+                || !pane_alias || pane_alias->empty()
                 || !cwd || !split_from || !plugin_id
                 || !remember_alias(*pane_alias))
             {
@@ -449,16 +489,23 @@ ControlMethodResult TopologyService::apply_layout(
     }
     for (const auto& tab : plans)
     {
-        std::unordered_set<std::string> available;
-        available.insert(tab.panes.front().alias);
+        // Leaf depth by alias: a split moves the target and the new pane one
+        // level below the target's former leaf position.
+        std::unordered_map<std::string, size_t> depth_by_alias;
+        depth_by_alias[tab.panes.front().alias] = 0;
         for (size_t index = 1; index < tab.panes.size(); ++index)
         {
             const std::string target = tab.panes[index].split_from.empty()
                 ? tab.panes[index - 1].alias
                 : tab.panes[index].split_from;
-            if (!available.contains(target))
+            const auto found = depth_by_alias.find(target);
+            if (found == depth_by_alias.end())
                 return ControlMethodResult::error("unknown_alias", "split_from must reference an earlier pane in the same tab.");
-            available.insert(tab.panes[index].alias);
+            const size_t depth = found->second + 1;
+            if (depth > kSessionStateMaxTreeDepth)
+                return ControlMethodResult::error("invalid_layout", "Layout split depth exceeds the durable Session limit.");
+            found->second = depth;
+            depth_by_alias[tab.panes[index].alias] = depth;
         }
     }
     if (dry_run)
@@ -709,9 +756,10 @@ ControlMethodResult TopologyService::launch_agent(
     }
     if (launch.identity.instance_id.starts_with("personal-"))
     {
-        if (space->tabs.size()>=kTopologyMaxTabsPerSpace)
+        if (space->tabs.size()>=kSessionStateMaxTabsPerSpace)
             return ControlMethodResult::error("limit_reached","Topology tab limit reached.");
-        if (!callbacks_.create_managed_agent_terminal || !valid_name(name))
+        if (!callbacks_.create_managed_agent_terminal || !valid_name(name)
+            || !durable_agent_identity(launch.identity))
             return ControlMethodResult::error("invalid_agent","Managed terminal is unavailable or its name is invalid.");
         auto created=make_client_local_tab(std::string(name));
         auto& pane=created.panes.front();
@@ -743,12 +791,14 @@ ControlMethodResult TopologyService::launch_agent(
         return ControlMethodResult::error(
             "pane_not_found", "Topology pane was not found.");
     }
-    if (tab->panes.size() >= kTopologyMaxPanesPerTab)
+    if (tab->panes.size() >= kSessionStateMaxPanesPerTab
+        || (!launch.replace_target_pane
+            && !leaf_can_split(*tab, leaf->node_id)))
     {
         return ControlMethodResult::error(
             "limit_reached", "Topology pane limit reached.");
     }
-    if (!valid_name(name)
+    if (!valid_name(name) || !durable_agent_identity(launch.identity)
         || launch.identity.profile_id.empty()
         || launch.identity.kind.empty()
         || launch.identity.display_name.empty()
@@ -1070,6 +1120,13 @@ bool TopologyService::apply(const TopologyCommand& command,
         return false;
     };
 
+    if (command.client_host_kind.size() > kSessionStateMaxShortTextBytes
+        || command.companion_owner_pane_id.size()
+            > kSessionStateMaxShortTextBytes)
+    {
+        return reject("invalid_command",
+            "Topology pane identity exceeds the durable text limit.");
+    }
     if (!command.client_plugin_id.empty()
         && (command.client_host_kind != "plugin"
             || !valid_plugin_id(command.client_plugin_id)
@@ -1100,7 +1157,7 @@ bool TopologyService::apply(const TopologyCommand& command,
 
     if (command.kind == TopologyCommandKind::CreateSpace)
     {
-        if (snapshot_.spaces.size() >= kTopologyMaxSpaces)
+        if (snapshot_.spaces.size() >= kSessionStateMaxSpaces)
             return reject("limit_reached", "Topology Space limit reached.");
         if (!valid_name(command.name))
             return reject("invalid_name", "Space name is required.");
@@ -1210,7 +1267,9 @@ bool TopologyService::apply(const TopologyCommand& command,
         created_id = existing_app_tab_id(snapshot_, command);
         if (!created_id.empty())
             return true;
-        if (space->tabs.size() >= kTopologyMaxTabsPerSpace)
+        if (!command.name.empty() && !valid_name(command.name))
+            return reject("invalid_name", "Tab name exceeds the text limit.");
+        if (space->tabs.size() >= kSessionStateMaxTabsPerSpace)
             return reject("limit_reached", "Topology tab limit reached.");
         TopologyTab tab = make_client_local_tab(
             valid_name(command.name) ? command.name : "Tab");
@@ -1329,6 +1388,8 @@ bool TopologyService::apply(const TopologyCommand& command,
         TopologyPane* pane = find_pane(*tab, command.pane_id);
         if (!pane)
             return reject("pane_not_found", "Topology pane was not found.");
+        if (!valid_optional_name(command.name))
+            return reject("invalid_name", "Pane name exceeds the text limit.");
         pane->name = command.name;
         return true;
     }
@@ -1422,7 +1483,7 @@ bool TopologyService::apply(const TopologyCommand& command,
             return reject("last_pane", "The final pane cannot be moved.");
         if (!same_tab
             && destination_tab->panes.size()
-                >= kTopologyMaxPanesPerTab)
+                >= kSessionStateMaxPanesPerTab)
         {
             return reject("limit_reached",
                 "Destination tab pane limit reached.");
@@ -1502,6 +1563,11 @@ bool TopologyService::apply(const TopologyCommand& command,
         {
             return reject("target_pane_not_found",
                 "Target pane was not found while preparing the move.");
+        }
+        if (!leaf_can_split(*candidate_destination_tab, target_leaf->node_id))
+        {
+            return reject("limit_reached",
+                "Destination split depth limit reached.");
         }
         const std::string first_node_id = next_id("node");
         const std::string second_node_id = next_id("node");
@@ -1595,8 +1661,10 @@ bool TopologyService::apply(const TopologyCommand& command,
     }
     if (command.kind == TopologyCommandKind::SplitPane)
     {
-        if (tab->panes.size() >= kTopologyMaxPanesPerTab)
+        if (tab->panes.size() >= kSessionStateMaxPanesPerTab)
             return reject("limit_reached", "Topology pane limit reached.");
+        if (!valid_optional_name(command.name))
+            return reject("invalid_name", "Pane name exceeds the text limit.");
         if (!std::isfinite(command.ratio)
             || command.ratio < kTopologyMinSplitRatio
             || command.ratio > kTopologyMaxSplitRatio)
@@ -1607,6 +1675,8 @@ bool TopologyService::apply(const TopologyCommand& command,
         TopologyNode* leaf = find_leaf_for_pane(*tab, command.pane_id);
         if (!leaf)
             return reject("pane_not_found", "Topology pane was not found.");
+        if (!leaf_can_split(*tab, leaf->node_id))
+            return reject("limit_reached", "Topology split depth limit reached.");
         const std::string pane_id = next_id("pane");
         TopologyPane pane{
             .pane_id = pane_id,

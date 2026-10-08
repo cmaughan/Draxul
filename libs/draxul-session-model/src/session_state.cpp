@@ -35,12 +35,12 @@ namespace
 
 constexpr int kSessionStateVersion = 4;
 constexpr size_t kMaxSessionStateBytes = 4 * 1024 * 1024;
-constexpr size_t kMaxSpaces = 64;
-constexpr size_t kMaxTabsPerSpace = 128;
-constexpr size_t kMaxPanesPerTab = 256;
-constexpr size_t kMaxTreeDepth = 64;
-constexpr size_t kMaxShortTextBytes = 512;
-constexpr size_t kMaxCommandTextBytes = 8192;
+constexpr size_t kMaxSpaces = kSessionStateMaxSpaces;
+constexpr size_t kMaxTabsPerSpace = kSessionStateMaxTabsPerSpace;
+constexpr size_t kMaxPanesPerTab = kSessionStateMaxPanesPerTab;
+constexpr size_t kMaxTreeDepth = kSessionStateMaxTreeDepth;
+constexpr size_t kMaxShortTextBytes = kSessionStateMaxShortTextBytes;
+constexpr size_t kMaxCommandTextBytes = kSessionStateMaxCommandTextBytes;
 constexpr size_t kMaxStringListEntries = 256;
 constexpr const char* kOutOfRangeIdentifierError
     = "Session state contains an out-of-range identifier or counter.";
