@@ -154,7 +154,9 @@ TEST_CASE("personal chart paths and decoding handle local reports and bad files"
     const auto folder=temp.path/"chart space";
     std::filesystem::create_directories(folder);
     const auto source=std::filesystem::path(__FILE__).parent_path()/"render/fixtures/personal-chat-chart.png";
-    const auto file=folder/std::filesystem::path(u8"株.png");
+    // Without /utf-8, MSVC decodes this source with the ANSI code page: a u8""
+    // literal is re-encoded into mojibake, but narrow-literal bytes pass through.
+    const auto file=folder/path_from_utf8("株.png");
     std::filesystem::copy_file(source,file);
     auto decoded=decode_chat_image(file);
     CHECK(decoded.error.empty());CHECK(decoded.width==400);CHECK(decoded.height==112);
