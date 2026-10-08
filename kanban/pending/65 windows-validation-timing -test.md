@@ -144,3 +144,44 @@ current Release helper, configured shared Dropbox collection and schema 3, with
 three error-free definitions. No default-profile timeout fix or cause is claimed.
 See `kanban/done/97 windows-personal-assistant-root -bug.md`; ignored logs are
 `build-ninja-debug/pa-root-*.log`.
+
+## Default-profile smoke: cause proven and corrected — 2026-10-08
+
+**Cause (test isolation, not a startup hang).** `do.py smoke` launched
+`draxul.exe --console --smoke-test` against the default runtime, which belongs
+to the user's live server (here PID 45472, a `D:` Release cache). The smoke
+client therefore attached to the live Session and, inside the first
+`pump_once()` of `App::run_smoke_test()`, projected and synchronously
+initialized every pane of every Space before its 3-second readiness check ran.
+A `cdb` stack sample at 15 s showed the main thread in
+`App::consume_remote_session_state → … → PaneManager::create_host_for_leaf →
+PersonalAssistantHost::initialize → … → VkRenderer::set_atlas_texture`.
+Uncapped, the same default-profile smoke exited **0 after 54 s** (live Session:
+1 Space, 9 panes: 3 plugins, Kanban, Markdown, Personal Assistant, 3
+terminals). The duration therefore measured live user state, which explains why
+every fresh-profile run passed and the default profile intermittently exceeded
+30 s.
+
+**Fix.** `run_isolated_smoke()` in `do.py` gives both `do.py smoke` and the
+smoke step of `do.py validate` a short temporary server runtime
+(`--server-runtime-dir` plus `DRAXUL_SERVER_RUNTIME_DIR`) and, on Windows, fresh
+`APPDATA`/`LOCALAPPDATA`. It always shuts down the server the smoke launched
+and removes the directory, retrying for 5 s because the final checkpoint lands
+after the shutdown acknowledgement. The 30 s bound is unchanged. Results:
+`py do.py smoke debug --skip-build` passed 4/4 (about 6 s each) with no
+leftover servers or directories; `tests/do_py_tests.py` 88 tests OK (2 skipped),
+including the updated smoke-command assertion. The user's live server was never
+stopped.
+
+- [x] Default-profile smoke: reproduce with retained logs, distinguish test from product, correct without raising the timeout.
+
+**Remote initial-state (`remote_terminal_host_tests.cpp:1159`) — still open.**
+It passed in the 2026-10-08 core+products aggregate (90 entries, 533 s), in
+20/20 serial repeats (`--repeat 20`, 53 s), and in 24 runs at 8-way process
+concurrency. No reproduction, so no cause is claimed and the deadline was not
+changed. Keep the first two unchecked items for this case.
+
+**Product follow-up noticed, not fixed here.** Attaching a UI to a Session
+initializes every projected host synchronously on the main thread (about 50 s
+for this 9-pane Session in Debug), so an attaching window is unresponsive while
+plugins and the Personal Assistant initialize.

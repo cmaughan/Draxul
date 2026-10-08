@@ -15,6 +15,7 @@ import sys
 import time
 import uuid
 from functools import wraps
+from typing import Callable, TypeVar
 from datetime import datetime
 
 WINDOWS_CRT_RUNTIME_LIBRARIES = (
@@ -1978,12 +1979,65 @@ def cmd_smoke(root: pathlib.Path, args: list[str]) -> int:
     )
     if rc != 0 or exe is None:
         return rc if rc != 0 else 1
-    return run_bounded_process_tree(
-        [str(exe), "--console", "--smoke-test"],
+    return run_isolated_smoke(
+        exe,
         root,
-        env=env,
-        timeout_seconds=30,
+        env,
+        lambda command, smoke_env: run_bounded_process_tree(
+            command, root, env=smoke_env, timeout_seconds=30
+        ),
     )
+
+
+T = TypeVar("T")
+
+
+def run_isolated_smoke(
+    executable: pathlib.Path,
+    root: pathlib.Path,
+    env: dict[str, str] | None,
+    run: Callable[[list[str], dict[str, str]], T],
+) -> T:
+    """Run the startup smoke against its own short-lived server runtime.
+
+    The default runtime belongs to the user's live server, and attaching to it
+    makes the smoke project every pane of that Session before reporting, so its
+    duration measured live user state rather than this build's startup. Windows
+    also isolates the config/cache profile. The server the smoke launches is
+    always shut down afterwards so it cannot hold this cache's helper.
+    """
+    smoke_root = pathlib.Path(tempfile.mkdtemp(prefix="dxsmoke"))
+    runtime = smoke_root / "r"
+    smoke_env = dict(env if env is not None else os.environ)
+    smoke_env["DRAXUL_SERVER_RUNTIME_DIR"] = str(runtime)
+    if sys.platform.startswith("win"):
+        for name in ("APPDATA", "LOCALAPPDATA"):
+            profile = smoke_root / name.lower()
+            profile.mkdir(parents=True, exist_ok=True)
+            smoke_env[name] = str(profile)
+    try:
+        return run(
+            [str(executable), "--console", "--smoke-test",
+             "--server-runtime-dir", str(runtime)],
+            smoke_env,
+        )
+    finally:
+        if runtime.exists():
+            try:
+                _capture_owned_process(
+                    [str(executable), "--shutdown-server", "--yes",
+                     "--server-runtime-dir", str(runtime)],
+                    root, env=smoke_env, timeout_seconds=15,
+                )
+            except OSError:
+                pass
+        # Shutdown is acknowledged before the server's final checkpoint lands.
+        deadline = time.monotonic() + 5
+        while True:
+            shutil.rmtree(smoke_root, ignore_errors=True)
+            if not smoke_root.exists() or time.monotonic() > deadline:
+                break
+            time.sleep(0.2)
 
 
 def _default_validation_render_scenarios(root: pathlib.Path) -> tuple[str, ...]:
@@ -2165,14 +2219,19 @@ def cmd_validate(root: pathlib.Path, args: list[str]) -> int:
                     lock.finish(final_return_code)
                     return final_return_code
             steps.append(
-                _run_logged_validation_command(
-                    [str(executable), "--console", "--smoke-test"],
+                run_isolated_smoke(
+                    executable,
                     root,
-                    step_name="smoke",
-                    kind="smoke",
-                    log_dir=log_dir,
-                    env=env,
-                    timeout_seconds=30,
+                    env,
+                    lambda command, smoke_env: _run_logged_validation_command(
+                        command,
+                        root,
+                        step_name="smoke",
+                        kind="smoke",
+                        log_dir=log_dir,
+                        env=smoke_env,
+                        timeout_seconds=30,
+                    ),
                 )
             )
             for scenario_name in render_names:

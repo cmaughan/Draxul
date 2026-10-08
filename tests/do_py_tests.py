@@ -1141,12 +1141,17 @@ class SmokeCommandTests(unittest.TestCase):
             build_system="ninja",
             skip_build=True,
         )
-        run_mock.assert_called_once_with(
-            [str(executable), "--console", "--smoke-test"],
-            ROOT,
-            env=build_env,
-            timeout_seconds=30,
-        )
+        run_mock.assert_called_once()
+        command = run_mock.call_args.args[0]
+        smoke_env = run_mock.call_args.kwargs["env"]
+        self.assertEqual([str(executable), "--console", "--smoke-test",
+                          "--server-runtime-dir"], command[:4])
+        # The smoke owns a fresh runtime instead of the user's live server.
+        self.assertEqual(command[4], smoke_env["DRAXUL_SERVER_RUNTIME_DIR"])
+        self.assertTrue(pathlib.Path(command[4]).name == "r")
+        self.assertEqual("1", smoke_env["DRAXUL_TEST_ENV"])
+        self.assertEqual(30, run_mock.call_args.kwargs["timeout_seconds"])
+        self.assertFalse(pathlib.Path(command[4]).parent.exists())
 
     def test_smoke_timeout_stops_the_owned_posix_process_group(self) -> None:
         process = mock.Mock(pid=4321)

@@ -62,7 +62,7 @@ Run: `./build/draxul.app/Contents/MacOS/draxul` or `open ./build/draxul.app` (re
   selection. They default to Debug and Ninja on Windows; use `release` only for
   the final confirmation or when optimized behavior is relevant.
 - `do smoke --skip-build` runs the startup check against the already-built selected
-  cache. Omit `--skip-build` when no preceding build/test has produced the app.
+  cache, using its own temporary server runtime rather than the user's live Session. Omit `--skip-build` when no preceding build/test has produced the app.
   The wrapper owns a dedicated process group and stops it after 30 seconds, so a
   stuck startup cannot leave the calling validation run blocked indefinitely.
 - `t.bat` / `t.sh` remain explicit broad validation wrappers, not the normal
