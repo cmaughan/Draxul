@@ -105,6 +105,7 @@ draxul pane restart <pane-id> --json
 draxul pane close <pane-id> --json
 draxul pane swap <pane-id> <pane-id> --json
 draxul pane move <pane-id> --target <pane-id> \
+  [--space <destination-space>] [--tab <destination-tab>] \
   --direction <left|right|up|down> [--ratio <0.1..0.9>] --json
 
 draxul split list --tab <tab-id> --json
@@ -119,10 +120,13 @@ use the control id from `ui list`. External `pane action` calls fan out to every
 attached UI unless `--ui` selects one route.
 
 `left`/`up` place the new or moved pane before the target; `right`/`down` place
-it after. `pane swap` exchanges two pane positions. `pane move` currently
-reparents a pane only within the same tab. Do not simulate a cross-tab move by
-closing and recreating a live pane: that loses process state and changes route
-semantics.
+it after. `pane swap` exchanges two pane positions within a tab. `pane move`
+reparents any pane within its current tab, preserving its pane ID, live host and
+configuration. Server terminals and managed-agent panes can also move across
+tabs and Spaces; client-local panes cannot. Companion panes and their owners
+remain subject to the companion-owner restriction. Do not simulate a cross-tab
+move by closing and recreating a live pane: that loses process state and changes
+route semantics.
 
 Headless terminal operations apply only to `server_terminal` panes. A
 `client_local` Nvim, Markdown, Kanban, product, or plugin pane requires its owning

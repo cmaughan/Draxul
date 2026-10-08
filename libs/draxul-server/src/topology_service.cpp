@@ -1410,14 +1410,14 @@ bool TopologyService::apply(const TopologyCommand& command,
             return reject("target_pane_not_found",
                 "Target pane was not found in the destination tab.");
         }
-        if (pane->domain != TopologyPaneDomain::ServerTerminal)
-        {
-            return reject("client_local_pane",
-                "Only server-owned terminal and managed-agent panes can move across tabs.");
-        }
         const bool same_tab
             = destination_space_id == command.space_id
             && destination_tab_id == command.tab_id;
+        if (!same_tab && pane->domain != TopologyPaneDomain::ServerTerminal)
+        {
+            return reject("client_local_pane",
+                "Client-local panes can move only within their current tab.");
+        }
         if (same_tab && tab->panes.size() <= 1)
             return reject("last_pane", "The final pane cannot be moved.");
         if (!same_tab

@@ -1,0 +1,36 @@
+# Move client-local panes within their tab
+
+**Summary:** `pane move` rejects plugin, Nvim and other client-local panes even when the source and destination are in the same tab, and the error wrongly says the move was "across tabs".
+
+**Priority:** 118
+**Severity:** MEDIUM
+**Source:** `libs/draxul-server/src/topology_service.cpp`
+
+**Evidence and trigger:** In the `MovePane` branch, the `pane->domain != TopologyPaneDomain::ServerTerminal` check runs before `same_tab` is computed. It rejects every client-local move with `client_local_pane` / "Only server-owned terminal and managed-agent panes can move across tabs." This happened in practice on 2026-10-07: rearranging the Rezonality `seaside` 2-by-2 tab so a full-height Neovim column sat beside it needed `draxul pane move pane-253 --target pane-265 --direction left`, a same-tab move of a Rezonality plugin pane, and it was refused. The workaround was to close three plugin panes and recreate them with identical configs, which lost their pane IDs and restarted their animation. `SwapPane` already exchanges client-local leaves in a tab without a domain check, so a same-tab reparent of a client-local pane is a pure split-tree change. The `draxul` agent skill says `pane move` "reparents a pane only within the same tab", while `docs/features.md` says client-local panes are rejected outright. The two disagree.
+
+- [x] **Investigate:** Confirm that every attached UI keeps a client-local host (plugin instance, Nvim, Markdown, Kanban) alive when its pane changes leaf in the same tab, as it already does for `pane swap`. Note any host that rebuilds or loses state.
+- [x] **Fix:** Compute `same_tab` first and keep the client-local rejection for cross-tab/cross-Space moves only. Give that rejection a message that names the cross-tab restriction, and give same-tab moves of client-local panes the existing `last_pane` and companion-owner rules.
+- [x] **Acceptance:** A same-tab move of a client-local plugin pane succeeds, keeps its pane ID and plugin configuration, and renders in its new leaf on an attached UI without restarting. Cross-tab moves of client-local panes stay rejected and leave the snapshot unchanged. Server-terminal and managed-agent moves are unchanged.
+- [x] **Tests:** Extend the topology move coverage in `tests/server_topology_terminal_tests.cpp`, which already has a cross-tab `reject-client-local` case, with a same-tab client-local move that succeeds and the cross-tab case still rejected.
+- [x] **Docs:** Update the Panes row in `docs/features.md` and the `pane move` notes in `.agents/skills/draxul/SKILL.md` so they describe the same rule.
+- [x] **Validation:** Run core aggregate tests and same-cache smoke.
+
+## Implementation notes (2026-10-08)
+
+- The domain guard now runs after `same_tab` is resolved and applies only when crossing a tab boundary. The last-pane, companion-owner, ratio and destination-capacity checks remain in their existing order after it. The rejection explicitly says client-local panes can move only within their current tab.
+- `TopologyProjection::project_tab` allocates local leaves by stable server pane ID, independently in each attached UI. `App::project_remote_tab` then uses `PaneManager::reconcile_projected_layout`; unchanged launch kind, source, plugin ID and plugin configuration retain the same host object and receive the new viewport. This path is shared by plugin, Nvim, Markdown and Kanban hosts on both platforms; no host-specific rebuild is needed.
+- Added service/projection coverage for all four client-local host kinds, implicit and explicit same-tab destinations, stable descriptors/focus/leaf identity in two independent UI projections, and unchanged snapshots on cross-tab/cross-Space rejection. Added projected-pane lifetime coverage for all four host kinds, retained state/configuration and the relocated viewport.
+- The existing Release Makefiles cache at `build/` was reused throughout, with no configure/generate rerun or cache change. All completed gates passed; Windows and remote CI were not run locally.
+
+## Validation and handoff
+
+- One `python3 do.py test release` aggregate: **56/56 core CTest entries passed in 26.04 s**, including the new service/projection and lifetime cases, existing companion-owner/final-pane rejection coverage, and live server-terminal/managed-agent move coverage. Building the `draxul-tests-core` aggregate took **17.90 s**; total logged invocation approximately **44.15 s**. No focused pass, repeated aggregate or failing test run.
+- `python3 do.py smoke release --skip-build`: **passed**, approximately **3.97 s** for one startup check from the same cache (elapsed log-file timestamps).
+- Two relevant native render checks: `draxul-render-basic-view` **passed in 1.16 s** and `draxul-render-spinning-triangle-reload-smoke` **passed in 2.00 s**; **3.18 s** CTest wall time. No reference changes or full render inventory.
+- Final required `python3 do.py run release --console -- --smoke-test`: **passed**, approximately **14.31 s** total, including an **8.56 s** incremental app-target build from the same cache. This repeats startup coverage to satisfy the final Release-run gate; it does not repeat the aggregate.
+- Native macOS attached-UI acceptance used Session `default` on the explicitly isolated runtime `/var/folders/y9/q70cdlzj5494r426ftx60_2w0000gn/T/draxul118-live-cvucdb48`. Three real Spinning Triangle hosts were created in `space-1` / `tab-6`. After changing `pane-7`'s direction and angle through `reverse` and a short unpaused interval, `pane move pane-7 --target pane-10 --direction up --ratio 0.4` succeeded. Server pane descriptors/configs matched before and after exactly; the new split rendered in the same attached Metal UI, with the moved triangle retaining its changed orientation rather than resetting to the configured initial angle. `remember_state` was false. Before/after window captures were visually inspected, and remain at that runtime as `before.png` and `after.png`; route/tree evidence is `live-result.json`.
+- Native fixture setup needed corrections to foreground-server process handling and CLI Space lookup before the successful acceptance run. Both incomplete setups cleaned up their own server processes. A later optional native cross-tab rejection probe ran after the successful fixture's bounded lifetime had already shut its server down, so it produced no rejection evidence; cross-tab/cross-Space rejection and immutable snapshots are verified by the passing automated cases. No extra aggregate was needed because these were temporary driver errors and did not change repository code.
+- The owned acceptance UI (PID 37241) exited, and its exact isolated server returned `Draxul server shutdown requested.` The user's existing server/UIs were not stopped.
+- `git diff --check` passed. No Windows execution or remote CI. The production change is in platform-independent topology validation, and the new cases run in ordinary cross-platform CI. The implementation, regression coverage, docs and completed card are included together in the same commit.
+
+Review focus: the server's domain check must apply only after destination resolution and only for a cross-tab move; client reconciliation must keep using stable pane identities while replacing split nodes. No host adapter changes were necessary.

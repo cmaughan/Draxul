@@ -482,7 +482,7 @@ filename drift and dynamic-loader or ABI failures are caught on both platforms.
   |------|----------|
   | Spaces | `space list`, `space get/create/rename/close` |
   | Tabs | `tab list/get/create/rename/close`, `tab move --delta -1|1` |
-  | Panes | `pane list/get/split/rename/close/restart/swap`, `pane move --target <pane> [--space <destination-space>] [--tab <destination-tab>] --direction <left|right|up|down>`; server terminals and managed agents move live with stable pane/terminal identity, while client-local panes are rejected |
+  | Panes | `pane list/get/split/rename/close/restart/swap`, `pane move --target <pane> [--space <destination-space>] [--tab <destination-tab>] --direction <left|right|up|down>`; server terminals and managed agents move live within or across tabs and Spaces with stable pane/terminal identity; client-local panes move within their current tab with their live hosts and configuration preserved, while cross-tab/cross-Space moves are rejected |
   | Splits | `split list`, `split set --ratio <0.1..0.9>`, `split equalize` |
   | Terminal processes | `pane run --command <text>`, `pane send --text <text>`, `pane keys <keys...>`, `pane read`, `pane wait-output --text <text> --timeout <duration>` |
   | Managed agents | `agent start <profile> --space/--tab/--pane [--replace]`, `agent prompt`, `agent keys`, `agent get/list/explain/wait/restart`; `--replace` converts the selected server-terminal pane in place and preserves its pane ID |
