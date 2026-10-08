@@ -305,7 +305,8 @@ bool VkContext::create_render_pass(VkFormat color_format, VkFormat depth_format,
     depth_attachment.format = depth_format;
     depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
     depth_attachment.loadOp = depth_load_op;
-    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    // Continuation passes (host overlays, plugins) load this depth.
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     depth_attachment.initialLayout = depth_load_op == VK_ATTACHMENT_LOAD_OP_LOAD
@@ -327,12 +328,20 @@ bool VkContext::create_render_pass(VkFormat color_format, VkFormat depth_format,
     subpass.pColorAttachments = &color_ref;
     subpass.pDepthStencilAttachment = &depth_ref;
 
+    // The same color and depth images pass through a chain of these passes
+    // (clear, then LOAD continuations), so order the previous pass's
+    // attachment writes, including the late-test depth store, before this
+    // pass's loads, tests, and writes.
+    constexpr VkPipelineStageFlags attachment_stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+        | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
     VkSubpassDependency dependency = {};
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependency.srcStageMask = attachment_stages;
+    dependency.dstStageMask = attachment_stages;
+    dependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+        | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
     VkAttachmentDescription attachments[2] = { color_attachment, depth_attachment };
 
