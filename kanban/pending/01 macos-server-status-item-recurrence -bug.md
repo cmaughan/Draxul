@@ -69,3 +69,9 @@ to 604 before this report. The prior acceptance never covered restarting the
 real server. Current placement recovery is verified but must not be described
 as a permanent product-code fix. Keep this card pending until the recurrence
 trigger and durable prevention are established.
+
+2026-10-09 check: `com.draxul.draxul.server` still saves
+`NSStatusItem Preferred Position Item-0 = 218`, the position set during the
+2026-09-30 recovery, so it has not drifted back to 604 since. A leftover
+`com.draxul.menu-probe.20260929` defaults domain from that investigation still
+exists. This is evidence of stability, not a cause; the card stays pending.

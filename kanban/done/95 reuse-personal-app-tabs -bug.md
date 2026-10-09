@@ -5,7 +5,7 @@
 
 - [x] Reuse Personal Assistant tabs across Spaces and let Flashcards opt into generic plugin tab reuse.
 - [x] Cover CLI/palette command routing, matching plugin identity/configuration, and unchanged multi-instance plugins.
-- [ ] Configure this Mac's Personal Agents collection and Flashcards build source from the user's Dropbox locations.
+- [x] Configure this Mac's Personal Agents collection and Flashcards build source from the user's Dropbox locations.
 - [x] Run the core/Flashcards aggregate and same-cache startup smoke; document behavior and validation.
 
 Personal Assistant reads `[agents].personal_root` in the shared server. Flashcards currently embeds `DRAXUL_FLASHCARDS_VOCABULARY_SOURCE` at build time. Keep personal paths and generated personal deck data out of Git.
@@ -25,3 +25,18 @@ Personal Assistant reads `[agents].personal_root` in the shared server. Flashcar
 ## Remaining local configuration
 
 Awaiting the user's Personal Agents collection directory and Flashcards vocabulary JSON path. No Dropbox directory was found in the home directory or `~/Library/CloudStorage`, and no Dropbox account-location metadata exists here. Do not guess paths or replace the public fixture with personal data in tracked files. Once supplied, validate the collection/journal, set `[agents].personal_root` in the local Draxul config and `DRAXUL_FLASHCARDS_VOCABULARY_SOURCE` in the local build cache, rebuild Flashcards, and coordinate the server restart. This is why the card remains pending.
+
+## Local configuration verified (2026-10-09)
+
+Dropbox is now available here (`~/Dropbox` links to `~/Library/CloudStorage/Dropbox`).
+- `~/Library/Application Support/draxul/config.toml` sets `[agents].personal_root`
+  to `/Users/cmaughan/Dropbox/Vault/PA`, the shared collection named in CLAUDE.md
+  (`collection.toml` id `cmaughan-personal-assistant`, schema 3). The local
+  personal-chat/execution/metadata state beside the config shows the server uses it.
+- The main checkout's Release cache sets `DRAXUL_FLASHCARDS_VOCABULARY_SOURCE` to
+  `/Users/cmaughan/Dropbox/Learning/Japanese/vocabulary.json`. Its generated
+  `embedded_deck.h` decodes to 12 cards, matching the journal's 12 words (the
+  public fixture has 5), and the journal has no Dropbox conflicted copies.
+
+No tracked file holds a personal path or deck data. No build, test or server
+restart was needed for this verification-only step.
