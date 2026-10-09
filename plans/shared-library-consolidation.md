@@ -139,7 +139,7 @@ shader math both products duplicate; one camera-input layer.
   Ctrl+R guarded) + `DragSmoother` (MegaCity's inertia). Both products adopt;
   document the intended W/S semantics once.
 
-**Gate:** deterministic render captures for MegaCity, BioView, SatView on both
+**Gate:** deterministic render captures for MegaCity, SatView on both
 platforms; forced 2×/1× MSAA fallback exercised in a test; camera keys behave
 identically in both products.
 

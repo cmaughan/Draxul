@@ -288,7 +288,7 @@ All four finished. Before accepting a finding I re-read the key evidence for it 
 - **Location:**
   - Host packing: `libs/draxul-host/src/plugin_render_pass_vk.cpp:30-56` and `plugin_render_pass_metal.mm:19-38`. These hardcode `1.0f, 96.0f` while `plugin_host.cpp:416-427` sends the real scale and PPI.
   - Product unpacking plus pass recording: `plugins/megacity/src/megacity_plugin.cpp:341-373,394-417` and `plugins/satview/src/satview_plugin.cpp:393-423,445-485`. They use the 22-parameter positional `VkRenderContext` constructor (`vk_render_context.h:22-32`).
-  - Input translation exists five times (MegaCity, SatView, ScoreView, PCBView, Rezonality adapters) with divergent coverage:
+  - Input translation exists five times (MegaCity, SatView, ScoreView, Rezonality adapters) with divergent coverage:
     - MegaCity handles `COMPOSITION` and `FOCUS` (`megacity_plugin.cpp:270-290`).
     - SatView handles focus-lost only and returns 1 for unknown kinds (`satview_plugin.cpp:336-344`).
     - ScoreView handles neither (`scoreview_plugin.cpp:299-300`).
@@ -296,7 +296,7 @@ All four finished. Before accepting a finding I re-read the key evidence for it 
   - `vk_plugin_frame.h` with `make_plugin_frame`, `context_from_plugin_frame` and `record_pass_in_plugin_frame`, plus a Metal twin.
   - A `VkRenderContext::Desc` aggregate to replace the positional constructor.
   - `plugin_runtime_input.h` with `dispatch_runtime_input(runtime, event, origin)`, installed with the SDK like `plugin_runtime.h`.
-- **Migration:** Land the helpers in core and switch the host passes. Then MegaCity, SatView, ScoreView input, and PCBView (Finding 44), each as a product-repo commit.
+- **Migration:** Land the helpers in core and switch the host passes. Then MegaCity, SatView, ScoreView input, (Finding 44), each as a product-repo commit.
 - **Testing:** A GPU-free context→frame→context round trip per backend, and an input-mapping test covering every event kind.
 - **Risks:** Preserve the Metal nil-encoder prepass and Vulkan no-active-pass prepass semantics exactly. Run the product goldens on both platforms.
 
@@ -352,21 +352,6 @@ All four finished. Before accepting a finding I re-read the key evidence for it 
 - **Testing:** Swizzle/pitch tests, and Metal transition tests that mirror the Vulkan ones.
 - **Risks:** Metal capture's `waitUntilCompleted`-before-signal ordering (735-771) must be preserved.
 
-### 23. P1: Agent guidance is stale or missing where products and tooling are most unusual
-- **Location:**
-  - `CLAUDE.md:259-262` lists `--megacity|--satview|--scoreview|--pcbview` but omits `--rezonality`, which `do.py:950` supports.
-  - `CLAUDE.md:118` and `AGENTS.md:51-52` point only at MegaCity's guide, not at `plugins/satview/AGENTS.md` or `plugins/rezonality/AGENTS.md`.
-  - `CLAUDE.md:265-270` recommends the `draxul-test-core` narrow loop, which Finding 1 shows is not narrow.
-  - `GEMINI.md:11-12` points at `docs/features/`, which is absent from the tree.
-  - `plugins/megacity/product/AGENTS.md:11-27,87-92` omits `draxul-megacity-model` and its test targets. It also lives under `product/` although it governs `src/`, `tests/`, `shaders/` and `cmake/`, so hierarchical guide discovery misses it for those files.
-  - `plugins/megacity/README.md:148-150`'s `ctest -R draxul-test-megacity` also matches suites the preceding command didn't build.
-  - ScoreView has no AGENTS.md, despite its standalone/extraction mode, SDL headers-only linkage on macOS and Verovio DLL copy on Windows. PCBView has none either.
-- **Proposed fix:**
-  - Move the MegaCity guide to `plugins/megacity/AGENTS.md` and correct it.
-  - Add short ScoreView and PCBView guides covering boundaries, targets, the exact test command and platform pitfalls.
-  - Add a single "product guides" line in `CLAUDE.md`, add `--rezonality`, and fix the narrow-loop example after Finding 1.
-- **Benefit:** Removes wrong commands, the most direct cause of false-green handoffs.
-- **Risks:** None.
 
 ### 24. P1: The MegaCity renderer duplicates its uniform ABI and per-frame preparation across Vulkan and Metal
 - **Location:**
@@ -465,7 +450,6 @@ All four finished. Before accepting a finding I re-read the key evidence for it 
   - `cmake/CompileShaders_Metal.cmake:1-70` (three copied blocks with hand-listed dependencies).
   - `cmake/CompileShaders.cmake:11-33`.
   - `plugins/spinning-triangle/CMakeLists.txt:67-109`.
-  - Product loops: `plugins/megacity/CMakeLists.txt:50-133`, `plugins/satview/CMakeLists.txt:146-213` (whose `DEPENDS` hardcodes one `.glsl`), `plugins/scoreview/CMakeLists.txt:170-247`, `plugins/pcbview/CMakeLists.txt:41-93` (identical NanoVG loops).
 - **Proposed boundary:** `cmake/DraxulShaders.cmake` with `draxul_add_shader_library(<t> GLSL … METAL … INCLUDES … STAGE_DIR …)` and `draxul_plugin_nanovg_shader_payload`. Add a configure-test case like `tests/cmake/dependency_boundary`.
 - **Risks:** ScoreView's standalone build needs the helper shipped with the SDK config, or it must stay optional there.
 
@@ -477,11 +461,6 @@ All four finished. Before accepting a finding I re-read the key evidence for it 
 - **Proposed boundary:** `draxul-render-harness-core` (scenario TOML, diff, BMP, JSON) and `draxul-render-test-driver`. `NanoVGDemoHost` moves to a host-side library.
 - **Testing:** Parser and diff tests in a tiny target.
 
-### 39. P2: Product render scenarios and references live in the core manifest
-- **Location:** root `CMakeLists.txt:438-516` and `tests/render/manifest.json`, which includes `satview-*`, `scoreview-*`, `megacity-*`, `pcbview-*` and `rezonality-*` scenarios and their BMPs.
-- **Proposed boundary:** A `RENDER_MANIFEST` argument to `draxul_register_bundled_plugin` (`DraxulPlugins.cmake:60-162`), so each product owns its scenarios and goldens.
-- **Benefit:** Removes a shared JSON hotspot that every product agent edits.
-- **Risks:** Keep the `<name>.<platform>.bmp` naming.
 
 ### 40. P2: `KanbanHost` mixes pure board/session state with painting, key repeat, file watching and preview
 - **Location:** `modules/kanban/draxul-kanban/include/draxul/kanban/kanban_host.h:77-102` and `kanban_host.cpp:836-885,929-990,1117-1157`.
@@ -535,17 +514,6 @@ All four finished. Before accepting a finding I re-read the key evidence for it 
 - **Proposed boundary:** An `include-runtime/` directory, a direct runtime→audio link, and `ScoreLayoutController` and `GateSession` extractions.
 - **Risks:** The standalone extraction smoke must still configure.
 
-### 47. P2: The PCBView runtime takes raw ABI structs, and its autorouter mixes in presentation queries
-- **Location:**
-  - `plugins/pcbview/src/pcbview_runtime.h:38-52` (`DraxulPluginViewportV2`, `DraxulPluginInputEventV2`, and the frame structs).
-  - `cmake/Tests.cmake:5-9` (tests link only the core library).
-  - `src/autorouter.cpp:1472-1581` (visibility and picking).
-- **Proposed boundary:**
-  - Adopt the `PluginRuntime*` vocabulary and `dispatch_runtime_input` from Finding 17.
-  - Move picking into `selection.{h,cpp}`.
-  - Add `draxul-test-pcbview-runtime`.
-- **Risks:** None platform-specific.
-
 ### 48. P2: Products use three different pane-persistence strategies, and SatView's adapter still has template leftovers
 - **Location:**
   - `plugins/megacity/src/megacity_plugin.cpp:141-165`, `plugins/satview/src/satview_plugin.cpp:109-148` and `plugins/scoreview/src/scoreview_plugin.cpp:111-127`. ScoreView hand-rolls its own because `HostServices` isn't installed (`libs/draxul-plugin-support/CMakeLists.txt:4-9`).
@@ -584,22 +552,6 @@ tests:       per-module draxul-test-* targets selected by CTest scope label; one
 
 ## Best isolated work packages for parallel agents
 
-1. **Test-graph split and label-based scope** (Findings 1 and 2). This is CMake and `do.py` only, is guarded by the existing tripwires, and unblocks everything else.
-2. **Wire constants and request codecs** (Findings 7, 33 and 34). Protocol-first and mechanical.
-3. **`draxul-app-cli` and `main.cpp` extraction** (Findings 4 and 5). Touches `app/` only; `app.cpp` is left alone.
-4. **`RemoteTerminalHost` → coordinator adapter** (Finding 6). Host and client only; needs the owner decision in lead L1.
-5. **PTY interface and shell resolution** (Finding 10). terminal-process and the server runtime.
-6. **Session-model/store split and atomic-file library** (Findings 12 and 13).
-7. **Render-contract leaves, then retargeting markdown-host and plugin-host** (Findings 15 and 16).
-8. **Converting the source-text tests, then extracting the NanoVG recorder** (Findings 19 and 20).
-9. **Markdown GPU planner** (Finding 21). Module-local.
-10. **Guide fixes** (Finding 23). Docs only; can start immediately.
-11. **Product-repo packages:**
-    - MegaCity: Findings 24 and 43.
-    - SatView: Finding 25.
-    - ScoreView: Finding 46.
-    - PCBView: Finding 47.
-    - Rezonality: Finding 45.
 
     Each is independent after the core helpers from Finding 17 land.
 
@@ -635,16 +587,7 @@ tests:       per-module draxul-test-* targets selected by CTest scope label; one
 | Rendering, fonts and platform | Renderer CMake; `vk_renderer`, `metal_renderer`; plugin-support CMake/headers; NanoVG backends; ImGui support; render-test | C; coordinator re-verified | Font internals, VK helper internals, NanoVG flush bodies |
 | Built-in modules | Markdown CMake/passes/host; Kanban host/store/CMake; file-monitor, http, weather (skimmed) | C | Markdown parser and layout internals |
 | SDK and plugin loading | `sdk/`, `plugin_api.h`, plugin-host/render passes, `plugin_manager` tests, spinning-triangle (outline) | C, A | plugin-support leaf `.cpp` bodies |
-| Products (MegaCity, SatView, ScoreView, PCBView, Rezonality) | CMake, `Tests.cmake`, AGENTS/READMEs, adapters, runtime/host outlines, VK/Metal renderer outlines, fixtures, Kanban cards | D; coordinator re-verified key items | SatView renderer bodies, ScoreView learn/audio, Rezonality `live_project` and backend bodies, MegaCity builders |
 
 No subagent failed. All four returned inspected and uninspected lists, and their findings were accepted only after the coordinator re-read the evidence.
 
 ## Unresolved leads (not accepted as findings)
-
-- **L1:** Is the `fake-remote-terminal` mode (`app/main.cpp:1141`) required outside diagnostics and demos? This decides whether Finding 6 retires it or teaches `session.poll` about it. Needs owner input and a `docs/features.md` check.
-- **L2:** `draxul-protocol` links all of terminal-core but may only need `terminal_snapshot.h`. Needs a dependency read of `terminal_snapshot.cpp` before proposing a snapshot leaf.
-- **L3:** How does `macos_menu.mm` enumerate actions: through `kGuiActions` or through handler `Deps`? This affects how safe Finding 14 is.
-- **L4:** Are the Markdown sampler and upload-rect policy differences (Finding 21) intentional? Needs history or owner input.
-- **L5:** Does linking both `draxul-renderer` (upstream ImGui Vulkan backend) and `draxul-plugin-imgui` (fork) into one executable, such as `draxul-test-megacity`, produce duplicate or ODR-violating symbols on MSVC? Needs a Windows link map.
-- **L6:** Do the `megacity-plugin` and `scoreview-plugin` render scenarios, which lack `requires_target`, register CTests when their product is disabled? Needs a manifest-by-manifest read against root `CMakeLists.txt:463-515`.
-- **L7:** PCBView is disabled in CI on both platforms (`build.yml:60,108`) and isn't checked out there, apparently because its repo is private. Whether it needs its own CI entry point is an owner decision.

@@ -824,7 +824,6 @@ class TestCommandTests(unittest.TestCase):
         self.assertIn("run core unit and integration tests in parallel", help_output.lower())
         self.assertIn("--satview", help_output)
         self.assertIn("--scoreview", help_output)
-        self.assertIn("--pcbview", help_output)
         self.assertIn("--rezonality", help_output)
         self.assertIn("--products", help_output)
         self.assertIn("--all", help_output)
@@ -999,18 +998,17 @@ class TestCommandTests(unittest.TestCase):
                 "draxul-tests-megacity",
                 "draxul-tests-satview",
                 "draxul-tests-scoreview",
-                "draxul-tests-pcbview",
                 "draxul-tests-rezonality",
                 "draxul-tests-flashcards",
             ),
             targets,
         )
         self.assertEqual(
-            ["--label-regex", "^scope-(core|megacity|satview|scoreview|pcbview|rezonality|flashcards)$"],
+            ["--label-regex", "^scope-(core|megacity|satview|scoreview|rezonality|flashcards)$"],
             ctest_filter,
         )
         self.assertEqual(
-            "core + megacity, satview, scoreview, pcbview, rezonality, flashcards", label
+            "core + megacity, satview, scoreview, rezonality, flashcards", label
         )
 
     def test_all_scope_uses_complete_unit_aggregate(self) -> None:
@@ -1325,7 +1323,6 @@ class FinalValidationCommandTests(unittest.TestCase):
             ),
             renders,
         )
-        self.assertNotIn("pcbview-plugin", renders)
         self.assertNotIn("rezonality-plugin", renders)
 
     def test_windows_command_seam_builds_once_then_runs_smoke_and_full_ctest(self) -> None:

@@ -883,7 +883,7 @@ def cmd_build(root: pathlib.Path, args: list[str]) -> int:
     return rc
 
 
-_TEST_PRODUCT_SCOPES = ("megacity", "satview", "scoreview", "pcbview", "rezonality", "flashcards")
+_TEST_PRODUCT_SCOPES = ("megacity", "satview", "scoreview", "rezonality", "flashcards")
 
 
 def _parse_test_args(
@@ -946,8 +946,6 @@ def _parse_test_args(
             product_scopes.add("satview")
         elif arg == "--scoreview":
             product_scopes.add("scoreview")
-        elif arg == "--pcbview":
-            product_scopes.add("pcbview")
         elif arg == "--rezonality":
             product_scopes.add("rezonality")
         elif arg == "--flashcards":
@@ -971,7 +969,7 @@ def _parse_test_args(
             "[--reconfigure] [--vs|--ninja] [--verbose] "
             "[--label <label>] "
             "[--target <catch-target> [--catch <filter>] [--repeat N] [--seed N]] "
-            "[--megacity|--satview|--scoreview|--pcbview|--rezonality|--flashcards|--products|--all]"
+            "[--megacity|--satview|--scoreview|--rezonality|--flashcards|--products|--all]"
         )
     if focused_target is not None:
         if not re.fullmatch(r"draxul-test-[A-Za-z0-9_-]+", focused_target):
@@ -2589,7 +2587,7 @@ Single-word shortcuts:
   test [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--verbose]
        [--label <label>]
        [--target <draxul-test-*> [--catch <filter>] [--repeat N] [--seed N]]
-       [--megacity|--satview|--scoreview|--pcbview|--rezonality|--flashcards|--products|--all]
+       [--megacity|--satview|--scoreview|--rezonality|--flashcards|--products|--all]
                Build and run core unit and integration tests in parallel (default: debug, ninja)
                --label runs only that CTest label and fails when it matches no tests;
                --target builds one Catch2 executable, preflights its filter, and
@@ -2628,7 +2626,6 @@ Examples:
   do test --target draxul-test-server --catch "[server]" --repeat 3
                              # Build once, preflight, then repeat with new seeds
   do test --satview        # Core + SatView tests
-  do test --pcbview        # Core + PCBView tests
   do test --rezonality     # Core + Rezonality tests
   do test --products       # Core + every product test suite
   do test --all            # Complete unit/integration inventory

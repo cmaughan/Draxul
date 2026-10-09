@@ -17,7 +17,7 @@ This repository is the terminal / agentic / host core. The larger GPU products
 are native plugins in their own repositories, mounted here as git submodules
 under `plugins/` and loaded at runtime over the C ABI:
 
-- **[draxul-megacity](https://github.com/cmaughan/draxul-megacity)** — the interactive city view of a codebase: a living 3D city where buildings represent code, with live performance and coverage overlays. The city is a human metaphor for the code an agent is building. (Richard Wettel tried this back in 2007 — https://wettel.github.io/codecity.html — we are giving it another go, plus a BioView organism mode.)
+- **[draxul-megacity](https://github.com/cmaughan/draxul-megacity)** — the interactive city view of a codebase: a living 3D city where buildings represent code, with live performance and coverage overlays. The city is a human metaphor for the code an agent is building. (Richard Wettel tried this back in 2007 — https://wettel.github.io/codecity.html — we are giving it another go.)
 - **[draxul-satview](https://github.com/cmaughan/draxul-satview)** — satellite and sky visualization: SGP4-propagated CelesTrak catalogs on a 3D globe, Hipparcos starfield, ephemeris Moon/Sun/planets, HDR atmosphere.
 - **[draxul-scoreview](https://github.com/cmaughan/draxul-scoreview)** — MusicXML piano practice: Verovio notation, MIDI and microphone judging, and an adaptive practice stream.
 - **[draxul-rezonality](https://github.com/cmaughan/draxul-rezonality)** — fault-tolerant live Vulkan/Metal graphics: watched shaders and scenegraphs, multipass surfaces, OBJ/glTF models, cameras, PBR materials, and HDR environments rendered inside a pane.
@@ -151,7 +151,7 @@ status counts, log access, and guarded stop actions.
 ./build/draxul.app/Contents/MacOS/draxul                # shared login-shell Session
 ./build/draxul.app/Contents/MacOS/draxul --host nvim    # embedded Neovim
 ./build/draxul.app/Contents/MacOS/draxul --host zsh     # shared Zsh Session
-./build/draxul.app/Contents/MacOS/draxul tab create --space <space-id> --name BioView --plugin dev.draxul.megacity --plugin-config '{"mode":"biology","source":"/Users/me/dev/linux"}' --json
+./build/draxul.app/Contents/MacOS/draxul tab create --space <space-id> --name MegaCity --plugin dev.draxul.megacity --plugin-config '{"mode":"city","source":"/Users/me/dev/linux"}' --json
 ```
 
 Or launch via Finder / `open`:
@@ -161,9 +161,8 @@ open ./build/draxul.app
 ```
 
 Supported `--host` values include `nvim`, `markdown`, `kanban`, `zsh`, `bash`,
-`powershell` / `pwsh` (Windows), and `wsl` (Windows). MegaCity and BioView use
-the stable plugin ID `dev.draxul.megacity`; `mode` selects the view and `source`
-sets the local Tree-sitter scan root.
+`powershell` / `pwsh` (Windows), and `wsl` (Windows). MegaCity uses the stable plugin ID `dev.draxul.megacity`; `source` sets the
+local Tree-sitter scan root.
 
 ## Configuration
 

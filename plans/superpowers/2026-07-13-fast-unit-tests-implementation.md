@@ -21,7 +21,7 @@
 - `tests/support/megacity_scene_test_support.h`: inline helpers/fakes shared by the split MegaCity test sources.
 - `tests/megacity_scene_world_tests.cpp`: world construction, snapshots, performance state, and picking tests.
 - `tests/megacity_scene_layout_tests.cpp`: semantic layout, roads, routes, signs, and mesh tests.
-- `tests/megacity_scene_host_tests.cpp`: camera and MegaCity/BioView host integration tests.
+- `tests/megacity_scene_host_tests.cpp`: camera and MegaCity host integration tests.
 - `tests/megacity_scene_tests.cpp`: removed after its tests are moved unchanged into the focused files.
 - `tests/grid_oob_tests.cpp`, `tests/grid_tests.cpp`, `tests/dpi_scaling_tests.cpp`: remove pathological work and consolidate resize coverage.
 - `tests/command_palette_tests.cpp`, `tests/renderer_state_tests.cpp`: retain unique behavior moved from redundant files.

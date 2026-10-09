@@ -67,7 +67,7 @@ function(draxul_audit_internal_targets source_root)
         if(NOT _source_dir MATCHES "^${source_root}(/|$)"
            OR _source_dir MATCHES "^${CMAKE_BINARY_DIR}(/|$)"
            OR _source_dir MATCHES
-              "^${source_root}/plugins/(megacity|satview|scoreview|pcbview|rezonality)(/|$)")
+              "^${source_root}/plugins/(megacity|satview|scoreview|rezonality)(/|$)")
             continue()
         endif()
         get_target_property(_configured "${_target}"

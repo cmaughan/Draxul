@@ -72,7 +72,7 @@
   regressions (79/84 CTest entries overall, 372.89s; incremental build 22.75s).
   The joined-emoji, scope-label, and remote-initial-state failures belong to the
   separate cards above and `kanban/done/64 windows-test-scope-selection -bug.md`;
-  additional SatView catalog-idle and PCBView render deadline failures are being
+  additional SatView catalog-idle render deadline failures are being
   recorded separately. This atlas change does not resolve those failures.
 - Same-cache Debug smoke passed under a fresh temporary APPDATA profile. Final
   Release Neovim smoke/startup also passed (Release incremental build 27.03s).

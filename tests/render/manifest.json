@@ -248,20 +248,6 @@
       "bless_command": ""
     },
     {
-      "name": "pcbview-plugin",
-      "purpose": "Dynamic PCBView NanoVG board, through holes, airwires, and ImGui layer controls",
-      "status": "developer",
-      "requires_target": "draxul-pcbview-plugin",
-      "test_scope": "pcbview",
-      "platforms": ["windows", "macos"],
-      "ctest": true,
-      "reference_required": true,
-      "renderall": true,
-      "blessall": true,
-      "compare_command": "pcbviewplugin",
-      "bless_command": "blesspcbviewplugin"
-    },
-    {
       "name": "megacity-plugin",
       "purpose": "Dynamic MegaCity GPU composition using a deterministic semantic-city fixture",
       "status": "regression",
@@ -272,18 +258,6 @@
       "blessall": true,
       "compare_command": "megacityplugin",
       "bless_command": "blessmegacityplugin"
-    },
-    {
-      "name": "bioview-plugin",
-      "purpose": "Dynamic MegaCity plugin composition in real Biology mode",
-      "status": "developer",
-      "platforms": ["windows", "macos"],
-      "ctest": false,
-      "reference_required": false,
-      "renderall": false,
-      "blessall": false,
-      "compare_command": "",
-      "bless_command": ""
     },
     {
       "name": "scoreview-plugin",

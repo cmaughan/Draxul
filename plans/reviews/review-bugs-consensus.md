@@ -29,12 +29,6 @@ Every finding below was reported by **Codex GPT-6.1 Sol**. The original report n
 
 ### CRITICAL
 
-**Summary:** Use safe arithmetic when generating biological shapes so opening the biology view cannot cause invalid calculations.
-
-**B01 — CRITICAL.** `plugins/megacity/product/draxul-geometry/src/cell_generator.cpp:35` multiplies signed coordinates before converting them to unsigned values. Ordinary biology construction reaches overflowing coordinates through octave expansion.
-
-**Trigger:** Open biology mode using its default blob settings. **Fix:** Convert coordinates before multiplying by unsigned constants on all three axes. **Reported by:** Codex #1.
-
 **Summary:** Protect the shared asset location so opening another satellite pane cannot interfere with background file loading.
 
 **B02 — CRITICAL.** `plugins/satview/src/core/satview_texture_assets.cpp:96` modifies a global filesystem path while catalog workers read it at lines 88–89.
@@ -177,13 +171,11 @@ Every finding below was reported by **Codex GPT-6.1 Sol**. The original report n
 
 **Summary:** Block the entire required space around pads so wide tracks cannot pass too close.
 
-**B23 — HIGH.** `plugins/pcbview/src/autorouter.cpp:243` limits blocker iteration using the via radius even when the track radius is larger.
 
 **Trigger:** With 0.5 mm grid spacing, 2 mm track width, 0.6 mm via diameter, zero clearance, and a 1 mm pad at `(5.1,5)`, a track at `x=6.5` receives no blocker despite being only 1.4 mm away. **Fix:** Use the larger radius for iteration and retain separate exact track and via checks. **Reported by:** Codex #23.
 
 **Summary:** Check clearance along complete tracks so diagonal sections cannot overlap unrelated pads.
 
-**B24 — HIGH.** `plugins/pcbview/src/autorouter.cpp:397` validates route nodes rather than connecting segments; search and emitted endpoint connectors have the same omission.
 
 **Trigger:** With 0.5 mm spacing, a 0.3 mm track, and a 0.4 mm pad at `(4.6,4.6)`, nodes `(4.5,5)` and `(5,4.5)` pass the 0.35 mm keepout, but their diagonal passes approximately 0.212 mm from the pad. **Fix:** Validate continuous segment clearance throughout routing and final geometry checks. **Reported by:** Codex #24.
 
@@ -622,25 +614,6 @@ The following are complete proposed cards for the trusted parent process.
 - [ ] **Acceptance:** Replacement succeeds in a full valid tab, new-pane launch remains rejected, and invalid replacement targets remain rejected.
 - [ ] **Validation:** Run core aggregate tests and same-cache smoke.
 
-### plugins/megacity/kanban/pending/11 biology-noise-overflow -bug.md
-
-# Use defined arithmetic for biological noise
-
-**Summary:** Use safe arithmetic when generating biological shapes so opening the biology view cannot cause invalid calculations.
-
-**Priority:** 11  
-**Severity:** CRITICAL  
-**Source:** `plugins/megacity/product/draxul-geometry/src/cell_generator.cpp`
-
-**Evidence and trigger:** B01; coordinate products overflow before unsigned conversion under ordinary biology settings.
-
-- [ ] **Investigate:** Trace default noise offsets, octave expansion, and negative-coordinate behavior.
-- [ ] **Fix:** Convert coordinates before multiplication and use unsigned constants.
-- [ ] **Acceptance:** Default biology construction and boundary coordinates execute without signed overflow and remain deterministic.
-- [ ] **Validation:** Run the MegaCity-scoped aggregate, relevant biology rendering checks, and same-cache smoke; use undefined-behavior instrumentation where available.
-
-### plugins/megacity/kanban/pending/12 label-upload-staging-lifetime -bug.md
-
 # Separate outstanding sign-image uploads
 
 **Summary:** Give pending sign-image uploads separate storage so quick color changes cannot replace pixels still being copied.
@@ -757,40 +730,6 @@ The following are complete proposed cards for the trusted parent process.
 - [ ] **Fix:** Release the unsuccessful hardware lease without clearing the installed keyboard input.
 - [ ] **Acceptance:** Injected device-open failure leaves keyboard practice usable and releases hardware ownership; successful selection still works.
 - [ ] **Validation:** Run the ScoreView-scoped aggregate and same-cache smoke; check supported device paths on both platforms.
-
-### plugins/pcbview/kanban/pending/04 wide-track-pad-blockers -bug.md
-
-# Generate blockers for the larger routing radius
-
-**Summary:** Block the entire required space around pads so wide tracks cannot pass too close.
-
-**Priority:** 04  
-**Severity:** HIGH  
-**Source:** `plugins/pcbview/src/autorouter.cpp`
-
-**Evidence and trigger:** B23; blocker iteration follows via radius even when accepted track settings require a larger pad exclusion area.
-
-- [ ] **Investigate:** Trace iteration bounds, pad snapping, and track/via radius validation.
-- [ ] **Fix:** Derive iteration extent from the larger radius while retaining separate distance checks.
-- [ ] **Acceptance:** The wide-track example at a 1.4 mm pad distance is blocked; smaller tracks and via clearances remain correctly handled.
-- [ ] **Validation:** Run the PCBView-scoped aggregate, relevant routing/render checks, and same-cache smoke.
-
-### plugins/pcbview/kanban/pending/05 continuous-track-pad-clearance -bug.md
-
-# Validate clearance along emitted track segments
-
-**Summary:** Check clearance along complete tracks so diagonal sections cannot overlap unrelated pads.
-
-**Priority:** 05  
-**Severity:** HIGH  
-**Source:** `plugins/pcbview/src/autorouter.cpp`
-
-**Evidence and trigger:** B24; clear nodes can connect through a pad keepout, and snapped endpoint connectors receive no continuous check.
-
-- [ ] **Investigate:** Inventory pattern, search, layer-change, endpoint connector, and final legalization paths.
-- [ ] **Fix:** Check segment-to-pad clearance for candidate edges and final emitted geometry.
-- [ ] **Acceptance:** The diagonal 0.212 mm example is rejected; unsafe endpoint connectors are rejected; valid routes retain intended endpoint connections.
-- [ ] **Validation:** Keep a separate regression for blocker extent; run the PCBView-scoped aggregate and same-cache smoke.
 
 ### plugins/rezonality/kanban/pending/09 build-temporary-storage-failure -bug.md
 

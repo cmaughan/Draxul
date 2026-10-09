@@ -32,7 +32,7 @@ draxul executable
 ├── draxul-client / draxul-server
 ├── draxul-markdown-host
 ├── draxul-kanban-host → draxul-kanban
-└── optional products: draxul-megacity / SatView + ScoreView + PCBView plugins
+└── optional products: draxul-megacity / SatView + ScoreView plugins
         │
         ├── product-specific model, scene, service, and renderer targets
         └── shared host / renderer / UI infrastructure
@@ -162,7 +162,7 @@ does not rebuild or extend the universal value-type archive.
 |---|---|
 | `sdk/` | Installable, versioned native plugin C ABI and the dependency-free `Draxul::PluginSDK` CMake target |
 | `plugins/support/imgui/` | Product-owned optional ImGui Vulkan/Metal encoder, the shared `PluginImGuiContext` lifecycle and `ImGuiInputBridge` event routing, and public UI-style service client, linked inside native plugin modules and never exposed across the ABI |
-| `plugins/support/nanovg/` | SDK-frame-to-NanoVG adapter shared by PCBView and ScoreView (`Draxul::PluginSupport::NanoVGPass`); owns lazy native context lifecycle, viewport/scissor conversion, callback consumption, and Vulkan shader-root selection while products retain their drawing code |
+| `plugins/support/nanovg/` | SDK-frame-to-NanoVG adapter used by ScoreView (`Draxul::PluginSupport::NanoVGPass`); owns lazy native context lifecycle, viewport/scissor conversion, callback consumption, and Vulkan shader-root selection while products retain their drawing code |
 | `libs/draxul-imgui-core/` | The single SDL-scancode-to-ImGuiKey table and `IImGuiHost` backend interface; leaf-narrow (links only ImGui + SDL headers) so core UI, the renderer, and plugin support all consume the same definitions (`Draxul::PluginSupport::ImGuiCore`) |
 | `libs/draxul-plugin-support/` | Same-build plugin leaves: C-ABI path/storage wrappers, the plugin adapter shell (`Draxul::PluginSupport::Adapter` — result factories, config parse, pane-state persistence, action registrar, `kApi` assembly; its header-only core `draxul/plugin_adapter.h` ships with the SDK install component), product lifecycle/viewport vocabulary, backend-neutral render contracts, Vulkan resource ownership incl. the shared adapter VMA allocator, the HDR/MSAA scene scaffolding (`Draxul::PluginSupport::VulkanResources` — attachments, the per-format MSAA probe, shader loading, immediate image upload, and `HdrScenePipeline`, which owns the one set of scene/tone-map subpass dependency masks both 3D products use), the camera key-latch and drag-inertia layer (`Draxul::PluginSupport::CameraInput`), explicit-path TOML documents, and tooltip layout; exports only `Draxul::PluginSupport::*` targets |
 | `libs/draxul-performance/` | Runtime timing collection and the `PERF_MEASURE` instrumentation API |
@@ -219,7 +219,7 @@ reporting hand-off, hyperlink activation, pixel→cell mapping) lives once in
 It also owns the generic `PluginHost` and its Vulkan/Metal render-pass adapters;
 plugin modules remain dynamically linked and are never product dependencies of the
 server. The spinning-triangle is the first module staged through the generic
-registration contract. SatView, MegaCity/BioView, and ScoreView now use the same
+registration contract. SatView, MegaCity, and ScoreView now use the same
 strict contract and only consume their own targets, third-party targets, or the
 named plugin-support leaves.
 The process adapter, client, and server libraries remain free of host, window,
@@ -358,10 +358,9 @@ Good place for:
 | `modules/kanban/` | Always built | `draxul-kanban` owns board storage and layout/navigation; `draxul-kanban-host` owns the native grid-host adapter and provider registration |
 | `modules/personal-assistant/` | Always built | `draxul-personal-assistant-host` renders native NanoVG chat bubbles and the composer. `draxul-personal-agent` owns metadata and chat value types; the protocol/client libraries carry asynchronous snapshots and commands. Private server `PersonalChatService` workers own structured Codex pipes, local history and executor locks. Ordinary managed/discovered agents retain their PTY path. |
 | `plugins/flashcards/` | `DRAXUL_ENABLE_FLASHCARDS` | Submodule → [draxul-flashcards](https://github.com/cmaughan/draxul-flashcards). `draxul-flashcards-review` owns independent recognition/production schedules, bounded deck/audio metadata and durable grading; the module owns animated NanoVG cards, image/native-diagram associations with English help, reveal-only SDL human pronunciation and speaker cycling, labelled synthetic gaps, an external private audio cache and kana font. Build-time source validation embeds a translation-free snapshot. |
-| `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Submodule → [draxul-megacity](https://github.com/cmaughan/draxul-megacity). Self-contained MegaCity/BioView product: the backend-neutral `draxul-megacity-model` boundary owns semantic model/layout/grid/routing records and algorithms; separate code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic-module targets consume it. |
+| `plugins/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Submodule → [draxul-megacity](https://github.com/cmaughan/draxul-megacity). Self-contained MegaCity product: the backend-neutral `draxul-megacity-model` boundary owns semantic model/layout/grid/routing records and algorithms; separate code semantics, Tree-sitter, geometry, scene, Vulkan/Metal renderer, UI, shaders, assets, tests, and dynamic-module targets consume it. |
 | `plugins/satview/` | `DRAXUL_ENABLE_SATVIEW` | Submodule → [draxul-satview](https://github.com/cmaughan/draxul-satview). Self-contained satellite product: core, scene composer, view/input controller, runtime-private ImGui panels, services, Vulkan/Metal renderer, shaders, assets, tests, and the dynamic module |
 | `plugins/scoreview/` | `DRAXUL_ENABLE_SCOREVIEW` | Submodule → [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview). Self-contained notation, learning, transport, worker, MIDI/audio/microphone, UI, NanoVG Vulkan/Metal rendering, assets, tests, and dynamic module |
-| `plugins/pcbview/` | `DRAXUL_ENABLE_PCBVIEW` | Submodule → [draxul-pcbview](https://github.com/cmaughan/draxul-pcbview). Self-contained millimetre board/routing model, strict JSON loader, bounded multilayer autorouter, VKLive-derived 2D viewport, back-to-front NanoVG Vulkan/Metal rendering, route inspection and ImGui layer/failure controls, deterministic prototype asset, tests, and dynamic module |
 | `plugins/rezonality/` | `DRAXUL_ENABLE_REZONALITY` | Submodule → [draxul-rezonality](https://github.com/cmaughan/draxul-rezonality). Fault-tolerant live graphics product ported from VkLive; owns its watched project loader, compiler tools, immutable raster/ray candidates, Assimp, cameras, PBR/HDR resources, Vulkan ray pipelines and acceleration structures, native Metal ray kernels, examples, bounded agent diagnostics, transient-state handoff, layout tooling, and tests |
 
 All optional product directories own their third-party dependency
@@ -375,14 +374,14 @@ Each mount point is a cache path (`DRAXUL_MEGACITY_PLUGIN_DIR`,
 `DRAXUL_REZONALITY_PLUGIN_DIR`). An enabled but
 absent checkout is reported and skipped, making no-product and partial-submodule
 trees supported configurations rather than configure errors.
-Their registrations use strict dependency checking: SatView and MegaCity/BioView
+Their registrations use strict dependency checking: SatView and MegaCity
 consume the generic plugin runtime, render, configuration, text, HTTP,
 performance, tooltip/ImGui, and platform GPU leaves as needed; ScoreView keeps
 its standalone product stack and uses the same in-tree registration/support
 naming. None of the product targets links `draxul-host`, the renderer
 implementation, app orchestration, or another product.
 
-Markdown and Kanban are linked directly into `draxul`. MegaCity/BioView, SatView,
+Markdown and Kanban are linked directly into `draxul`. MegaCity, SatView,
 ScoreView, and Rezonality are staged and loaded only as native modules. Core has no product
 host kinds, provider factories, renderer bridge, or compiled-in fallback.
 
@@ -420,7 +419,7 @@ Use this when:
 ### Fast confidence
 
 - `python do.py test debug` — build and run core unit/integration suites in the shared Debug cache
-- `python do.py test debug --megacity|--satview|--scoreview|--pcbview|--rezonality` — add only an affected product suite
+- `python do.py test debug --megacity|--satview|--scoreview|--rezonality` — add only an affected product suite
 - `python do.py test debug --products` — add every product suite for shared plugin seams
 - `python do.py test debug --all` — explicit complete unit/integration inventory
 - `python do.py smoke --skip-build` — startup-check that already-built app
@@ -460,7 +459,7 @@ Use this when:
   client presentation, start in `draxul-terminal-host`; for lifecycle/provider
   contracts start in `draxul-host-api`, and for shared grid presentation start
   in `draxul-grid-host`.
-- If the issue belongs to SatView, MegaCity/BioView, or ScoreView, start in its
+- If the issue belongs to SatView, MegaCity, or ScoreView, start in its
   directory under `plugins/`. Markdown and Kanban remain under `modules/`.
 - If the issue crosses several modules, start in `app/` to trace orchestration, then move reusable logic downward. Shared Session identity/split projection belongs in `draxul-client::TopologyProjection`; `app/` only adapts it to controllers and pane hosts.
 

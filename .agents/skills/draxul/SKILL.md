@@ -186,7 +186,7 @@ MIDI inputs are process-local leases acquired only by explicit interaction or
 configuration; a busy device leaves the score usable and reports a local error.
 Do not use `--host score`; there is no compiled-in fallback.
 
-MegaCity and BioView are two modes of one product plugin. `source` is the local
+MegaCity is the code-city product plugin. `source` is the local
 directory to scan; every attached UI resolves that path independently.
 
 ```text
@@ -195,12 +195,11 @@ draxul tab create --space <space-id> --name MegaCity \
   --plugin-config '{"mode":"city","source":"D:/dev/project"}' --json
 draxul pane split <pane-id> --direction right \
   --plugin dev.draxul.megacity \
-  --plugin-config '{"mode":"biology","source":"D:/dev/project"}' --json
+  --plugin-config '{"mode":"city","source":"D:/dev/project"}' --json
 ```
 
-Accepted modes are `city` and `biology`. `show_ui` defaults to true and
-`continuous_refresh` defaults to false. Do not use `--host megacity` or
-`--host bioview`; the production executable deliberately has no static product
+The supported mode is `city`. `show_ui` defaults to true and
+`continuous_refresh` defaults to false. Do not use `--host megacity`; the production executable deliberately has no static product
 registration.
 
 Rezonality loads a watched shader project. A direct `draxul --plugin` launch

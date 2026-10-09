@@ -75,21 +75,6 @@
   placeholder; shortening the root restored rendering. Follow-up belongs to
   `kanban/pending/96 plugin-generation-long-path-staging -bug.md`.
 
-- Shared core/product aggregate completed: 79/84 CTest entries passed in 372.89s,
-  including both MegaCity shards and SatView's lifecycle/context shard. The separate
-  SatView catalog setup deadline is recorded in
-  `plugins/satview/kanban/pending/15 catalog-seeder-test-deadline -bug.md` and passed
-  serially with the original seed; PCBView's isolated render timeout is recorded in
-  `plugins/pcbview/kanban/pending/02 pcbview-cancellable-autoroute -perf.md`.
-  Other failures are the existing root cards for emoji shaping, scope membership,
-  and remote initial-state timing. Same-cache Debug smoke and final Release startup
-  passed after the final settings-source correction; no renderer/product source
-  changed after the native checks above. Five core snapshots also passed (26.13s).
-- Final settings-only core aggregate passed 53/56 CTest entries in 81.75s, with the
-  three root failures unchanged. The 84-entry aggregate reused the Debug cache and
-  built 10 incremental steps in 22.75s; native checks reused that executable without
-  another build. No remote CI was run. Keep this card pending for live GPU resize
-  and individual-pane closure.
 
 ## macOS re-check (2026-10-05)
 

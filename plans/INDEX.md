@@ -41,13 +41,10 @@ is (design docs, research, and review output — **not** work items; those live 
 | Plan | Status | Notes |
 |------|--------|-------|
 | [design/draxul_geometry.md](design/draxul_geometry.md) | implemented | `draxul-geometry` + `DraxulTree` mesh generator — shipped. |
-| [design/shared-code-visualization-renderer-module-split-plan.md](design/shared-code-visualization-renderer-module-split-plan.md) | implemented | Shared neutral scene + separate city/biology builders — shipped (MegaCity + BioView). |
 | [design/rendering_todo.md](design/rendering_todo.md) | active | Open rendering cleanups (e.g. move final present to a true sRGB target). |
-| [design/semantic-code-visualization-separation-plan.md](design/semantic-code-visualization-separation-plan.md) | superseded | Its own refinement note redirects to `shared-code-visualization-renderer-module-split-plan.md`. |
 | [design/renderers.md](design/renderers.md) | research | 3D-architecture analysis/reference; reflects the current two-tier renderer + `IFrameContext`. |
 | [design/rendering_efficiency.md](design/rendering_efficiency.md) | research | Evergreen efficiency principles + external references (last updated 2026-03-24). |
 | [design/draxul_megacity_isometric_plan.md](design/draxul_megacity_isometric_plan.md) | research | Early isometric-scene exploration; the semantic-city direction went elsewhere — status genuinely uncertain, not confirmed superseded. |
-| design/megacity-current-architecture.svg | research | Rendered architecture diagram asset (reference). |
 
 ## `superpowers/` (agent implementation plans)
 

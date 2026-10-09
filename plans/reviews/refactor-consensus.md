@@ -30,14 +30,6 @@ The descriptions and checklists in each card specify the public interface, priva
 
 ## Rejected claims, tracked work, and unresolved leads
 
-- **Preserve the fake remote terminal.** `docs/features.md` documents `--experimental-remote-terminal`; `app/main.cpp` still creates its coordinator-free host. Claude 6’s wholesale transport removal is rejected. Card 05 shares only value-level queue policy and keeps both workers.
-- **Keep domain-specific server semantics.** Claude 8’s universal route table and public-`Impl` diagnosis would force a broad rewrite; card 08 isolates agent policy. Claude 34’s single idempotency cache would merge different key, replay, and conflict rules across agents, topology, terminals, and streams.
-- **Preserve existing contracts.** GUI action parity already exists; the menu invokes `GuiActionHandler::execute`. The terminal protocol already has binary input codecs. An external SDK smoke already exists. Cards extend these contracts rather than recreate them. The proposed old test regex “for one release” is omitted because repository guidance rejects compatibility layers.
-- **Do not infer behavioral parity from duplicated code.** Markdown sampler, upload-rectangle and revision differences require characterization; card 25 preserves current backend policies. An MSVC duplicate-symbol failure from the plugin ImGui fork is unverified; card 26 addresses the confirmed API ownership problem and includes a Windows link check.
-- **Do not expand narrow changes into rewrites.** An App pimpl, symmetric renderer-file splitting, a complete coordinator connection/sink redesign, universal product persistence schemas, ScoreView layout/gate controllers, and broad PCBView drawing extraction lack a demonstrated additional boundary. A simple `IRpcChannel` factory cannot cover `NvimHost` spawn, callback, drain and shutdown behavior; a lifecycle-complete interface remains an unresolved lead.
-- **Keep intentional ABI use.** PCBView’s raw native frame records match `IPluginNanoVGPass`; converting them wholesale is rejected. Its route picking has a separate accepted ownership change.
-- **Already tracked:** SatView ice-box cards `40 satview-atmosphere-scattering-deduplication -refactor.md`, `41 satview-network-privacy-controls -feature.md`, and `42 satview-shader-abi-parity -test.md`; ScoreView ice-box cards 18 and 19; and completed ScoreView flow-analysis card 05. Completed SatView worker/pause and root storage/input regression cards remain regression evidence, not new refactor tasks.
-- **Remaining verification gaps:** static review cannot establish native link/export behavior, timing, render parity, or the eventual build closure of new targets. PCBView’s private CI availability and any general product drawing split remain unresolved; no task is created for either.
 
 ## Target module map
 
@@ -74,19 +66,12 @@ Hosts, built-ins and app:
   draxul-app -> app-private collaborators and production hosts
   draxul executable -> app, CLI, platform entry points
 
-Products:
-  MegaCity model/scene -> private host workers and renderer frame prep
-  SatView core -> scene composition; core + scene + services -> runtime
-  ScoreView pipeline + audio -> runtime -> module
-  PCBView core (routing + selection) -> runtime -> module
-  Rezonality project/runtime/audio -> private module objects -> module
-```
 
 Static libraries should be added only where they remove a real dependency edge: CLI, session store, atomic replacement, and render harness core. Most other accepted work belongs inside existing targets. Product test executables may split when their link closure is demonstrably narrower.
 
 ## Repository guidance and validation entry points
 
-Update canonical `CLAUDE.md` to distinguish built-in `modules/` from product-owned `plugins/<product>/`, include `--rezonality`, and replace the presently broad `draxul-test-core` narrow-loop example after card 02. Keep root `AGENTS.md` as a pointer. Correct `GEMINI.md`’s reference to absent `docs/features/`. Move MegaCity’s guide to its product root and include its model test target; add concise ScoreView and PCBView guides. Existing SatView and Rezonality guides remain the product authorities.
+Update canonical `CLAUDE.md` to distinguish built-in `modules/` from product-owned `plugins/<product>/`, include `--rezonality`, and replace the presently broad `draxul-test-core` narrow-loop example after card 02. Keep root `AGENTS.md` as a pointer. Correct `GEMINI.md`’s reference to absent `docs/features/`. Move MegaCity’s guide to its product root and include its model test target; add concise ScoreView guides. Existing SatView and Rezonality guides remain the product authorities.
 
 CMake should own test scope and aggregate membership. `do.py` must preserve the distinction between unit, integration, and selected render tests, as well as `--label` intersection. Add configure/link checks for new headless and contract boundaries. Do not claim a narrow command is available until its target is registered.
 
@@ -539,10 +524,6 @@ CMake should own test scope and aggregate membership. `do.py` must preserve the 
 
 # Share plugin frame mapping and primitive input translation
 
-**Priority:** P1 — positional native contexts and copied adapter mapping drift by product.  
-**Source:** `libs/draxul-host/src/plugin_render_pass_vk.cpp`  
-**Proposed by:** Claude 17, with PCBView migration narrowed. **Owner:** one SDK/host seam agent, then product owners. **Depends on:** card 21.  
-**Evidence:** host Vulkan/Metal frame packing hardcodes scale/PPI despite `PluginHost::plugin_viewport()`; MegaCity/SatView reconstruct contexts; product adapters differ on focus/composition/unknown input.
 
 **Boundary verification**
 - [ ] Pin frame fields, prepass semantics, input coordinate/capture order and supported event kinds per product.
@@ -771,7 +752,7 @@ CMake should own test scope and aggregate membership. `do.py` must preserve the 
 **Unit tests**
 - [ ] Inject blocked builders for cancellation/latest-result/shutdown; retain host integration.
 **Cross-platform validation**
-- [ ] Check Windows/macOS thread teardown, `do.py test debug --megacity`, same-cache smoke and city/biology panes.
+- [ ] Check Windows/macOS thread teardown, `do.py test debug --megacity`, same-cache smoke and City panes.
 **Agent documentation and tooling**
 - [ ] Update MegaCity guide at product root and focused test descriptions.
 **Acceptance criteria**
@@ -952,25 +933,3 @@ CMake should own test scope and aggregate membership. `do.py` must preserve the 
 - [ ] Add a short root product `AGENTS.md` with targets and platform gates.
 **Acceptance criteria**
 - [ ] Each consumer sees only owned headers and required audio links.
-
-### plugins/pcbview/kanban/pending/01 pcbview-selection-ownership -refactor.md
-
-# Move route visibility and picking into PCBView selection
-
-**Priority:** P2 — autorouter exports presentation queries beside route generation.  
-**Source:** `plugins/pcbview/src/autorouter.cpp`  
-**Proposed by:** Claude 47, narrowed. **Owner:** one PCBView core agent.  
-**Evidence:** autorouter defines layer visibility and connection picking; existing `selection.cpp` already owns distance policy and calls picking.
-
-**Boundary verification**
-- [ ] Pin route/wire/mount precedence, layers, vias, ties and tolerance.
-**Implementation and migration**
-- [ ] Move visibility and route picking to selection within existing `draxul-pcbview-core`; keep routing result generation in autorouter.
-**Unit tests**
-- [ ] Preserve hidden-route regression and picking geometry in existing core target.
-**Cross-platform validation**
-- [ ] Inspect runtime call sites on Windows/macOS; run `--pcbview` aggregate and same-cache smoke.
-**Agent documentation and tooling**
-- [ ] Add a short PCBView `AGENTS.md` for core/runtime/plugin boundaries and validation.
-**Acceptance criteria**
-- [ ] Selection owns all presentation picking without adding a GPU dependency.

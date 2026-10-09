@@ -26,7 +26,6 @@ These constraints belong in existing cards; they do not duplicate the new work i
 - `plugins/satview/kanban/pending/03 satview-scene-frame-composition -refactor.md`: measure candidate checks before caching filters. Catalog and filter revisions alone are insufficient because age filtering depends on simulation time; preserve draw/picking revision agreement.
 - `plugins/megacity/kanban/pending/01 megacity-worker-ownership -refactor.md`: measure semantic/city-build latency and whole-layout copies before changing immutable request ownership. Existing timing log statements are not recorded timing results.
 - `plugins/megacity/kanban/pending/02 megacity-frame-preparation -refactor.md`: coordinate adjacent renderer work, but retain separate ownership of native target lifetime and camera-scene caching.
-- `plugins/pcbview/kanban/pending/01 pcbview-selection-ownership -refactor.md`: move selection ownership before or alongside the proposed highlight mask; its current acceptance criteria do not reduce repeated scans.
 
 Completed atlas-reset, SatView pause/cloud, Rezonality include-watching/dimension, and ScoreView final-save cards remain regression constraints. Root `kanban/.draxul-kanban.toml` also names absent files; those names are not tracker cards. The root ice-box directory is absent in this snapshot.
 
@@ -759,41 +758,3 @@ No card is proposed for these without the stated evidence.
 - [ ] **Compare:** Report interactive stalls and redundant jobs before/after; parse timemap once per accepted result.
 - [ ] **Platforms:** Check ScoreView behavior on Windows/macOS, aggregate and smoke.
 - [ ] **Acceptance:** Required reengraving does not monopolize the GUI pump.
-
-### plugins/pcbview/kanban/pending/02 pcbview-cancellable-autoroute -perf.md
-
-# Run PCBView autorouting away from plugin creation and frames
-
-**Source:** `plugins/pcbview/src/pcbview_runtime.cpp`  
-**Priority/evidence:** P2; static, high confidence. **Reported by:** Codex; Claude raised an unresolved lead. Lines 60–88 route synchronously during initialization; 568–570 do so from an ImGui control. Router limits bound total search, but do not let other panes respond during it.
-
-- [ ] **Baseline:** Measure create/reroute GUI stall, route duration, and frame p95 on bundled and valid near-budget boards.
-- [ ] **Implement:** Route one immutable board snapshot on a cancellable worker; coalesce requests and publish only the current generation.
-- [ ] **Functional safety:** Preserve route equivalence, prior display, bounded queued memory, cancellation, and quiescent join.
-- [ ] **Compare:** Require main-thread route stalls to disappear without changing accepted routes.
-- [ ] **Platforms:** Check PCBView lifecycle on Windows and macOS, product aggregate and smoke.
-- [ ] **Acceptance:** Routing work cannot block plugin creation or an active frame.
-
-### plugins/pcbview/kanban/pending/03 pcbview-frame-highlight-mask -perf.md
-
-# Compute PCBView highlight focus once per redraw
-
-**Source:** `plugins/pcbview/src/pcbview_runtime.cpp`  
-**Priority/evidence:** P2; static, high confidence. **Reported by:** Claude, Codex. Lines 299–302, 337–340, and 439–442 call focus helpers inside draw loops; `selection.cpp:117–183` and `autorouter.cpp:1489–1504` can scan connections for each object. Idle redraw suppression does not help during selection or panning.
-
-- [ ] **Baseline:** Count connection examinations and frame CPU as mounts and connections grow during selection and pan.
-- [ ] **Implement:** Derive focus and bounded endpoint masks once per redraw, coordinating with selection-ownership migration.
-- [ ] **Functional safety:** Preserve selected pads, failed routes, airwires, layers, ties, and route visibility.
-- [ ] **Compare:** Require connection examinations to grow linearly for the same frame workload.
-- [ ] **Platforms:** Check PCBView output on Windows/macOS, product aggregate and smoke.
-- [ ] **Acceptance:** Per-object drawing does not rescan all connections.
-
-## Ranked measurement plan and safeguards
-
-1. **Repeated work counters:** ligature entries, SatView propagations, Rezonality watched bytes and generation creations, app/plugin wakeups. Capture a fixed baseline before changing behavior.
-2. **Interaction latency:** terminal log replay and Session load metrics; four-pane typing/resize upload bytes; Rezonality and MegaCity divider drags; long-score ScoreView zoom and playback; PCB routing; large-board Kanban typing.
-3. **Memory and background cost:** idle terminal RSS within the current admission budget, atlas/texture/staging allocations, per-slot target peak, and 60-second hidden or paused CPU traces on both platforms. Report observed values and ratios, not invented speedups or machine-dependent CI thresholds.
-
-Preserve render-on-demand, explicit deadlines, dirty atlas-region uploads, two frame slots and deferred retirement, bounded stream queues and PTY backpressure, hidden remote-terminal suspension, Kanban watcher debounce, ScoreView’s windowed Roll path, generation-checked publications, last-good shader reloads, and off-thread Session checkpoints. Each implementation slice needs its owning aggregate test command, same-cache smoke, and the relevant Vulkan/Metal or Windows/macOS functional check before its card can be completed.
-
-`<gpt-6-astra>`

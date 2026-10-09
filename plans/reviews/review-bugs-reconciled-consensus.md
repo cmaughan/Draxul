@@ -58,12 +58,6 @@ Root and all five product `pending`, `ice-box`, and `done` lanes were inspected.
 
 `modules/kanban/draxul-kanban/src/kanban_store.cpp:658` calls `filename().string()` without containment; repository and lane names repeat this at lines 578 and 616. **Trigger:** Windows scans a card such as `07 🐛 crash -bug.md` under a code page that cannot represent its name. **Fix:** use explicit UTF-8 display strings while retaining native paths and contain scan failures. **Reported:** Claude C6. **Tracking:** new Kanban card; the related Markdown boundary at `modules/markdown/draxul-markdown/src/markdown_host.cpp:367` overlaps existing B18 work.
 
-### F07 — Biology noise uses overflowing signed products
-
-**Summary:** Use safe calculations for biological shapes so opening the biology view cannot cause invalid arithmetic.
-
-`plugins/megacity/product/draxul-geometry/src/cell_generator.cpp:35` multiplies signed coordinates before converting to unsigned. Ordinary seed offsets and octave expansion exceed the safe range. **Trigger:** build normal biology geometry. **Fix:** convert before multiplication and use unsigned constants. **Reported:** Codex B1. **Tracking:** existing.
-
 ### F08 — Satellite asset-root path is concurrently mutated
 
 **Summary:** Give background loaders a stable asset location so opening another satellite pane cannot disrupt file loading.
@@ -252,18 +246,6 @@ Root and all five product `pending`, `ice-box`, and `done` lanes were inspected.
 
 `plugins/scoreview/product/draxul-scoreview/src/score_runtime.cpp:1313` clears the input rig after selection has installed a keyboard fallback but returned hardware failure. **Trigger:** an enumerated music device fails to open. **Fix:** release the failed hardware lease without clearing the fallback. **Reported:** Codex B22. **Tracking:** existing.
 
-### F39 — Wide-track blockers use the smaller via radius
-
-**Summary:** Block the full required space around pads so wide tracks cannot pass too close.
-
-`plugins/pcbview/src/autorouter.cpp:244` derives blocker iteration from via radius even when track radius is larger. **Trigger:** 2 mm track, 0.6 mm via, 0.5 mm grid, and a 1 mm pad can miss a track node 1.4 mm away. **Fix:** iterate using the larger radius while retaining separate distance checks. **Reported:** Codex B23. **Tracking:** existing.
-
-### F40 — Clear route nodes can connect through a pad
-
-**Summary:** Check clearance along complete tracks so diagonal sections cannot overlap unrelated pads.
-
-`plugins/pcbview/src/autorouter.cpp:397` validates pattern nodes rather than their connecting segments; search and emitted endpoint connectors have the same gap. **Trigger:** the reported diagonal passes 0.212 mm from a pad despite a 0.35 mm keepout and individually clear nodes. **Fix:** validate segment clearance during search, patterns, connectors, and final output. **Reported:** Codex B24. **Tracking:** existing.
-
 ### F41 — Shared depth images lack inter-pass synchronization
 
 **Summary:** Synchronize shared depth images so successive drawing passes preserve correct visibility.
@@ -409,7 +391,6 @@ These actual pending cards cover all 34 Codex findings. They are not reproduced 
 
 | Review finding | Existing card |
 |---|---|
-| B1 | `plugins/megacity/kanban/pending/11 biology-noise-overflow -bug.md` |
 | B2 | `plugins/satview/kanban/pending/09 asset-root-worker-race -bug.md` |
 | B3 | `kanban/pending/00 nvim-closed-pipe-signal -bug.md` |
 | B4 / Claude M7 | `kanban/pending/02 terminal-marker-scroll-overflow -bug.md` |
@@ -431,8 +412,6 @@ These actual pending cards cover all 34 Codex findings. They are not reproduced 
 | B20 | `plugins/satview/kanban/pending/11 paused-controls-completion-ticks -bug.md` |
 | B21 | `plugins/megacity/kanban/pending/12 label-upload-staging-lifetime -bug.md` |
 | B22 | `plugins/scoreview/kanban/pending/08 device-failure-keyboard-fallback -bug.md` |
-| B23 | `plugins/pcbview/kanban/pending/04 wide-track-pad-blockers -bug.md` |
-| B24 | `plugins/pcbview/kanban/pending/05 continuous-track-pad-clearance -bug.md` |
 | B25 | `plugins/rezonality/kanban/pending/11 shared-depth-pass-synchronization -bug.md` |
 | B26 | `plugins/rezonality/kanban/done/12 unsupported-texture-feedback -bug.md` |
 | B27 / Claude H1 | `kanban/pending/77 mouse-drag-release-owner -bug.md` |

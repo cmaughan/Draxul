@@ -111,7 +111,6 @@ Preserve the existing C ABI, PluginSupport allowlist, product-owned payloads, re
 | MegaCity | Scanner→semantic controller→snapshot, runtime lifecycle, backend interfaces, product tests | MegaCity/SatView worker + coordinator | Mesh/layout/routing internals sampled |
 | SatView | Catalog parsing, service/worker handoff, runtime and backend boundaries | MegaCity/SatView worker + coordinator | Orbital algorithms, UI and asset tools sampled |
 | ScoreView | Adapter→runtime/controllers, device boundaries, targets, fixtures, standalone wiring | Products/SDK worker | Learning/DSP/SVG internals sampled |
-| PCBView | Board loading→routing/runtime, core/canvas dependencies, selection tests | Products/SDK worker | Detailed routing/render primitives sampled |
 | Rezonality | Project/runtime boundaries, audio lifecycle, native adapters, tests/build/guidance | Products/SDK worker + coordinator | Compiler and GPU internals sampled |
 | SDK/plugins/support | ABI, loader/staging, adapter shell, ImGui support, spinning-triangle paths | Products/SDK and terminal/render workers | Some backend/resource helpers and extraction scripts sampled |
 | Build/tests/guidance | CMake edges, isolation targets, `do.py`, wrappers, CI, root/product guides and Kanban exclusions | Coordinator + all workers | No generated build-graph or runtime validation; no delegation failures |

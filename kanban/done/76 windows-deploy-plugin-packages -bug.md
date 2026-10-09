@@ -55,7 +55,7 @@
   The initial inspection helper incorrectly rejected top-down BMPs; offline
   header inspection confirms all seven are valid 960 by 760 images with height
   -760. No application rerun is needed for that helper error.
-  Triangle, MegaCity, SatView, ScoreView, PCBView and Flashcards were visually
+  Triangle, MegaCity, SatView, ScoreView and Flashcards were visually
   confirmed as real rendered views, not load-error placeholders. ScoreView
   uses an external test score and MegaCity an external source directory;
   their libraries and private dependencies come from the extracted packages.

@@ -1,13 +1,5 @@
 Partial static review of `repomix-output.xml`. Four read-only workers completed their assigned reviews; their accepted findings were independently checked against surrounding source. No files were changed, and no builds, tests, installations, or project binaries were run. Findings below exclude defects already explicitly tracked in the embedded root or product Kanban lanes.
 
-1. **Summary:** Use safe arithmetic so opening the biology view does not trigger undefined behavior.
-
-   **Severity: CRITICAL** — `plugins/megacity/product/draxul-geometry/src/cell_generator.cpp:35`
-
-   Coordinate multiplications occur as signed integers before conversion to unsigned. Ordinary biology construction (`plugins/megacity/product/draxul-megacity/src/biology_builder.cpp:727`) supplies noise offsets whose octave expansion overflows these multiplications.
-   
-   **Fix:** Convert coordinates before multiplying, for example `static_cast<uint32_t>(ix) * 73856093u`, and likewise for the other axes.
-
 2. **Summary:** Protect the shared asset folder so opening another satellite view cannot disrupt background file loading.
 
    **Severity: CRITICAL** — `plugins/satview/src/core/satview_texture_assets.cpp:96`
@@ -178,7 +170,6 @@ Partial static review of `repomix-output.xml`. Four read-only workers completed 
 
 23. **Summary:** Block the full track-clearance area around pads.
 
-    **Severity: HIGH** — `plugins/pcbview/src/autorouter.cpp:243`
 
     Blocker iteration uses only the via radius, even when tracks are wider. With track width 2 mm, via pad 0.6 mm, grid step 0.5 mm, and a 1 mm pad, the required track radius is 1.5 mm but iteration covers only the smaller via extent. A track 1.4 mm from that pad can be accepted.
 
@@ -186,7 +177,6 @@ Partial static review of `repomix-output.xml`. Four read-only workers completed 
 
 24. **Summary:** Check clearance along each segment so diagonal tracks cannot overlap pads.
 
-    **Severity: HIGH** — `plugins/pcbview/src/autorouter.cpp:397`
 
     Pattern routing and search validate grid nodes rather than connecting segments. With step 0.5 mm, pad diameter 0.4 mm, and track width 0.3 mm, nodes `(4.5,5)` and `(5,4.5)` pass clearance around a pad at `(4.6,4.6)`, but their diagonal passes only 0.212 mm away—inside the 0.35 mm keepout.
 
@@ -294,9 +284,8 @@ Coverage is representative, not exhaustive. All four delegated reviews completed
 | Rendering/fonts/window | Vulkan and Metal frame/resource lifecycle, grids, atlases, shaping, SDL and NanoVG | Terminal worker; coordinator verification | Shader/stencil internals, native fault behavior and some shared GPU helpers |
 | Built-in modules | Markdown fonts/layout/rendering/navigation; Kanban storage, monitoring and previews | Coordinator | Exhaustive document and UI cases |
 | Plugin host and SDK | Discovery, ABI callbacks, storage, quiescence, reload and spinning-triangle lifecycle | Coordinator | External plugins and complete SDK consumer combinations |
-| MegaCity/BioView | Workers, scene publication, geometry, input, native uploads and retirement | Product worker; coordinator verification | Semantic analysis, geometry variants and rendering mathematics sampled |
+| MegaCity | Workers, scene publication, geometry, input, native uploads and retirement | Product worker; coordinator verification | Semantic analysis, geometry variants and rendering mathematics sampled |
 | SatView | Catalog/cloud/simulation workers, cache publication, pause/input scheduling, assets | Product worker; coordinator verification | Astronomy algorithms, panels and shaders sampled |
 | ScoreView | Initialization, progress, device input, audio and engraver ownership | Product worker; coordinator verification | Large notation, analysis, scoring and transport portions |
-| PCBView | Model validation, routing blockers, patterns, search and legalization | Product worker; coordinator verification | Multilayer search and detailed resource-footprint branches |
 | Rezonality | Parser/build/watch, candidate lifecycle, native preparation, barriers and recording | Product worker; coordinator verification | Shader conversion, ray paths and editor integrations |
 | Build/scripts/tests/tracking | Deployment, plugin staging/publishing, SDK targets, relevant tests and actual Kanban cards | Coordinator and workers | Tests inspected selectively; no execution or runtime validation |

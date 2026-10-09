@@ -32,7 +32,7 @@ Verification covered the cited implementation, callers, CMake relationships, tes
 - **Rejected interpretation:** making FreeType/HarfBuzz private does not eliminate their final-link requirements or compilation cost.
 - **Rejected interpretation:** direct policy tests added to existing core/app/product executables do not make those executables’ build closures graphics-free.
 - **Rejected expansion:** no new public plugin ABI, generalized CSV library, multi-file storage transaction, wholesale App rewrite, or separate production library for each helper.
-- **Unresolved lead—no card:** `plugins/megacity/cmake/Tests.cmake:15–17` adds a module dependency to `draxul-test-app`; `tests/plugin_manager_tests.cpp:80–134` deliberately exercises City/Biology through the ABI. These checks enter the default core aggregate. The evidence establishes build cost, but does not settle their intended ownership. Reconcile the intended scope with `kanban/done/35 modular-test-targets -refactor.md` and `kanban/pending/37 product-plugin-repo-split -refactor.md` before proposing a migration.
+- **Unresolved lead—no card:** `plugins/megacity/cmake/Tests.cmake:15–17` adds a module dependency to `draxul-test-app`; `tests/plugin_manager_tests.cpp:80–134` deliberately exercises City through the ABI. These checks enter the default core aggregate. The evidence establishes build cost, but does not settle their intended ownership. Reconcile the intended scope with `kanban/done/35 modular-test-targets -refactor.md` and `kanban/pending/37 product-plugin-repo-split -refactor.md` before proposing a migration.
 
 ## Existing task refinements
 
@@ -393,7 +393,7 @@ Static inspection cannot validate generated dependency closure, native linking, 
 
 #### Cross-platform validation
 
-- [ ] Compare record/path behavior on Windows/macOS and preserve downstream City/Biology inputs on Vulkan/Metal.
+- [ ] Compare record/path behavior on Windows/macOS and preserve downstream City inputs on Vulkan/Metal.
 - [ ] Keep the parser free of renderer/host dependencies and preserve MegaCity enabled/disabled build support.
 - [ ] Run `python3 do.py test debug --megacity`, then `python3 do.py smoke debug --skip-build`.
 

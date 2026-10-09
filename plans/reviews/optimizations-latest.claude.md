@@ -5,7 +5,7 @@
 **Delegation.** Four read-only subagents each covered one area. They all used the same packed file, the Opus model, and were asked for high reasoning effort in the prompt; the tool has no reasoning-effort setting, so that could not be enforced. None of them delegated further.
 - W1: server, client, control, protocol, terminal core and PTY.
 - W2: renderer, fonts, grid, Markdown, Kanban and the chrome/overlay hosts.
-- W3: SatView, PCBView and Rezonality.
+- W3: SatView and Rezonality.
 - W4: plugin host, SDK and support, MegaCity and ScoreView.
 
 I reviewed the app frame loop, input dispatch, Neovim RPC, window, config, weather, system-resource and performance-collector paths myself. Before accepting a worker finding I re-read its cited code; where I only spot-checked, confidence is marked lower.
@@ -351,8 +351,6 @@ Each item names the location, the workload and cost, the change, and how to vali
 39. **Rezonality's Neovim plugin polls constantly** (W3, verified defaults). It polls every 500 ms and spawns `draxul pane list` every 2 s in every Neovim where it is installed (`init.lua:29-31`, 650-666), re-setting diagnostics each tick.
     - Change: mtime gating, or `uv.new_fs_event`.
 
-40. **PCBView highlight checks are quadratic in connections** (W3). Highlight predicates are evaluated per route per layer (`pcbview_runtime.cpp:288-453`, `selection.cpp:117-188`), so each redraw is O((2L+1)·C²) with "show failed routes" on.
-    - Change: compute the predicates and a highlighted bitset once per draw.
 
 41. **ScoreView Clock view replays the whole piece every frame without culling** (W4). The Clock conveyor and monolithic flow replay the whole piece through NanoVG every 16 ms (`score_render_nvg.cpp:134-353`; `record_flow` 133-368).
     - Change: cull by precomputed x-extents.
@@ -401,19 +399,6 @@ Each item names the location, the workload and cost, the change, and how to vali
 
 ## Unresolved leads (not accepted; evidence still needed)
 
-- **Neovim reader re-decodes partial messages.** `rpc.cpp:467-500` re-decodes a truncated message from scratch on every read, which would be O(n²/chunk) for large redraws. Needs the real distribution of `redraw` message sizes; recent Neovim versions may split redraws into small notifications.
-- **Per-host submit chunks.** `flush_submit_chunk` after every host draw means one render-pass or encoder and submit per pane. On Apple TBDR each chunk may load and store the whole drawable. Needs a Metal System Trace or Nsight capture with 4 panes at 5K.
-- **Per-cell `PERF_MEASURE` scopes.** Found in `mark_dirty_index`, `apply_update_to_cell`, `read_value` and others. When the MegaCity perf overlay enables the collector, every scope end takes a global mutex (`perf_timing.cpp:176-194`). Needs the existing `[.perf-benchmark]` result multiplied by per-flush call counts.
-- **Coordinator lookups.** O(N²) entry lookups and a whole-queue copy per keystroke (overlaps card 05). Needs a profile with 64+ panes.
-- **VT parser allocations.** A string allocation per codepoint and cluster in the VT parser; also the idle `SessionStreamService::pump` poll build per connection. Profile once #4 is fixed.
-- **Depth images.** Metal allocates a window-sized depth texture eagerly, and Vulkan one per swapchain image, even when no pass uses depth. Needs an inventory of which passes need depth.
-- **Diagnostics state rebuilt while hidden.** `update_diagnostics_panel` builds strings and vectors and sorts control-failure buckets every rendered frame, even when the panel is hidden (`app.cpp:2937-3063`). Probably sub-millisecond; measure.
-- **PCBView autorouter on the render thread.** "Autoroute again" runs mid-frame; its duration on a near-cap board is unmeasured.
-- **Rezonality FFT under lock.** `AudioAnalyzer::frame()` runs an FFT under a mutex on the render thread.
-- **SatView label rebuild.** Labels are rebuilt every frame when enabled.
-- **MegaCity scanner.** Single-threaded scanning; time to first city on large repositories.
-- **Plugin frame pacing.** A fixed 16.67 ms tick instead of vsync; needs traces on 120 Hz displays.
-- **Exact-size Vulkan buffer growth.** Grid buffers grow to the exact size during an enlarging drag, reallocating each step.
 
 ---
 
@@ -446,7 +431,7 @@ For CI, record baseline ratios (counts and bytes) rather than machine-dependent 
   - Kanban: `set_cell_if_changed`, the bounded-dirty perf tests, native watchers with a 150 ms debounce.
 - Plugins:
   - `PluginHost` consumes render deadlines, drops no-op viewport changes and skips hidden draws;
-  - SatView, Rezonality and PCBView tick deadlines go idle when paused or hidden (the render side);
+  - SatView, Rezonality tick deadlines go idle when paused or hidden (the render side);
   - ScoreView's latest-wins window engraver and analysis cache;
   - revision-gated uploads in MegaCity and SatView.
 - `SystemResourceMonitor` samples at 1 Hz and only publishes changes.
@@ -468,7 +453,6 @@ For CI, record baseline ratios (counts and bytes) rather than machine-dependent 
 | MegaCity | host pump/draw/deadline, scene snapshot, metrics overlay, semantic controller, Vulkan/Metal targets and prepass | W4 (key items verified) | builders, routing, geometry, shaders, tests |
 | ScoreView | runtime pump/draw/relayout/input, presentation, NanoVG render, engraver, audio, session save | W4 (key items verified) | flow/stream/source_slicer internals, Verovio cost, analysis |
 | SatView | worker, propagation executor, runtime draw, composer, filter, catalog/cloud services, Vulkan/Metal textures and HDR | W3 (key items verified) | shaders, draw internals, tools, most tests |
-| PCBView | runtime draw/controls, selection, autorouter loop | W3 | board loader, viewport.cpp, autorouter internals |
 | Rezonality | watcher, build pipeline, runtime controller, Vulkan/Metal generation, Neovim Lua integration | W3 (key items verified) | image loader, camera, audio capture, Metal record |
 | Build / tests / scripts / docs | CLAUDE.md, module-map, perf audit doc, perf benchmarks list, kanban lanes (root and 5 products) | Coordinator | build and test speed not assessed: no repeated-workflow cost was established |
 

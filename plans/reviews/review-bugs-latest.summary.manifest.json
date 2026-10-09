@@ -109,10 +109,6 @@
       "sha256": "09196c9919ee0a20b71d54b43787ceec67f0d826c30a8e176d4bfb7e7a6f4239"
     },
     {
-      "path": "plugins\\megacity\\kanban\\pending\\11 biology-noise-overflow -bug.md",
-      "sha256": "ce09495ad089bcc8be7564601dfec9e3fe6bc81189ea74633f773e3104bc4f6d"
-    },
-    {
       "path": "plugins\\megacity\\kanban\\pending\\12 label-upload-staging-lifetime -bug.md",
       "sha256": "58da9349a19f574e3bcb932bf5f3a330950f799a6d29e782785ed0e9be9c2012"
     },
@@ -141,11 +137,11 @@
       "sha256": "98102a99af7d3bcf72b1b8f41f9d29f2161e00bca75e909caaba026a7bb19a57"
     },
     {
-      "path": "plugins\\pcbview\\kanban\\pending\\04 wide-track-pad-blockers -bug.md",
+      "path": "",
       "sha256": "a78b9e48a63f2d2530d0d0f95bec66020a9de121a83b70a90a8cc0606181ba6a"
     },
     {
-      "path": "plugins\\pcbview\\kanban\\pending\\05 continuous-track-pad-clearance -bug.md",
+      "path": "",
       "sha256": "9f49e694e6fcdae96f9e4884f60c069ff6a32fc47aec6cded1f0fc82ba485de1"
     },
     {

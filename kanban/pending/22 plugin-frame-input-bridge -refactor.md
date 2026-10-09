@@ -4,7 +4,7 @@
 
 **Priority:** P1 — positional native contexts and copied adapter mapping drift by product.  
 **Source:** `libs/draxul-host/src/plugin_render_pass_vk.cpp`  
-**Proposed by:** Claude 17, with PCBView migration narrowed. **Owner:** one SDK/host seam agent, then product owners. **Depends on:** card 21.  
+**Proposed by:** Claude 17. **Owner:** one SDK/host seam agent, then product owners. **Depends on:** card 21.
 **Evidence:** host Vulkan/Metal frame packing hardcodes scale/PPI despite `PluginHost::plugin_viewport()`; MegaCity/SatView reconstruct contexts; product adapters differ on focus/composition/unknown input.
 
 **Boundary verification**

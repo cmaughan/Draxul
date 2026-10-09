@@ -120,7 +120,6 @@ This was a read-only, static review of `repomix-output.xml`. Four read-only revi
 
 The packed directory and file sections contain no root `pending/` or `ice-box/` card bodies, although `kanban/.draxul-kanban.toml:4-5` still names many historical cards. I excluded implemented boundaries and the product cards actually present, including SatView’s deferred atmosphere consolidation. The absent card bodies limit any claim about their historical intent.
 
-One unaccepted lead is further splitting PCBView runtime drawing. Its selection core is already separate; the review did not establish a distinct test or dependency benefit for another split. That would require tracing a concrete drawing change through callers, targets, and tests first.
 
 ## Proposed target map and parallel work
 
@@ -144,9 +143,8 @@ The best independent agent packages are core test classification, client queue p
 | Client, server, control, Session | Coordinator/host delivery, kernel requests/lifecycle, protocol and test seams | Worker; coordinator verified findings | Not every request method or transport branch |
 | Terminal, Neovim, PTY, built-ins | Host leaves, terminal process/core interfaces, Neovim split, Markdown/Kanban flows | Worker; coordinator verified findings | Not every VT handler or native process branch |
 | Rendering, fonts, platforms, SDK support | NanoVG Metal/Vulkan, GUI/ImGui, font/atlas interfaces, render targets | Worker; coordinator verified findings | Native encoder and shader bodies not exhaustively read |
-| MegaCity and BioView | Host workers, model/renderer targets, tests and guidance | Worker; coordinator verified finding | Full GPU backend internals |
+| MegaCity | Host workers, model/renderer targets, tests and guidance | Worker; coordinator verified finding | Full GPU backend internals |
 | SatView | Core/scene/services/runtime, picking, tests and guidance | Worker; coordinator verified findings | Full render backend internals |
 | ScoreView | Target graph, runtime seams, tests, README and Kanban | Worker | Detailed notation/audio algorithms |
-| PCBView | Core selection, runtime/renderer boundary, tests and README | Worker | Drawing split remains an unverified lead |
 | Rezonality | Project pipeline, compiler/watch flow, targets, tests and guidance | Worker; coordinator verified finding | Full Vulkan/Metal renderer internals |
 | Build, tests, tracker | Root/product CMake, focused targets, `do.py`, available Kanban lanes | Coordinator and workers | No builds or tests run; absent root card bodies cannot be inspected |

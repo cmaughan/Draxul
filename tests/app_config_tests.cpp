@@ -976,7 +976,6 @@ TEST_CASE("host kind parser accepts core and plugin host spellings", "[config]")
     auto kanban = parse_host_kind("kanban");
     auto kb = parse_host_kind("kb");
     auto plugin = parse_host_kind("plugin");
-    auto removed_bioview = parse_host_kind("bioview");
     auto removed_bio = parse_host_kind("bio");
     auto invalid = parse_host_kind("not-a-host");
 
@@ -993,7 +992,6 @@ TEST_CASE("host kind parser accepts core and plugin host spellings", "[config]")
     INFO("plugin host should parse");
     REQUIRE(plugin.has_value());
     INFO("removed product host names should not parse");
-    REQUIRE_FALSE(removed_bioview.has_value());
     REQUIRE_FALSE(removed_bio.has_value());
     INFO("unknown hosts should be rejected");
     REQUIRE(!invalid.has_value());

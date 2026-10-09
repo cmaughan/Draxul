@@ -4,7 +4,7 @@
 
 Draxul is the lean agentic harness: window and GPU submission, terminal and agent
 runtimes, topology and plugin lifecycle, Kanban, and Kanban's Markdown preview.
-SatView, MegaCity/BioView, and ScoreView are native plugins that own their source,
+SatView, MegaCity, and ScoreView are native plugins that own their source,
 product-specific dependencies, assets, persistence, tests, and backend rendering.
 The product repositories are expected to be mounted beneath `plugins/` as Git
 submodules and built with Draxul, so they may consume explicitly public, generic
@@ -53,7 +53,7 @@ not the required boundary for an in-tree submodule.
 3. **SatView.** Move the actual satellite data, simulation, UI, shaders, renderer,
    assets, persistence, and tests into its plugin. Remove every SatView dependency
    from the Draxul app and libraries.
-4. **MegaCity/BioView.** Create one self-contained product plugin with explicit
+4. **MegaCity.** Create one self-contained product plugin with explicit
    mode/configuration, moving code semantics, scene construction, shaders, UI,
    assets, and tests out of Draxul core.
 5. **ScoreView.** Move notation, Verovio, transport, workers, audio, microphone,
@@ -79,7 +79,7 @@ not the required boundary for an in-tree submodule.
   allowlist. Keep `Draxul::PluginSDK` as the only runtime ABI.
 - Add a configure-time boundary check: core targets cannot link product targets;
   core source cannot include product headers; generic support cannot name or
-  include SatView, MegaCity, BioView, or ScoreView types.
+  include SatView, MegaCity, or ScoreView types.
 
 ### 7B. Move build ownership into the submodules
 
@@ -112,7 +112,7 @@ not the required boundary for an in-tree submodule.
 - SatView: use the generic runtime, render, text, configuration, HTTP, logging,
   and GPU-resource support targets; keep simulation, catalogues, UI, shaders,
   assets, SGP4, tests, and persistence in the SatView submodule.
-- MegaCity/BioView: use the generic runtime, render, text, configuration,
+- MegaCity: use the generic runtime, render, text, configuration,
   performance, tooltip/UI, and GPU-resource support targets; keep scanning,
   semantics, geometry, scene construction, Tree-sitter/EnTT, tests, and both
   visualization modes in the MegaCity submodule.
@@ -130,7 +130,7 @@ not the required boundary for an in-tree submodule.
   every product; verify restart, resize, input, hidden-tab/Space scheduling,
   teardown, missing-plugin placeholders, and declarative layouts.
 - Run focused product tests and deterministic render scenarios for SatView,
-  MegaCity, BioView, and the Grieg ScoreView fixture on Windows/Vulkan and
+  MegaCity, and the Grieg ScoreView fixture on Windows/Vulkan and
   macOS/Metal.
 - Retain ScoreView's copied-tree extraction smoke as an additional release check,
   not a requirement imposed on all submodule plugins.

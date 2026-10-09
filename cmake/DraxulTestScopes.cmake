@@ -1,6 +1,6 @@
 # CMake owns both the build aggregate and CTest scope for each registered suite.
 # Scope labels are orthogonal to unit/integration/render and subsystem labels.
-set(DRAXUL_TEST_PRODUCT_SCOPES megacity satview scoreview pcbview rezonality flashcards)
+set(DRAXUL_TEST_PRODUCT_SCOPES megacity satview scoreview rezonality flashcards)
 
 function(draxul_test_scope_from_labels output)
     set(scope core)

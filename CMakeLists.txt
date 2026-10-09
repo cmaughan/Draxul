@@ -24,9 +24,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(DRAXUL_ENABLE_MEGACITY "Build and bundle the MegaCity/BioView plugin" ON)
+option(DRAXUL_ENABLE_MEGACITY "Build and bundle the MegaCity plugin" ON)
 option(DRAXUL_ENABLE_SATVIEW "Build and bundle the SatView plugin" ON)
-option(DRAXUL_ENABLE_PCBVIEW "Build and bundle the PCBView plugin" ON)
 option(DRAXUL_ENABLE_REZONALITY "Build and bundle the Rezonality live graphics plugin" ON)
 option(DRAXUL_ENABLE_FLASHCARDS "Build and bundle the Japanese flashcards plugin" ON)
 if(APPLE OR WIN32)
@@ -49,13 +48,11 @@ option(DRAXUL_REQUIRE_ENABLED_PLUGINS
     ${DRAXUL_REQUIRE_ENABLED_PLUGINS_DEFAULT})
 option(DRAXUL_ENABLE_RENDER_TESTS "Enable render-test capture/compare infrastructure" OFF)
 set(DRAXUL_MEGACITY_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/megacity"
-    CACHE PATH "Mounted MegaCity/BioView plugin source directory")
+    CACHE PATH "Mounted MegaCity plugin source directory")
 set(DRAXUL_SATVIEW_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/satview"
     CACHE PATH "Mounted SatView plugin source directory")
 set(DRAXUL_SCOREVIEW_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/scoreview"
     CACHE PATH "Mounted ScoreView plugin source directory")
-set(DRAXUL_PCBVIEW_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/pcbview"
-    CACHE PATH "Mounted PCBView plugin source directory")
 set(DRAXUL_REZONALITY_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/rezonality"
     CACHE PATH "Mounted Rezonality plugin source directory")
 set(DRAXUL_FLASHCARDS_PLUGIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins/flashcards"
@@ -155,9 +152,8 @@ add_subdirectory(modules/personal-assistant)
 set(DRAXUL_HAVE_MEGACITY OFF)
 set(DRAXUL_HAVE_SATVIEW OFF)
 set(DRAXUL_HAVE_SCOREVIEW OFF)
-set(DRAXUL_HAVE_PCBVIEW OFF)
 set(DRAXUL_HAVE_REZONALITY OFF)
-foreach(_product IN ITEMS MEGACITY SATVIEW SCOREVIEW PCBVIEW REZONALITY FLASHCARDS)
+foreach(_product IN ITEMS MEGACITY SATVIEW SCOREVIEW REZONALITY FLASHCARDS)
     if(DRAXUL_ENABLE_${_product})
         if(EXISTS "${DRAXUL_${_product}_PLUGIN_DIR}/CMakeLists.txt")
             set(DRAXUL_HAVE_${_product} ON)
@@ -176,8 +172,7 @@ foreach(_product IN ITEMS MEGACITY SATVIEW SCOREVIEW PCBVIEW REZONALITY FLASHCAR
     endif()
 endforeach()
 
-if(DRAXUL_HAVE_MEGACITY OR DRAXUL_HAVE_SATVIEW OR DRAXUL_HAVE_SCOREVIEW
-    OR DRAXUL_HAVE_PCBVIEW)
+if(DRAXUL_HAVE_MEGACITY OR DRAXUL_HAVE_SATVIEW OR DRAXUL_HAVE_SCOREVIEW)
     add_subdirectory(plugins/support/imgui)
 endif()
 if(DRAXUL_HAVE_MEGACITY)
@@ -188,9 +183,6 @@ if(DRAXUL_HAVE_SATVIEW)
 endif()
 if(DRAXUL_HAVE_SCOREVIEW)
     add_subdirectory("${DRAXUL_SCOREVIEW_PLUGIN_DIR}" plugins/scoreview)
-endif()
-if(DRAXUL_HAVE_PCBVIEW)
-    add_subdirectory("${DRAXUL_PCBVIEW_PLUGIN_DIR}" plugins/pcbview)
 endif()
 if(DRAXUL_HAVE_REZONALITY)
     add_subdirectory("${DRAXUL_REZONALITY_PLUGIN_DIR}" plugins/rezonality)

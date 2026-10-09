@@ -1,1 +1,1 @@
-The four review agents are running: app/UI, client/server/terminal, rendering with plugin infrastructure plus MegaCity and PCBView, and SatView/ScoreView/Rezonality. Once they finish, I'll re-check their evidence and write up one report.
+The four review agents are running: app/UI, client/server/terminal, rendering with plugin infrastructure plus MegaCity, and SatView/ScoreView/Rezonality. Once they finish, I'll re-check their evidence and write up one report.

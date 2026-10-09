@@ -256,22 +256,6 @@ try {
         throw 'MegaCity tab creation did not preserve its terminal-free plugin descriptor.'
     }
 
-    $bioViewTab = Invoke-Draxul @(
-        'tab', 'create', '--space', $applied.created_id,
-        '--name', 'BioView', '--plugin', 'dev.draxul.megacity',
-        '--plugin-config', ('{"mode":"biology","source":"' `
-            + $projectRoot.Replace('\', '/') + '"}'),
-        '--json', '--server-runtime-dir', $runtime) | ConvertFrom-Json
-    $bioViewTabState = Invoke-Draxul @(
-        'tab', 'get', $bioViewTab.created_id, '--json',
-        '--server-runtime-dir', $runtime) | ConvertFrom-Json
-    if ($bioViewTabState.panes.Count -ne 1 `
-        -or $bioViewTabState.panes[0].terminal_id `
-        -or $bioViewTabState.panes[0].client_plugin_id -ne 'dev.draxul.megacity' `
-        -or $bioViewTabState.panes[0].client_plugin_config_json -notlike '*"mode":"biology"*') {
-        throw 'BioView tab creation did not preserve its terminal-free plugin descriptor.'
-    }
-
     $scoreViewTab = Invoke-Draxul @(
         'tab', 'create', '--space', $applied.created_id,
         '--name', 'ScoreView', '--plugin', 'dev.draxul.scoreview',

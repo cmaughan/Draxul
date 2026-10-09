@@ -44,7 +44,7 @@ accepting an earlier successful checkpoint of the initial topology.
   separate joined-emoji issue (`kanban/done/63 joined-family-emoji-fallback -bug.md`),
   scope membership issue (`kanban/done/64 windows-test-scope-selection -bug.md`),
   remote initial-state timeout (`kanban/pending/65 windows-validation-timing -test.md`),
-  SatView catalog-idle deadline, and PCBView render timeout; none are persistence tests.
+  SatView catalog-idle deadline, render timeout; none are persistence tests.
 - Same-cache Debug `py do.py smoke --skip-build` passed with a fresh temporary
   APPDATA profile. The default-profile smoke had timed out loading the live user's
   plugin session; the fresh-profile success is not a claim that this separate
@@ -67,4 +67,3 @@ Final settings-only follow-up also passed both server and detached-server integr
 shards in the 53/56-entry core aggregate (81.75s), followed by a passing same-cache
 Debug smoke and Release startup. Failure owners for the wider product run are now
 `plugins/satview/kanban/pending/15 catalog-seeder-test-deadline -bug.md` and
-`plugins/pcbview/kanban/pending/02 pcbview-cancellable-autoroute -perf.md`.

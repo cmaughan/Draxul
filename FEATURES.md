@@ -9,7 +9,7 @@ under `plugins/`), each carrying its own product documentation:
 
 - [draxul-scoreview](https://github.com/cmaughan/draxul-scoreview) — ScoreView (`dev.draxul.scoreview`)
 - [draxul-satview](https://github.com/cmaughan/draxul-satview) — SatView (`dev.draxul.satview`)
-- [draxul-megacity](https://github.com/cmaughan/draxul-megacity) — MegaCity/BioView (`dev.draxul.megacity`)
+- [draxul-megacity](https://github.com/cmaughan/draxul-megacity) — MegaCity (`dev.draxul.megacity`)
 
 This root file is intentionally just a pointer so the inventory has a single
 source of truth. Do not add feature documentation here.

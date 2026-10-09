@@ -233,11 +233,11 @@
       "sha256": "04baef85173722a12ceae5e8f981f89fecafa453061ed54cf89566a5230a372e"
     },
     {
-      "path": "plugins/pcbview/kanban/pending/02 pcbview-cancellable-autoroute -perf.md",
+      "path": "",
       "sha256": "b2d0890538423dd18bd0b8467d3444cd146c07eb0173731c19d02e5ab890fde5"
     },
     {
-      "path": "plugins/pcbview/kanban/pending/03 pcbview-frame-highlight-mask -perf.md",
+      "path": "",
       "sha256": "dd4d66531e5db67ac5bd2ebc6f7f4daf5b8ad3393aa63907ece9975307763424"
     }
   ]
