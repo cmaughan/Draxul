@@ -41,4 +41,6 @@ Additional diagnostic/build costs (log spans; not combined with the aggregate):
 - `city-render`: 16.12s recorded log span (approximate).
 - `deps`: 13.00s recorded log span (approximate).
 
-Published owning-repository revisions: MegaCity `95ac2a6c44a4654c6b660ab0924c2a806830cfad`, SatView `c478b0a8045845d8b039423835d4f2bc876d2450`, ScoreView `c5c543a4054fa6fe317e9cfc12d509568a0bd4ec`. Product changes are adopted deliberately with this root cleanup. The archived PCBView repository received no commits.
+Published owning-repository revisions: MegaCity `95ac2a6c44a4654c6b660ab0924c2a806830cfad`, SatView `c478b0a8045845d8b039423835d4f2bc876d2450`, ScoreView `c5c543a4054fa6fe317e9cfc12d509568a0bd4ec`. Product changes are adopted deliberately with this root cleanup. The initial removal left the archived PCBView repository unchanged.
+
+Follow-up, 2026-10-09: at the user's request, removed all five PCBView pending cards and cleared their board ordering entries in the preserved standalone repository. Published tracker-only revision `88500d4`; experiment source and prior card history remain intact. Audited the root, all five initialized product repositories and the standalone PCBView board: no pending or deferred cards belong to the retired experiments. The City render-reference follow-up remains active because it concerns the retained product. Board audit and staged whitespace checks passed; no builds or runtime tests were needed for these tracker-only deletions.
