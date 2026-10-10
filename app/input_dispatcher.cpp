@@ -53,6 +53,7 @@ void InputDispatcher::reconfigure(Deps deps)
     pending_scroll_y_ = 0.0f;
     had_scroll_event_ = false;
     prefix_active_ = false;
+    active_prefix_event_.reset();
     suppress_next_text_input_ = false;
     pane_select_active_ = false;
     indicator_text_.clear();
@@ -283,7 +284,9 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
             }
             // We consumed the prefix key; now look for a chord match.
             const std::string prefix_text = indicator_text_;
+            const auto prefix_event = active_prefix_event_;
             prefix_active_ = false;
+            active_prefix_event_.reset();
             prefix_started_at_.reset();
             if (pane_select_active_)
             {
@@ -316,6 +319,7 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
             {
                 pane_select_active_ = true;
                 prefix_active_ = true;
+                active_prefix_event_ = prefix_event;
                 prefix_started_at_ = now;
                 indicator_text_ = prefix_text + " 0";
                 fade_started_at_.reset();
@@ -329,7 +333,8 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
             {
                 for (const auto& binding : *deps_.keybindings)
                 {
-                    if (binding.prefix_key != 0 && gui_keybinding_matches(binding, event))
+                    if (prefix_event && gui_prefix_matches(binding, *prefix_event)
+                        && gui_keybinding_matches(binding, event))
                     {
                         suppress_next_text_input_ = true;
                         if (log_would_emit(LogLevel::Trace, LogCategory::Input))
@@ -341,7 +346,9 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
                         }
                         indicator_text_ = prefix_text + " " + chord_step_display(event);
                         start_indicator_fade(now);
-                        deps_.gui_action_handler->execute(binding.action);
+                        // The action may reload and replace the binding storage.
+                        const std::string action(binding.action);
+                        deps_.gui_action_handler->execute(action);
                         if (deps_.request_frame)
                             deps_.request_frame();
                         return; // chord consumed — do not forward to host
@@ -364,6 +371,7 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
                     if (gui_prefix_matches(binding, event))
                     {
                         prefix_active_ = true;
+                        active_prefix_event_ = event;
                         pane_select_active_ = false;
                         prefix_started_at_ = now;
                         indicator_text_ = format_gui_keybinding_combo(binding.prefix_key, binding.prefix_modifiers);
@@ -1011,6 +1019,7 @@ bool InputDispatcher::update(std::chrono::steady_clock::time_point now, int chor
         if (now - *prefix_started_at_ >= timeout)
         {
             prefix_active_ = false;
+            active_prefix_event_.reset();
             pane_select_active_ = false;
             prefix_started_at_.reset();
             start_indicator_fade(now);

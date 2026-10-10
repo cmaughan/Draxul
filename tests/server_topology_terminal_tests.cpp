@@ -2740,3 +2740,129 @@ TEST_CASE("installed agent hooks report native sessions through the pane executa
     run_guard.join();
 }
 #endif
+
+
+TEST_CASE("managed agent replacement preserves full tab capacity and failure atomicity",
+    "[server][topology][agent][resource-bounds]")
+{
+    TopologyService initial("agent-capacity");
+    TopologySnapshot snapshot = initial.snapshot();
+    auto& tab = snapshot.spaces.front().tabs.front();
+    tab.nodes.clear();
+    tab.panes.clear();
+    // A complete balanced tree keeps every leaf below the split-depth limit.
+    const size_t count = kTopologyMaxPanesPerTab;
+    tab.root_node_id = "capacity-node-1";
+    for (size_t index = 1; index < count * 2; ++index)
+    {
+        const bool leaf = index >= count;
+        const std::string pane_id = "capacity-pane-" + std::to_string(index);
+        tab.nodes.push_back({
+            .node_id = "capacity-node-" + std::to_string(index),
+            .is_leaf = leaf,
+            .pane_id = leaf ? pane_id : "",
+            .first_node_id = leaf ? "" : "capacity-node-" + std::to_string(index * 2),
+            .second_node_id = leaf ? "" : "capacity-node-" + std::to_string(index * 2 + 1),
+        });
+        if (leaf)
+            tab.panes.push_back({
+                .pane_id = pane_id,
+                .name = "Shell",
+                .domain = TopologyPaneDomain::ServerTerminal,
+                .terminal_id = "capacity-terminal-" + std::to_string(index),
+            });
+    }
+    std::string topology_error;
+    REQUIRE(topology_snapshot_from_json(topology_snapshot_to_json(snapshot), topology_error));
+    int allocations = 0;
+    bool fail_allocation = false;
+    std::vector<std::string> destroyed;
+    TopologyService service(snapshot, {
+        .destroy_server_terminal = [&](std::string_view id) { destroyed.emplace_back(id); },
+        .create_managed_agent_terminal = [&](std::string_view, std::string_view,
+                                             std::string_view, std::string_view,
+                                             const ManagedAgentTopologyLaunch&, std::string& error)
+            -> std::optional<std::string> {
+            ++allocations;
+            if (fail_allocation)
+            {
+                error = "controlled spawn failure";
+                return std::nullopt;
+            }
+            return "agent-terminal";
+        },
+    });
+    ManagedAgentTopologyLaunch launch{
+        .identity = {
+            .origin = AgentIdentityOrigin::Managed,
+            .profile_id = "test-profile",
+            .kind = "codex",
+            .display_name = "Test agent",
+            .instance_id = "test-instance",
+        },
+        .replace_target_pane = true,
+    };
+    const auto& space = snapshot.spaces.front();
+    const auto& target = tab.panes.front();
+    SECTION("replacement keeps pane and split identities")
+    {
+        const auto result = service.launch_agent(space.space_id, tab.tab_id,
+            target.pane_id, "Agent", launch);
+        REQUIRE(result.ok);
+        CHECK(result.value["replaced"] == true);
+        const auto& replaced = service.snapshot().spaces.front().tabs.front();
+        CHECK(replaced.panes.size() == count);
+        CHECK(replaced.nodes == tab.nodes);
+        CHECK(replaced.panes.front().pane_id == target.pane_id);
+        CHECK(replaced.panes.front().terminal_id == "agent-terminal");
+        CHECK(service.snapshot().revision == snapshot.revision + 1);
+        CHECK(allocations == 1);
+        CHECK(destroyed == std::vector<std::string>{target.terminal_id});
+    }
+    SECTION("new pane remains rejected before allocation")
+    {
+        launch.replace_target_pane = false;
+        const auto result = service.launch_agent(space.space_id, tab.tab_id,
+            target.pane_id, "Agent", launch);
+        CHECK_FALSE(result.ok);
+        CHECK(result.error_code == "limit_reached");
+        CHECK(service.snapshot() == snapshot);
+        CHECK(allocations == 0);
+    }
+    SECTION("missing target remains rejected")
+    {
+        const auto result = service.launch_agent(space.space_id, tab.tab_id,
+            "missing-pane", "Agent", launch);
+        CHECK_FALSE(result.ok);
+        CHECK(result.error_code == "pane_not_found");
+        CHECK(service.snapshot() == snapshot);
+        CHECK(allocations == 0);
+    }
+    SECTION("client local target remains rejected")
+    {
+        snapshot.spaces.front().tabs.front().panes.front().domain = TopologyPaneDomain::ClientLocal;
+        TopologyService local(snapshot, {
+            .create_managed_agent_terminal = [&](std::string_view, std::string_view,
+                                                 std::string_view, std::string_view,
+                                                 const ManagedAgentTopologyLaunch&, std::string&)
+                -> std::optional<std::string> { ++allocations; return "unexpected"; },
+        });
+        const auto result = local.launch_agent(space.space_id, tab.tab_id,
+            target.pane_id, "Agent", launch);
+        CHECK_FALSE(result.ok);
+        CHECK(result.error_code == "client_local_pane");
+        CHECK(local.snapshot() == snapshot);
+        CHECK(allocations == 0);
+    }
+    SECTION("allocation failure leaves old terminal and topology intact")
+    {
+        fail_allocation = true;
+        const auto result = service.launch_agent(space.space_id, tab.tab_id,
+            target.pane_id, "Agent", launch);
+        CHECK_FALSE(result.ok);
+        CHECK(result.error_code == "agent_start_failed");
+        CHECK(service.snapshot() == snapshot);
+        CHECK(allocations == 1);
+        CHECK(destroyed.empty());
+    }
+}

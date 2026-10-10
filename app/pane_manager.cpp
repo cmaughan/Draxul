@@ -1485,6 +1485,18 @@ void PaneManager::equalize_splits(IHostCallbacks& /*callbacks*/)
     update_all_viewports();
 }
 
+std::optional<HostViewport> PaneManager::displayed_viewport(LeafId id) const
+{
+    const auto host = hosts_.find(id);
+    if (!deps_.compute_viewport || host == hosts_.end() || !host->second
+        || (zoomed_ && id != zoomed_leaf_))
+        return std::nullopt;
+    const PaneDescriptor desc = zoomed_
+        ? PaneDescriptor{ { 0, 0 }, { zoom_pixel_w_, zoom_pixel_h_ } }
+        : tree_.descriptor_for(id);
+    return deps_.compute_viewport(desc);
+}
+
 void PaneManager::update_all_viewports()
 {
     PERF_MEASURE();
@@ -1497,18 +1509,22 @@ void PaneManager::update_all_viewports()
         // Hidden panes are left untouched — calling set_viewport({0,0})
         // would trigger a grid resize to 1x1 in the child process
         // (nvim, shell) which is both wasteful and disruptive.
-        PaneDescriptor full_desc{ { 0, 0 }, { zoom_pixel_w_, zoom_pixel_h_ } };
-
         auto it = hosts_.find(zoomed_leaf_);
         if (it != hosts_.end() && it->second)
-            it->second->set_viewport(deps_.compute_viewport(full_desc));
+        {
+            if (auto viewport = displayed_viewport(zoomed_leaf_))
+                it->second->set_viewport(*viewport);
+        }
     }
     else
     {
-        tree_.for_each_leaf([this](LeafId id, const PaneDescriptor& desc) {
+        tree_.for_each_leaf([this](LeafId id, const PaneDescriptor&) {
             auto it = hosts_.find(id);
             if (it != hosts_.end() && it->second)
-                it->second->set_viewport(deps_.compute_viewport(desc));
+            {
+                if (auto viewport = displayed_viewport(id))
+                    it->second->set_viewport(*viewport);
+            }
         });
     }
 }

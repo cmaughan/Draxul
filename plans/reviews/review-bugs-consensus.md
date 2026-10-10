@@ -546,7 +546,7 @@ The following are complete proposed cards for the trusted parent process.
 - [ ] **Acceptance:** Releasing over chrome, another pane, or an overlay stops selection and divider dragging; ordinary clicks still route correctly.
 - [ ] **Validation:** Run core aggregate tests and same-cache smoke.
 
-### kanban/pending/78 zoomed-pane-print-crop -bug.md
+### kanban/done/78 zoomed-pane-print-crop -bug.md
 
 # Print the displayed zoomed viewport
 
@@ -597,7 +597,7 @@ The following are complete proposed cards for the trusted parent process.
 - [ ] **Acceptance:** Injected failures retain pixels and recover on a later frame without requiring font reset.
 - [ ] **Validation:** Run core aggregate tests, relevant macOS text-render checks, and same-cache smoke.
 
-### kanban/pending/81 agent-replacement-pane-limit -bug.md
+### kanban/done/81 agent-replacement-pane-limit -bug.md
 
 # Permit replacement at the pane limit
 

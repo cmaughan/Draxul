@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include "support/temp_dir.h"
 
@@ -13,6 +14,7 @@
 #include <algorithm>
 #include <atomic>
 #include <mutex>
+#include <condition_variable>
 #include <thread>
 #include <vector>
 
@@ -1509,13 +1511,16 @@ TEST_CASE("remote Session coordinator re-handshakes and converges after server e
             replacement_terminal = std::move(state);
         if (auto state = session_client.take_published_state())
         {
-            if (state->topology)
+            if (state->topology && state->topology_server_epoch == "epoch-b")
                 replacement_topology = std::move(state->topology);
-            if (state->agents)
+            if (state->agents && state->agent_server_epoch == "epoch-b")
                 replacement_agents = std::move(state->agents);
         }
+        // Identity refresh precedes successor publication. Old mailbox values
+        // can still be present after recovery has learned the new epoch.
         return recovery->server_epoch() == "epoch-b"
             && replacement_terminal
+            && replacement_terminal->snapshot.metadata.title == "After replacement"
             && replacement_topology && replacement_agents;
     }, std::chrono::seconds(6)));
     REQUIRE(replacement_terminal);
@@ -1578,4 +1583,204 @@ TEST_CASE("remote Session client accepts multiplexed topology and agent channels
     auto epoch_state = client.take_published_state();
     REQUIRE(epoch_state);
     CHECK(epoch_state->server_epoch_changed);
+}
+
+
+TEST_CASE("Session poll honors input and stop published before recovery wait",
+    "[client][remote-session-coordinator][session-poll][recovery]")
+{
+    const bool stop_before_wait = GENERATE(false, true);
+    TempDir temp("draxul-session-prewait-recovery");
+    ControlServer server;
+    std::string error;
+    REQUIRE(server.start(namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &error));
+    auto recovery = std::make_shared<ClientRecoveryState>("coordinator-ui");
+    REQUIRE(recovery->set_server_epoch("coordinator-epoch"));
+    std::mutex gate_mutex;
+    std::condition_variable gate_changed;
+    bool at_pre_wait = false;
+    bool release = false;
+    std::atomic<bool> arm = false;
+    RemoteSessionClient session_client({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .wake_consumer = [&] {
+            if (recovery->snapshot("session.poll").retry_delay < std::chrono::seconds(4)
+                || !arm.exchange(false))
+                return;
+            std::unique_lock lock(gate_mutex);
+            at_pre_wait = true;
+            gate_changed.notify_all();
+            gate_changed.wait(lock, [&] { return release; });
+        },
+        .recovery = recovery,
+        .externally_fed = true,
+    });
+    std::atomic<int> input_calls = 0;
+    std::atomic<bool> fail = false;
+    std::jthread dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            server.process_pending([&](const ControlRequest& control) {
+                if (control.method == "session.poll")
+                {
+                    if (fail)
+                    {
+                        // Seed after the last successful response has been
+                        // accepted; otherwise its note_connected can reset
+                        // attempts while the UI is arming the gate.
+                        if (arm.load())
+                        {
+                            for (int attempt = 0; attempt < 10; ++attempt)
+                                (void)recovery->note_failure("session.poll", "io_error");
+                        }
+                        return ControlMethodResult::error("io_error", "controlled failure");
+                    }
+                    std::string parse_error;
+                    const auto request = session_poll_request_from_json(control.params, parse_error);
+                    if (!request)
+                        return ControlMethodResult::error("invalid_request", parse_error);
+                    SessionPollResponse response{
+                        .request_serial = request->request_serial,
+                        .server_epoch = "coordinator-epoch",
+                    };
+                    for (const auto& subscription : request->terminals)
+                        response.terminals.push_back({
+                            .subscription_id = subscription.subscription_id,
+                            .terminal_id = subscription.terminal_id,
+                            .visibility_generation = subscription.visibility_generation,
+                            .attach = terminal_attach(0),
+                        });
+                    return ControlMethodResult::success(session_poll_response_to_json(response));
+                }
+                if (control.method == "fake.input")
+                {
+                    ++input_calls;
+                    return ControlMethodResult::success(nlohmann::json::object());
+                }
+                return ControlMethodResult::error("unknown_method", control.method);
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+    RemoteSessionCoordinator coordinator({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .expected_server_epoch = "coordinator-epoch",
+        .method_prefix = "fake",
+        .recovery = recovery,
+        .session_poll_supported = true,
+        .session_client = &session_client,
+    });
+    REQUIRE(coordinator.start());
+    auto registration = coordinator.register_terminal("terminal-shared");
+    REQUIRE(wait_for_state(registration));
+    arm = true;
+    fail = true;
+    bool reached = false;
+    {
+        std::unique_lock lock(gate_mutex);
+        reached = gate_changed.wait_for(lock, std::chrono::seconds(3), [&] { return at_pre_wait; });
+    }
+    // Release the worker even if an assertion fails, so teardown can join.
+    struct ReleaseGate
+    {
+        std::mutex& mutex;
+        std::condition_variable& changed;
+        bool& release;
+        ~ReleaseGate() { std::lock_guard lock(mutex); release = true; changed.notify_all(); }
+    } release_gate{gate_mutex, gate_changed, release};
+    REQUIRE(reached);
+    CHECK(recovery->snapshot("session.poll").retry_delay >= std::chrono::seconds(4));
+    const auto started = std::chrono::steady_clock::now();
+    std::jthread stopper;
+    if (stop_before_wait)
+    {
+        stopper = std::jthread([&] { coordinator.stop(); });
+        // stop() disables registrations before waking/joining the worker.
+        CHECK(wait_for_condition([&] {
+            return !coordinator.register_terminal("stop-probe");
+        }));
+    }
+    else
+    {
+        CHECK(registration.enqueue_input("pre-wait-input"));
+    }
+    {
+        std::lock_guard lock(gate_mutex);
+        release = true;
+    }
+    gate_changed.notify_all();
+    if (stop_before_wait)
+    {
+        stopper.join();
+        CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(1));
+    }
+    else
+    {
+        REQUIRE(wait_for_condition([&] { return input_calls.load() == 1; },
+            std::chrono::seconds(1)));
+        coordinator.stop();
+    }
+    dispatcher.request_stop();
+    dispatcher.join();
+    server.stop();
+}
+
+TEST_CASE("healthy idle Session poll consumes pending wake without spinning",
+    "[client][remote-session-coordinator][session-poll]")
+{
+    TempDir temp("draxul-session-idle-pacing");
+    ControlServer server;
+    std::string error;
+    REQUIRE(server.start(namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &error));
+    auto recovery = std::make_shared<ClientRecoveryState>("coordinator-ui");
+    REQUIRE(recovery->set_server_epoch("coordinator-epoch"));
+    RemoteSessionClient session_client({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .recovery = recovery,
+        .externally_fed = true,
+    });
+    std::atomic<int> polls = 0;
+    std::jthread dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            server.process_pending([&](const ControlRequest& control) {
+                ++polls;
+                std::string parse_error;
+                const auto request = session_poll_request_from_json(control.params, parse_error);
+                if (!request)
+                    return ControlMethodResult::error("invalid_request", parse_error);
+                return ControlMethodResult::success(session_poll_response_to_json({
+                    .request_serial = request->request_serial,
+                    .server_epoch = "coordinator-epoch",
+                }));
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+    RemoteSessionCoordinator coordinator({
+        .runtime_directory = temp.path,
+        .client_id = "coordinator-ui",
+        .expected_server_epoch = "coordinator-epoch",
+        .recovery = recovery,
+        .session_poll_supported = true,
+        .session_client = &session_client,
+    });
+    REQUIRE(coordinator.start());
+    // Register/unregister publishes remembered wakes; idle polling must consume them.
+    auto registration = coordinator.register_terminal("terminal-shared");
+    registration.reset();
+    REQUIRE(wait_for_condition([&] { return polls.load() >= 3; }));
+    const int before = polls;
+    std::this_thread::sleep_for(std::chrono::milliseconds(350));
+    CHECK(polls.load() - before >= 2);
+    CHECK(polls.load() - before <= 5);
+    coordinator.stop();
+    dispatcher.request_stop();
+    dispatcher.join();
+    server.stop();
 }

@@ -251,6 +251,32 @@ TEST_CASE("kanban store merges metadata order with discovered entries", "[kanban
     REQUIRE(board.columns[1].cards[1].file_name == "a-feature.md");
 }
 
+TEST_CASE("kanban metadata ignores stale and duplicate names and retains unmatched order", "[kanban][store]")
+{
+    draxul::tests::TempDir temp("draxul-kanban-metadata-duplicates");
+    const auto root = temp.path / "kanban";
+    std::filesystem::create_directories(root / "pending");
+    for (const auto* name : { "a.md", "b.md", "c.md", "d.md" })
+        write_file(root / "pending" / name, name);
+    write_file(root / std::string(kKanbanMetadataFileName),
+        "version = 1\n"
+        "[cards]\n"
+        "pending = [\"d.md\", \"missing.md\", \"d.md\", \"b.md\", \"b.md\"]\n");
+
+    std::string error;
+    const auto board = load_kanban_board(root, &error);
+    REQUIRE(error.empty());
+    REQUIRE(board.columns.size() == 1);
+    const auto& cards = board.columns.front().cards;
+    REQUIRE(cards.size() == 4);
+    REQUIRE(cards[0].file_name == "d.md");
+    REQUIRE(cards[1].file_name == "b.md");
+    REQUIRE(cards[2].file_name == "a.md");
+    REQUIRE(cards[3].file_name == "c.md");
+    for (const auto& card : cards)
+        REQUIRE(draxul::tests::read_file(card.path) == card.file_name);
+}
+
 TEST_CASE("kanban store persists reordered cards without moving files", "[kanban][store]")
 {
     draxul::tests::TempDir temp("draxul-kanban-reorder");

@@ -7,7 +7,7 @@
 
 **Evidence and trigger:** Lines 1193–1197 hit-test normal split rectangles and update focus while zoomed. Mouse movement can select a hidden leaf; hidden divider hits also capture input.
 
-**Related:** `kanban/pending/78 zoomed-pane-print-crop -bug.md`.
+**Related:** `kanban/done/78 zoomed-pane-print-crop -bug.md`.
 
 - [x] **Investigate:** Trace zoomed leaf identity, mouse movement/buttons/wheels, focus, and divider hit-testing.
   - Confirmed on 2026-10-08: `InputDispatcher` routes every mouse move, button, and
@@ -32,7 +32,7 @@
     check was outstanding in that headless run and is now completed by the Windows
     native-input evidence below.
 
-**Shared with `kanban/pending/78 zoomed-pane-print-crop -bug.md`:** both bugs come
+**Shared with `kanban/done/78 zoomed-pane-print-crop -bug.md`:** both bugs come
 from callers reading the stored split rectangle instead of the displayed zoomed
 viewport. The displayed geometry is `{0, 0, zoom_pixel_w_, zoom_pixel_h_}` passed
 through `compute_viewport` for `zoomed_leaf()`; 78 should snapshot that same viewport

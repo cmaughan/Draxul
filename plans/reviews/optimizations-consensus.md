@@ -409,7 +409,7 @@ No card is proposed for these without the stated evidence.
 - [ ] **Platforms:** Check Windows and macOS watchers, Kanban aggregate and same-cache smoke.
 - [ ] **Acceptance:** Large-board refresh does not block unrelated GUI input.
 
-### kanban/pending/54 kanban-metadata-index -perf.md
+### kanban/done/54 kanban-metadata-index -perf.md
 
 # Index Kanban metadata filenames during ordering
 

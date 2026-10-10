@@ -10,6 +10,7 @@
 #include <draxul/app_options.h>
 #include <draxul/text_service.h>
 #include <draxul/unavailable_host.h>
+#include <draxul/pane_print.h>
 
 #include "pane_manager.h"
 #include <draxul/split_tree.h>
@@ -1329,6 +1330,75 @@ TEST_CASE("zoom: toggle on/off restores original two-pane layout", "[pane_manage
     CHECK(after_left.pixel_size.y == before_left.pixel_size.y);
     CHECK(after_right.pixel_size.x == before_right.pixel_size.x);
     CHECK(after_right.pixel_size.y == before_right.pixel_size.y);
+}
+
+TEST_CASE("pane print crops the displayed viewport through zoom and chrome insets",
+    "[pane_manager][zoom][pane-print]")
+{
+    const auto direction = GENERATE(SplitDirection::Vertical, SplitDirection::Horizontal);
+    const bool first_pane = GENERATE(false, true);
+    PaneManagerHarness harness;
+    auto deps = harness.make_deps();
+    // Model the application-owned border and bottom chrome transform.
+    deps.compute_viewport = [](const PaneDescriptor& desc) {
+        HostViewport viewport;
+        viewport.pixel_pos = desc.pixel_pos + glm::ivec2(3, 5);
+        viewport.pixel_size = desc.pixel_size - glm::ivec2(6, 25);
+        return viewport;
+    };
+    PaneManager manager(std::move(deps));
+    REQUIRE(manager.create(harness.callbacks, 800, 600));
+    const LeafId first = manager.focused_leaf();
+    const LeafId second = manager.split_focused(direction, harness.callbacks);
+    REQUIRE(second != kInvalidLeaf);
+    const LeafId target = first_pane ? first : second;
+    const LeafId hidden = first_pane ? second : first;
+    manager.set_focused(target);
+    const auto split_view = manager.displayed_viewport(target);
+    REQUIRE(split_view);
+
+    std::vector<uint8_t> pixels(800u * 600u * 4u, 0);
+    // Distinguish the content corners from surrounding chrome in the capture.
+    const auto mark = [&](int x, int y, uint8_t value) {
+        pixels[(static_cast<size_t>(y) * 800 + x) * 4] = value;
+    };
+    mark(3, 5, 71);
+    mark(796, 579, 92);
+    manager.toggle_zoom(800, 600);
+    const auto zoom_view = manager.displayed_viewport(target);
+    REQUIRE(zoom_view);
+    CHECK_FALSE(manager.displayed_viewport(hidden));
+    CHECK_FALSE(manager.displayed_viewport(kInvalidLeaf));
+    REQUIRE(zoom_view->pixel_pos == glm::ivec2(3, 5));
+    REQUIRE(zoom_view->pixel_size == glm::ivec2(794, 575));
+    const auto* host = static_cast<const LifetimeTestHost*>(manager.host_for(target));
+    REQUIRE(host);
+    CHECK(host->last_viewport.pixel_pos == zoom_view->pixel_pos);
+    CHECK(host->last_viewport.pixel_size == zoom_view->pixel_size);
+    const auto crop = crop_rgba(pixels, 800, 600,
+        zoom_view->pixel_pos.x, zoom_view->pixel_pos.y,
+        zoom_view->pixel_size.x, zoom_view->pixel_size.y);
+    REQUIRE(crop.width == 794);
+    REQUIRE(crop.height == 575);
+    CHECK(crop.rgba.front() == 71);
+    CHECK(crop.rgba[crop.rgba.size() - 4] == 92);
+
+    // Host content hints are relative to that same displayed viewport.
+    mark(13, 25, 113);
+    const HostPrintHint hint{ .content_pos = { 10, 20 }, .content_size = { 120, 80 } };
+    const auto content = crop_rgba(pixels, 800, 600,
+        zoom_view->pixel_pos.x + hint.content_pos.x,
+        zoom_view->pixel_pos.y + hint.content_pos.y,
+        hint.content_size.x, hint.content_size.y);
+    REQUIRE(content.width == 120);
+    REQUIRE(content.height == 80);
+    CHECK(content.rgba.front() == 113);
+
+    manager.toggle_zoom(800, 600);
+    const auto restored = manager.displayed_viewport(target);
+    REQUIRE(restored);
+    CHECK(restored->pixel_pos == split_view->pixel_pos);
+    CHECK(restored->pixel_size == split_view->pixel_size);
 }
 
 TEST_CASE("zoom: closing the zoomed pane clears zoom state", "[pane_manager][zoom]")

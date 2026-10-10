@@ -235,13 +235,19 @@ void apply_card_metadata(KanbanColumn& column, const OrderedNames& metadata_orde
     ordered.reserve(column.cards.size());
     std::vector<bool> used(column.cards.size(), false);
 
+    // Own the keys: cards (including their filenames) move during ordering.
+    std::unordered_map<std::string, size_t> card_indices;
+    card_indices.reserve(column.cards.size());
+    for (size_t i = 0; i < column.cards.size(); ++i)
+        card_indices.emplace(column.cards[i].file_name, i);
+
     for (const auto& name : metadata_order)
     {
-        const auto it = std::ranges::find(column.cards, name, &KanbanCard::file_name);
-        if (it != column.cards.end())
+        const auto it = card_indices.find(name);
+        if (it != card_indices.end() && !used[it->second])
         {
-            used[static_cast<size_t>(std::distance(column.cards.begin(), it))] = true;
-            ordered.push_back(std::move(*it));
+            used[it->second] = true;
+            ordered.push_back(std::move(column.cards[it->second]));
         }
     }
 

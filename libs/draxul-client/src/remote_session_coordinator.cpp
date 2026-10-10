@@ -2500,8 +2500,7 @@ private:
                     options_.session_client
                         ->publish_session_recovery();
                 }
-                std::unique_lock lock(worker_mutex_);
-                worker_wake_.wait_for(lock, delay);
+                wait_for_worker(delay);
                 continue;
             }
 
@@ -2555,8 +2554,7 @@ private:
                 if (response->more)
                     continue;
             }
-            std::unique_lock lock(worker_mutex_);
-            worker_wake_.wait_for(lock, interval);
+            wait_for_worker(interval);
         }
     }
 

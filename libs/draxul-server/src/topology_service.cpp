@@ -791,9 +791,9 @@ ControlMethodResult TopologyService::launch_agent(
         return ControlMethodResult::error(
             "pane_not_found", "Topology pane was not found.");
     }
-    if (tab->panes.size() >= kSessionStateMaxPanesPerTab
-        || (!launch.replace_target_pane
-            && !leaf_can_split(*tab, leaf->node_id)))
+    if (!launch.replace_target_pane
+        && (tab->panes.size() >= kSessionStateMaxPanesPerTab
+            || !leaf_can_split(*tab, leaf->node_id)))
     {
         return ControlMethodResult::error(
             "limit_reached", "Topology pane limit reached.");

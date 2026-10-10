@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include "gui_action_handler.h"
 #include "command_palette_host.h"
@@ -1069,6 +1070,77 @@ TEST_CASE("chord: prefix then matching second key fires action and is NOT forwar
     REQUIRE(setup.host.key_events.empty());
 }
 
+TEST_CASE("chord: shared second keys match the starting key and modifiers in either binding order",
+    "[input_dispatcher][chord]")
+{
+    const bool reverse_order = GENERATE(false, true);
+    const int prefix_key = GENERATE(SDLK_S, SDLK_B);
+    const auto prefix_mod = GENERATE(kModCtrl, kModAlt);
+    E2ESetup setup({
+        { "paste", SDLK_S, kModCtrl, SDLK_Z, kModNone },
+        { "toggle_copy_mode", SDLK_B, kModCtrl, SDLK_Z, kModNone },
+        { "confirm_paste", SDLK_S, kModAlt, SDLK_Z, kModNone },
+        { "cancel_paste", SDLK_B, kModAlt, SDLK_Z, kModNone },
+    });
+    if (reverse_order)
+        std::ranges::reverse(setup.bindings);
+    // One-sided Ctrl and lock bits use the same normalization as prefix activation.
+    const auto raw_mod = prefix_mod == kModCtrl ? ModifierFlags{ 0x0040 | kModCaps } : prefix_mod;
+    setup.window.on_key(KeyEvent{ 0, prefix_key, raw_mod, true });
+    setup.window.on_key(KeyEvent{ 0, SDLK_Z, kModNone, true });
+    const std::string expected = prefix_mod == kModCtrl
+        ? (prefix_key == SDLK_S ? "paste" : "toggle_copy_mode")
+        : (prefix_key == SDLK_S ? "confirm_paste" : "cancel_paste");
+    REQUIRE(setup.host.dispatched_actions == std::vector<std::string>{ expected });
+    REQUIRE(setup.host.key_events.empty());
+}
+
+TEST_CASE("chord: a second key belonging only to another prefix is forwarded",
+    "[input_dispatcher][chord]")
+{
+    E2ESetup setup({
+        { "paste", SDLK_S, kModCtrl, SDLK_X, kModNone },
+        { "toggle_copy_mode", SDLK_B, kModCtrl, SDLK_Z, kModNone },
+    });
+    setup.window.on_key(KeyEvent{ 0, SDLK_S, kModCtrl, true });
+    setup.window.on_key(KeyEvent{ 0, SDLK_Z, kModNone, true });
+    REQUIRE(setup.host.dispatched_actions.empty());
+    REQUIRE(setup.host.key_events.size() == 1);
+    REQUIRE(setup.host.key_events.front().keycode == SDLK_Z);
+}
+
+TEST_CASE("chord: Escape cancels the prefix and preserves host input",
+    "[input_dispatcher][chord]")
+{
+    E2ESetup setup({ { "toggle_copy_mode", SDLK_B, kModCtrl, SDLK_Z, kModNone } });
+    setup.window.on_key(KeyEvent{ 0, SDLK_B, kModCtrl, true });
+    setup.window.on_key(KeyEvent{ 0, SDLK_ESCAPE, kModNone, true });
+    setup.window.on_key(KeyEvent{ 0, SDLK_Z, kModNone, true });
+    REQUIRE(setup.host.dispatched_actions.empty());
+    REQUIRE(setup.host.key_events.size() == 2);
+    REQUIRE(setup.host.key_events[0].keycode == SDLK_ESCAPE);
+    REQUIRE(setup.host.key_events[1].keycode == SDLK_Z);
+}
+
+TEST_CASE("chord: reconfiguration cancels a pending prefix",
+    "[input_dispatcher][chord]")
+{
+    E2ESetup setup({ { "toggle_copy_mode", SDLK_B, kModCtrl, SDLK_Z, kModNone } });
+    setup.window.on_key(KeyEvent{ 0, SDLK_B, kModCtrl, true });
+    InputDispatcher::Deps deps;
+    deps.keybindings = &setup.bindings;
+    deps.gui_action_handler = setup.action_handler.get();
+    deps.ui_panel = &setup.panel;
+    deps.host = &setup.host;
+    deps.pixel_scale = PixelScale{ 1.0f };
+    setup.dispatcher->reconfigure(std::move(deps));
+    setup.dispatcher->connect(setup.window);
+    setup.window.on_key(KeyEvent{ 0, SDLK_Z, kModNone, true });
+    REQUIRE(setup.host.dispatched_actions.empty());
+    REQUIRE(setup.host.key_events.size() == 1);
+    REQUIRE(setup.host.key_events.front().keycode == SDLK_Z);
+}
+
 TEST_CASE("chord: prefix then unrecognised key cancels chord and forwards the second key",
     "[input_dispatcher][chord]")
 {
@@ -1217,6 +1289,9 @@ TEST_CASE("chord: pending prefix times out and indicator eventually clears",
 
     REQUIRE(setup.dispatcher->update(now + std::chrono::milliseconds(2400), 1500));
     REQUIRE_FALSE(setup.dispatcher->chord_indicator_state(now + std::chrono::milliseconds(2400)).visible());
+    setup.window.on_key(KeyEvent{ 0, SDLK_BACKSLASH, kModShift, true });
+    REQUIRE(setup.split_vertical_calls == 0);
+    REQUIRE(setup.host.key_events.size() == 1);
 }
 
 TEST_CASE("Personal agent pill clicks open chat and double-clicks rename", "[personal][input_dispatcher]")

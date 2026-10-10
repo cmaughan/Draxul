@@ -415,13 +415,13 @@ These actual pending cards cover all 34 Codex findings. They are not reproduced 
 | B25 | `plugins/rezonality/kanban/pending/11 shared-depth-pass-synchronization -bug.md` |
 | B26 | `plugins/rezonality/kanban/done/12 unsupported-texture-feedback -bug.md` |
 | B27 / Claude H1 | `kanban/pending/77 mouse-drag-release-owner -bug.md` |
-| B28 | `kanban/pending/78 zoomed-pane-print-crop -bug.md` |
+| B28 | `kanban/done/78 zoomed-pane-print-crop -bug.md` |
 | B29 | `plugins/satview/kanban/pending/10 cache-final-close-validation -bug.md` |
 | B30 | `plugins/megacity/kanban/pending/13 mesh-partial-allocation-cleanup -bug.md` |
 | B31 | `kanban/pending/79 vulkan-acquired-frame-recovery -bug.md` |
 | B32 | `kanban/done/61 metal-grid-allocation-failure -bug.md` |
 | B33 | `kanban/pending/80 metal-atlas-upload-retry -bug.md` |
-| B34 | `kanban/pending/81 agent-replacement-pane-limit -bug.md` |
+| B34 | `kanban/done/81 agent-replacement-pane-limit -bug.md` |
 
 Broad refactor/performance cards were not counted as bug coverage when their acceptance criteria preserve behavior or omit the demonstrated failure. In particular, checkpoint extraction, atomic-file extraction, interface wrapping, worker extraction, configuration ownership, and viewport-performance work do not explicitly own the new corrections.
 
@@ -569,7 +569,7 @@ These are complete proposed contents for the trusted parent to create. No card f
 
 **Evidence and trigger:** Lines 1193–1197 hit-test normal split rectangles and update focus while zoomed. Mouse movement can select a hidden leaf; hidden divider hits also capture input.
 
-**Related:** `kanban/pending/78 zoomed-pane-print-crop -bug.md`.
+**Related:** `kanban/done/78 zoomed-pane-print-crop -bug.md`.
 
 - [ ] **Investigate:** Trace zoomed leaf identity, mouse movement/buttons/wheels, focus, and divider hit-testing.
 - [ ] **Fix:** Resolve zoomed input against displayed geometry and suppress hidden dividers.
@@ -633,7 +633,7 @@ These are complete proposed contents for the trusted parent to create. No card f
 - [ ] **Acceptance:** Stop and terminal-output bursts remain reliable without introducing busy polling.
 - [ ] **Validation:** Run core aggregate tests and same-cache smoke; retain concurrency coverage.
 
-### kanban/pending/91 session-poll-pending-wake-handling -bug.md
+### kanban/done/91 session-poll-pending-wake-handling -bug.md
 
 # Honor pending wakes in the session poll worker
 **Summary:** Remember background wake requests so input and shutdown are not delayed during recovery.
@@ -671,7 +671,7 @@ These are complete proposed contents for the trusted parent to create. No card f
 - [ ] **Acceptance:** Subsequent clients connect and listener shutdown completes.
 - [ ] **Validation:** Run Windows control/server coverage, core aggregate tests, and same-cache smoke.
 
-### kanban/pending/93 shortcut-chord-prefix-identity -bug.md
+### kanban/done/93 shortcut-chord-prefix-identity -bug.md
 
 # Match shortcut chords to their starting prefix
 **Summary:** Remember which shortcut prefix was pressed so the second key runs the intended command.
@@ -801,7 +801,7 @@ These are complete proposed contents for the trusted parent to create. No card f
 - [ ] **Acceptance:** Valid catalog identifiers retain their identity and compile normally.
 - [ ] **Validation:** Run the SatView-scoped aggregate and same-cache smoke; use undefined-behavior instrumentation where available.
 
-### plugins/satview/kanban/pending/14 nonfinite-settings-validation -bug.md
+### plugins/satview/kanban/done/14 nonfinite-settings-validation -bug.md
 
 # Reject non-finite satellite settings
 **Summary:** Reject invalid numeric settings so the satellite view keeps usable lighting and ground coordinates.

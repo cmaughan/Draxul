@@ -2130,20 +2130,21 @@ void App::start_print_focused_pane()
         push_toast(2, "Printing is not supported by this renderer");
         return;
     }
-    const SplitTree& tree = active_tree();
-    const LeafId focused = tree.focused();
+    const PaneManager& panes = active_pane_manager();
+    const LeafId focused = panes.is_zoomed() ? panes.zoomed_leaf() : active_tree().focused();
     if (focused == kInvalidLeaf)
     {
         push_toast(1, "No focused pane to print");
         return;
     }
-    print_pane_rect_ = tree.descriptor_for(focused);
-    if (print_pane_rect_.pixel_size.x <= 0 || print_pane_rect_.pixel_size.y <= 0)
+    const auto viewport = panes.displayed_viewport(focused);
+    if (!viewport || viewport->pixel_size.x <= 0 || viewport->pixel_size.y <= 0)
     {
         push_toast(1, "The focused pane has no visible area");
         return;
     }
-    IHost* focused_host = active_pane_manager().focused_host();
+    print_pane_rect_ = { viewport->pixel_pos, viewport->pixel_size };
+    IHost* focused_host = panes.host_for(focused);
     print_hint_ = focused_host != nullptr ? focused_host->print_hint() : HostPrintHint{};
     print_capture_pending_ = true;
     renderer_.capture()->request_frame_capture();

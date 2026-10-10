@@ -201,6 +201,10 @@ public:
     // split geometry. Returns the host under the point, or null.
     IHost* host_at_point(int px, int py);
 
+    // The visible host rectangle after zoom and application chrome insets.
+    // Hidden or missing panes have no displayed viewport.
+    std::optional<HostViewport> displayed_viewport(LeafId id) const;
+
     // Hit-test for a divider at the given pixel. Returns the divider id and
     // direction if a divider is under the point, otherwise nullopt. Does not
     // change focus. Used by InputDispatcher to drive cursor feedback and drag.
