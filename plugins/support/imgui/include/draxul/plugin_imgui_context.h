@@ -66,11 +66,24 @@ public:
     void attach_host(IImGuiHost& host);
 
     // Shared frame begin: makes the context current, starts the backend
-    // frame, sets DisplaySize to viewport origin + size (product panes render
-    // in window-global pixels), clamps DeltaTime, and calls ImGui::NewFrame().
-    // Returns false while no context or no backend is attached.
+    // frame, makes the pane the ImGui display (DisplaySize = pane size, so
+    // ImGui coordinates are pane-local and windows stay within the pane),
+    // records the pane's window-pixel origin, clamps DeltaTime, and calls
+    // ImGui::NewFrame(). Returns false while no context or no backend is
+    // attached. The GPU host draws the result at the pane origin and
+    // ImGuiInputBridge converts window-pixel pointer events with it.
     bool begin_frame(int pixel_pos_x, int pixel_pos_y, int pixel_w, int pixel_h,
         float dt);
+
+    // Window-pixel origin of the pane passed to the latest begin_frame().
+    int pane_origin_x() const
+    {
+        return pane_origin_x_;
+    }
+    int pane_origin_y() const
+    {
+        return pane_origin_y_;
+    }
 
     // SetCurrentContext → save ini (when configured) → backend shutdown →
     // DestroyContext. Safe to call repeatedly.
@@ -94,6 +107,8 @@ private:
     ImGuiContext* context_ = nullptr;
     IImGuiHost* host_ = nullptr;
     std::string ini_path_;
+    int pane_origin_x_ = 0;
+    int pane_origin_y_ = 0;
 };
 
 } // namespace draxul::plugin_support

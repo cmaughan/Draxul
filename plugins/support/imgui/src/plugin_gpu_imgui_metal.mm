@@ -1,5 +1,7 @@
 #include <draxul/plugin_gpu_imgui.h>
 
+#include "plugin_imgui_pane_placement.h"
+
 #import <Metal/Metal.h>
 #import <imgui_impl_metal.h>
 
@@ -75,8 +77,13 @@ public:
             ImGui::SetCurrentContext(previous);
             return false;
         }
-        ImGui_ImplMetal_RenderDrawData(
-            const_cast<ImDrawData*>(data), command_buffer, encoder);
+        auto* placed = const_cast<ImDrawData*>(data);
+        {
+            const ScopedPanePlacement placement(*placed, frame_->viewport.x,
+                frame_->viewport.y, frame_->framebuffer_width,
+                frame_->framebuffer_height);
+            ImGui_ImplMetal_RenderDrawData(placed, command_buffer, encoder);
+        }
         [encoder endEncoding];
         ImGui::SetCurrentContext(previous);
         return true;

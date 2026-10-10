@@ -151,7 +151,12 @@ per-product. The plugin ImGui leaf also carries the shared
 `PluginImGuiContext` lifecycle (context flags, font, backend attach, frame
 begin, ordered shutdown, optional ini persistence) and the header-only
 `ImGuiInputBridge` (modifier/key, mouse remap, position/wheel/text routing)
-that all three product runtimes use instead of hand-rolled copies. A
+that all three product runtimes use instead of hand-rolled copies. Product
+ImGui runs in pane-local coordinates: each frame makes the pane the ImGui
+display, the bridge converts window-pixel pointer events by the pane origin,
+and the shared Metal/Vulkan GPU host draws at that origin. Product windows
+therefore open, clamp, dock and clip inside their own pane instead of
+appearing over or being dragged across neighbouring panes. A
 configure-time graph check rejects any support leaf that reaches Draxul's host,
 window, renderer implementation, topology, terminal, or app orchestration.
 SatView, MegaCity, and ScoreView are all registered in strict dependency

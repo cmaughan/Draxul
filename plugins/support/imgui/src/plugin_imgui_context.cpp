@@ -88,11 +88,14 @@ bool PluginImGuiContext::begin_frame(
     ImGui::SetCurrentContext(context_);
     host_->begin_imgui_frame();
     ImGuiIO& io = ImGui::GetIO();
-    // Product panes render in window-global pixels: DisplaySize spans from the
-    // window origin to the pane's bottom-right corner.
+    // Without multi-viewports Dear ImGui pins its main viewport at (0,0), so
+    // the pane itself is the display: windows are created, clamped and
+    // docked inside it and never over neighbouring panes.
+    pane_origin_x_ = pixel_pos_x;
+    pane_origin_y_ = pixel_pos_y;
     io.DisplaySize = ImVec2(
-        static_cast<float>(pixel_pos_x + std::max(1, pixel_w)),
-        static_cast<float>(pixel_pos_y + std::max(1, pixel_h)));
+        static_cast<float>(std::max(1, pixel_w)),
+        static_cast<float>(std::max(1, pixel_h)));
     io.DeltaTime = dt > 0.0f ? dt : (1.0f / 60.0f);
     ImGui::NewFrame();
     return true;

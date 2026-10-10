@@ -1,6 +1,7 @@
 #include <draxul/plugin_gpu_imgui.h>
 
 #include "imgui_impl_vulkan.h"
+#include "plugin_imgui_pane_placement.h"
 
 #include <imgui.h>
 #include <vulkan/vulkan.h>
@@ -78,8 +79,13 @@ public:
             static_cast<uint32_t>(frame_->framebuffer_width),
             static_cast<uint32_t>(frame_->framebuffer_height) };
         vkCmdBeginRenderPass(command_buffer, &begin, VK_SUBPASS_CONTENTS_INLINE);
-        ImGui_ImplVulkan_RenderDrawData(
-            const_cast<ImDrawData*>(data), command_buffer);
+        auto* placed = const_cast<ImDrawData*>(data);
+        {
+            const ScopedPanePlacement placement(*placed, frame_->viewport.x,
+                frame_->viewport.y, frame_->framebuffer_width,
+                frame_->framebuffer_height);
+            ImGui_ImplVulkan_RenderDrawData(placed, command_buffer);
+        }
         vkCmdEndRenderPass(command_buffer);
         ImGui::SetCurrentContext(previous);
         return true;
