@@ -757,3 +757,154 @@ TEST_CASE("kanban host cancels held navigation and preview updates when focus mo
     CHECK(fixture.host.status_text().find("card-4-feature.md") != std::string::npos);
     CHECK(fixture.callbacks.show_preview_calls > previews_after_key);
 }
+
+namespace
+{
+
+TextInputEvent text_event(std::string text)
+{
+    return TextInputEvent{ .text = std::move(text) };
+}
+
+template <typename Predicate>
+bool pump_kanban_until(KanbanHost& host, Predicate predicate)
+{
+    const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    do
+    {
+        host.pump();
+        if (predicate())
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    } while (std::chrono::steady_clock::now() < limit);
+    return false;
+}
+
+void type_text(KanbanHost& host, std::string_view text)
+{
+    for (const char ch : text)
+        host.on_text_input(text_event(std::string(1, ch)));
+}
+
+bool row_has_background(const draxul::tests::FakeGridHandle& handle, int row, Color bg)
+{
+    for (const auto& batch : handle.update_batches)
+        for (const auto& cell : batch)
+            if (cell.row == row && cell.bg == bg)
+                return true;
+    return false;
+}
+
+} // namespace
+
+TEST_CASE("kanban host search line filters cards by their text as the query is typed",
+    "[kanban][host][search][input]")
+{
+    KanbanHostFixture fixture(3);
+    const auto todo = fixture.card_path.parent_path();
+    std::ofstream(todo / "card-1-feature.md") << "# Alpha\nMentions the Zebra crossing.\n";
+    std::ofstream(todo / "card-2-feature.md") << "# Beta\nzebra and apple\n";
+    std::ofstream(todo / "card-3-feature.md") << "# Gamma\nNothing relevant.\n";
+    fixture.host.on_focus_gained();
+    REQUIRE(fixture.renderer.last_handle != nullptr);
+    CHECK(row_has_background(*fixture.renderer.last_handle, 0, color_from_rgb(0x1B222C)));
+    REQUIRE(fixture.host.status_text().find("3 cards") != std::string::npos);
+    const auto status_has = [&](std::string_view text) {
+        return fixture.host.status_text().find(text) != std::string::npos;
+    };
+
+    // The '/' keydown opens the line and its own text event is not typed.
+    fixture.host.on_key(key_event(SDLK_SLASH));
+    fixture.host.on_text_input(text_event("/"));
+    type_text(fixture.host, "ZEB");
+    REQUIRE(pump_kanban_until(fixture.host, [&] {
+        return status_has("search: ZEB |") && status_has("2 cards");
+    }));
+
+    type_text(fixture.host, " apple");
+    REQUIRE(pump_kanban_until(fixture.host, [&] {
+        return status_has("search: ZEB apple |") && status_has("1 cards");
+    }));
+    CHECK(status_has("card-2-feature.md"));
+
+    // Letter keys belong to the query while editing, not to navigation.
+    fixture.host.on_key(key_event(SDLK_J));
+    CHECK(status_has("card-2-feature.md"));
+
+    // Option/Alt+Backspace removes the last word.
+    fixture.host.on_key(key_event(SDLK_BACKSPACE, kModAlt));
+    REQUIRE(pump_kanban_until(fixture.host, [&] {
+        return status_has("search: ZEB  |") && status_has("2 cards");
+    }));
+
+    // Enter keeps the filter and returns keys to board navigation.
+    fixture.host.on_key(key_event(SDLK_RETURN));
+    const std::string before_move = fixture.host.status_text();
+    fixture.host.on_key(key_event(SDLK_K));
+    fixture.host.pump();
+    CHECK(fixture.host.status_text() != before_move);
+    CHECK(status_has("card-1-feature.md"));
+    CHECK(status_has("2 cards"));
+    fixture.host.on_text_input(text_event("x"));
+    CHECK(status_has("search: ZEB  |"));
+
+    // A term that matches nothing empties the board without losing the query.
+    fixture.host.on_key(key_event(SDLK_SLASH));
+    fixture.host.on_text_input(text_event("/"));
+    type_text(fixture.host, "qqq");
+    REQUIRE(pump_kanban_until(fixture.host, [&] { return status_has("0 cards"); }));
+
+    // Escape clears the query and restores every card.
+    fixture.host.on_key(key_event(SDLK_ESCAPE));
+    REQUIRE(pump_kanban_until(fixture.host, [&] { return status_has("3 cards"); }));
+    CHECK_FALSE(status_has("search:"));
+}
+
+TEST_CASE("kanban host re-runs an active search when card text changes on disk",
+    "[kanban][host][search][file-monitor]")
+{
+    KanbanHostFixture fixture(2);
+    fixture.host.on_focus_gained();
+    // Wait out the single post-arming reconciliation before exercising events.
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    fixture.host.pump();
+    const auto status_has = [&](std::string_view text) {
+        return fixture.host.status_text().find(text) != std::string::npos;
+    };
+
+    fixture.host.on_key(key_event(SDLK_SLASH));
+    fixture.host.on_text_input(text_event("/"));
+    type_text(fixture.host, "needle");
+    REQUIRE(pump_kanban_until(fixture.host, [&] {
+        return status_has("0 cards") && !status_has("(searching)");
+    }));
+
+    const auto second = fixture.card_path.parent_path() / "card-2-feature.md";
+    std::ofstream(second) << "# Card 2\nNow mentions a NEEDLE.\n";
+    REQUIRE(pump_kanban_until(fixture.host, [&] {
+        return status_has("1 cards") && status_has("card-2-feature.md");
+    }));
+}
+
+TEST_CASE("kanban host keeps a matched card visible after moving it to another lane",
+    "[kanban][host][search][input]")
+{
+    KanbanHostFixture fixture(2, 2);
+    std::ofstream(fixture.card_path) << "# Card 1\nunique-marker\n";
+    fixture.host.on_focus_gained();
+    const auto status_has = [&](std::string_view text) {
+        return fixture.host.status_text().find(text) != std::string::npos;
+    };
+
+    fixture.host.on_key(key_event(SDLK_SLASH));
+    fixture.host.on_text_input(text_event("/"));
+    type_text(fixture.host, "unique-marker");
+    REQUIRE(pump_kanban_until(fixture.host, [&] { return status_has("1 cards"); }));
+    fixture.host.on_key(key_event(SDLK_RETURN));
+
+    fixture.host.on_key(key_event(SDLK_PERIOD, kModShift));
+    fixture.host.pump();
+    CHECK(status_has("1 cards"));
+    CHECK(status_has("card-1-feature.md"));
+    CHECK(std::filesystem::exists(fixture.board_root / "column-2" / "card-1-feature.md"));
+}

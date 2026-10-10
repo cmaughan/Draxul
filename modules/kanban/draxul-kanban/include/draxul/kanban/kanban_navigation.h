@@ -26,6 +26,8 @@ enum class KanbanNavigationCommand
     TogglePreview,
     CycleSourceFilter,
     DeleteSelected,
+    StartSearch,
+    ClearSearch,
 };
 
 class KanbanNavigationState

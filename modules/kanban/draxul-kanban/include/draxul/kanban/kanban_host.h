@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 
 namespace draxul
 {
@@ -21,9 +22,13 @@ class HostProviderRegistry;
 namespace draxul::kanban
 {
 
+class KanbanSearchWorker;
+
 class KanbanHost final : public draxul::GridHostBase
 {
 public:
+    // Out of line: the search worker is an incomplete type here.
+    KanbanHost();
     ~KanbanHost() override;
     void shutdown() override;
     bool is_running() const override;
@@ -33,6 +38,7 @@ public:
     void on_focus_gained() override;
     void on_focus_lost() override;
     void on_key(const draxul::KeyEvent& event) override;
+    void on_text_input(const draxul::TextInputEvent& event) override;
     bool dispatch_action(std::string_view action) override;
     void request_close() override;
     std::string status_text() const override;
@@ -51,6 +57,7 @@ private:
     void draw_column_header(const KanbanColumnLayout& column_layout, int status_row);
     void draw_card_row(const KanbanCardRowLayout& row);
     void draw_status_row(const KanbanLayout& layout);
+    void draw_search_row();
     void update_status();
     void apply_navigation_command(KanbanNavigationCommand command);
     void update_key_repeat(const draxul::KeyEvent& event, KanbanNavigationCommand command);
@@ -64,6 +71,13 @@ private:
     void toggle_column_zoom();
     void toggle_card_preview();
     void cycle_source_filter();
+    void start_search();
+    void clear_search();
+    void handle_search_key(const draxul::KeyEvent& event);
+    void set_search_query(std::string query);
+    void submit_search();
+    void consume_search_result();
+    void apply_search_filter();
     void rebuild_visible_board(
         const std::optional<std::filesystem::path>& preferred_card = std::nullopt);
     void refresh_card_preview();
@@ -95,6 +109,17 @@ private:
     bool focused_ = false;
     bool preview_refresh_pending_ = false;
     std::optional<size_t> source_filter_;
+    // '/' edits a search line above the board. Each query change bumps the
+    // generation and is matched against card text on a worker thread; the
+    // board keeps its previous filter until the latest generation's matches
+    // arrive. Nullopt matches means no text filter is applied.
+    std::string search_query_;
+    bool search_editing_ = false;
+    bool swallow_search_slash_ = false;
+    bool search_pending_ = false;
+    uint64_t search_generation_ = 0;
+    std::optional<std::unordered_set<std::string>> search_matches_;
+    std::unique_ptr<KanbanSearchWorker> search_worker_;
     int scroll_row_ = 0;
     std::optional<KanbanSelection> selection_before_redraw_;
     std::optional<KanbanNavigationCommand> held_selection_command_;

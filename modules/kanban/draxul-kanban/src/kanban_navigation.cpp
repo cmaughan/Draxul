@@ -120,6 +120,12 @@ KanbanNavigationCommand KanbanNavigationState::on_key(const draxul::KeyEvent& ev
     case SDLK_B:
         pending_g_ = false;
         return KanbanNavigationCommand::CycleSourceFilter;
+    case SDLK_SLASH:
+        pending_g_ = false;
+        return KanbanNavigationCommand::StartSearch;
+    case SDLK_ESCAPE:
+        pending_g_ = false;
+        return KanbanNavigationCommand::ClearSearch;
     default:
         pending_g_ = false;
         return KanbanNavigationCommand::None;

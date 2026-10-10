@@ -1,10 +1,14 @@
 #include <draxul/kanban/kanban_host.h>
 
 #include <draxul/host_registry.h>
+#include <draxul/input_types.h>
 #include <draxul/kanban/kanban_layout.h>
+#include <draxul/kanban/kanban_search.h>
 #include <draxul/kanban/kanban_store.h>
 #include <draxul/log.h>
 #include <draxul/unicode.h>
+
+#include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <chrono>
@@ -34,7 +38,18 @@ enum HighlightId : uint16_t
     HlPriorityMedium = 14,
     HlPriorityLow = 15,
     HlPerf = 16,
+    HlSearch = 17,
+    HlSearchHint = 18,
+    HlSearchCaret = 19,
 };
+
+// Row 0 holds the search line; column headers and their border sit below it.
+// Card rows start at the layout's fixed first card row (3).
+constexpr int kSearchRow = 0;
+constexpr int kHeaderRow = 1;
+constexpr int kBorderRow = 2;
+// Bound a query so a stuck key or paste cannot grow it without limit.
+constexpr size_t kMaxSearchQueryBytes = 256;
 
 HlAttr attr(Color fg, Color bg, bool bold = false)
 {
@@ -160,6 +175,10 @@ const char* command_name(KanbanNavigationCommand command)
         return "cycle_source_filter";
     case KanbanNavigationCommand::DeleteSelected:
         return "delete_selected";
+    case KanbanNavigationCommand::StartSearch:
+        return "start_search";
+    case KanbanNavigationCommand::ClearSearch:
+        return "clear_search";
     }
     return "unknown";
 }
@@ -209,7 +228,33 @@ size_t card_count(const KanbanBoard& board)
     return result;
 }
 
+// The trailing part of `text` that fits in `max_cells`, so the end of a long
+// query stays visible while typing.
+std::string tail_to_cells(std::string_view text, int max_cells)
+{
+    if (max_cells <= 0)
+        return {};
+    if (text_cell_width(text) <= max_cells)
+        return std::string(text);
+    if (max_cells <= 3)
+        return std::string(static_cast<size_t>(max_cells), '.');
+    const auto clusters = draxul::display_clusters(text);
+    int used = 0;
+    size_t first = clusters.size();
+    while (first > 0 && used + clusters[first - 1].cell_width <= max_cells - 3)
+    {
+        --first;
+        used += clusters[first].cell_width;
+    }
+    std::string result = "...";
+    for (size_t i = first; i < clusters.size(); ++i)
+        result.append(clusters[i].text);
+    return result;
+}
+
 } // namespace
+
+KanbanHost::KanbanHost() = default;
 
 KanbanHost::~KanbanHost()
 {
@@ -233,6 +278,10 @@ bool KanbanHost::initialize_host()
 
 void KanbanHost::shutdown()
 {
+    // Joins the worker before the callbacks its wake hook uses can go away.
+    search_worker_.reset();
+    search_pending_ = false;
+    search_editing_ = false;
     file_monitor_.reset();
     monitored_roots_.clear();
     reload_at_.reset();
@@ -284,6 +333,7 @@ void KanbanHost::pump()
         if (!reload_board(false, focused_))
             notify_error("Kanban auto-refresh failed (press r to retry): " + init_error_);
     }
+    consume_search_result();
     suppress_cursor_until(now + std::chrono::hours(24));
     pump_key_repeat(now);
     if (redraw_needed_)
@@ -340,6 +390,12 @@ void KanbanHost::on_focus_lost()
 
 void KanbanHost::on_key(const KeyEvent& event)
 {
+    if (search_editing_)
+    {
+        handle_search_key(event);
+        return;
+    }
+
     const auto started = std::chrono::steady_clock::now();
     const KanbanSelection before = selection_;
     const int before_scroll = scroll_row_;
@@ -407,6 +463,38 @@ void KanbanHost::on_key(const KeyEvent& event)
     }
 }
 
+void KanbanHost::on_text_input(const TextInputEvent& event)
+{
+    if (!search_editing_)
+    {
+        // Layouts that type '/' with a modifier never produce SDLK_SLASH; the
+        // text itself opens the search line there.
+        if (event.text == "/")
+        {
+            start_search();
+            swallow_search_slash_ = false;
+        }
+        return;
+    }
+    // The '/' keydown that opened the search also produces text; drop it once.
+    if (swallow_search_slash_)
+    {
+        swallow_search_slash_ = false;
+        if (event.text == "/")
+            return;
+    }
+    std::string text;
+    for (const char ch : event.text)
+    {
+        const auto byte = static_cast<unsigned char>(ch);
+        if (byte >= 0x20 && byte != 0x7F)
+            text.push_back(ch);
+    }
+    if (text.empty() || search_query_.size() + text.size() > kMaxSearchQueryBytes)
+        return;
+    set_search_query(search_query_ + text);
+}
+
 bool KanbanHost::dispatch_action(std::string_view action)
 {
     if (action == "reload")
@@ -466,6 +554,9 @@ void KanbanHost::configure_highlights()
     highlights().set(HlPriorityHigh, attr(color_from_rgb(0xFF9966), bg, true));
     highlights().set(HlPriorityMedium, attr(color_from_rgb(0xF2D272), bg, true));
     highlights().set(HlPriorityLow, attr(color_from_rgb(0x8DAAD4), bg));
+    highlights().set(HlSearch, attr(color_from_rgb(0xE8EEF7), color_from_rgb(0x1B222C)));
+    highlights().set(HlSearchHint, attr(color_from_rgb(0x87909C), color_from_rgb(0x1B222C)));
+    highlights().set(HlSearchCaret, attr(color_from_rgb(0x1B222C), color_from_rgb(0xE8EEF7)));
 }
 
 bool KanbanHost::reload_board(bool rearm_monitor, bool update_preview)
@@ -529,6 +620,10 @@ bool KanbanHost::reload_board(bool rearm_monitor, bool update_preview)
     }
     rebuild_visible_board(selected_path);
     keep_selection_visible();
+    // Card text may have changed on disk; re-run an active search. The board
+    // keeps the previous matches until the new generation arrives.
+    if (!search_query_.empty())
+        submit_search();
     update_status();
     // Preview callbacks route through the active pane manager. An event from
     // an inactive board must not replace another pane's preview or topology.
@@ -595,6 +690,7 @@ void KanbanHost::redraw_board()
     const long long layout_us = elapsed_us(layout_start);
     const auto draw_start = std::chrono::steady_clock::now();
 
+    draw_search_row();
     const int status_row = std::max(0, rows - 1);
     for (const auto& column_layout : layout.columns)
     {
@@ -708,17 +804,17 @@ void KanbanHost::draw_column_header(const KanbanColumnLayout& column_layout, int
     const auto& column = board_.columns[static_cast<size_t>(column_layout.index)];
     const bool active = column_layout.index == selection_.column;
     const uint16_t header_hl = active ? HlHeaderActive : HlHeader;
-    fill_row(0, column_layout.x, column_layout.width, header_hl);
-    fill_row(1, column_layout.x, column_layout.width, HlBorder);
+    fill_row(kHeaderRow, column_layout.x, column_layout.width, header_hl);
+    fill_row(kBorderRow, column_layout.x, column_layout.width, HlBorder);
 
     std::string header = column.name + " (" + std::to_string(column.cards.size()) + ")";
-    draw_text(column_layout.x + 1, 0, truncate_to_cells(header, column_layout.width - 2), header_hl,
+    draw_text(column_layout.x + 1, kHeaderRow, truncate_to_cells(header, column_layout.width - 2), header_hl,
         column_layout.width - 2);
     for (int col = column_layout.x; col < column_layout.x + column_layout.width; ++col)
-        set_cell_if_changed(col, 1, "-", HlBorder, false);
+        set_cell_if_changed(col, kBorderRow, "-", HlBorder, false);
     if (column_layout.x > 0)
     {
-        for (int row = 0; row < status_row; ++row)
+        for (int row = kHeaderRow; row < status_row; ++row)
             set_cell_if_changed(column_layout.x, row, "|", HlBorder, false);
     }
 }
@@ -786,6 +882,8 @@ void KanbanHost::update_status()
         status_ += " | filter: " + workspace_board_.sources[*source_filter_].name;
     else
         status_ += " | filter: all";
+    if (!search_query_.empty())
+        status_ += " | search: " + search_query_ + (search_pending_ ? " (searching)" : "");
     if (const KanbanCard* card = selected_card(board_, selection_))
         status_ += " | [" + card->source_name + "] " + card->file_name;
     if (!workspace_board_.warnings.empty())
@@ -853,6 +951,12 @@ void KanbanHost::apply_navigation_command(KanbanNavigationCommand command)
         break;
     case KanbanNavigationCommand::DeleteSelected:
         delete_selected_card();
+        break;
+    case KanbanNavigationCommand::StartSearch:
+        start_search();
+        break;
+    case KanbanNavigationCommand::ClearSearch:
+        clear_search();
         break;
     case KanbanNavigationCommand::None:
         break;
@@ -1020,12 +1124,16 @@ void KanbanHost::move_card(int column_delta, int row_delta)
         selected_path = visible_card->source_root
             / kanban_path_from_utf8(workspace_board_.columns[static_cast<size_t>(target_column)].name)
             / kanban_path_from_utf8(visible_card->file_name);
+        const std::string previous_key = kanban_search_key(*visible_card);
         if (!move_card_to_column(
                 workspace_board_, *workspace_selection, target_column, &error))
         {
             notify_error(error.empty() ? "Failed to move kanban card." : error);
             return;
         }
+        // The text is unchanged, so a matched card stays matched at its new path.
+        if (search_matches_ && search_matches_->erase(previous_key) > 0)
+            search_matches_->insert(kanban_path_utf8(selected_path));
         changed = true;
     }
     else if (row_delta != 0)
@@ -1191,6 +1299,201 @@ void KanbanHost::cycle_source_filter()
     callbacks().request_frame();
 }
 
+void KanbanHost::start_search()
+{
+    search_editing_ = true;
+    swallow_search_slash_ = true;
+    held_selection_command_.reset();
+    held_keycode_ = 0;
+    navigation_.reset();
+    update_status();
+    selection_before_redraw_.reset();
+    redraw_needed_ = true;
+    callbacks().request_frame();
+}
+
+void KanbanHost::clear_search()
+{
+    const bool was_active = search_editing_ || !search_query_.empty();
+    search_editing_ = false;
+    swallow_search_slash_ = false;
+    if (!was_active)
+        return;
+    set_search_query({});
+}
+
+void KanbanHost::handle_search_key(const KeyEvent& event)
+{
+    if (!event.pressed)
+    {
+        update_key_repeat(event, KanbanNavigationCommand::None);
+        return;
+    }
+    swallow_search_slash_ = false;
+
+    const bool plain = has_only_modifiers(event.mod, kModNone);
+    KanbanNavigationCommand command = KanbanNavigationCommand::None;
+    switch (event.keycode)
+    {
+    case SDLK_ESCAPE:
+        clear_search();
+        return;
+    case SDLK_RETURN:
+    case SDLK_KP_ENTER:
+        // Keep the filter and hand the keys back to board navigation.
+        search_editing_ = false;
+        update_status();
+        selection_before_redraw_.reset();
+        redraw_needed_ = true;
+        callbacks().request_frame();
+        return;
+    case SDLK_BACKSPACE:
+    {
+        if (search_query_.empty())
+            return;
+        const auto clusters = draxul::display_clusters(search_query_);
+        size_t keep = clusters.size() - 1;
+        if (!plain && !has_only_modifiers(event.mod, kModShift))
+        {
+            // Ctrl/Alt/Cmd+Backspace removes the last word and its trailing spaces.
+            while (keep > 0 && clusters[keep - 1].text == " ")
+                --keep;
+            while (keep > 0 && clusters[keep - 1].text != " ")
+                --keep;
+        }
+        set_search_query(search_query_.substr(0, clusters[keep].byte_start));
+        return;
+    }
+    case SDLK_U:
+        if (has_only_modifiers(event.mod, kModCtrl))
+            set_search_query({});
+        return;
+    case SDLK_UP:
+        command = KanbanNavigationCommand::SelectUp;
+        break;
+    case SDLK_DOWN:
+        command = KanbanNavigationCommand::SelectDown;
+        break;
+    case SDLK_LEFT:
+        command = KanbanNavigationCommand::SelectLeft;
+        break;
+    case SDLK_RIGHT:
+        command = KanbanNavigationCommand::SelectRight;
+        break;
+    case SDLK_PAGEUP:
+        command = KanbanNavigationCommand::SelectPageUp;
+        break;
+    case SDLK_PAGEDOWN:
+        command = KanbanNavigationCommand::SelectPageDown;
+        break;
+    default:
+        // Printable keys arrive through on_text_input.
+        return;
+    }
+    if (!plain)
+        return;
+    // Arrows keep browsing the filtered board while the query stays editable.
+    update_key_repeat(event, command);
+    apply_navigation_command(command);
+}
+
+void KanbanHost::set_search_query(std::string query)
+{
+    search_query_ = std::move(query);
+    submit_search();
+    update_status();
+    selection_before_redraw_.reset();
+    redraw_needed_ = true;
+    callbacks().request_frame();
+}
+
+void KanbanHost::submit_search()
+{
+    ++search_generation_;
+    if (kanban_search_terms(search_query_).empty())
+    {
+        search_pending_ = false;
+        if (search_matches_)
+        {
+            search_matches_.reset();
+            apply_search_filter();
+        }
+        return;
+    }
+
+    if (!search_worker_)
+    {
+        auto* host_callbacks = &callbacks();
+        search_worker_ = std::make_unique<KanbanSearchWorker>(
+            [host_callbacks] { host_callbacks->wake_window(); });
+    }
+    std::vector<KanbanCard> cards;
+    cards.reserve(card_count(workspace_board_));
+    for (const auto& column : workspace_board_.columns)
+        cards.insert(cards.end(), column.cards.begin(), column.cards.end());
+    search_worker_->submit(search_generation_, search_query_, std::move(cards));
+    search_pending_ = true;
+}
+
+void KanbanHost::consume_search_result()
+{
+    if (!search_worker_)
+        return;
+    auto result = search_worker_->take_result();
+    if (!result || result->generation != search_generation_)
+        return;
+    search_pending_ = false;
+    search_matches_ = std::move(result->matches);
+    apply_search_filter();
+}
+
+void KanbanHost::apply_search_filter()
+{
+    std::optional<std::filesystem::path> selected_path;
+    if (const KanbanCard* card = selected_card(board_, selection_))
+        selected_path = card->path;
+    rebuild_visible_board(selected_path);
+    keep_selection_visible();
+    update_status();
+    refresh_card_preview();
+    selection_before_redraw_.reset();
+    clear_before_redraw_ = true;
+    redraw_needed_ = true;
+    callbacks().request_frame();
+}
+
+void KanbanHost::draw_search_row()
+{
+    const int cols = grid_cols();
+    if (cols <= 0 || grid_rows() <= kSearchRow)
+        return;
+
+    fill_row(kSearchRow, 0, cols, HlSearch);
+    const std::string label = " Search: ";
+    int x = 0;
+    draw_text(x, kSearchRow, label, HlSearchHint, cols);
+    x += text_cell_width(label);
+
+    std::string right;
+    if (search_pending_)
+        right = "searching... ";
+    else if (search_matches_)
+        right = std::to_string(card_count(board_)) + " matching ";
+    else if (!search_editing_ && search_query_.empty())
+        right = "press / to search card text ";
+    const int right_width = text_cell_width(right);
+
+    // Leave a cell for the caret and one of padding before the right-hand note.
+    const int query_width = std::max(0, cols - x - right_width - 2);
+    const std::string shown = tail_to_cells(search_query_, query_width);
+    draw_text(x, kSearchRow, shown, HlSearch, query_width);
+    x += text_cell_width(shown);
+    if (search_editing_)
+        set_cell_if_changed(x, kSearchRow, " ", HlSearchCaret, false);
+    if (!right.empty() && cols - right_width > x + 1)
+        draw_text(cols - right_width, kSearchRow, right, HlSearchHint, right_width);
+}
+
 void KanbanHost::rebuild_visible_board(
     const std::optional<std::filesystem::path>& preferred_card)
 {
@@ -1201,6 +1504,16 @@ void KanbanHost::rebuild_visible_board(
         {
             std::erase_if(column.cards, [&](const KanbanCard& card) {
                 return card.source_index != *source_filter_;
+            });
+        }
+    }
+
+    if (search_matches_)
+    {
+        for (auto& column : board_.columns)
+        {
+            std::erase_if(column.cards, [&](const KanbanCard& card) {
+                return !search_matches_->contains(kanban_search_key(card));
             });
         }
     }
