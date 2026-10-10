@@ -1517,3 +1517,86 @@ TEST_CASE("zoomed pane owns pointer and keyboard input over hidden split geometr
     REQUIRE(left_host.key_events.size() == 1);
     CHECK(left_host.key_events[0].keycode == SDLK_B);
 }
+
+TEST_CASE("a drag that starts in a pane keeps its moves and release when the pointer leaves it",
+    "[input_dispatcher][capture]")
+{
+    ZoomRoutingSetup setup;
+    REQUIRE(setup.manager.create(setup.callbacks, 800, 600));
+    const LeafId left = setup.manager.focused_leaf();
+    const LeafId right = setup.manager.split_focused(SplitDirection::Vertical, setup.callbacks);
+    REQUIRE(right != kInvalidLeaf);
+    setup.connect();
+
+    const PaneDescriptor left_desc = setup.manager.tree().descriptor_for(left);
+    const PaneDescriptor right_desc = setup.manager.tree().descriptor_for(right);
+    const int left_x = left_desc.pixel_pos.x + 20;
+    const int right_x = right_desc.pixel_pos.x + 40;
+    const int y = left_desc.pixel_pos.y + left_desc.pixel_size.y / 2;
+    StubHost& left_host = setup.host(left);
+    StubHost& right_host = setup.host(right);
+
+    // Press in the left pane, then drag across into the right pane, out of
+    // the window, and release over the right pane: the left pane owns it all.
+    setup.click(left_x, y, true);
+    setup.move_to(right_x, y);
+    setup.move_to(-30, -15);
+    setup.move_to(right_x, y);
+    setup.click(right_x, y, false);
+    REQUIRE(left_host.mouse_button_events.size() == 2);
+    CHECK_FALSE(left_host.mouse_button_events.back().pressed);
+    CHECK(left_host.mouse_button_events.back().pos.x == right_x);
+    REQUIRE(left_host.mouse_move_events.size() == 3);
+    CHECK(left_host.mouse_move_events[1].pos.x == -30);
+    CHECK(right_host.mouse_button_events.empty());
+    CHECK(right_host.mouse_move_events.empty());
+
+    // Once every button is up, hover routing follows the pointer again.
+    setup.move_to(right_x, y);
+    CHECK(right_host.mouse_move_events.size() == 1);
+    CHECK(left_host.mouse_move_events.size() == 3);
+}
+
+TEST_CASE("pointer capture ends when its host is released or an overlay opens",
+    "[input_dispatcher][capture]")
+{
+    ZoomRoutingSetup setup;
+    REQUIRE(setup.manager.create(setup.callbacks, 800, 600));
+    const LeafId left = setup.manager.focused_leaf();
+    const LeafId right = setup.manager.split_focused(SplitDirection::Vertical, setup.callbacks);
+    REQUIRE(right != kInvalidLeaf);
+    setup.connect();
+
+    const PaneDescriptor left_desc = setup.manager.tree().descriptor_for(left);
+    const PaneDescriptor right_desc = setup.manager.tree().descriptor_for(right);
+    const int left_x = left_desc.pixel_pos.x + 20;
+    const int right_x = right_desc.pixel_pos.x + 40;
+    const int y = left_desc.pixel_pos.y + left_desc.pixel_size.y / 2;
+    StubHost& left_host = setup.host(left);
+    StubHost& right_host = setup.host(right);
+
+    // The owner releases a host immediately before destroying it; a capture
+    // must not outlive it.
+    setup.click(left_x, y, true);
+    setup.dispatcher->clear_host_if(&left_host);
+    setup.move_to(right_x, y);
+    CHECK(left_host.mouse_move_events.empty());
+    CHECK(right_host.mouse_move_events.size() == 1);
+    setup.click(right_x, y, false);
+
+    // An overlay that opens mid-drag takes the pointer and ends the capture.
+    StubHost overlay("overlay");
+    bool overlay_active = false;
+    setup.router.overlay_host_fn = [&]() -> IHost* {
+        return overlay_active ? &overlay : nullptr;
+    };
+    setup.click(left_x, y, true);
+    overlay_active = true;
+    setup.move_to(right_x, y);
+    setup.click(right_x, y, false);
+    overlay_active = false;
+    const size_t left_buttons = left_host.mouse_button_events.size();
+    setup.move_to(right_x, y);
+    CHECK(left_host.mouse_button_events.size() == left_buttons);
+    CHECK(right_host.mouse_move_events.size() == 2);
+}

@@ -584,6 +584,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **Keyboard**: Full SDL3 key events with modifier tracking (shift, ctrl, alt, super)
 - **IME**: Text input + text editing event forwarding
 - **Mouse**: Button, motion, wheel with per-host protocol routing
+- **Pointer capture**: The pane that receives a button press keeps every pointer move, extra button and the release until all its buttons are up, even when the pointer crosses other panes, app chrome or leaves the window, so ImGui window drags and docking, divider-free selections, and plugin drags always see their release. Capture ends if that pane is destroyed or an overlay such as the command palette opens; wheel events still follow the pointer.
 - **MegaCity camera**: Left-drag in the render view pans the scene, `Alt` + left-drag scrubs orbit
 - **SatView camera/map/ground**: globe orbit/dolly, map panning, ground-view rotation, and the keyboard equivalents are documented in [docs/features/satview.md](features/satview.md#input-camera-map-and-ground-view)
 - **Smooth scroll**: Trackpad momentum accumulation (configurable speed multiplier)
@@ -1138,6 +1139,7 @@ The hosted workflow checks out the public product submodules recursively.
 - **Reference images**: BMP files in `tests/render/reference/` (platform-suffixed)
 - **Regression scenarios**: basic-view, cmdline-view, unicode-view, panel-view, nanovg-demo
 - **Developer-only scenario**: wide-char-scroll (not in CTest until both platform references exist); README and Claude-logo scenarios are documentation-only
+- **Scripted input**: A scenario's `input` array replays steps after the content settles — `move X Y`, `down`/`up [left|middle|right]`, `drag X1 Y1 X2 Y2 [STEPS]`, `key NAME` (SDL scancode name) and `wait FRAMES` — as real SDL events in capture-pixel coordinates, waiting for a rendered frame after each step, before the capture. Steps are validated when the scenario loads.
 - **Comparison**: Pixel-diff with configurable tolerance and changed-pixel threshold
 - **Blessing**: scenario commands and `py do.py blessall` are derived from the manifest
 

@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -377,6 +378,20 @@ std::optional<RenderTestScenario> load_render_test_scenario(const std::filesyste
             scenario.commands.push_back(expand_placeholders(entry, scenario_dir));
     }
 
+    if (auto input = toml_support::get_string_array(*document, "input"))
+    {
+        for (const auto& entry : *input)
+        {
+            std::string step_error;
+            if (!parse_render_test_input_step(entry, scenario.input, &step_error))
+            {
+                if (error_message)
+                    *error_message = "Render test input step '" + entry + "': " + step_error;
+                return std::nullopt;
+            }
+        }
+    }
+
     scenario.width = std::clamp(scenario.width, 320, 3840);
     scenario.height = std::clamp(scenario.height, 240, 2160);
     scenario.font_size = std::clamp(scenario.font_size, TextService::MIN_POINT_SIZE, TextService::MAX_POINT_SIZE);
@@ -400,6 +415,103 @@ std::optional<RenderTestScenario> load_render_test_scenario(const std::filesyste
     }
 
     return scenario;
+}
+
+bool parse_render_test_input_step(std::string_view text,
+    std::vector<RenderTestInputStep>& steps, std::string* error_message)
+{
+    const auto fail = [error_message](std::string message) {
+        if (error_message)
+            *error_message = std::move(message);
+        return false;
+    };
+    std::istringstream stream{ std::string(text) };
+    std::string verb;
+    stream >> verb;
+    std::vector<std::string> args;
+    for (std::string arg; stream >> arg;)
+        args.push_back(arg);
+
+    const auto number = [](const std::string& value, float& out) {
+        char* end = nullptr;
+        out = std::strtof(value.c_str(), &end);
+        return end != value.c_str() && *end == '\0' && std::isfinite(out) && out >= 0.0f;
+    };
+    const auto button = [](const std::vector<std::string>& values, int& out) {
+        if (values.empty() || values[0] == "left")
+            out = 1;
+        else if (values[0] == "middle")
+            out = 2;
+        else if (values[0] == "right")
+            out = 3;
+        else
+            return false;
+        return values.size() <= 1;
+    };
+
+    RenderTestInputStep step;
+    if (verb == "move")
+    {
+        if (args.size() != 2 || !number(args[0], step.x) || !number(args[1], step.y))
+            return fail("expected 'move X Y' with non-negative pixel coordinates");
+        step.kind = RenderTestInputStep::Kind::Move;
+        steps.push_back(step);
+        return true;
+    }
+    if (verb == "down" || verb == "up")
+    {
+        if (!button(args, step.button))
+            return fail("expected '" + verb + " [left|middle|right]'");
+        step.kind = verb == "down" ? RenderTestInputStep::Kind::Down : RenderTestInputStep::Kind::Up;
+        steps.push_back(step);
+        return true;
+    }
+    if (verb == "drag")
+    {
+        float x0 = 0.0f;
+        float y0 = 0.0f;
+        float x1 = 0.0f;
+        float y1 = 0.0f;
+        float count = 8.0f;
+        if ((args.size() != 4 && args.size() != 5) || !number(args[0], x0) || !number(args[1], y0)
+            || !number(args[2], x1) || !number(args[3], y1)
+            || (args.size() == 5 && (!number(args[4], count) || count < 1.0f || count > 240.0f)))
+            return fail("expected 'drag X1 Y1 X2 Y2 [STEPS]' with 1-240 steps");
+        steps.push_back({ .kind = RenderTestInputStep::Kind::Move, .x = x0, .y = y0 });
+        steps.push_back({ .kind = RenderTestInputStep::Kind::Down, .x = x0, .y = y0, .button = 1 });
+        const int moves = static_cast<int>(count);
+        for (int i = 1; i <= moves; ++i)
+        {
+            const float t = static_cast<float>(i) / static_cast<float>(moves);
+            steps.push_back({
+                .kind = RenderTestInputStep::Kind::Move,
+                .x = x0 + (x1 - x0) * t,
+                .y = y0 + (y1 - y0) * t,
+            });
+        }
+        steps.push_back({ .kind = RenderTestInputStep::Kind::Up, .x = x1, .y = y1, .button = 1 });
+        return true;
+    }
+    if (verb == "key")
+    {
+        if (args.size() != 1)
+            return fail("expected 'key NAME' using an SDL scancode name");
+        step.kind = RenderTestInputStep::Kind::Key;
+        step.key = args[0];
+        steps.push_back(step);
+        return true;
+    }
+    if (verb == "wait")
+    {
+        float frames = 0.0f;
+        if (args.size() != 1 || !number(args[0], frames) || frames < 1.0f || frames > 600.0f)
+            return fail("expected 'wait FRAMES' with 1-600 frames");
+        step.kind = RenderTestInputStep::Kind::Wait;
+        step.frames = static_cast<int>(frames);
+        steps.push_back(step);
+        return true;
+    }
+    return fail("unknown input verb '" + verb + "'");
 }
 
 std::optional<RenderTestPluginPublication>

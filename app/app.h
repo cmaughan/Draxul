@@ -19,6 +19,7 @@
 #include <draxul/config_document.h>
 #include <draxul/diagnostics_collector.h>
 #include <draxul/host.h>
+#include <draxul/render_test.h>
 #include <draxul/renderer.h>
 #include <draxul/result.h>
 #include <draxul/server_control_channel.h>
@@ -115,7 +116,8 @@ public:
     std::optional<CapturedFrame> run_render_test(std::chrono::milliseconds timeout,
         std::chrono::milliseconds settle,
         std::string reload_plugin_id = {},
-        std::filesystem::path reload_plugin_package = {});
+        std::filesystem::path reload_plugin_package = {},
+        std::vector<RenderTestInputStep> input = {});
     const std::string& last_render_test_error() const
     {
         return last_render_test_error_;
@@ -333,6 +335,8 @@ private:
     WeatherService weather_service_;
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
     std::string last_render_test_error_;
+    // Pushes scripted render-test input as SDL events, waiting for frames between steps.
+    std::string replay_render_test_input(const std::vector<RenderTestInputStep>& input);
     std::string last_init_error_;
     // Toasts pushed before toast_host_ exists are buffered here and replayed
     // once the host is created during initialize().

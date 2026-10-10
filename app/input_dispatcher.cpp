@@ -452,9 +452,34 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
     {
         if (log_would_emit(LogLevel::Trace, LogCategory::Input))
             log_printf(LogLevel::Trace, LogCategory::Input, "input trace: dispatcher mouse_button swallowed by overlay");
+        release_mouse_capture();
         auto translated=event;
         translated.pos={deps_.pixel_scale.to_physical(event.pos.x),deps_.pixel_scale.to_physical(event.pos.y)};
         deps_.router->overlay_host()->on_mouse_button(translated);
+        return;
+    }
+
+    // A drag that began in a host stays with it: further buttons and the
+    // release go there wherever the pointer is, including over chrome.
+    const uint32_t button_bit = event.button >= 1 && event.button <= 32
+        ? (1u << (event.button - 1))
+        : 0u;
+    if (mouse_capture_host_)
+    {
+        // The diagnostics panel's ImGui saw the press; keep its button state in sync.
+        deps_.ui_panel->on_mouse_button(event);
+        forward_to_mouse_capture(event.pos.x, event.pos.y, [&event](IHost& target, int px, int py) {
+            MouseButtonEvent phys = event;
+            phys.pos.x = px;
+            phys.pos.y = py;
+            target.on_mouse_button(phys);
+        });
+        if (event.pressed)
+            mouse_capture_buttons_ |= button_bit;
+        else
+            mouse_capture_buttons_ &= ~button_bit;
+        if (mouse_capture_buttons_ == 0)
+            release_mouse_capture();
         return;
     }
 
@@ -621,14 +646,36 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
         }
     }
 
-    dispatch_mouse_to_host(event.pos.x, event.pos.y, [&event](IHost& target, int px, int py) {
+    dispatch_mouse_to_host(event.pos.x, event.pos.y, [this, &event, button_bit](IHost& target, int px, int py) {
         // Hosts store viewports and cell sizes in physical pixels; translate
         // the SDL logical coordinates to physical before forwarding.
         MouseButtonEvent phys = event;
         phys.pos.x = px;
         phys.pos.y = py;
+        if (event.pressed && button_bit != 0)
+        {
+            mouse_capture_host_ = &target;
+            mouse_capture_buttons_ = button_bit;
+        }
         target.on_mouse_button(phys);
     });
+}
+
+bool InputDispatcher::forward_to_mouse_capture(int logical_x, int logical_y,
+    const std::function<void(IHost&, int phys_x, int phys_y)>& forward)
+{
+    if (!mouse_capture_host_)
+        return false;
+    forward(*mouse_capture_host_,
+        deps_.pixel_scale.to_physical(logical_x),
+        deps_.pixel_scale.to_physical(logical_y));
+    return true;
+}
+
+void InputDispatcher::release_mouse_capture()
+{
+    mouse_capture_host_ = nullptr;
+    mouse_capture_buttons_ = 0;
 }
 
 void InputDispatcher::on_mouse_move_event(const MouseMoveEvent& event)
@@ -638,6 +685,21 @@ void InputDispatcher::on_mouse_move_event(const MouseMoveEvent& event)
     // Overlay host consumes mouse move events — don't let hover/drag reach
     // the underlying host while an overlay (e.g. command palette) is active.
     if (deps_.router && deps_.router->overlay_host())
+    {
+        release_mouse_capture();
+        return;
+    }
+
+    const float move_scale = deps_.pixel_scale.value();
+    if (mouse_capture_host_)
+        deps_.ui_panel->on_mouse_move(event);
+    if (forward_to_mouse_capture(event.pos.x, event.pos.y, [&event, move_scale](IHost& target, int px, int py) {
+            MouseMoveEvent phys = event;
+            phys.pos.x = px;
+            phys.pos.y = py;
+            phys.delta *= move_scale;
+            target.on_mouse_move(phys);
+        }))
         return;
 
     const int phys_x_mv = deps_.pixel_scale.to_physical(event.pos.x);
@@ -803,6 +865,8 @@ void InputDispatcher::set_host(IHost* host)
 
 void InputDispatcher::clear_host_if(const IHost* host)
 {
+    if (mouse_capture_host_ == host)
+        release_mouse_capture();
     if (deps_.host == host)
         set_host(nullptr);
 }

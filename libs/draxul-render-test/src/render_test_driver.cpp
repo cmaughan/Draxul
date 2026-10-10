@@ -202,6 +202,11 @@ RenderTestDriverResult run_render_test_driver(RenderTestDriverEnv& env, const Re
                         result.error = error;
                         return result;
                     }
+                    // The hook may have rendered its own frames and left
+                    // nothing pending; ask for the post-hook frame so the
+                    // wait below cannot idle until the overall timeout.
+                    if (env.request_frame)
+                        env.request_frame();
                     ctx.phase = RenderTestPhase::kWaitingForPostHookFrame;
                     break;
                 }

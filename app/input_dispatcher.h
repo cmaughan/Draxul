@@ -190,7 +190,18 @@ private:
         int logical_y,
         const std::function<void(IHost&, int phys_x, int phys_y)>& forward);
 
+    // Sends a button or move to the host that owns the current pointer
+    // capture. Returns false when no capture is active.
+    bool forward_to_mouse_capture(int logical_x, int logical_y,
+        const std::function<void(IHost&, int phys_x, int phys_y)>& forward);
+    void release_mouse_capture();
+
     Deps deps_;
+    // Pointer capture: the host that received a button press keeps every
+    // move and release until all its buttons are up, even when the pointer
+    // leaves its pane, so drags (ImGui windows, selections) see their release.
+    IHost* mouse_capture_host_ = nullptr;
+    uint32_t mouse_capture_buttons_ = 0;
     // Divider drag state.
     bool dragging_shell_divider_ = false;
     int drag_divider_id_ = -1; // kInvalidDivider

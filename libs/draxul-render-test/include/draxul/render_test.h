@@ -17,6 +17,37 @@ struct PersonalChatSnapshot;
 std::shared_ptr<const PersonalAgentSnapshot> personal_chat_render_collection(std::string_view id);
 std::shared_ptr<const PersonalChatSnapshot> personal_chat_render_snapshot(std::string_view id);
 
+// One scripted input action replayed after a scenario's content settles.
+// Coordinates are capture pixels (the exported image's pixel grid); the app
+// converts them to window coordinates and pushes real SDL events, so input
+// takes the same dispatcher path as a user's mouse and keyboard.
+struct RenderTestInputStep
+{
+    enum class Kind
+    {
+        Move,
+        Down,
+        Up,
+        Key,
+        Wait,
+    };
+    Kind kind = Kind::Wait;
+    float x = 0.0f;
+    float y = 0.0f;
+    // SDL button number: 1 left, 2 middle, 3 right.
+    int button = 1;
+    // SDL scancode name for Key steps, e.g. "F1" or "Escape".
+    std::string key;
+    // Rendered frames to wait after the step (Wait steps: the whole step).
+    int frames = 1;
+};
+
+// Parses one `input` entry and appends its steps. Accepted forms:
+//   move X Y | down [left|middle|right] | up [left|middle|right]
+//   drag X1 Y1 X2 Y2 [STEPS] | key NAME | wait FRAMES
+bool parse_render_test_input_step(std::string_view text,
+    std::vector<RenderTestInputStep>& steps, std::string* error_message = nullptr);
+
 struct RenderTestScenario
 {
     std::string name;
@@ -32,6 +63,7 @@ struct RenderTestScenario
     std::string reload_plugin_id;
     std::filesystem::path reload_plugin_package;
     std::vector<std::string> commands;
+    std::vector<RenderTestInputStep> input;
     int width = 1280;
     int height = 800;
     float font_size = kDefaultFontPointSize;

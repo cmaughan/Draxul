@@ -2214,7 +2214,8 @@ void App::finish_print_capture(const CapturedFrame& frame)
 std::optional<CapturedFrame> App::run_render_test(
     std::chrono::milliseconds timeout, std::chrono::milliseconds settle,
     std::string reload_plugin_id,
-    std::filesystem::path reload_plugin_package)
+    std::filesystem::path reload_plugin_package,
+    std::vector<RenderTestInputStep> input)
 {
     PERF_MEASURE();
     last_render_test_error_.clear();
@@ -2303,6 +2304,20 @@ std::optional<CapturedFrame> App::run_render_test(
         };
     }
 
+    if (!input.empty())
+    {
+        auto reload_hook = std::move(env.before_capture);
+        env.before_capture = [this, reload_hook = std::move(reload_hook),
+                                 input = std::move(input)]() {
+            if (reload_hook)
+            {
+                if (std::string error = reload_hook(); !error.empty())
+                    return error;
+            }
+            return replay_render_test_input(input);
+        };
+    }
+
     RenderTestDriverOptions driver_options;
     driver_options.timeout = timeout;
     driver_options.settle = settle;
@@ -2321,6 +2336,110 @@ std::optional<CapturedFrame> App::run_render_test(
     }
     last_render_test_error_ = std::move(result.error);
     return std::move(result.frame);
+}
+
+std::string App::replay_render_test_input(const std::vector<RenderTestInputStep>& input)
+{
+    // Steps use capture pixels; SDL events use window coordinates.
+    const auto [logical_w, logical_h] = window_->size_logical();
+    const auto [pixel_w, pixel_h] = window_->size_pixels();
+    const float scale_x = pixel_w > 0 ? static_cast<float>(logical_w) / static_cast<float>(pixel_w) : 1.0f;
+    const float scale_y = pixel_h > 0 ? static_cast<float>(logical_h) / static_cast<float>(pixel_h) : 1.0f;
+
+    const auto wait_frames = [this](int frames) -> std::string {
+        for (int i = 0; i < frames; ++i)
+        {
+            const uint64_t before = rendered_frame_count_;
+            const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            request_frame();
+            while (rendered_frame_count_ == before)
+            {
+                if (!running_)
+                    return "App stopped during render-test input";
+                const auto now = std::chrono::steady_clock::now();
+                if (now >= limit)
+                    return "Timed out waiting for a frame after render-test input";
+                pump_once(now + std::chrono::milliseconds(50));
+            }
+        }
+        return {};
+    };
+    const auto push = [](SDL_Event& event) -> std::string {
+        if (!SDL_PushEvent(&event))
+            return std::string("SDL_PushEvent failed: ") + SDL_GetError();
+        return {};
+    };
+
+    float pointer_x = 0.0f;
+    float pointer_y = 0.0f;
+    SDL_MouseButtonFlags buttons = 0;
+    for (const auto& step : input)
+    {
+        std::string error;
+        switch (step.kind)
+        {
+        case RenderTestInputStep::Kind::Move:
+        {
+            SDL_Event event{};
+            const float x = step.x * scale_x;
+            const float y = step.y * scale_y;
+            event.type = SDL_EVENT_MOUSE_MOTION;
+            event.motion.state = buttons;
+            event.motion.x = x;
+            event.motion.y = y;
+            event.motion.xrel = x - pointer_x;
+            event.motion.yrel = y - pointer_y;
+            pointer_x = x;
+            pointer_y = y;
+            error = push(event);
+            break;
+        }
+        case RenderTestInputStep::Kind::Down:
+        case RenderTestInputStep::Kind::Up:
+        {
+            const bool down = step.kind == RenderTestInputStep::Kind::Down;
+            SDL_Event event{};
+            event.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+            event.button.button = static_cast<Uint8>(step.button);
+            event.button.down = down;
+            event.button.clicks = 1;
+            event.button.x = pointer_x;
+            event.button.y = pointer_y;
+            if (down)
+                buttons |= SDL_BUTTON_MASK(step.button);
+            else
+                buttons &= ~SDL_BUTTON_MASK(step.button);
+            error = push(event);
+            break;
+        }
+        case RenderTestInputStep::Kind::Key:
+        {
+            const SDL_Scancode scancode = SDL_GetScancodeFromName(step.key.c_str());
+            if (scancode == SDL_SCANCODE_UNKNOWN)
+                return "Render-test input names an unknown key '" + step.key + "'";
+            for (const bool down : { true, false })
+            {
+                SDL_Event event{};
+                event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+                event.key.scancode = scancode;
+                event.key.key = SDL_GetKeyFromScancode(scancode, SDL_KMOD_NONE, false);
+                event.key.down = down;
+                if (error = push(event); !error.empty())
+                    break;
+                if (error = wait_frames(1); !error.empty())
+                    break;
+            }
+            break;
+        }
+        case RenderTestInputStep::Kind::Wait:
+            break;
+        }
+        if (!error.empty())
+            return error;
+        if (std::string waited = wait_frames(step.frames); !waited.empty())
+            return waited;
+    }
+    return {};
 }
 
 bool App::close_dead_panes()
